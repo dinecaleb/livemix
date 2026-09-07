@@ -70,6 +70,36 @@ void LiveMixLookAndFeel::drawSurface (juce::Graphics& g, juce::Rectangle<float> 
         strokeSurface (g, bounds, stroke, radius);
 }
 
+void LiveMixLookAndFeel::drawAmbient (juce::Graphics& g, juce::Rectangle<float> bounds)
+{
+    g.setColour (Tokens::ground);
+    g.fillRect (bounds);
+    juce::ColourGradient wash (Tokens::accentDim.withAlpha (0.22f), bounds.getCentreX(), bounds.getY(),
+                               Tokens::ground.withAlpha (0.0f), bounds.getCentreX(), bounds.getY() + bounds.getHeight() * 0.55f, false);
+    g.setGradientFill (wash);
+    g.fillRect (bounds);
+    juce::ColourGradient edge (Tokens::ground.withAlpha (0.0f), bounds.getCentreX(), bounds.getCentreY(),
+                               Tokens::ground.withAlpha (0.55f), bounds.getRight(), bounds.getBottom(), true);
+    g.setGradientFill (edge);
+    g.fillRect (bounds);
+}
+
+void LiveMixLookAndFeel::drawElevated (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour fill, juce::Colour stroke, float radius)
+{
+    fillSurface (g, bounds, fill, radius);
+    juce::Path clip;
+    clip.addRoundedRectangle (bounds, radius);
+    g.saveState();
+    g.reduceClipRegion (clip);
+    juce::ColourGradient sheen (Tokens::textHi.withAlpha (0.06f), bounds.getX(), bounds.getY(),
+                                Tokens::textHi.withAlpha (0.0f), bounds.getX(), bounds.getY() + 18.0f, false);
+    g.setGradientFill (sheen);
+    g.fillRect (bounds.getX(), bounds.getY(), bounds.getWidth(), 18.0f);
+    g.restoreState();
+    if (stroke.getAlpha() > 0)
+        strokeSurface (g, bounds, stroke, radius);
+}
+
 LiveMixLookAndFeel::LiveMixLookAndFeel()
 {
     setColour (juce::ResizableWindow::backgroundColourId, Tokens::window);
@@ -95,7 +125,7 @@ LiveMixLookAndFeel::LiveMixLookAndFeel()
     setColour (juce::ComboBox::arrowColourId, Tokens::textLow);
     setColour (juce::PopupMenu::backgroundColourId, Tokens::menuBg);
     setColour (juce::PopupMenu::textColourId, Tokens::textHi);
-    setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour (0xff1e242a));
+    setColour (juce::PopupMenu::highlightedBackgroundColourId, Tokens::accent.withAlpha (0.22f));
     setColour (juce::PopupMenu::highlightedTextColourId, Tokens::textHi);
     setColour (juce::PopupMenu::headerTextColourId, Tokens::textLow);
     setColour (juce::GroupComponent::outlineColourId, Tokens::hair);
@@ -129,7 +159,7 @@ juce::Typeface::Ptr LiveMixLookAndFeel::getTypefaceForFont (const juce::Font& f)
 juce::Font LiveMixLookAndFeel::getLabelFont (juce::Label& l)             { return l.getFont(); }
 juce::Font LiveMixLookAndFeel::getTextButtonFont (juce::TextButton&, int) { return body (12.0f, 600); }
 juce::Font LiveMixLookAndFeel::getComboBoxFont (juce::ComboBox&)          { return body (13.0f, 500); }
-juce::Font LiveMixLookAndFeel::getPopupMenuFont()                          { return body (13.0f, 400); }
+juce::Font LiveMixLookAndFeel::getPopupMenuFont()                          { return body (13.5f, 500); }
 juce::Font LiveMixLookAndFeel::getAlertWindowTitleFont()                   { return body (15.0f, 600); }
 juce::Font LiveMixLookAndFeel::getAlertWindowMessageFont()                 { return body (12.5f, 400); }
 juce::Font LiveMixLookAndFeel::getAlertWindowFont()                        { return body (12.0f, 400); }
@@ -468,18 +498,26 @@ void LiveMixLookAndFeel::drawTextEditorOutline (juce::Graphics& g, int w, int h,
 
 void LiveMixLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int w, int h)
 {
-    drawSurface (g, juce::Rectangle<float> (0, 0, float (w), float (h)),
-                 findColour (juce::PopupMenu::backgroundColourId), Tokens::hairStrong, Tokens::Radius::card);
+    // The menu window is opaque. fillAll first so rounded chrome never leaves white corners.
+    const auto bg = findColour (juce::PopupMenu::backgroundColourId);
+    g.fillAll (bg);
+    g.setColour (Tokens::hairStrong);
+    g.drawRect (0, 0, w, h, 1);
+    // Soft top sheen — keeps the elevated feel without clipping the window.
+    juce::ColourGradient sheen (Tokens::textHi.withAlpha (0.05f), 0.0f, 0.0f,
+                                Tokens::textHi.withAlpha (0.0f), 0.0f, 16.0f, false);
+    g.setGradientFill (sheen);
+    g.fillRect (0, 0, w, 16);
 }
 
 void LiveMixLookAndFeel::getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int, int& idealWidth, int& idealHeight)
 {
-    if (isSeparator) { idealWidth = 60; idealHeight = 9; return; }
+    if (isSeparator) { idealWidth = 60; idealHeight = 10; return; }
     juce::String label = text.upToFirstOccurrenceOf ("\t", false, false), meta = text.fromFirstOccurrenceOf ("\t", false, false);
-    idealHeight = 30;
+    idealHeight = 32;
     idealWidth = int (juce::GlyphArrangement::getStringWidth (getPopupMenuFont(), label)
-                    + (meta.isNotEmpty() ? juce::GlyphArrangement::getStringWidth (mono (10.0f, 500), meta) + 16.0f : 0.0f)) + 46;
-    idealWidth = juce::jmax (idealWidth, 200);
+                    + (meta.isNotEmpty() ? juce::GlyphArrangement::getStringWidth (mono (11.0f, 500), meta) + 20.0f : 0.0f)) + 52;
+    idealWidth = juce::jmax (idealWidth, 220);
 }
 
 void LiveMixLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area, bool isSeparator, bool isActive,
@@ -488,30 +526,52 @@ void LiveMixLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Recta
 {
     if (isSeparator)
     {
-        g.setColour (Tokens::hair);
-        g.fillRect (area.reduced (8, 0).withSizeKeepingCentre (area.getWidth() - 16, 1));
+        g.setColour (Tokens::hair2);
+        g.fillRect (area.withTrimmedLeft (14).withTrimmedRight (14).withSizeKeepingCentre (area.getWidth() - 28, 1));
         return;
     }
-    auto r = area.reduced (5, 2).toFloat();
-    if (isTicked) { g.setColour (Tokens::accent.withAlpha (0.14f)); g.fillRoundedRectangle (r, Tokens::Radius::chip); }
-    if (isHighlighted && isActive) { g.setColour (findColour (juce::PopupMenu::highlightedBackgroundColourId)); g.fillRoundedRectangle (r, Tokens::Radius::chip); }
 
-    // "Label\tmeta": the part after a tab is drawn right-aligned in mono, like the prototype's menus.
+    auto r = area.reduced (6, 2).toFloat();
+    if (isHighlighted && isActive)
+    {
+        g.setColour (findColour (juce::PopupMenu::highlightedBackgroundColourId));
+        g.fillRoundedRectangle (r, Tokens::Radius::control);
+    }
+    else if (isTicked)
+    {
+        g.setColour (Tokens::accent.withAlpha (0.10f));
+        g.fillRoundedRectangle (r, Tokens::Radius::control);
+    }
+
     juce::String label = text.upToFirstOccurrenceOf ("\t", false, false), meta = text.fromFirstOccurrenceOf ("\t", false, false);
-    auto inner = area.reduced (10, 0);
+    auto inner = area.reduced (12, 0);
+
+    // Leading checkmark column — native menus put the tick on the left.
+    auto tick = inner.removeFromLeft (18).toFloat().withSizeKeepingCentre (10.0f, 10.0f);
+    if (isTicked)
+    {
+        const auto tickColour = isHighlighted ? Tokens::accentText : Tokens::accentStroke;
+        drawIcon (g, Icon::Check, tick, tickColour);
+    }
+
     if (hasSubMenu)
     {
-        auto ab = inner.removeFromRight (12).toFloat().withSizeKeepingCentre (8.0f, 8.0f);
-        juce::Path p; p.addTriangle (ab.getX(), ab.getY(), ab.getRight(), ab.getCentreY(), ab.getX(), ab.getBottom());
-        g.setColour (Tokens::textLow); g.fillPath (p);
+        auto ab = inner.removeFromRight (14).toFloat().withSizeKeepingCentre (6.0f, 9.0f);
+        juce::Path p;
+        p.addTriangle (ab.getX(), ab.getY(), ab.getRight(), ab.getCentreY(), ab.getX(), ab.getBottom());
+        g.setColour (isHighlighted ? Tokens::textHi : Tokens::textLow);
+        g.fillPath (p);
     }
     if (meta.isNotEmpty())
     {
-        g.setColour (Tokens::textLow);
-        g.setFont (mono (10.0f, 500));
-        g.drawText (meta, inner, juce::Justification::centredRight);
+        g.setColour (isHighlighted ? Tokens::textMid : Tokens::textLow);
+        g.setFont (mono (11.0f, 500));
+        g.drawText (meta, inner.removeFromRight (int (juce::GlyphArrangement::getStringWidth (mono (11.0f, 500), meta) + 4)), juce::Justification::centredRight);
     }
-    g.setColour (textColour != nullptr ? *textColour : (isActive ? Tokens::textHi : Tokens::textDim));
+
+    g.setColour (textColour != nullptr ? *textColour
+                                       : (! isActive ? Tokens::textDim
+                                                     : (isHighlighted ? findColour (juce::PopupMenu::highlightedTextColourId) : Tokens::textHi)));
     g.setFont (getPopupMenuFont());
     g.drawText (label, inner, juce::Justification::centredLeft);
 }

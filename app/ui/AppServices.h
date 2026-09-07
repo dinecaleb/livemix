@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "native/MixController.h"
+#include "native/SessionStore.h"
 
 namespace livemix
 {
@@ -14,10 +15,12 @@ class AppServices
 public:
     virtual ~AppServices() = default;
 
-    struct Device { juce::String name; int inputChannels = 0; };
+    struct Device { juce::String name; int inputChannels = 0; int outputChannels = 0; };
     virtual juce::Array<Device> inputDevices() = 0;
     virtual juce::Array<Device> outputDevices() = 0;
     virtual juce::String openDevices (const juce::String& input, const juce::String& output) = 0;   // "" on success
+    // Change stereo output without re-running setup. Keeps the current mix. "" on success.
+    virtual juce::String changeOutput (const juce::String& output) = 0;
     virtual bool isAudioRunning() = 0;
     virtual int numInputChannels() = 0;
     virtual double sampleRate() = 0;
@@ -26,8 +29,15 @@ public:
     virtual bool deviceStopped() { return false; }   // the device went away without the app closing it
     virtual void reconfigure() = 0;          // assignments changed: rebuild the graph with audio stopped
     virtual void saveSession() = 0;
+    // Save under a new name (Save As). Updates the live session name. "" on success.
+    virtual juce::String saveSessionAs (const juce::String& name) = 0;
+    // Load a previously saved mix; restores assignments, macros, kept mix, and reopens devices when possible.
+    // Returns "" on success. Caller should show Mix (or Assign) afterward.
+    virtual juce::String loadSession (const juce::File& file) = 0;
+    virtual juce::Array<SessionStore::Listing> listSessions() = 0;
     virtual juce::String currentInputDevice() = 0;
     virtual juce::String currentOutputDevice() = 0;
+    virtual juce::String currentSessionName() = 0;
 
     // A folder of recorded stems played as the inputs (bands testing with a multitrack). "" on success.
     virtual juce::String openRecording (const juce::File& folder, const juce::String& outputDevice) = 0;
@@ -38,9 +48,9 @@ public:
 // Shared page look: a titled card area on the design's ground.
 namespace AppStyle
 {
-    inline constexpr int kTopBar = 52;
-    inline constexpr int kMargin = 28;
-    inline constexpr int kMaxContentWidth = 980;
+    inline constexpr int kTopBar = 56;
+    inline constexpr int kMargin = 32;
+    inline constexpr int kMaxContentWidth = 1080;
 
     inline juce::Rectangle<int> contentArea (juce::Rectangle<int> bounds)
     {

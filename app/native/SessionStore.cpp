@@ -1,6 +1,7 @@
 #include "SessionStore.h"
 #include "DSP/ChannelParameters.h"
 #include "FX/FxParameters.h"
+#include <algorithm>
 
 namespace livemix
 {
@@ -224,6 +225,26 @@ bool load (const juce::File& file, Document& d)
     if (! file.existsAsFile()) return false;
     const juce::var v = juce::JSON::parse (file);
     return fromVar (v, d);
+}
+
+juce::Array<Listing> listSessions()
+{
+    juce::Array<Listing> out;
+    const auto folder = sessionsFolder();
+    if (! folder.isDirectory()) return out;
+    for (const auto& f : folder.findChildFiles (juce::File::findFiles, false, "*.dinelive.json"))
+    {
+        Document d;
+        if (! load (f, d)) continue;
+        Listing L;
+        L.name = juce::String (d.session.name);
+        if (L.name.isEmpty()) L.name = f.getFileNameWithoutExtension();
+        L.file = f;
+        L.modified = f.getLastModificationTime();
+        out.add (L);
+    }
+    std::sort (out.begin(), out.end(), [] (const Listing& a, const Listing& b) { return a.modified > b.modified; });
+    return out;
 }
 
 } // namespace SessionStore

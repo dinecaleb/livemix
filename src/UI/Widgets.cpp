@@ -121,18 +121,25 @@ int DropdownButton::getIdealWidth() const
 void DropdownButton::paintButton (juce::Graphics& g, bool over, bool)
 {
     using namespace Tokens;
-    auto b = getLocalBounds().toFloat();
-    LNF::strokeSurface (g, b, over ? hairHover : hair2, Radius::control);
-    auto inner = b.reduced (10.0f, 4.0f);
-    g.setColour (textLow);
-    g.setFont (LNF::body (11.0f, 500));
-    g.drawText (caption, inner.removeFromTop (12.0f), juce::Justification::centredLeft);
-    g.setColour (isEnabled() ? textHi : textLow);
-    g.setFont (LNF::body (13.0f, 600));
-    auto valueArea = inner;
-    const float vw = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), value);
-    g.drawText (value, valueArea, juce::Justification::centredLeft);
-    LNF::drawIcon (g, LNF::Icon::ChevronDown, juce::Rectangle<float> (valueArea.getX() + vw + 5.0f, valueArea.getCentreY() - 4.0f, 8.0f, 8.0f), textLow);
+    auto b = getLocalBounds().toFloat().reduced (0.5f);
+    // Single-line pop-up button — closer to NSPopUpButton than a two-line field.
+    LNF::drawElevated (g, b, over ? raised.brighter (0.04f) : raised, over ? hairHover : hair2, Radius::control);
+    auto inner = b.reduced (10.0f, 0.0f);
+    auto chevron = inner.removeFromRight (12.0f).withSizeKeepingCentre (8.0f, 8.0f);
+    LNF::drawIcon (g, LNF::Icon::ChevronDown, chevron, textLow);
+    inner.removeFromRight (4.0f);
+
+    const bool hasCaption = caption.isNotEmpty() && getHeight() >= 36;
+    if (hasCaption)
+    {
+        auto top = inner.removeFromTop (inner.getHeight() * 0.42f);
+        g.setColour (textLow);
+        g.setFont (LNF::body (10.0f, 600));
+        g.drawText (caption, top, juce::Justification::centredLeft);
+    }
+    g.setColour (isEnabled() ? textHi : textDim);
+    g.setFont (LNF::body (hasCaption ? 12.5f : 13.0f, 600));
+    g.drawText (value.isNotEmpty() ? value : caption, inner, juce::Justification::centredLeft);
 }
 
 // ---------------------------------------------------------------------------

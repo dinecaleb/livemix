@@ -71,6 +71,32 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
     return {};
 }
 
+juce::String AudioHost::setOutputDevice (const juce::String& outputDevice)
+{
+    if (! running) { lastError = "No audio device is open."; return lastError; }
+    if (outputDevice.isEmpty()) { lastError = "Choose an output device."; return lastError; }
+    auto setup = deviceManager.getAudioDeviceSetup();
+    if (setup.outputDeviceName == outputDevice) return {};
+
+    closing = true;
+    deviceManager.removeAudioCallback (this);
+    setup.outputDeviceName = outputDevice;
+    setup.useDefaultOutputChannels = false;
+    setup.outputChannels.setRange (0, 2, true);
+    lastError = deviceManager.setAudioDeviceSetup (setup, true);
+    closing = false;
+    if (lastError.isNotEmpty())
+    {
+        // Best effort: put the callback back on whatever device remains.
+        if (deviceManager.getCurrentAudioDevice() != nullptr) deviceManager.addAudioCallback (this);
+        return lastError;
+    }
+    if (deviceManager.getCurrentAudioDevice() == nullptr) { lastError = "The output device could not be opened."; return lastError; }
+    deviceStopped.store (false);
+    deviceManager.addAudioCallback (this);   // aboutToStart -> prepare; caller restores the mix
+    return {};
+}
+
 void AudioHost::close()
 {
     closing = true;

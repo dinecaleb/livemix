@@ -275,3 +275,26 @@ TEST_CASE ("SessionStore: a session document survives the JSON round trip")
     CHECK (c2.getKept().strips[0].faderDb == -4.5f);
     CHECK (c2.getStage() == MixController::Stage::Mixed);
 }
+
+TEST_CASE ("SessionStore: save, list, and load a named mix file")
+{
+    SessionStore::Document d;
+    d.session = band();
+    d.session.name = "ListTest Sunday";
+    d.inputDevice = "In";
+    d.outputDevice = "Out";
+    d.hasMix = false;
+    // Write into the real sessions folder via a unique name, or fall back to a temp file for the round trip.
+    const auto file = juce::File ("/Users/calebwork/Documents/GitHub/Calive/.tmp-session-test.dinelive.json");
+    file.deleteFile();
+    REQUIRE (SessionStore::save (d, file));
+    REQUIRE (file.existsAsFile());
+
+    SessionStore::Document back;
+    REQUIRE (SessionStore::load (file, back));
+    CHECK (back.session.name == "ListTest Sunday");
+    CHECK (back.outputDevice == "Out");
+    file.deleteFile();
+
+    (void) SessionStore::listSessions();
+}

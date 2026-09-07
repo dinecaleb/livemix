@@ -1,8 +1,8 @@
 // DINELIVE: the standalone live/broadcast mixing application.
 //   Console / interface / Dante -> DINELIVE -> OBS / Ecamm / recording
 // One MixController owns the mix, one AudioHost owns the device, MainView shows one
-// page at a time. The last session (device, assignments, purpose, sound, macros and
-// the kept mix) is saved on quit and reloaded on launch.
+// page at a time. Mixes are saved as named .dinelive.json documents; the last one
+// reloads on launch. Output can be changed any time without wiping the mix.
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "native/MixController.h"
@@ -29,16 +29,33 @@ namespace
         juce::Array<Device> inputDevices() override
         {
             juce::Array<Device> out;
-            for (const auto& d : host.listInputDevices()) out.add ({ d.name, d.inputChannels });
+            for (const auto& d : host.listInputDevices()) out.add ({ d.name, d.inputChannels, d.outputChannels });
             return out;
         }
         juce::Array<Device> outputDevices() override
         {
             juce::Array<Device> out;
-            for (const auto& d : host.listOutputDevices()) out.add ({ d.name, d.outputChannels });
+            for (const auto& d : host.listOutputDevices()) out.add ({ d.name, d.inputChannels, d.outputChannels });
             return out;
         }
         juce::String openDevices (const juce::String& input, const juce::String& output) override { return host.open (input, output); }
+
+        juce::String changeOutput (const juce::String& output) override
+        {
+            // Snapshot the mix, swap the device (prepare rebuilds the graph), then put the mix back.
+            SessionStore::Document snap;
+            snap.session = controller.getSession();
+            snap.macros = controller.getMacros();
+            snap.tuneCount = controller.getTuneCount();
+            snap.hasMix = controller.isPrepared() && controller.hasKeptMix();
+            if (snap.hasMix) snap.mix = controller.getKept();
+            holdMix (snap);
+            const juce::String err = host.setOutputDevice (output);
+            applyPendingMix();
+            if (err.isEmpty()) saveSession();
+            return err;
+        }
+
         bool isAudioRunning() override { return host.isOpen(); }
         int numInputChannels() override { return host.getNumInputChannels(); }
         double sampleRate() override { return host.getSampleRate(); }
@@ -51,8 +68,6 @@ namespace
             applyPendingMix();
         }
 
-        // A saved mix that could not be applied at launch (the device was not there) is applied the first time the
-        // graph exists for the same inputs; different assignments mean a different mix, so it is dropped then.
         void holdMix (const SessionStore::Document& doc) { pending = doc; }
         void applyPendingMix()
         {
@@ -70,6 +85,7 @@ namespace
         }
         juce::String currentInputDevice() override { return host.getInputDeviceName(); }
         juce::String currentOutputDevice() override { return host.getOutputDeviceName(); }
+        juce::String currentSessionName() override { return juce::String (controller.getSession().name); }
 
         juce::String openRecording (const juce::File& folder, const juce::String& outputDevice) override
         {
@@ -84,6 +100,41 @@ namespace
 
         void saveSession() override
         {
+            const auto file = SessionStore::fileFor (juce::String (controller.getSession().name));
+            writeDocument (file);
+        }
+
+        juce::String saveSessionAs (const juce::String& name) override
+        {
+            juce::String n = name.trim();
+            if (n.isEmpty()) return "Give the mix a name.";
+            controller.setSessionName (n.toStdString());
+            const auto file = SessionStore::fileFor (n);
+            if (! writeDocument (file)) return "Could not save the mix.";
+            return {};
+        }
+
+        juce::String loadSession (const juce::File& file) override
+        {
+            SessionStore::Document doc;
+            if (! SessionStore::load (file, doc)) return "That file is not a DINELIVE mix.";
+            controller.setSession (doc.session);
+            holdMix (doc);
+            juce::String err;
+            if (doc.inputDevice.isNotEmpty())
+                err = host.open (doc.inputDevice, doc.outputDevice.isNotEmpty() ? doc.outputDevice : doc.inputDevice);
+            else if (host.isOpen())
+                host.reconfigure();
+            applyPendingMix();
+            if (err.isEmpty()) lastSessionPointer().replaceWithText (file.getFullPathName());
+            return err;
+        }
+
+        juce::Array<SessionStore::Listing> listSessions() override { return SessionStore::listSessions(); }
+
+    private:
+        bool writeDocument (const juce::File& file)
+        {
             SessionStore::Document d;
             d.session = controller.getSession();
             d.inputDevice = host.getInputDeviceName();
@@ -92,12 +143,12 @@ namespace
             d.tuneCount = controller.getTuneCount();
             d.hasMix = controller.isPrepared() && controller.hasKeptMix();
             if (d.hasMix) d.mix = controller.getKept();
-            else if (pending.has_value() && pending->hasMix) { d.hasMix = true; d.mix = pending->mix; d.tuneCount = pending->tuneCount; }   // not applied yet: keep it
-            const auto file = SessionStore::fileFor (juce::String (d.session.name));
-            if (SessionStore::save (d, file)) lastSessionPointer().replaceWithText (file.getFullPathName());
+            else if (pending.has_value() && pending->hasMix) { d.hasMix = true; d.mix = pending->mix; d.tuneCount = pending->tuneCount; }
+            if (! SessionStore::save (d, file)) return false;
+            lastSessionPointer().replaceWithText (file.getFullPathName());
+            return true;
         }
 
-    private:
         MixController& controller;
         AudioHost& host;
         MultitrackSource recording;
@@ -113,8 +164,8 @@ namespace
             setUsingNativeTitleBar (true);
             setContentOwned (new MainView (c, s), true);
             setResizable (true, true);
-            setResizeLimits (900, 620, 4000, 3000);
-            centreWithSize (1160, 780);
+            setResizeLimits (980, 680, 4000, 3000);
+            centreWithSize (1280, 860);
             setVisible (true);
         }
         void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
@@ -135,7 +186,6 @@ public:
         host = std::make_unique<AudioHost> (*controller);
         services = std::make_unique<HostServices> (*controller, *host);
 
-        // Last session: assignments, purpose and sound come back; the device is confirmed on the first page.
         SessionStore::Document doc;
         const auto pointer = lastSessionPointer();
         if (pointer.existsAsFile() && SessionStore::load (juce::File (pointer.loadFileAsString().trim()), doc))
@@ -146,8 +196,6 @@ public:
         window = std::make_unique<MainWindow> (getApplicationName(), *controller, *services);
         if (restored.has_value())
         {
-            // Reopen the stored device when it is still there; the page shows it either way. The kept mix is applied
-            // once the graph exists (now, or when the device is chosen later).
             services->holdMix (*restored);
             if (restored->inputDevice.isNotEmpty() && host->open (restored->inputDevice, restored->outputDevice).isEmpty())
             {

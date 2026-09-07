@@ -9,15 +9,15 @@ namespace
 {
     void drawTitle (juce::Graphics& g, juce::Rectangle<int> area, const juce::String& step, const juce::String& title, const juce::String& subtitle)
     {
-        g.setColour (Tokens::textLow);
-        g.setFont (LiveMixLookAndFeel::condensed (12.0f, 600, 0.08f));
+        g.setColour (Tokens::accentText.withAlpha (0.85f));
+        g.setFont (LiveMixLookAndFeel::condensed (11.5f, 600, 0.14f));
         g.drawText (step, area.removeFromTop (18), juce::Justification::centredLeft);
         g.setColour (Tokens::textHi);
-        g.setFont (LiveMixLookAndFeel::condensed (28.0f, 700, 0.02f));
-        g.drawText (title, area.removeFromTop (36), juce::Justification::centredLeft);
+        g.setFont (LiveMixLookAndFeel::condensed (32.0f, 700, 0.01f));
+        g.drawText (title, area.removeFromTop (40), juce::Justification::centredLeft);
         g.setColour (Tokens::textMid);
-        g.setFont (LiveMixLookAndFeel::body (14.0f));
-        g.drawText (subtitle, area.removeFromTop (22), juce::Justification::centredLeft);
+        g.setFont (LiveMixLookAndFeel::body (14.5f));
+        g.drawFittedText (subtitle, area.removeFromTop (24), juce::Justification::centredLeft, 2);
     }
 
     // The roles a volunteer can pick, grouped the way the mix is built.
@@ -61,7 +61,8 @@ public:
     {
         auto b = getLocalBounds().toFloat().reduced (0.5f);
         const bool on = getToggleState();
-        LiveMixLookAndFeel::drawSurface (g, b, on ? Tokens::accentDim.withAlpha (0.35f) : (over ? Tokens::raised : Tokens::panel), on ? Tokens::accentStroke : (over ? Tokens::hairHover : Tokens::hair), Tokens::Radius::control);
+        LiveMixLookAndFeel::drawElevated (g, b, on ? Tokens::accentDim.withAlpha (0.4f) : (over ? Tokens::raised : Tokens::panel),
+                                          on ? Tokens::accentStroke : (over ? Tokens::hairHover : Tokens::hair2), Tokens::Radius::card);
         auto r = getLocalBounds().reduced (16, 0);
         g.setColour (on ? Tokens::textHi : Tokens::textMid);
         g.setFont (LiveMixLookAndFeel::body (15.0f, on ? 500 : 400));
@@ -177,9 +178,8 @@ void DevicePage::chooseOutput (juce::Component& anchor)
 
 void DevicePage::paint (juce::Graphics& g)
 {
-    g.fillAll (Tokens::ground);
     auto area = AppStyle::contentArea (getLocalBounds());
-    drawTitle (g, area.removeFromTop (84), "STEP 1 OF 3", "AUDIO INPUT", "Choose the device your inputs arrive on. Dante Virtual Soundcard, a USB console or an interface.");
+    drawTitle (g, area.removeFromTop (92), "STEP 1 OF 3", "Audio input", "Choose the device your inputs arrive on - Dante, a USB console, or an interface.");
     if (services.isPlayingRecording())
     {
         auto line = area.removeFromTop (30);
@@ -192,7 +192,7 @@ void DevicePage::paint (juce::Graphics& g)
         auto line = area.removeFromTop (30);
         g.setColour (Tokens::okText);
         g.setFont (LiveMixLookAndFeel::condensed (14.0f, 600, 0.04f));
-        g.drawText (juce::String (inputs[selected].inputChannels) + " INPUTS DETECTED", line, juce::Justification::centredLeft);
+        g.drawText (juce::String (inputs[selected].inputChannels) + " inputs detected", line, juce::Justification::centredLeft);
     }
     if (error.isNotEmpty())
     {
@@ -205,7 +205,7 @@ void DevicePage::paint (juce::Graphics& g)
 void DevicePage::resized()
 {
     auto area = AppStyle::contentArea (getLocalBounds());
-    area.removeFromTop (84 + 30);
+    area.removeFromTop (92 + 30);
     auto bottom = area.removeFromBottom (44);
     continueButton.setBounds (bottom.removeFromRight (150));
     bottom.removeFromRight (12);
@@ -229,20 +229,27 @@ public:
     Row (AssignPage& owner, int index) : page (owner), input (index)
     {
         addAndMakeVisible (name);
-        name.setFont (LiveMixLookAndFeel::body (14.0f));
+        name.setFont (LiveMixLookAndFeel::body (14.0f, 500));
+        name.setIndents (10, 0);
         name.setColour (juce::TextEditor::backgroundColourId, Tokens::inset);
         name.setColour (juce::TextEditor::textColourId, Tokens::textHi);
-        name.setColour (juce::TextEditor::outlineColourId, Tokens::hair);
+        name.setColour (juce::TextEditor::outlineColourId, Tokens::hair2);
         name.setColour (juce::TextEditor::focusedOutlineColourId, Tokens::accentStroke);
-        name.setTextToShowWhenEmpty ("name", Tokens::textDim);
+        name.setColour (juce::TextEditor::highlightedTextColourId, Tokens::textHi);
+        name.setColour (juce::CaretComponent::caretColourId, Tokens::accentText);
+        name.setTextToShowWhenEmpty ("Channel name", Tokens::textDim);
         name.setSelectAllWhenFocused (true);
         name.onTextChange = [this] { page.entries[size_t (input)].name = name.getText(); };
         name.onReturnKey = [this] { name.giveAwayKeyboardFocus(); page.commit(); };
         name.onFocusLost = [this] { page.commit(); };
+
         addAndMakeVisible (source);
+        source.setCaption ({}); // single-line pop-up look
         source.onClick = [this] { page.showSourceMenu (input, source); };
+
         addAndMakeVisible (link);
         link.setFontPx (11.0f);
+        link.setSpacing (0.06f);
         link.onClick = [this]
         {
             auto& e = page.entries[size_t (input)];
@@ -258,11 +265,14 @@ public:
     {
         const auto& e = page.entries[size_t (input)];
         name.setText (e.name, false);
-        source.setValue (e.assigned ? friendlyRoleName (e.role) : juce::String ("not used"));
+        if (e.assigned)
+            source.setValue (friendlyRoleName (e.role));
+        else
+            source.setValue ("Choose source");
         source.setEnabled (! e.linkedFromPrevious);
         name.setEnabled (! e.linkedFromPrevious);
         link.setButtonText (e.linkedToNext ? "STEREO" : "LINK");
-        link.setStyle (e.linkedToNext ? FlatButton::Style::Accent : FlatButton::Style::Ghost);
+        link.setStyle (e.linkedToNext ? FlatButton::Style::Accent : FlatButton::Style::Outline);
         link.setVisible (! e.linkedFromPrevious && input + 1 < int (page.entries.size()));
         repaint();
     }
@@ -271,37 +281,58 @@ public:
     {
         const auto& e = page.entries[size_t (input)];
         auto b = getLocalBounds().toFloat().reduced (0.5f);
-        LiveMixLookAndFeel::drawSurface (g, b, e.assigned || e.linkedFromPrevious ? Tokens::rowBg : Tokens::panel, Tokens::hairRow, Tokens::Radius::control);
-        g.setColour (e.assigned || e.linkedFromPrevious ? Tokens::textHi : Tokens::textLow);
-        g.setFont (LiveMixLookAndFeel::mono (13.0f, 500));
-        juce::String number = juce::String (input + 1).paddedLeft ('0', 2);
-        if (e.linkedToNext) number += "/" + juce::String (input + 2).paddedLeft ('0', 2);
-        g.drawText (number, getLocalBounds().removeFromLeft (70).reduced (12, 0), juce::Justification::centredLeft);
+
         if (e.linkedFromPrevious)
         {
+            LiveMixLookAndFeel::fillSurface (g, b, Tokens::inset.withAlpha (0.55f), Tokens::Radius::control);
+            LiveMixLookAndFeel::strokeSurface (g, b, Tokens::hair, Tokens::Radius::control);
+            auto r = getLocalBounds().reduced (14, 0).withTrimmedLeft (86);
             g.setColour (Tokens::textDim);
-            g.setFont (LiveMixLookAndFeel::body (12.0f));
-            g.drawText ("right channel of " + juce::String (input).paddedLeft ('0', 2), getLocalBounds().withTrimmedLeft (70), juce::Justification::centredLeft);
+            g.setFont (LiveMixLookAndFeel::body (12.5f, 400));
+            g.drawText ("Right of input " + juce::String (input).paddedLeft ('0', 2) + "  ·  stereo pair",
+                        r, juce::Justification::centredLeft);
+            return;
         }
-        if (e.assigned && ! e.linkedFromPrevious)
+
+        LiveMixLookAndFeel::drawElevated (g, b,
+                                          e.assigned ? Tokens::raised : Tokens::panel,
+                                          e.assigned ? Tokens::hair2 : Tokens::hair,
+                                          Tokens::Radius::control);
+
+        // Device input chip — the physical channel number an engineer looks for first.
+        auto bounds = getLocalBounds();
+        auto chipArea = bounds.removeFromLeft (86).reduced (12, 0);
+        juce::String number = "IN " + juce::String (input + 1);
+        if (e.linkedToNext) number = "IN " + juce::String (input + 1) + "/" + juce::String (input + 2);
+        const float chipW = LiveMixLookAndFeel::chipWidth (number, 10.0f);
+        auto chip = chipArea.withSizeKeepingCentre (int (chipW), 22).toFloat();
+        LiveMixLookAndFeel::drawChip (g, chip, number,
+                                      e.assigned ? Tokens::accentText : Tokens::textMid,
+                                      e.assigned ? Tokens::accent.withAlpha (0.45f) : Tokens::hair2,
+                                      e.assigned ? Tokens::accentDim.withAlpha (0.35f) : Tokens::inset, 10.0f);
+
+        if (e.assigned)
         {
-            g.setColour (Tokens::textDim);
-            g.setFont (LiveMixLookAndFeel::body (11.0f));
-            g.drawText (mixBusName (mixBusForRole (e.role)), getLocalBounds().removeFromRight (150).reduced (8, 0), juce::Justification::centredLeft);
+            auto right = getLocalBounds().reduced (10, 0);
+            right.removeFromRight (72 + 8); // LINK button + gap
+            auto busArea = right.removeFromRight (50);
+            g.setColour (Tokens::textLow);
+            g.setFont (LiveMixLookAndFeel::condensed (11.0f, 600, 0.1f));
+            g.drawText (mixBusName (mixBusForRole (e.role)), busArea, juce::Justification::centredLeft);
         }
     }
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced (8, 6);
-        r.removeFromLeft (62);
+        auto r = getLocalBounds().reduced (10, 8);
+        r.removeFromLeft (76); // IN chip
         const bool linked = page.entries[size_t (input)].linkedFromPrevious;
-        link.setBounds (r.removeFromRight (74));
+        link.setBounds (r.removeFromRight (72).withSizeKeepingCentre (72, 28));
         r.removeFromRight (8);
-        r.removeFromRight (150);   // bus label
-        source.setBounds (r.removeFromRight (240));
+        r.removeFromRight (50); // bus label gutter
+        source.setBounds (r.removeFromRight (200).withHeight (32).withY (r.getCentreY() - 16));
         r.removeFromRight (12);
-        name.setBounds (r);
+        name.setBounds (r.withHeight (32).withY (r.getCentreY() - 16));
         name.setVisible (! linked);
         source.setVisible (! linked);
     }
@@ -311,7 +342,7 @@ private:
     int input;
     juce::TextEditor name;
     DropdownButton source { "SOURCE" };
-    FlatButton link { "LINK", FlatButton::Style::Ghost };
+    FlatButton link { "LINK", FlatButton::Style::Outline };
 };
 
 AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), services (s)
@@ -412,53 +443,82 @@ void AssignPage::clearAll()
 void AssignPage::showSourceMenu (int input, juce::Component& anchor)
 {
     juce::PopupMenu m;
-    m.addItem (1, "Not used");
+    m.addItem (1, "Not used", true, ! entries[size_t (input)].assigned);
+    m.addSeparator();
+
     int id = 100;
     std::vector<ChannelRole> byId;
+    // Hierarchical menus read as native macOS — not one endless flat list.
     for (const auto& group : roleGroups())
     {
-        m.addSectionHeader (group.name);
-        for (auto r : group.roles) { m.addItem (id++, friendlyRoleName (r), true, entries[size_t (input)].assigned && entries[size_t (input)].role == r); byId.push_back (r); }
-    }
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (anchor), [this, input, byId] (int chosen)
-    {
-        if (chosen <= 0 || input >= int (entries.size())) return;
-        auto& e = entries[size_t (input)];
-        if (chosen == 1) { e.assigned = false; }
-        else
+        juce::PopupMenu sub;
+        for (auto r : group.roles)
         {
-            e.assigned = true;
-            e.role = byId[size_t (chosen - 100)];
-            if (e.name.isEmpty()) e.name = channelRoleName (e.role);
-            // Sources that are usually a pair link themselves when the next input is free.
-            if ((e.role == ChannelRole::Overhead || e.role == ChannelRole::DrumBus || e.role == ChannelRole::Piano || e.role == ChannelRole::ElectricPiano || e.role == ChannelRole::SynthPad)
-                && input + 1 < numInputs && ! entries[size_t (input) + 1].assigned && ! e.linkedToNext)
-            {
-                e.linkedToNext = true;
-                entries[size_t (input) + 1].linkedFromPrevious = true;
-            }
+            const bool on = entries[size_t (input)].assigned && entries[size_t (input)].role == r;
+            sub.addItem (id++, friendlyRoleName (r), true, on);
+            byId.push_back (r);
         }
-        commit();
-        rebuild();
-    });
+        m.addSubMenu (group.name, sub, true);
+    }
+
+    m.showMenuAsync (juce::PopupMenu::Options()
+                         .withTargetComponent (&anchor)
+                         .withMinimumWidth (220)
+                         .withStandardItemHeight (32),
+                     [this, input, byId] (int chosen)
+                     {
+                         if (chosen <= 0 || input >= int (entries.size())) return;
+                         auto& e = entries[size_t (input)];
+                         if (chosen == 1) { e.assigned = false; }
+                         else
+                         {
+                             e.assigned = true;
+                             e.role = byId[size_t (chosen - 100)];
+                             if (e.name.isEmpty()) e.name = channelRoleName (e.role);
+                             if ((e.role == ChannelRole::Overhead || e.role == ChannelRole::DrumBus || e.role == ChannelRole::Piano
+                                  || e.role == ChannelRole::ElectricPiano || e.role == ChannelRole::SynthPad)
+                                 && input + 1 < numInputs && ! entries[size_t (input) + 1].assigned && ! e.linkedToNext)
+                             {
+                                 e.linkedToNext = true;
+                                 entries[size_t (input) + 1].linkedFromPrevious = true;
+                             }
+                         }
+                         commit();
+                         rebuild();
+                     });
 }
 
 void AssignPage::paint (juce::Graphics& g)
 {
-    g.fillAll (Tokens::ground);
     auto area = AppStyle::contentArea (getLocalBounds());
-    drawTitle (g, area.removeFromTop (84), "STEP 2 OF 3", "INPUT ASSIGNMENT",
-               juce::String (numInputs) + " inputs on " + services.currentInputDevice() + ". Name each one and say what it is. Link a stereo pair with LINK.");
-    auto line = area.removeFromTop (30);
+    drawTitle (g, area.removeFromTop (92), "STEP 2 OF 3", "Input assignment",
+               juce::String (numInputs) + " inputs on " + services.currentInputDevice()
+                   + ". Name each one, pick what it is, link stereo pairs.");
+    auto line = area.removeFromTop (28);
     g.setColour (assignedCount() > 0 ? Tokens::okText : Tokens::textLow);
-    g.setFont (LiveMixLookAndFeel::condensed (14.0f, 600, 0.04f));
-    g.drawText (juce::String (assignedCount()) + (assignedCount() == 1 ? " INPUT ASSIGNED" : " INPUTS ASSIGNED"), line, juce::Justification::centredLeft);
+    g.setFont (LiveMixLookAndFeel::condensed (13.0f, 600, 0.08f));
+    g.drawText (juce::String (assignedCount()) + (assignedCount() == 1 ? " input assigned" : " inputs assigned"),
+                line, juce::Justification::centredLeft);
+
+    auto header = area.removeFromTop (22);
+    header.removeFromLeft (10);
+    g.setColour (Tokens::textDim);
+    g.setFont (LiveMixLookAndFeel::condensed (10.5f, 600, 0.12f));
+    g.drawText ("INPUT", header.removeFromLeft (76), juce::Justification::centredLeft);
+    auto right = header;
+    right.removeFromRight (10);
+    g.drawText ("LINK", right.removeFromRight (72), juce::Justification::centred);
+    right.removeFromRight (8);
+    g.drawText ("BUS", right.removeFromRight (50), juce::Justification::centredLeft);
+    g.drawText ("SOURCE", right.removeFromRight (200), juce::Justification::centredLeft);
+    right.removeFromRight (12);
+    g.drawText ("NAME", right, juce::Justification::centredLeft);
 }
 
 void AssignPage::resized()
 {
     auto area = AppStyle::contentArea (getLocalBounds());
-    area.removeFromTop (84 + 30);
+    area.removeFromTop (92 + 28 + 22);
     auto bottom = area.removeFromBottom (44);
     continueButton.setBounds (bottom.removeFromRight (150));
     backButton.setBounds (bottom.removeFromLeft (90));
@@ -466,9 +526,9 @@ void AssignPage::resized()
     clearButton.setBounds (bottom.removeFromLeft (110));
     area.removeFromBottom (16);
     viewport.setBounds (area);
-    const int rowH = 40, gap = 6;
+    const int rowH = 48, gap = 6;
     const int total = int (rows.size()) * (rowH + gap);
-    listHolder.setSize (area.getWidth() - (total > area.getHeight() ? 12 : 0), total);
+    listHolder.setSize (area.getWidth() - (total > area.getHeight() ? 12 : 0), juce::jmax (total, area.getHeight()));
     int y = 0;
     for (auto& r : rows) { r->setBounds (0, y, listHolder.getWidth(), rowH); y += rowH + gap; }
 }
@@ -542,9 +602,8 @@ void PurposePage::refresh()
 
 void PurposePage::paint (juce::Graphics& g)
 {
-    g.fillAll (Tokens::ground);
     auto area = AppStyle::contentArea (getLocalBounds());
-    drawTitle (g, area.removeFromTop (84), "STEP 3 OF 3", "WHAT ARE WE MIXING?", "This sets the loudness and ceiling of the output. Then choose the sound.");
+    drawTitle (g, area.removeFromTop (92), "STEP 3 OF 3", "What are we mixing?", "This sets the loudness and ceiling of the output. Then choose the sound.");
     area.removeFromTop (8 + 120 + 28);
     g.setColour (Tokens::textLow);
     g.setFont (LiveMixLookAndFeel::condensed (12.0f, 600, 0.08f));
@@ -554,7 +613,7 @@ void PurposePage::paint (juce::Graphics& g)
 void PurposePage::resized()
 {
     auto area = AppStyle::contentArea (getLocalBounds());
-    area.removeFromTop (84 + 8);
+    area.removeFromTop (92 + 8);
     auto row = area.removeFromTop (120);
     const int gap = 12;
     const int w = (row.getWidth() - gap * (int (purposeTiles.size()) - 1)) / int (purposeTiles.size());

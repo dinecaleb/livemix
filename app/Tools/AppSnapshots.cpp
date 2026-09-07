@@ -24,6 +24,7 @@ namespace
         juce::Array<Device> inputDevices() override { juce::Array<Device> a; a.add ({ "Dante Virtual Soundcard", 32 }); a.add ({ "SQ-6 USB", 32 }); a.add ({ "MacBook Pro Microphone", 1 }); return a; }
         juce::Array<Device> outputDevices() override { juce::Array<Device> a; a.add ({ "Dante Virtual Soundcard", 32 }); a.add ({ "MacBook Pro Speakers", 2 }); return a; }
         juce::String openDevices (const juce::String& in, const juce::String& out) override { input = in; output = out; running = true; return {}; }
+        juce::String changeOutput (const juce::String& out) override { output = out; return {}; }
         bool isAudioRunning() override { return running; }
         int numInputChannels() override { return running ? kInputs : 0; }
         double sampleRate() override { return kSr; }
@@ -31,15 +32,19 @@ namespace
         int xrunCount() override { return 0; }
         void reconfigure() override { controller.prepare (kSr, kBlock); }
         void saveSession() override {}
+        juce::String saveSessionAs (const juce::String& name) override { sessionName = name; return {}; }
+        juce::String loadSession (const juce::File&) override { return {}; }
+        juce::Array<SessionStore::Listing> listSessions() override { return {}; }
         juce::String currentInputDevice() override { return input; }
         juce::String currentOutputDevice() override { return output; }
+        juce::String currentSessionName() override { return sessionName; }
         juce::String openRecording (const juce::File&, const juce::String&) override { return "Recordings are not available in the snapshot tool."; }
         bool isPlayingRecording() override { return false; }
         MixSession recordingSuggestion (const MixSession& base) override { return base; }
     private:
         MixController& controller;
         bool running = false;
-        juce::String input, output;
+        juce::String input, output, sessionName { "Sunday" };
     };
 
     struct Rig
@@ -57,7 +62,7 @@ namespace
         Rig()
         {
             view = std::make_unique<MainView> (controller, services);
-            view->setSize (1160, 780);
+            view->setSize (1280, 860);
             view->setVisible (true);
             in.assign (kInputs, std::vector<float> (kBlock, 0.0f));
             ip.resize (kInputs);
@@ -172,8 +177,15 @@ int main (int argc, char** argv)
     rig.controller.setCompare (MixController::Compare::After);
 
     view.showPage (MainView::Page::Advanced);
+    view.getAdvancedPage().select (0); // Kick — a channel, not a bus
     rig.feed (0.3);
     rig.snap (dir, "09-advanced-strip");
+    view.getAdvancedPage().select (1); // Snare — often has a snare-plate send after Tune
+    rig.feed (0.3);
+    rig.snap (dir, "09a-advanced-send");
+    view.getAdvancedPage().selectBus (MixBus::Drums);
+    rig.feed (0.3);
+    rig.snap (dir, "09b-advanced-bus");
     view.getAdvancedPage().selectBus (MixBus::Master);
     rig.feed (0.3);
     rig.snap (dir, "10-advanced-master");

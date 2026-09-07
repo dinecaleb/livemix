@@ -22,6 +22,9 @@ public:
 
     // Opens the devices and starts the callback. Returns an empty string on success.
     juce::String open (const juce::String& inputDevice, const juce::String& outputDevice, double preferredSampleRate = 48000.0, int preferredBufferSize = 64);
+    // Swap the stereo output while keeping the same input graph. Caller should snapshot/restore
+    // the kept mix around this (prepare rebuilds the graph). Empty string on success.
+    juce::String setOutputDevice (const juce::String& outputDevice);
     void close();
     bool isOpen() const noexcept { return running && ! deviceStopped.load (std::memory_order_relaxed); }
     bool deviceStoppedUnexpectedly() const noexcept { return running && deviceStopped.load (std::memory_order_relaxed); }

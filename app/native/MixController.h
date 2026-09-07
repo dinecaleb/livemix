@@ -28,6 +28,7 @@ public:
     // ---- Session (Setup) ----
     const MixSession& getSession() const noexcept { return session; }
     void setSession (const MixSession& s);            // audio must be stopped or reconfigure() called afterwards
+    void setSessionName (const std::string& name) { session.name = name; }
     void setPurpose (MixPurpose p);
     void setProfile (StyleProfileId p);
 

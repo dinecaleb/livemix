@@ -28,16 +28,16 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto b = getLocalBounds().toFloat().reduced (0.5f);
-        LiveMixLookAndFeel::drawSurface (g, b, used ? Tokens::panel : Tokens::inset, Tokens::hair, Tokens::Radius::card);
-        auto r = getLocalBounds().reduced (14, 12);
+        LiveMixLookAndFeel::drawElevated (g, b, used ? Tokens::raised : Tokens::inset, used ? Tokens::hair2 : Tokens::hair, Tokens::Radius::card);
+        auto r = getLocalBounds().reduced (16, 14);
         g.setColour (used ? Tokens::textHi : Tokens::textDim);
-        g.setFont (LiveMixLookAndFeel::condensed (15.0f, 700, 0.06f));
+        g.setFont (LiveMixLookAndFeel::condensed (14.0f, 700, 0.08f));
         auto top = r.removeFromTop (20);
         g.drawText (kGroupNames[group], top, juce::Justification::centredLeft);
         if (heard == 2) LiveMixLookAndFeel::drawIcon (g, LiveMixLookAndFeel::Icon::Check, top.removeFromRight (16).toFloat(), Tokens::okText);
         else if (heard == 1) { g.setColour (Tokens::textDim); g.fillEllipse (top.removeFromRight (16).withSizeKeepingCentre (6, 6).toFloat()); }
         g.setColour (Tokens::textLow);
-        g.setFont (LiveMixLookAndFeel::body (11.5f));
+        g.setFont (LiveMixLookAndFeel::body (12.0f));
         g.drawText (! used ? "not in this mix" : group == 4 ? juce::String (strips) + (strips == 1 ? " return" : " returns") : juce::String (strips) + (strips == 1 ? " input" : " inputs"),
                     r.removeFromTop (16), juce::Justification::centredLeft);
     }
@@ -171,7 +171,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto b = getLocalBounds().toFloat().reduced (0.5f);
-        LiveMixLookAndFeel::drawSurface (g, b, Tokens::raised, Tokens::accentDim, Tokens::Radius::card);
+        LiveMixLookAndFeel::drawElevated (g, b, Tokens::raised, Tokens::accentDim, Tokens::Radius::card);
         const auto* plan = controller.getPlan();
         if (plan == nullptr) return;
         auto r = getLocalBounds().reduced (20, 16);
@@ -298,38 +298,42 @@ void MixPage::refresh()
 
 void MixPage::paint (juce::Graphics& g)
 {
-    g.fillAll (Tokens::ground);
+    // Ambient is drawn by MainView; keep this transparent-ish with a soft local wash.
     auto area = AppStyle::contentArea (getLocalBounds());
-    auto header = area.removeFromTop (78);
+    auto header = area.removeFromTop (88);
+
     g.setColour (Tokens::textLow);
-    g.setFont (LiveMixLookAndFeel::condensed (12.0f, 600, 0.08f));
-    g.drawText (juce::String (styleProfileName (controller.getSession().profile)).toUpperCase() + "  " + juce::String (juce::CharPointer_UTF8 ("\xc2\xb7")) + "  " + juce::String (mixPurposeName (controller.getSession().purpose)).toUpperCase(),
+    g.setFont (LiveMixLookAndFeel::condensed (11.5f, 600, 0.12f));
+    g.drawText (juce::String (styleProfileName (controller.getSession().profile)).toUpperCase()
+                    + "   " + juce::String (juce::CharPointer_UTF8 ("\xc2\xb7")) + "   "
+                    + juce::String (mixPurposeName (controller.getSession().purpose)).toUpperCase(),
                 header.removeFromTop (18), juce::Justification::centredLeft);
-    auto healthRow = header.removeFromTop (40);
+
+    auto healthRow = header.removeFromTop (44);
     g.setColour (Tokens::textHi);
-    g.setFont (LiveMixLookAndFeel::condensed (30.0f, 700, 0.02f));
-    const juce::String healthText = health > 0 ? "MIX HEALTH " + juce::String (health) + "%" : "MIX HEALTH  " + juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94"));
+    g.setFont (LiveMixLookAndFeel::condensed (34.0f, 700, 0.01f));
+    const juce::String healthText = health > 0 ? "Mix health  " + juce::String (health) + "%"
+                                               : "Mix health  " + juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94"));
     g.drawText (healthText, healthRow, juce::Justification::centredLeft);
     if (controller.getStage() == MixController::Stage::Mixed)
     {
         const juce::String ready = "READY";
         const float w = LiveMixLookAndFeel::chipWidth (ready, 11.0f, true);
-        auto chip = healthRow.removeFromRight (int (w)).withSizeKeepingCentre (int (w), 24).toFloat();
+        auto chip = healthRow.removeFromRight (int (w)).withSizeKeepingCentre (int (w), 26).toFloat();
         auto icon = LiveMixLookAndFeel::Icon::Check;
-        LiveMixLookAndFeel::drawChip (g, chip, ready, Tokens::okText, Tokens::okDeep, Tokens::okDeep.withAlpha (0.25f), 11.0f, &icon);
+        LiveMixLookAndFeel::drawChip (g, chip, ready, Tokens::okText, Tokens::okDeep, Tokens::okDeep.withAlpha (0.28f), 11.0f, &icon);
     }
     g.setColour (Tokens::textMid);
-    g.setFont (LiveMixLookAndFeel::body (13.0f));
+    g.setFont (LiveMixLookAndFeel::body (14.0f));
     g.drawText (status, header, juce::Justification::centredLeft);
 
-    // Section captions
     auto rest = area;
-    rest.removeFromTop (12 + 96 + 24);
+    rest.removeFromTop (12 + 104 + 28);
     if (! card->isVisible())
     {
         g.setColour (Tokens::textLow);
-        g.setFont (LiveMixLookAndFeel::condensed (12.0f, 600, 0.08f));
-        rest.removeFromTop (60 + 24);
+        g.setFont (LiveMixLookAndFeel::condensed (11.5f, 600, 0.12f));
+        rest.removeFromTop (60 + 28);
         g.drawText ("SHAPE THE MIX", rest.removeFromTop (18), juce::Justification::centredLeft);
     }
 }
@@ -337,12 +341,12 @@ void MixPage::paint (juce::Graphics& g)
 void MixPage::resized()
 {
     auto area = AppStyle::contentArea (getLocalBounds());
-    area.removeFromTop (78 + 12);
-    auto row = area.removeFromTop (96);
-    const int gap = 10;
+    area.removeFromTop (88 + 12);
+    auto row = area.removeFromTop (104);
+    const int gap = 12;
     const int w = (row.getWidth() - gap * 4) / 5;
     for (auto& t : groups) { t->setBounds (row.removeFromLeft (w)); row.removeFromLeft (gap); }
-    area.removeFromTop (24);
+    area.removeFromTop (28);
     if (card->isVisible())
     {
         card->setBounds (area.removeFromTop (196));

@@ -57,7 +57,7 @@ private:
     std::optional<juce::Colour> customFg, customBorder, customBg;
 };
 
-// Two-line dropdown trigger: small caption ("SOURCE") over the current value with a chevron.
+// Pop-up button: optional caption over the value, chevron on the right (NSPopUpButton-ish).
 class DropdownButton : public juce::Button
 {
 public:

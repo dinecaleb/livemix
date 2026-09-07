@@ -10,9 +10,8 @@
 namespace livemix
 {
 
-// The window content: a slim top bar (wordmark, where we are, the device) and one page
-// at a time. Device -> Assign -> Purpose -> Mix, with Advanced one step aside. A 30 Hz
-// timer polls the controller and refreshes the visible page; nothing here touches audio.
+// The window content: a premium top bar (wordmark, session, output, save/open) and one
+// page at a time. Device -> Assign -> Purpose -> Mix, with Advanced one step aside.
 class MainView : public juce::Component, private juce::Timer
 {
 public:
@@ -41,6 +40,10 @@ private:
     class Toast;
     void timerCallback() override;
     void enterMix();
+    void updateChrome();
+    void saveAs();
+    void openMix();
+    void chooseOutput();
 
     MixController& controller;
     AppServices& services;
@@ -54,6 +57,11 @@ private:
     std::unique_ptr<MixPage> mixPage;
     std::unique_ptr<AdvancedPage> advancedPage;
     std::unique_ptr<Toast> toast;
+
+    FlatButton sessionButton { "SUNDAY", FlatButton::Style::Ghost };
+    FlatButton outputButton { "OUTPUT", FlatButton::Style::Ghost };
+    FlatButton saveButton { "SAVE", FlatButton::Style::Ghost };
+    FlatButton openButton { "OPEN", FlatButton::Style::Ghost };
     FlatButton deviceButton { "DEVICE", FlatButton::Style::Ghost };
     FlatButton inputsButton { "INPUTS", FlatButton::Style::Ghost };
     int toastTicks = 0;

@@ -25,6 +25,13 @@ namespace SessionStore
         int tuneCount = 0;
     };
 
+    struct Listing
+    {
+        juce::String name;
+        juce::File file;
+        juce::Time modified;
+    };
+
     juce::var toVar (const Document& d);
     bool fromVar (const juce::var& v, Document& d);   // false when the file is not a DINELIVE session
 
@@ -32,6 +39,7 @@ namespace SessionStore
     juce::File fileFor (const juce::String& sessionName);
     bool save (const Document& d, const juce::File& file);
     bool load (const juce::File& file, Document& d);
+    juce::Array<Listing> listSessions();                // newest first
 }
 
 } // namespace livemix

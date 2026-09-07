@@ -10,10 +10,10 @@
 namespace livemix
 {
 
-// Advanced: the engineer's drill-down. Left, every strip and bus with its meter and
-// level; right, the selected one: input gain, fader, mute, sends, and every decision
-// Tune Mix made about it in plain WHAT / WHY sentences. Same state as the overview:
-// switching views never changes the sound.
+// Advanced: the engineer's drill-down. Left, inputs grouped under their bus with a
+// clear CH vs BUS vs OUT distinction; right, a console-style strip (meter + fader)
+// plus sends and every Tune Mix decision in plain WHAT / WHY sentences. Same state
+// as the overview: switching views never changes the sound.
 class AdvancedPage : public juce::Component
 {
 public:
@@ -30,13 +30,15 @@ public:
     void resized() override;
 
 private:
+    class SectionHeader;
     class Row;
     class Detail;
     struct Selection { bool isBus = false; int strip = -1; MixBus bus = MixBus::Master; };
 
     MixController& controller;
     Selection selection;
-    std::vector<std::unique_ptr<Row>> rows;    // strips then buses
+    std::vector<std::unique_ptr<juce::Component>> listItems; // headers + rows, layout order
+    std::vector<Row*> rows;                  // only the selectable rows, for refresh/selection
     juce::Viewport viewport;
     juce::Component listHolder;
     std::unique_ptr<Detail> detail;
