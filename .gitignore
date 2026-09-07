@@ -1,0 +1,19 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+*.xcodeproj/
+DerivedData/
+
+# Vendored dependencies (fetched by scripts/bootstrap.sh)
+external/JUCE/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Stray local artefacts
+livemix/
+.tmp-*

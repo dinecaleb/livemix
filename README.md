@@ -1,0 +1,126 @@
+# Dine
+
+A family of professional live/broadcast mixing plugins built on one shared engine (Dine Core). The goal is
+to behave like a professional Gospel/worship engineer who already knows the sound you are after: excellent
+DSP, source-specific tuning, deterministic analysis and carefully designed sonic profiles. AI is optional
+and off by default; Dine must sound excellent without it.
+
+Products: **Dine Drums**, **Dine Vocals**, **Dine Keys**, **Dine Master**, **Dine Guitar**, **Dine Bass** and **Dine FX** (Audio
+Unit + Standalone, macOS / Logic Pro). Sonic profiles: **Modern Gospel** (default) and **Modern Worship**. Repo, CMake targets and the C++ namespace keep
+the working name `livemix`. Every Simple view uses plain words (WARMTH, CLARITY, SMOOTH, STEADY, CLEAN-UP, LOUD ...) so a
+volunteer can get a good mix; engineer terms live in Advanced. AI assistance is switched off on purpose (Standard Tune only).
+
+Status: Drums foundation complete through Milestone 3: DSP chain, AU plugin, Simple/Advanced/Kit UI,
+presets, loudness-matched A/B, Live Safe, data-driven profiles, drum source strategies, deterministic
+**Tune** (waits for signal, listens, proposes a professional starting point with BEFORE/AFTER, KEEP,
+REVIEW, REVERT), preamp recommendations, kit tune, optional-AI architecture (OpenAI provider, key required),
+FX primitives. **Dine FX** (Milestone 4): reverb (plate tank with pre-delay, early reflections, size, modulation) and
+delay (mono / stereo / ping-pong, tempo sync, ducking) engines, 14 types, SPACE / LENGTH / WARMTH / CLARITY / DISTANCE
+macros, profiles and presets, its own AU. **Dine Vocals / Keys / Master** (Milestone 5): one shared channel plugin
+(`modules/Common`) driven by a `ProductDefinition`; de-esser, stereo width, lookahead limiter and BS.1770 loudness meter
+in the chain; sibilance / correlation / loudness measurements; vocal, keys and master Tune strategies and profile data;
+plain-language Simple views. **Dine Guitar** (Milestone 6): the same shared channel plugin for Acoustic / Electric Clean /
+Electric Drive / Guitar Bus; boom, mud, quack and fizz rules with a template-relative fizz low-pass, expander for amp noise,
+WARMTH / CLARITY / SMOOTH / STEADY / CLEAN-UP knobs. **Dine Bass** (Milestone 6): Bass DI / Bass Amp / Synth Bass / Bass
+Bus; the high-pass never goes above 0.8 x the measured note, grit for small speakers, WARMTH / CLARITY / GRIT / STEADY /
+CLEAN-UP knobs, checked on the church bass stem. Reports: `docs/MILESTONE-1.md` .. `-6.md`; architecture:
+`docs/ARCHITECTURE-DINE-CORE.md`. Not started: Sax product, FX Tune, session intelligence, VST3/AAX.
+
+## Layout
+
+```
+src/                 livemix_engine (Dine Core): pure C++20, no JUCE, unit-tested
+  Core/              block view, dB/fast math, smoothers, envelope followers, FFT, roles/profiles
+  DSP/               Biquad, FilterProcessor, ParametricEQ, GateExpander + Compressor (detector HPF),
+                     TransientProcessor, Saturator, DeEsser, StereoWidth, Limiter (lookahead), LoudnessMeter (BS.1770),
+                     LevelMeter, ChannelProcessor, ChannelParameters
+  Analysis/          AnalysisFifo (wait-free SPSC), AnalysisEngine (signal-triggered capture, worker thread:
+                     level, spectrum, fundamental, transients, decay, bleed), KitAnalysis (kit rules)
+  Tune/              TuneEngine, SourceStrategy + TuneDecisions, StrategyToolkit (shared engineering rules),
+                     DrumStrategies, VocalStrategies (Lead / Backing / Choir / Speech / Bus), KeysStrategies
+                     (Piano / EP / Organ / Synth / Bus), MasterStrategy (loudness per delivery),
+                     GuitarStrategies (Acoustic / Electric / Bus, fizz roll-off), BassStrategies (DI / Amp / Synth / Bus)
+  Profiles/          Profile.h (SourceTargets: targets + safe ranges), ProfileData.cpp (Modern Gospel,
+                     Modern Worship: numbers only, 24 source families), ProductData.cpp (products, knobs, wording),
+                     MacroMapping (Simple controls per product)
+  Recommendations/   Recommendation items + sections (WHAT / WHY / CONFIDENCE); facade over Tune
+  Intelligence/      IIntelligenceProvider (optional AI), AnalyzeCoordinator, SafetyValidator, OpenAIProvider
+  FX/                DelayLine, Allpass/DampedComb, LFO, TempoSync; ReverbAlgorithm, DelayAlgorithm, FxChain,
+                     FxParameters (+ visitor), FxParameterSpecs, FxMacroMapping, FxProfiles (Dine FX engine)
+  Communication/     InstanceRegistry + IKitEndpoint (process-local discovery), KitController (ANALYZE KIT)
+  State/             ParameterIDs, ParameterSpecs (engine), ParameterLayout/Bridge, PresetManager (JUCE)
+  UI/                DINE design system: LiveMixLookAndFeel (tokens, embedded Barlow / Barlow Condensed /
+                     IBM Plex Mono), Widgets (FlatButton, DropdownButton, ParamTile, MacroKnob), ShellBars
+                     (top bar + SIMPLE/ADVANCED/KIT tabs), SimplePanel (InputPanel, macro knobs, ChainStrip),
+                     AdvancedPanel (module rail, EqCurve, gate scope, comp curve, value tiles, Tune decisions with UNDO),
+                     KitPanel, AnalyzeOverlay (waiting / listening / Tune card), MeterComponent
+modules/Common/      ChannelPluginProcessor (juce::AudioProcessor, Tune preview: BEFORE/AFTER/KEEP/REVERT), ChannelPluginEditor,
+                     DineChannelProduct.cmake (one function builds a product's AU + Standalone + tests + snapshot tool)
+modules/Drums|Vocals|Keys|Master|Guitar|Bass/  thin product classes + CMake (see each README.md)
+modules/FX/          FxProcessor, FxEditor, FxPanels (Simple / Advanced), FxPresets, plugin target (see modules/FX/README.md)
+modules/<other>/     placeholders only (README)
+tests/               unit tests (custom header-only framework), plugin integration tests, benchmark,
+                     regression renders (tests/reference/*.f32, regenerate with LIVEMIX_REGEN_REFERENCES=1)
+scripts/             bootstrap / build / test / validate_au
+external/JUCE/       vendored JUCE 8.0.8 (git-ignored; scripts/bootstrap.sh clones it)
+```
+
+## Build
+
+Requirements: Xcode command line tools, CMake >= 3.22, Ninja. On this machine CMake/Ninja were
+installed with `uv tool install cmake ninja` (binaries in `~/.local/bin`).
+
+```sh
+scripts/bootstrap.sh            # clones JUCE 8.0.8 into external/JUCE, configures build/
+scripts/build.sh                # Release build: AU + Standalone + tests
+scripts/build.sh Debug          # Debug build into build-debug/
+cmake -S . -B build-universal -G Ninja -DLIVEMIX_UNIVERSAL_BINARY=ON   # arm64 + x86_64
+```
+
+Artefacts: `build/modules/<Product>/LiveMix<Product>_artefacts/Release/{AU,Standalone}/` for Drums, Vocals, Keys, Master
+and FX. The AUs are copied to `~/Library/Audio/Plug-Ins/Components/Dine <Product>.component` after each build
+(`-DLIVEMIX_COPY_PLUGIN_AFTER_BUILD=OFF` to disable).
+
+## Test
+
+```sh
+scripts/test.sh                 # ctest (unit + plugin integration) then the benchmark
+build/tests/livemix_tests       # engine unit tests (optionally: livemix_tests <name-filter>)
+build/modules/Drums/livemix_plugin_tests            # Drums kit / AI-parsing specifics
+build/modules/<P>/livemix_<p>_plugin_tests           # shared channel-plugin suite, one per product (drums, vocals, keys, master)
+build/modules/FX/livemix_fx_plugin_tests
+build/modules/Drums/livemix_tune_stems "<Source>" <file.aif> [seconds]   # offline Tune on a recorded stem
+build/tests/livemix_benchmark   # drums: 1/8/16/32/48 instances x 32/64/128/256 samples; FX: 1/4/8/16 x 64/128/256
+scripts/validate_au.sh          # auval for every Dine AU (Lmdr Lmvo Lmky Lmma Lmfx)
+```
+
+## Principles baked into the code
+
+- The audio callback (`DrumsProcessor::processBlock` -> `ChannelProcessor::process`) never allocates,
+  locks, or waits. Verified by tests that count heap allocations during steady-state processing.
+- Zero latency: every stage is minimum-phase and sample-synchronous; `setLatencySamples(0)`.
+- Analysis runs on a worker thread fed by a wait-free FIFO. Results never touch DSP directly;
+  the user applies recommendations through the normal host parameter path.
+- **Tune is deterministic.** Analysis + profile targets + source strategy produce a bounded starting point
+  (`TuneResult`: before, proposed, sections, explanations). It is applied as a preview; the user keeps,
+  compares or reverts. "No change required" is a legitimate result. Profile numbers live only in
+  `src/Profiles/ProfileData.cpp`; strategies hold decision logic, not targets.
+- **AI is optional and off by default.** Standard Tune is fully deterministic and offline.
+  An `IIntelligenceProvider` may be plugged into `AnalyzeCoordinator`; its output is validated
+  by `SafetyValidator`, is never auto-applied, never enters the proposed parameters, and any failure
+  falls back to Standard results. The OpenAI provider is inert without a key.
+- Simple and Advanced modes drive the same host parameters. Macro moves rewrite only the
+  parameters listed in `MacroMapping::affectedParameterIds()`.
+- Kit intelligence is process-local: instances register an `IKitEndpoint` in `InstanceRegistry`;
+  any instance can run TUNE KIT for its group via `KitController`. All of it is message-thread only.
+- Presets: Factory (Style / Channel, generated from `StyleProfile`) and User
+  (`~/Library/Application Support/LiveMix/Presets/Drums/User/*.livemixpreset`).
+
+## UI verification
+
+`cmake --build build --target livemix_ui_snapshots && build/modules/Drums/livemix_ui_snapshots out/`
+renders every editor state (all views, Tune overlay incl. BEFORE/AFTER, kit with three instances, input health cases,
+Live Safe, a larger window) to PNG headlessly — see `tools/UISnapshots.cpp`. Vocals / Keys / Master:
+`build/modules/<P>/livemix_<p>_ui_snapshots out/` (`tools/ChannelUISnapshots.cpp`, every source + every stage). Dine FX:
+`cmake --build build --target livemix_fx_ui_snapshots && build/modules/FX/livemix_fx_ui_snapshots out/`
+(`tools/FxUISnapshots.cpp`). Fonts in `assets/fonts` are SIL OFL (licences alongside).

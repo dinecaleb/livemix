@@ -1,0 +1,48 @@
+# livemix_engine: framework-agnostic core. No JUCE, no allocation in process().
+add_library(livemix_engine STATIC
+    Core/FFT.cpp
+    DSP/Biquad.cpp
+    DSP/FilterProcessor.cpp
+    DSP/ParametricEQ.cpp
+    DSP/GateExpander.cpp
+    DSP/Compressor.cpp
+    DSP/TransientProcessor.cpp
+    DSP/Saturator.cpp
+    DSP/LevelMeter.cpp
+    DSP/DeEsser.cpp
+    DSP/StereoWidth.cpp
+    DSP/Limiter.cpp
+    DSP/LoudnessMeter.cpp
+    DSP/ChannelProcessor.cpp
+    DSP/EqResponse.cpp
+    Analysis/AnalysisEngine.cpp
+    Analysis/KitAnalysis.cpp
+    Recommendations/RecommendationEngine.cpp
+    Tune/StrategyToolkit.cpp
+    Tune/DrumStrategies.cpp
+    Tune/VocalStrategies.cpp
+    Tune/KeysStrategies.cpp
+    Tune/GuitarStrategies.cpp
+    Tune/BassStrategies.cpp
+    Tune/MasterStrategy.cpp
+    Tune/TuneEngine.cpp
+    Profiles/ProfileData.cpp
+    Profiles/ProductData.cpp
+    Profiles/MacroMapping.cpp
+    Communication/InstanceRegistry.cpp
+    Communication/KitController.cpp
+    Intelligence/SafetyValidator.cpp
+    Intelligence/AnalyzeCoordinator.cpp
+    State/ParameterSpecs.cpp
+    FX/FxParameterSpecs.cpp
+    FX/ReverbAlgorithm.cpp
+    FX/DelayAlgorithm.cpp
+    FX/FxChain.cpp
+    FX/FxMacroMapping.cpp
+    FX/FxProfiles.cpp
+)
+target_include_directories(livemix_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(livemix_engine PRIVATE livemix_warnings)
+target_compile_features(livemix_engine PUBLIC cxx_std_20)
+find_package(Threads REQUIRED)
+target_link_libraries(livemix_engine PUBLIC Threads::Threads)

@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+*.f32 binary
+*.ttf binary
+*.aif binary
+*.png binary
