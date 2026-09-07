@@ -137,6 +137,15 @@ Levels levels (const TuneContext& ctx)
     return l;
 }
 
+float captureGainToHealthyDb (const AnalysisResult& a, const SourceTargets& t)
+{
+    const float centre = 0.5f * (t.capturePeakMinDb + t.capturePeakMaxDb);
+    if (a.clipCount > 0 || a.peakDb > -0.5f) return std::min (std::round (centre - a.peakDb) - 2.0f, -3.0f);
+    if (a.peakDb > t.capturePeakMaxDb) return std::min (std::round (centre - a.peakDb), -1.0f);
+    if (a.peakDb < t.capturePeakMinDb) return std::max (std::round (t.capturePeakMinDb + 3.0f - a.peakDb), 1.0f);
+    return 0.0f;
+}
+
 bool evaluateInput (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, RecommendationResult& report)
 {
     const auto& a = ctx.analysis;
@@ -154,14 +163,13 @@ bool evaluateInput (const TuneContext& ctx, const SourceTargets& t, TuneDecision
     }
 
     const bool sparse = a.silencePercent > 60.0f;
-    const float centre = 0.5f * (t.capturePeakMinDb + t.capturePeakMaxDb);
     const float step = t.captureGainMaxStepDb;
     const std::string preampNote = " This is the console or interface preamp, not the plugin trim: trim cannot restore resolution that was never captured.";
 
     if (a.clipCount > 0 || a.peakDb > -0.5f)
     {
         report.inputHealth = "Clipping";
-        const float delta = clamp (std::round (centre - a.peakDb) - 2.0f, -step, -3.0f);
+        const float delta = std::max (captureGainToHealthyDb (a, t), -step);
         report.suggestedCaptureGainDb = delta;
         d.note (Recommendation::Kind::CaptureGain, TuneSection::Input, "Reduce preamp approximately " + fmtDb (delta, 0),
                 std::to_string (a.clipCount) + " clipped samples were detected. Digital clipping cannot be repaired after the converter." + preampNote,
@@ -170,7 +178,7 @@ bool evaluateInput (const TuneContext& ctx, const SourceTargets& t, TuneDecision
     else if (a.peakDb > t.capturePeakMaxDb)
     {
         report.inputHealth = "Hot";
-        const float delta = clamp (std::round (centre - a.peakDb), -step, -1.0f);
+        const float delta = std::max (captureGainToHealthyDb (a, t), -step);
         report.suggestedCaptureGainDb = delta;
         d.note (Recommendation::Kind::CaptureGain, TuneSection::Input, "Reduce preamp approximately " + fmtDb (delta, 0),
                 "Peaks reached " + num ("%.1f dBFS", double (a.peakDb)) + ", above the healthy range of " + num ("%.0f", double (t.capturePeakMinDb))
@@ -181,7 +189,7 @@ bool evaluateInput (const TuneContext& ctx, const SourceTargets& t, TuneDecision
     {
         report.inputHealth = "Low";
         // Conservative: aim for the low edge of the healthy range plus a little, never more than one bounded step.
-        const float delta = clamp (std::round (t.capturePeakMinDb + 3.0f - a.peakDb), 1.0f, step);
+        const float delta = std::min (captureGainToHealthyDb (a, t), step);
         report.suggestedCaptureGainDb = delta;
         std::string why = "Peaks reached only " + num ("%.1f dBFS", double (a.peakDb)) + ". The signal is clean but below the healthy range of "
                         + num ("%.0f", double (t.capturePeakMinDb)) + " to " + num ("%.0f dBFS", double (t.capturePeakMaxDb)) + "." + preampNote

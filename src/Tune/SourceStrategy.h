@@ -61,6 +61,10 @@ namespace tune
 
     // Capture health and the preamp recommendation. Returns false when there is no usable signal.
     bool evaluateInput (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, RecommendationResult& report);
+
+    // The gain move (dB) that puts the measured raw peak inside the profile's healthy capture range; 0 when it already is.
+    // Unbounded: evaluateInput limits it to one preamp step for a human at a console, Tune Mix applies it digitally in one go.
+    float captureGainToHealthyDb (const AnalysisResult& a, const SourceTargets& t);
     void removeDcOffset (const TuneContext& ctx, TuneDecisions& d);
 
     // The profile's high-pass for this source (the template every high-pass move is computed from,

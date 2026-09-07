@@ -5,12 +5,15 @@
 #include "Profiles/MixProfileData.h"
 #include "Profiles/Profile.h"
 #include "Core/DbUtils.h"
+#include "DSP/Compressor.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 
 namespace livemix
 {
+
+namespace MixPlanner { float predictedProcessedPeakDb (const MixPlanContext&, int, const StripParameters&); float predictedProcessedRmsDb (const MixPlanContext&, int, const StripParameters&); }
 
 namespace
 {
@@ -70,14 +73,34 @@ namespace
         for (auto& c : a.channelRmsDb) if (c > -100.0f) c += db;
     }
 
-    // Where a strip's processed peak lands under a parameter set: measured at the listen, moved by the gain and fader changes since.
-    float stripLevelDb (const MixPlanContext& ctx, const MixParameters& p, int i)
+    // What the compressor stage does to a level of `inDb` (dB, output minus input): the static curve scaled by `share`
+    // of the reduction, plus the makeup, blended by the dry/wet mix.
+    float compressorEffectDb (const ChannelParameters& p, float inDb, float share)
     {
-        const auto& o = ctx.capture.processed[size_t (i)];
-        return o.peakDb + p.strips[size_t (i)].faderDb + (p.strips[size_t (i)].inputGainDb - ctx.atCapture.strips[size_t (i)].inputGainDb);
+        if (! p.compEnabled) return 0.0f;
+        const float reduction = (Compressor::computeGain (inDb, p.compThresholdDb, p.compRatio, p.compKneeDb) - inDb) * share;
+        const float wet = reduction + p.compMakeupDb;
+        if (p.compMix >= 0.999f) return wet;
+        return gainToDb (p.compMix * dbToGain (wet) + (1.0f - p.compMix));
     }
 
-    // Level shift (dB) of a group of strips between two parameter sets, power-summed from their processed peaks.
+    // Where a strip's processed RMS lands under a parameter set, after its fader. RMS, not peak, because what the buses
+    // and the master loudness rule need is how much energy arrives; a snare's peaks would otherwise outweigh every voice.
+    float stripLevelDb (const MixPlanContext& ctx, const MixParameters& p, int i)
+    {
+        return MixPlanner::predictedProcessedRmsDb (ctx, i, p.strips[size_t (i)]) + p.strips[size_t (i)].faderDb;
+    }
+
+    // The change (dB) a chain's compressor makes to a stream's average level when that stream arrives `shiftDb` louder
+    // than at the listen, where it measured `rmsDb` / `peakDb` at the compressor: the average reduction follows a
+    // level between the RMS and the peaks (the release holds it between syllables and hits).
+    float compressorAverageDeltaDb (const ChannelParameters& after, const ChannelParameters& atCapture, float rmsDb, float peakDb, float shiftDb, float crestShare)
+    {
+        const float level = rmsDb + crestShare * (peakDb - rmsDb);
+        return compressorEffectDb (after, level + shiftDb, 1.0f) - compressorEffectDb (atCapture, level, 1.0f);
+    }
+
+    // Level shift (dB) of a group of strips between two parameter sets, power-summed from their processed levels.
     float faderShiftDb (const MixPlanContext& ctx, const MixParameters& from, const MixParameters& to, MixBus bus, bool allBuses)
     {
         double before = 0.0, after = 0.0;
@@ -90,12 +113,42 @@ namespace
             after  += std::pow (10.0, double (stripLevelDb (ctx, to, i)) / 10.0);
         }
         if (before <= 0.0 || after <= 0.0) return 0.0f;
-        return clamp (float (10.0 * std::log10 (after / before)), -12.0f, 12.0f);
+        return clamp (float (10.0 * std::log10 (after / before)), -30.0f, 30.0f);
     }
 }
 
 namespace MixPlanner
 {
+
+// Where a strip's processed (pre-fader) peak lands under `strip`, predicted from what was measured under the chain that ran
+// at the listen: the input-gain change moves the chain input, and the compressor's curve says how much of that survives.
+// With the same gain and chain as at the listen this is the measurement itself, so planning again changes nothing.
+float predictedProcessedPeakDb (const MixPlanContext& ctx, int i, const StripParameters& strip)
+{
+    const auto& o = ctx.capture.processed[size_t (i)];
+    const auto& a = ctx.capture.strips[size_t (i)];
+    const auto& atCapture = ctx.atCapture.strips[size_t (i)];
+    const float rise = MixProfile::compPeakRiseMs (ctx.session.profile, ctx.graph.strips[size_t (i)].role);
+    const float gainDelta = strip.inputGainDb - atCapture.inputGainDb;
+    // The raw tap sits after the input gain, so the measured raw peak is the chain input at the listen. A compressor
+    // with attack `a` has reached 1 - exp(-rise / a) of its static reduction when the peak arrives.
+    const float shareAfter = 1.0f - std::exp (-rise / std::max (strip.channel.compAttackMs, 0.1f));
+    const float shareBefore = 1.0f - std::exp (-rise / std::max (atCapture.channel.compAttackMs, 0.1f));
+    return o.peakDb + gainDelta
+         + compressorEffectDb (strip.channel, a.peakDb + gainDelta, shareAfter)
+         - compressorEffectDb (atCapture.channel, a.peakDb, shareBefore);
+}
+
+float predictedProcessedRmsDb (const MixPlanContext& ctx, int i, const StripParameters& strip)
+{
+    const auto& o = ctx.capture.processed[size_t (i)];
+    const auto& a = ctx.capture.strips[size_t (i)];
+    const auto& atCapture = ctx.atCapture.strips[size_t (i)];
+    const float gainDelta = strip.inputGainDb - atCapture.inputGainDb;
+    return o.rmsDb + gainDelta
+         + compressorAverageDeltaDb (strip.channel, atCapture.channel, a.rmsDb, a.peakDb, gainDelta,
+                                     MixProfile::relationships (ctx.session.profile).compDetectorCrestShareStrip);
+}
 
 int countParameterChanges (const MixParameters& from, const MixParameters& to)
 {
@@ -143,7 +196,23 @@ MixPlan plan (const MixPlanContext& ctx)
         sp.name = route.name;
         sp.role = route.role;
         sp.faderBeforeDb = sp.faderDb = ctx.current.strips[size_t (i)].faderDb;
+        const float gainAtCapture = ctx.atCapture.strips[size_t (i)].inputGainDb;
+        sp.inputGainBeforeDb = sp.inputGainDb = ctx.current.strips[size_t (i)].inputGainDb;
         sp.heard = heard (ctx.capture.strips[size_t (i)]);
+
+        // A signal that never got above the faint level at the device is not a source playing: the mic is off, the cable
+        // or preamp is wrong, or the player sat out. Tuning it would fit a chain to noise and the gain would pull up bleed.
+        if (sp.heard && ctx.capture.strips[size_t (i)].peakDb - gainAtCapture < R.faintInputDb)
+        {
+            sp.heard = false;
+            sp.faint = true;
+            ++plan.stripsFaint;
+            sp.mixItems.push_back (info (Recommendation::Kind::Info, upper (sp.name) + ": barely reached DINELIVE, check this input",
+                                         "Its loudest moment during the listen was " + num ("%.0f dBFS", double (ctx.capture.strips[size_t (i)].peakDb - gainAtCapture))
+                                         + " at the device, too quiet to be a source that is really playing. Check the microphone, the cable and the preamp, "
+                                         "then Tune Mix again. Nothing about it was changed.", Confidence::High));
+            continue;
+        }
         if (sp.heard) ++plan.stripsHeard;
 
         TuneContext tc;
@@ -154,14 +223,14 @@ MixPlan plan (const MixPlanContext& ctx)
         tc.hasOutput = false;   // the mix balances with faders below, not with the strip's output trim
         sp.tune = TuneEngine::tune (tc);
 
-        // Input gain: the console move Tune recommends, done digitally where DINELIVE owns the input stage.
-        // Computed from the listen and the gain at the listen (never the current value); the chain input is
-        // never pushed above the profile's ceiling, and the strip is re-tuned as it will now be heard.
-        const float gainAtCapture = ctx.atCapture.strips[size_t (i)].inputGainDb;
-        sp.inputGainBeforeDb = sp.inputGainDb = ctx.current.strips[size_t (i)].inputGainDb;
-        if (sp.heard && sp.tune.valid && std::fabs (sp.tune.report.suggestedCaptureGainDb) >= 1.0f)
+        // Input gain: the console move Tune recommends, done digitally where DINELIVE owns the input stage, in one
+        // go (a person turns a preamp one step at a time; a number does not have to). Computed from the listen and
+        // the gain at the listen (never the current value); the chain input is never pushed above the profile's
+        // ceiling, and the strip is re-tuned as it will now be heard.
+        const float toHealthy = sp.heard ? tune::captureGainToHealthyDb (tc.analysis, Profiles::targets (profile, route.role)) : 0.0f;
+        if (sp.heard && sp.tune.valid && std::fabs (toHealthy) >= 1.0f)
         {
-            float gain = gainAtCapture + sp.tune.report.suggestedCaptureGainDb;
+            float gain = gainAtCapture + toHealthy;
             gain = std::min (gain, gainAtCapture + (R.inputPeakCeilingDb - tc.analysis.peakDb));
             gain = clamp (roundHalf (gain), -R.maxInputGainDb, R.maxInputGainDb);
             const float delta = gain - gainAtCapture;
@@ -344,6 +413,7 @@ MixPlan plan (const MixPlanContext& ctx)
         auto& sp = plan.strips[size_t (i)];
         const auto& o = i < int (ctx.capture.processed.size()) ? ctx.capture.processed[size_t (i)] : OutputStats {};
         const auto& a = ctx.capture.strips[size_t (i)];
+        if (sp.faint) continue;
         if (! sp.heard)
         {
             sp.mixItems.push_back (info (Recommendation::Kind::Info, upper (sp.name) + ": not heard during the listen",
@@ -354,7 +424,9 @@ MixPlan plan (const MixPlanContext& ctx)
         if (! o.valid || o.peakDb <= -60.0f || a.silencePercent > 60.0f) continue;   // too sparse to place with confidence
         const RoleFamily f = roleFamily (sp.role);
         const float target = MixProfile::mixLevelTargetDb (profile, f);
-        const float effectivePeak = o.peakDb + (sp.inputGainDb - ctx.atCapture.strips[size_t (i)].inputGainDb);
+        // Where this source will peak once its new gain and chain run: predicted from the listen, so the first
+        // Tune Mix lands the balance instead of needing a second listen to hear the processing it just chose.
+        const float effectivePeak = predictedProcessedPeakDb (ctx, i, plan.proposed.strips[size_t (i)]);
         sp.faderDb = clamp (roundHalf (target - effectivePeak), -R.maxFaderMoveDb, R.maxFaderMoveDb);
         sp.balanced = true;
     }
@@ -366,8 +438,7 @@ MixPlan plan (const MixPlanContext& ctx)
         const int lead = findHeard ([] (RoleFamily f) { return f == RoleFamily::LeadVocal; });
         if (lead >= 0 && plan.strips[size_t (lead)].balanced)
         {
-            const auto& o = ctx.capture.processed[size_t (lead)];
-            const float effectivePeak = o.peakDb + (plan.strips[size_t (lead)].inputGainDb - ctx.atCapture.strips[size_t (lead)].inputGainDb);
+            const float effectivePeak = predictedProcessedPeakDb (ctx, lead, plan.proposed.strips[size_t (lead)]);
             const float needed = roundHalf (MixProfile::mixLevelTargetDb (profile, RoleFamily::LeadVocal) - effectivePeak);
             const float shortfall = needed - plan.strips[size_t (lead)].faderDb;   // > 0: the lead is quieter than planned
             if (std::fabs (shortfall) >= 0.5f)
@@ -425,10 +496,9 @@ MixPlan plan (const MixPlanContext& ctx)
         if (std::fabs (sp.faderDb - sp.faderBeforeDb) < 0.5f) { sp.faderDb = sp.faderBeforeDb; continue; }
         plan.proposed.strips[size_t (i)].faderDb = sp.faderDb;
         const RoleFamily f = roleFamily (sp.role);
-        const auto& o = ctx.capture.processed[size_t (i)];
-        const float effectivePeak = o.peakDb + (sp.inputGainDb - ctx.atCapture.strips[size_t (i)].inputGainDb);
+        const float effectivePeak = predictedProcessedPeakDb (ctx, i, plan.proposed.strips[size_t (i)]);
         sp.mixItems.push_back (info (Recommendation::Kind::MixGain, upper (sp.name) + " fader " + fmtDb (sp.faderDb, 1),
-                                     "Processed, this source peaks at " + num ("%.0f dBFS", double (effectivePeak)) + "; in a " + std::string (styleProfileName (profile))
+                                     "Processed, this source will peak around " + num ("%.0f dBFS", double (effectivePeak)) + "; in a " + std::string (styleProfileName (profile))
                                      + " mix it sits around " + num ("%.0f dBFS", double (MixProfile::mixLevelTargetDb (profile, f)))
                                      + (f == RoleFamily::LeadVocal ? " as the reference the rest is balanced against." : " relative to the lead vocal.")
                                      + (f == RoleFamily::BackingVocal ? " The backing group is held behind the lead." : ""),
@@ -436,6 +506,9 @@ MixPlan plan (const MixPlanContext& ctx)
     }
 
     // ---- 4. Buses and master ----
+    // The buses come first (Master is last in the enum): what each bus will put out once the faders have moved and its
+    // own chain has been re-fitted is predicted, and the master is planned from the sum of those predictions.
+    std::array<float, int (MixBus::Count)> busOutShiftDb {};   // change of each bus's output level, listen -> plan
     for (int b = 0; b < int (MixBus::Count); ++b)
     {
         auto& bp = plan.buses[size_t (b)];
@@ -443,27 +516,59 @@ MixPlan plan (const MixPlanContext& ctx)
         bp.used = ctx.graph.busUsed[size_t (b)];
         const auto& a = ctx.capture.buses[size_t (b)];
         if (! bp.used || ! a.valid) continue;
+        const bool isMaster = MixBus (b) == MixBus::Master;
+        const ChannelRole role = busRole (MixBus (b), ctx.session.purpose);
         TuneContext tc;
         tc.analysis = a;
-        // What the bus will receive once the faders have moved, predicted from the processed peaks.
-        const float shift = faderShiftDb (ctx, ctx.atCapture, plan.proposed, MixBus (b), MixBus (b) == MixBus::Master);
-        tc.analysis.peakDb += shift; tc.analysis.rmsDb += shift; tc.analysis.hitLevelDb += shift; tc.analysis.noiseFloorDb += shift;
-        tc.analysis.truePeakDb += shift; if (tc.analysis.loudnessLufs > -100.0f) tc.analysis.loudnessLufs += shift;
-        tc.role = busRole (MixBus (b), ctx.session.purpose);
+        // What the bus will receive once the faders have moved (the master: once the buses have moved), from the
+        // processed levels. A bus chain that then works harder (its compressor sees more level) puts out less than
+        // the shift alone says; that part is predicted from the compressor curve, like the strips.
+        float shift = 0.0f;
+        if (! isMaster)
+            shift = faderShiftDb (ctx, ctx.atCapture, plan.proposed, MixBus (b), false);
+        else
+        {
+            double before = 0.0, after = 0.0;
+            for (int o = 0; o < int (MixBus::Master); ++o)
+            {
+                const auto& oa = ctx.capture.buses[size_t (o)];
+                if (! ctx.graph.busUsed[size_t (o)] || ! oa.valid || oa.rmsDb <= -100.0f) continue;
+                before += std::pow (10.0, double (oa.rmsDb) / 10.0);
+                after  += std::pow (10.0, double (oa.rmsDb + busOutShiftDb[size_t (o)]) / 10.0);
+            }
+            if (before > 0.0 && after > 0.0) shift = clamp (float (10.0 * std::log10 (after / before)), -30.0f, 30.0f);
+        }
+        shiftLevels (tc.analysis, shift);
+        bp.predictedInShiftDb = shift;
+        tc.role = role;
         tc.profile = profile;
         tc.current = ctx.current.buses[size_t (b)].channel;
         tc.hasOutput = false;
-        if (MixBus (b) == MixBus::Master && ctx.capture.masterOutput.valid && ctx.capture.masterOutput.loudnessLufs > -100.0f)
+        if (isMaster && ctx.capture.masterOutput.valid && ctx.capture.masterOutput.loudnessLufs > -100.0f)
         {
             // The loudness rule predicts the output as input loudness + output trim. What actually left the master
             // during the listen is known, so the input loudness is set to make that prediction exact: the
             // compression and limiting on the way are then accounted for, and the number is still computed from
-            // the listen and the trim at the listen, never from the current value.
-            tc.analysis.loudnessLufs = ctx.capture.masterOutput.loudnessLufs - ctx.atCapture.master().channel.outputTrimDb + shift;
+            // the listen and the trim at the listen, never from the current value. The master compressor the plan
+            // chooses works harder than the one that ran (more level, often a lower threshold); that extra reduction
+            // is not in the measurement, so the master is tuned twice: once to learn its compressor, then again with
+            // the loudness that compressor will leave. On the same listen the compressor is unchanged and the second
+            // pass equals the first.
+            const float measuredIn = ctx.capture.masterOutput.loudnessLufs - ctx.atCapture.master().channel.outputTrimDb + shift;
+            tc.analysis.loudnessLufs = measuredIn;
             tc.analysis.truePeakDb = ctx.capture.masterOutput.truePeakDb + shift;
+            const TuneResult first = TuneEngine::tune (tc);
+            const ChannelParameters& chosen = first.valid ? first.proposed : ctx.current.master().channel;
+            const float compDelta = compressorAverageDeltaDb (chosen, ctx.atCapture.master().channel, a.rmsDb, a.peakDb, shift, R.compDetectorCrestShareBus);
+            tc.analysis.loudnessLufs = measuredIn + compDelta;
+            tc.analysis.truePeakDb += compDelta;
         }
         bp.tune = TuneEngine::tune (tc);
         if (bp.tune.valid) plan.proposed.buses[size_t (b)].channel = bp.tune.proposed;
+        if (! isMaster)
+            bp.predictedOutShiftDb = busOutShiftDb[size_t (b)] = shift
+                                      + compressorAverageDeltaDb (plan.proposed.buses[size_t (b)].channel, ctx.atCapture.buses[size_t (b)].channel, a.rmsDb, a.peakDb, shift, R.compDetectorCrestShareBus)
+                                      + (plan.proposed.buses[size_t (b)].faderDb - ctx.atCapture.buses[size_t (b)].faderDb);
     }
 
     // ---- 5. Sum up ----
@@ -487,6 +592,8 @@ MixPlan plan (const MixPlanContext& ctx)
     plan.headline = plan.noChangeRequired ? "MIX: NO CHANGE REQUIRED" : "MIX TUNED";
 
     plan.notes.push_back (std::to_string (plan.stripsHeard) + " of " + std::to_string (n) + " sources heard.");
+    if (plan.stripsFaint > 0)
+        plan.notes.push_back (plan.stripsFaint == 1 ? "1 input barely reached DINELIVE: check it." : std::to_string (plan.stripsFaint) + " inputs barely reached DINELIVE: check them.");
     int tuned = 0;
     for (const auto& sp : plan.strips) if (sp.tune.valid && ! sp.tune.noChangeRequired) ++tuned;
     if (tuned > 0) plan.notes.push_back (std::to_string (tuned) + " sources shaped individually (" + std::to_string (plan.parametersChanged) + " settings).");
@@ -494,7 +601,8 @@ MixPlan plan (const MixPlanContext& ctx)
     if (plan.fadersChanged > 0) plan.notes.push_back (std::to_string (plan.fadersChanged) + " levels balanced against the lead vocal.");
     int relationshipMoves = 0;
     for (const auto& r : plan.relationships) if (! r.changes.empty() || r.kind == Recommendation::Kind::MixGain) ++relationshipMoves;
-    if (relationshipMoves > 0) plan.notes.push_back (std::to_string (relationshipMoves) + " decisions made in mix context (sources working together).");
+    if (relationshipMoves > 0) plan.notes.push_back (relationshipMoves == 1 ? "1 decision made in mix context (sources working together)."
+                                                                            : std::to_string (relationshipMoves) + " decisions made in mix context (sources working together).");
     const auto& master = plan.buses[size_t (MixBus::Master)];
     if (master.tune.valid)
     {

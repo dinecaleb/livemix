@@ -159,6 +159,22 @@ const Relationships& relationships (StyleProfileId profile)
     return profile == StyleProfileId::ModernWorship ? worship : gospel;
 }
 
+float compPeakRiseMs (StyleProfileId profile, ChannelRole role)
+{
+    const auto& r = relationships (profile);
+    if (role == ChannelRole::DrumBus) return r.compPeakRisePercussiveMs;   // a drum mix from the console is still hits
+    switch (roleFamily (role))
+    {
+        case RoleFamily::Kick:
+        case RoleFamily::Snare:
+        case RoleFamily::Tom:
+        case RoleFamily::HiHat:
+        case RoleFamily::Overhead: return r.compPeakRisePercussiveMs;
+        case RoleFamily::Room:     return r.compPeakRiseRoomMs;
+        default:                   return r.compPeakRiseSustainedMs;
+    }
+}
+
 const MacroRanges& macroRanges (StyleProfileId profile)
 {
     static const MacroRanges gospel;

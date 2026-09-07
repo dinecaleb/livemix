@@ -17,6 +17,7 @@
 #include "native/StemNames.h"
 #include "Mix/OfflineCapture.h"
 #include "Mix/MixPlanner.h"
+#include "DSP/Compressor.h"
 #include "Analysis/AnalysisAccumulator.h"
 #include "Profiles/MixProfileData.h"
 #include "Core/DbUtils.h"
@@ -257,9 +258,10 @@ int main (int argc, char** argv)
     for (const auto& sp : plan.strips)
     {
         const auto& a = listened.strips[size_t (sp.strip)];
-        std::printf ("  %-14s %-16s %s  peak %5.1f  hits %5.1f  floor %6.1f  fund %4.0f Hz  gain %+5.1f  fader %+5.1f dB\n", sp.name.c_str(), channelRoleName (sp.role),
-                     sp.heard ? "heard  " : "SILENT ", double (a.peakDb), double (a.hitLevelDb), double (a.noiseFloorDb), double (a.fundamentalHz), double (sp.inputGainDb), double (sp.faderDb));
-        if (! sp.heard) continue;
+        std::printf ("  %-14s %-16s %s  peak %5.1f  hits %5.1f  floor %6.1f  quiet %3.0f%%  fund %4.0f Hz  gain %+5.1f  fader %+5.1f dB\n", sp.name.c_str(), channelRoleName (sp.role),
+                     sp.heard ? "heard  " : sp.faint ? "FAINT  " : "SILENT ", double (a.peakDb), double (a.hitLevelDb), double (a.noiseFloorDb), double (a.silencePercent),
+                     double (a.fundamentalHz), double (sp.inputGainDb), double (sp.faderDb));
+        if (! sp.heard) { for (const auto& item : sp.mixItems) std::printf ("      * %s\n", item.what.c_str()); continue; }
         std::printf ("      %s\n", sp.tune.headline.c_str());
         for (const auto& item : sp.tune.report.items)
             if (! item.changes.empty() || item.kind == Recommendation::Kind::CaptureGain) std::printf ("      - %s\n", item.what.c_str());
@@ -303,6 +305,49 @@ int main (int argc, char** argv)
         for (const auto& item : sp.mixItems)
             if (item.kind == Recommendation::Kind::MixGain || item.kind == Recommendation::Kind::CaptureGain) std::printf ("  * %s\n", item.what.c_str());
     for (const auto& r : retune.relationships) if (! r.changes.empty() || r.kind == Recommendation::Kind::MixGain) std::printf ("  - %s\n", r.what.c_str());
+
+    // How well the first pass predicted the processed peaks it fitted the faders from (the second listen measures them).
+    std::printf ("\nPREDICTION CHECK (first pass predicted vs second listen measured, processed pre-fader peak)\n");
+    for (const auto& sp : plan.strips)
+    {
+        if (! sp.balanced) continue;
+        const int i = sp.strip;
+        const auto& p = plan.proposed.strips[size_t (i)];
+        const float predicted = MixPlanner::predictedProcessedPeakDb (ctx, i, p);
+        const float measured = listenedAgain.processed[size_t (i)].peakDb;
+        const float in = listenedAgain.strips[size_t (i)].peakDb;
+        const float staticReduction = p.channel.compEnabled ? in - Compressor::computeGain (in, p.channel.compThresholdDb, p.channel.compRatio, p.channel.compKneeDb) : 0.0f;
+        const float actualReduction = in - measured;
+        std::printf ("  %-14s in %6.1f  predicted %6.1f  measured %6.1f  error %+5.1f | comp %s%.1f:1 thr %5.1f att %4.1f ms  static GR %4.1f  actual GR %4.1f  share %.2f\n",
+                     sp.name.c_str(), double (in), double (predicted), double (measured), double (predicted - measured),
+                     p.channel.compEnabled ? "" : "(off) ", double (p.channel.compRatio), double (p.channel.compThresholdDb), double (p.channel.compAttackMs),
+                     double (staticReduction), double (actualReduction), staticReduction > 1.0f ? double (actualReduction / staticReduction) : 0.0);
+    }
+    std::printf ("  bus inputs (RMS): predicted shift vs measured, listen -> plan\n");
+    for (int b = 0; b < int (MixBus::Count); ++b)
+    {
+        const auto& a1 = listened.buses[size_t (b)];
+        const auto& a2 = listenedAgain.buses[size_t (b)];
+        if (! a1.valid || ! a2.valid) continue;
+        std::printf ("  %-14s in rms %6.1f -> %6.1f (%+5.1f)  predicted %+5.1f  | peak %6.1f -> %6.1f\n", mixBusName (MixBus (b)), double (a1.rmsDb), double (a2.rmsDb),
+                     double (a2.rmsDb - a1.rmsDb), double (plan.buses[size_t (b)].predictedInShiftDb), double (a1.peakDb), double (a2.peakDb));
+    }
+    std::printf ("  master out: %6.1f LUFS -> %6.1f LUFS (%+5.1f); master trim %+5.1f -> %+5.1f\n", double (listened.masterOutput.loudnessLufs), double (listenedAgain.masterOutput.loudnessLufs),
+                 double (listenedAgain.masterOutput.loudnessLufs - listened.masterOutput.loudnessLufs), double (before.master().channel.outputTrimDb), double (plan.proposed.master().channel.outputTrimDb));
+    {
+        const auto& m0 = before.master().channel; const auto& m1 = plan.proposed.master().channel;
+        std::printf ("  master comp at listen: %s %.1f:1 thr %.1f knee %.1f makeup %.1f mix %.2f att %.0f rel %.0f | plan: %s %.1f:1 thr %.1f knee %.1f makeup %.1f mix %.2f att %.0f rel %.0f | limiter %s ceiling %.1f\n",
+                     m0.compEnabled ? "on" : "off", double (m0.compRatio), double (m0.compThresholdDb), double (m0.compKneeDb), double (m0.compMakeupDb), double (m0.compMix), double (m0.compAttackMs), double (m0.compReleaseMs),
+                     m1.compEnabled ? "on" : "off", double (m1.compRatio), double (m1.compThresholdDb), double (m1.compKneeDb), double (m1.compMakeupDb), double (m1.compMix), double (m1.compAttackMs), double (m1.compReleaseMs),
+                     m1.limiterEnabled ? "on" : "off", double (m1.limiterCeilingDb));
+        for (int b = 0; b < int (MixBus::Master); ++b)
+        {
+            const auto& c0 = before.buses[size_t (b)].channel; const auto& c1 = plan.proposed.buses[size_t (b)].channel;
+            std::printf ("  %-7s comp at listen: %s %.1f:1 thr %.1f att %.0f rel %.0f | plan: %s %.1f:1 thr %.1f att %.0f rel %.0f\n", mixBusName (MixBus (b)),
+                         c0.compEnabled ? "on" : "off", double (c0.compRatio), double (c0.compThresholdDb), double (c0.compAttackMs), double (c0.compReleaseMs),
+                         c1.compEnabled ? "on" : "off", double (c1.compRatio), double (c1.compThresholdDb), double (c1.compAttackMs), double (c1.compReleaseMs));
+        }
+    }
     engine.setParameters (retune.proposed);
     const auto retunedMix = render (engine, inputs, numSamples, block, nullptr);
 

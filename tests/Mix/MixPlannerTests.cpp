@@ -142,7 +142,8 @@ TEST_CASE ("MixPlanner: one listen tunes every source, balances the faders and r
     auto in = bandAudio();
     const auto cap = rig.listen (in);
     REQUIRE (cap.valid);
-    const auto plan = MixPlanner::plan (rig.context (cap));
+    const auto ctx = rig.context (cap);
+    const auto plan = MixPlanner::plan (ctx);
     REQUIRE (plan.valid);
     CHECK (plan.headline == "MIX TUNED");
     CHECK (plan.strips.size() == 13);
@@ -165,7 +166,7 @@ TEST_CASE ("MixPlanner: one listen tunes every source, balances the faders and r
         CHECK (std::fabs (s.faderDb) <= R.maxFaderMoveDb + 0.01f);
         if (! s.balanced || roleFamily (s.role) == RoleFamily::BackingVocal) continue;
         const float target = MixProfile::mixLevelTargetDb (StyleProfileId::ModernGospel, roleFamily (s.role));
-        const float effectivePeak = cap.processed[size_t (s.strip)].peakDb + s.inputGainDb;   // the listen ran at 0 dB input gain
+        const float effectivePeak = MixPlanner::predictedProcessedPeakDb (ctx, s.strip, plan.proposed.strips[size_t (s.strip)]);
         const float expected = std::max (-R.maxFaderMoveDb, std::min (R.maxFaderMoveDb, std::round ((target - effectivePeak) * 2.0f) * 0.5f));
         CHECK_NEAR (s.faderDb, expected, 0.01f);
     }

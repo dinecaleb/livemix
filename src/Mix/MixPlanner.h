@@ -29,6 +29,7 @@ struct StripPlan
     bool heard = false;                     // usable signal during the listen
     bool balanced = false;                  // the fader was fitted from the processed level
     bool bleedOnly = false;                 // heard, but only as spill (a speech mic during the song): left alone
+    bool faint = false;                     // signal, but never above the profile's faint level at the device: check the mic, nothing changed
     TuneResult tune;                        // the source's own Tune (before / proposed / explanations)
     std::vector<Recommendation> mixItems;   // relationship and balance decisions about this strip
     float faderBeforeDb = 0.0f, faderDb = 0.0f;
@@ -40,6 +41,8 @@ struct BusPlan
     MixBus bus = MixBus::Master;
     bool used = false;
     TuneResult tune;
+    float predictedInShiftDb = 0.0f;    // how much more (or less) this bus is predicted to receive under the plan than at the listen
+    float predictedOutShiftDb = 0.0f;   // ... and to put out, after its re-fitted chain (buses only)
 };
 
 // The professional starting point for the whole mix, with its explanation. Applying
@@ -56,6 +59,7 @@ struct MixPlan
     std::vector<Recommendation> relationships;   // what the mix decided about how sources work together
     std::vector<std::string> notes;              // plain-language summary lines
     int stripsHeard = 0;
+    int stripsFaint = 0;                         // inputs with a signal too faint to be a playing source (check the mic)
     int parametersChanged = 0;                   // strip + bus DSP parameters
     int fadersChanged = 0;
     int sendsChanged = 0;
@@ -76,6 +80,12 @@ namespace MixPlanner
 
     // Bounded application helpers shared with the app (message thread).
     int countParameterChanges (const MixParameters& from, const MixParameters& to);
+
+    // Where strip i's processed (pre-fader) peak lands under `strip`, predicted from the listen in `ctx`
+    // (the measurement itself when gain and chain are unchanged). Public for tests and the stems tool.
+    float predictedProcessedPeakDb (const MixPlanContext& ctx, int i, const StripParameters& strip);
+    // The same for the processed RMS (what the buses and the master loudness are predicted from).
+    float predictedProcessedRmsDb (const MixPlanContext& ctx, int i, const StripParameters& strip);
 }
 
 } // namespace livemix

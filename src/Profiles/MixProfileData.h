@@ -72,8 +72,27 @@ namespace MixProfile
         float maxInputGainDb = 24.0f;      // digital input gain Tune Mix may add or remove per input
         float inputPeakCeilingDb = -6.0f;  // the chain input never gets pushed above this peak by the gain
         float maxFaderMoveDb = 18.0f;      // a quiet capture still gets a balanced mix; the preamp note says what to fix at the console
+        float faintInputDb = -38.0f;       // a raw peak (at the device) that never got above this during the listen is a faint input: the
+                                           // source did not really play, or the microphone / cable / preamp is the problem. It is not tuned,
+                                           // raised or balanced; the mix says to check it.
+        // How long a source's peak takes to arrive once a note or hit starts, ms. A compressor with attack `a` has only reached
+        // 1 - exp(-rise / a) of its static reduction by then, so the processed peak lands higher than the static curve says.
+        // Used to predict where a strip will peak under the proposed chain when fitting faders (measured on the church stems:
+        // close drum mics let nearly the whole hit through, vocals and keys see about 60 % of the static reduction).
+        float compPeakRisePercussiveMs = 3.0f;   // kick, snare, toms, hi-hat, overheads, drum mix
+        float compPeakRiseRoomMs = 5.0f;         // room mics: the onset arrives smeared
+        float compPeakRiseSustainedMs = 10.0f;   // voices, bass, keys, guitars
+        // Over a whole listen a compressor's average reduction (what moves loudness, and what the buses and master
+        // receive) follows a level between the RMS and the peaks: the release holds the reduction between syllables and
+        // hits. 0 = the reduction at the RMS level, 1 = at the peaks. A single source has gaps the release recovers in;
+        // a bus or the master is dense and the reduction is held.
+        float compDetectorCrestShareStrip = 0.25f;
+        float compDetectorCrestShareBus = 0.4f;
     };
     const Relationships& relationships (StyleProfileId profile);
+
+    // The peak rise time (ms) of a source, from Relationships (see compPeakRise*Ms).
+    float compPeakRiseMs (StyleProfileId profile, ChannelRole role);
 
     // ---- Mix macros (the five controls of the overview; 50 = the plan as Tune Mix left it) ----
     struct MacroRanges
