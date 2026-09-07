@@ -10,6 +10,7 @@
 #include "native/SessionStore.h"
 #include "native/MultitrackSource.h"
 #include "ui/MainView.h"
+#include <optional>
 
 using namespace livemix;
 
@@ -43,7 +44,30 @@ namespace
         double sampleRate() override { return host.getSampleRate(); }
         int bufferSize() override { return host.getBufferSize(); }
         int xrunCount() override { return host.getXRunCount(); }
-        void reconfigure() override { host.reconfigure(); }
+        bool deviceStopped() override { return host.deviceStoppedUnexpectedly(); }
+        void reconfigure() override
+        {
+            host.reconfigure();
+            applyPendingMix();
+        }
+
+        // A saved mix that could not be applied at launch (the device was not there) is applied the first time the
+        // graph exists for the same inputs; different assignments mean a different mix, so it is dropped then.
+        void holdMix (const SessionStore::Document& doc) { pending = doc; }
+        void applyPendingMix()
+        {
+            if (! pending.has_value() || ! controller.isPrepared()) return;
+            const auto& now = controller.getSession().inputs;
+            const auto& then = pending->session.inputs;
+            bool same = now.size() == then.size();
+            for (size_t i = 0; same && i < now.size(); ++i) same = now[i].role == then[i].role && now[i].name == then[i].name;
+            if (same && pending->hasMix)
+            {
+                controller.restoreKept (pending->mix, pending->tuneCount);
+                for (int i = 0; i < int (MixMacro::Count); ++i) controller.setMacro (MixMacro (i), pending->macros.get (MixMacro (i)));
+            }
+            pending.reset();
+        }
         juce::String currentInputDevice() override { return host.getInputDeviceName(); }
         juce::String currentOutputDevice() override { return host.getOutputDeviceName(); }
 
@@ -66,8 +90,9 @@ namespace
             d.outputDevice = host.getOutputDeviceName();
             d.macros = controller.getMacros();
             d.tuneCount = controller.getTuneCount();
-            d.hasMix = controller.isPrepared() && controller.getTuneCount() > 0;
+            d.hasMix = controller.isPrepared() && controller.hasKeptMix();
             if (d.hasMix) d.mix = controller.getKept();
+            else if (pending.has_value() && pending->hasMix) { d.hasMix = true; d.mix = pending->mix; d.tuneCount = pending->tuneCount; }   // not applied yet: keep it
             const auto file = SessionStore::fileFor (juce::String (d.session.name));
             if (SessionStore::save (d, file)) lastSessionPointer().replaceWithText (file.getFullPathName());
         }
@@ -76,6 +101,7 @@ namespace
         MixController& controller;
         AudioHost& host;
         MultitrackSource recording;
+        std::optional<SessionStore::Document> pending;
     };
 
     class MainWindow : public juce::DocumentWindow
@@ -120,11 +146,12 @@ public:
         window = std::make_unique<MainWindow> (getApplicationName(), *controller, *services);
         if (restored.has_value())
         {
-            // Reopen the stored device when it is still there; the page shows it either way.
+            // Reopen the stored device when it is still there; the page shows it either way. The kept mix is applied
+            // once the graph exists (now, or when the device is chosen later).
+            services->holdMix (*restored);
             if (restored->inputDevice.isNotEmpty() && host->open (restored->inputDevice, restored->outputDevice).isEmpty())
             {
-                if (restored->hasMix) { controller->setKept (restored->mix); }
-                for (int i = 0; i < int (MixMacro::Count); ++i) controller->setMacro (MixMacro (i), restored->macros.get (MixMacro (i)));
+                services->applyPendingMix();
                 window->view().showPage (controller->getSession().inputs.empty() ? MainView::Page::Assign : MainView::Page::Mix);
             }
         }

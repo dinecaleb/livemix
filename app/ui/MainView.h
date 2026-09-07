@@ -24,6 +24,7 @@ public:
     void showPage (Page p);
     Page getPage() const noexcept { return page; }
     void showToast (const juce::String& text);
+    void requestSave() { saveTicks = 30; }   // saved a second after the last change
 
     DevicePage& getDevicePage() { return *devicePage; }
     AssignPage& getAssignPage() { return *assignPage; }
@@ -35,6 +36,8 @@ public:
     void resized() override;
 
 private:
+    int saveTicks = 0;
+    bool audioWasRunning = false;
     class Toast;
     void timerCallback() override;
     void enterMix();

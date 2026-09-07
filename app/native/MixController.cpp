@@ -139,6 +139,13 @@ std::string MixController::getStatusText() const
         case Stage::Planning:  return "Building the mix...";
         case Stage::Preview:   return plan ? plan->headline + (compare == Compare::Before ? "  (hearing BEFORE)" : "  (hearing AFTER)") : "";
         case Stage::Mixed:
+        {
+            const auto notes = getMixHealthNotes();
+            if (notes.empty()) return "READY";
+            std::string s;
+            for (const auto& n : notes) s += (s.empty() ? "" : "  ") + n;
+            return s;
+        }
         default:               return "READY";
     }
 }
@@ -160,6 +167,7 @@ void MixController::keepPlan()
     stage = Stage::Mixed;
     compare = Compare::After;
     publish();
+    if (onMixChanged) onMixChanged();
 }
 
 void MixController::revertPlan()
@@ -170,6 +178,7 @@ void MixController::revertPlan()
     stage = restingStage();
     compare = Compare::After;
     publish();
+    if (onMixChanged) onMixChanged();
 }
 
 // ---- Macros ----
@@ -178,12 +187,14 @@ void MixController::setMacro (MixMacro m, float value)
 {
     macros.set (m, value);
     publish();
+    if (onMixChanged) onMixChanged();
 }
 
 void MixController::resetMacros()
 {
     macros = MixMacroValues {};
     publish();
+    if (onMixChanged) onMixChanged();
 }
 
 // ---- Advanced edits ----
@@ -199,6 +210,7 @@ void MixController::setStripFader (int strip, float db)
     kept.strips[size_t (strip)].faderDb = clamp (db, -60.0f, 12.0f);
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].faderDb = kept.strips[size_t (strip)].faderDb;
     publish();
+    if (onMixChanged) onMixChanged();
 }
 
 void MixController::setStripInputGain (int strip, float db)
@@ -207,6 +219,7 @@ void MixController::setStripInputGain (int strip, float db)
     kept.strips[size_t (strip)].inputGainDb = clamp (db, -24.0f, 24.0f);
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].inputGainDb = kept.strips[size_t (strip)].inputGainDb;
     publish();
+    if (onMixChanged) onMixChanged();
 }
 
 void MixController::setStripMute (int strip, bool mute)
@@ -215,6 +228,7 @@ void MixController::setStripMute (int strip, bool mute)
     kept.strips[size_t (strip)].mute = mute;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].mute = mute;
     publish();
+    if (onMixChanged) onMixChanged();
 }
 
 void MixController::setStripSend (int strip, FxSlot slot, float db)
@@ -223,6 +237,7 @@ void MixController::setStripSend (int strip, FxSlot slot, float db)
     kept.strips[size_t (strip)].sendDb[size_t (slot)] = db <= -60.0f ? kSilenceDb : clamp (db, -60.0f, 6.0f);
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].sendDb[size_t (slot)] = kept.strips[size_t (strip)].sendDb[size_t (slot)];
     publish();
+    if (onMixChanged) onMixChanged();
 }
 
 void MixController::setBusFader (MixBus bus, float db)
@@ -230,6 +245,7 @@ void MixController::setBusFader (MixBus bus, float db)
     kept.buses[size_t (bus)].faderDb = clamp (db, -60.0f, 12.0f);
     if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].faderDb = kept.buses[size_t (bus)].faderDb;
     publish();
+    if (onMixChanged) onMixChanged();
 }
 
 void MixController::setKept (const MixParameters& p)
@@ -241,35 +257,60 @@ void MixController::setKept (const MixParameters& p)
     publish();
 }
 
+void MixController::restoreKept (const MixParameters& p, int tunes)
+{
+    setKept (p);
+    tuneCount = std::max (tuneCount, tunes);
+}
+
 // ---- Health ----
+
+namespace
+{
+    // The three things the last listen can say about an input.
+    struct HealthCount { int assigned = 0, good = 0, faint = 0, silent = 0, preamp = 0; };
+
+    HealthCount countHealth (const MixPlan& plan)
+    {
+        HealthCount c;
+        for (const auto& sp : plan.strips)
+        {
+            ++c.assigned;
+            if (sp.faint) { ++c.faint; continue; }
+            if (! sp.heard) { ++c.silent; continue; }
+            // Heard. Healthy when the level reaching the chain is inside the profile's range (after the digital gain
+            // the plan chose); otherwise the console preamp still has to move.
+            const bool healthy = ! sp.tune.valid || sp.tune.report.inputHealth == "Healthy" || sp.bleedOnly;
+            if (healthy) ++c.good; else ++c.preamp;
+        }
+        return c;
+    }
+}
 
 int MixController::getMixHealthPercent() const
 {
-    if (! prepared || engine.getNumStrips() == 0) return 0;
-    if (! plan && ! mixed) return 0;
-    // Heard sources tuned: the base. Inputs that need a preamp move or stayed silent cost points.
-    float score = 55.0f;
-    if (plan)
+    if (! prepared || engine.getNumStrips() == 0 || ! plan) return 0;
+    const HealthCount c = countHealth (*plan);
+    if (c.assigned == 0) return 0;
+    return int (std::round (100.0f * float (c.good) / float (c.assigned)));
+}
+
+std::vector<std::string> MixController::getMixHealthNotes() const
+{
+    std::vector<std::string> notes;
+    if (! prepared || engine.getNumStrips() == 0) return notes;
+    if (! plan)
     {
-        const int n = int (plan->strips.size());
-        int heard = 0, healthy = 0;
-        for (const auto& sp : plan->strips)
-        {
-            if (! sp.heard) continue;
-            ++heard;
-            if (sp.tune.valid && (sp.tune.report.inputHealth == "Healthy" || std::fabs (sp.tune.report.suggestedCaptureGainDb) < 3.0f)) ++healthy;
-        }
-        if (n > 0) score += 25.0f * float (heard) / float (n);
-        if (heard > 0) score += 15.0f * float (healthy) / float (heard);
-        const auto& master = plan->buses[size_t (MixBus::Master)];
-        bool loudnessOk = false;
-        if (master.tune.valid)
-            for (const auto& item : master.tune.report.items)
-                if (item.what.find ("on target") != std::string::npos) loudnessOk = true;
-        if (loudnessOk) score += 5.0f;
+        if (mixed) notes.push_back ("Mix restored from the last session. RE-TUNE when the band plays.");
+        return notes;
     }
-    else score = 70.0f;
-    return int (clamp (score, 0.0f, 100.0f));
+    const HealthCount c = countHealth (*plan);
+    auto plural = [] (int n, const char* one, const char* many) { return std::to_string (n) + " " + (n == 1 ? one : many); };
+    if (c.faint > 0)  notes.push_back (plural (c.faint, "input barely reached DINELIVE: check its mic and cable.", "inputs barely reached DINELIVE: check their mics and cables."));
+    if (c.silent > 0) notes.push_back (plural (c.silent, "input was not heard: RE-TUNE while it plays.", "inputs were not heard: RE-TUNE while they play."));
+    if (c.preamp > 0) notes.push_back (plural (c.preamp, "input still wants a preamp change at the console (see Advanced).", "inputs still want a preamp change at the console (see Advanced)."));
+    if (notes.empty() && c.good == c.assigned) notes.push_back ("Every input was heard at a healthy level.");
+    return notes;
 }
 
 } // namespace livemix

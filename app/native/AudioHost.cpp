@@ -65,6 +65,7 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
     lastError = deviceManager.setAudioDeviceSetup (setup, true);
     if (lastError.isNotEmpty()) return lastError;
     if (deviceManager.getCurrentAudioDevice() == nullptr) { lastError = "The audio device could not be opened."; return lastError; }
+    deviceStopped.store (false);
     deviceManager.addAudioCallback (this);
     running = true;
     return {};
@@ -72,6 +73,7 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
 
 void AudioHost::close()
 {
+    closing = true;
     if (running)
     {
         deviceManager.removeAudioCallback (this);   // returns only when the callback is no longer running
@@ -79,6 +81,8 @@ void AudioHost::close()
         running = false;
     }
     if (playback != nullptr) { playback->release(); playback = nullptr; }
+    deviceStopped.store (false);
+    closing = false;
 }
 
 juce::String AudioHost::openPlayback (MultitrackSource& source, const juce::String& outputDevice, int preferredBufferSize)
@@ -110,7 +114,9 @@ void AudioHost::reconfigure()
         controller.prepare (controller.getSampleRate(), controller.getBlockSize());
         return;
     }
+    closing = true;   // the stop that follows is ours
     deviceManager.removeAudioCallback (this);
+    closing = false;
     if (auto* device = deviceManager.getCurrentAudioDevice())
         controller.prepare (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
     deviceManager.addAudioCallback (this);
@@ -169,6 +175,7 @@ void AudioHost::audioDeviceIOCallbackWithContext (const float* const* inputChann
 
 void AudioHost::audioDeviceAboutToStart (juce::AudioIODevice* device)
 {
+    deviceStopped.store (false);
     // Called before the first callback, off the audio thread: the one place the graph is (re)built for the device.
     controller.prepare (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
     if (playback != nullptr)
@@ -179,6 +186,10 @@ void AudioHost::audioDeviceAboutToStart (juce::AudioIODevice* device)
     }
 }
 
-void AudioHost::audioDeviceStopped() {}
+void AudioHost::audioDeviceStopped()
+{
+    // Our own close() and reconfigure() stop the device too; anything else is the device going away.
+    if (running && ! closing) deviceStopped.store (true);
+}
 
 } // namespace livemix

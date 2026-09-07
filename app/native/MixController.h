@@ -83,11 +83,16 @@ public:
     const MixParameters& getBase() const noexcept { return (plan && stage == Stage::Preview) ? (compare == Compare::Before ? plan->before : plan->proposed) : kept; } // what is audible, without macros
     const MixParameters& getRunning() const noexcept { return running; }    // what the engine was last given
     void setKept (const MixParameters& p);                                  // session restore
+    void restoreKept (const MixParameters& p, int tuneCount);               // session restore with its history
+    bool hasKeptMix() const noexcept { return mixed; }
 
-    // ---- Health: how much of the mix is known good (0..100) ----
+    // ---- Health: the share of assigned inputs that were heard, not faint and at a healthy level in the last listen (0..100;
+    // 0 = nothing known yet). The notes say what is not right, in plain words, so the number is never a mystery.
     int getMixHealthPercent() const;
+    std::vector<std::string> getMixHealthNotes() const;
 
     std::function<void (const std::string&)> onMessage;   // one-line notices for a toast
+    std::function<void()> onMixChanged;                   // the kept mix, the macros or an Advanced edit changed: worth saving
 
 private:
     void publish();

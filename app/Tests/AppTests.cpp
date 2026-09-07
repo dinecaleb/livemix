@@ -113,7 +113,9 @@ TEST_CASE ("MixController: setup -> ready -> listening -> preview -> keep, with 
     c.keepPlan();
     CHECK (c.getStage() == MixController::Stage::Mixed);
     CHECK (MixPlanner::countParameterChanges (c.getKept(), c.getPlan()->proposed) == 0);
-    CHECK (c.getStatusText() == "READY");
+    CHECK (! c.getStatusText().empty());                 // the health notes in plain words, or READY
+    CHECK (c.getMixHealthPercent() > 50);
+    CHECK (! c.getMixHealthNotes().empty());
 
     // Macros sit on top of the kept plan and never touch it.
     const MixParameters keptBefore = c.getKept();

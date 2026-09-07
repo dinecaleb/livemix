@@ -23,7 +23,8 @@ public:
     // Opens the devices and starts the callback. Returns an empty string on success.
     juce::String open (const juce::String& inputDevice, const juce::String& outputDevice, double preferredSampleRate = 48000.0, int preferredBufferSize = 64);
     void close();
-    bool isOpen() const noexcept { return running; }
+    bool isOpen() const noexcept { return running && ! deviceStopped.load (std::memory_order_relaxed); }
+    bool deviceStoppedUnexpectedly() const noexcept { return running && deviceStopped.load (std::memory_order_relaxed); }
 
     // Plays a folder of recorded stems as the inputs (the source must stay alive while open): output device only.
     juce::String openPlayback (MultitrackSource& source, const juce::String& outputDevice, int preferredBufferSize = 128);
@@ -53,6 +54,8 @@ private:
     MixController& controller;
     juce::AudioDeviceManager deviceManager;
     bool running = false;
+    bool closing = false;
+    std::atomic<bool> deviceStopped { false };   // the device stopped without close(): unplugged, or taken by the system
     juce::String lastError;
     MultitrackSource* playback = nullptr;
     juce::AudioBuffer<float> playbackBuffer;

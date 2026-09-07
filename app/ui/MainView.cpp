@@ -56,6 +56,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     mixPage->onToast = [this] (const juce::String& t) { showToast (t); };
     advancedPage->onBack = [this] { showPage (Page::Mix); };
     controller.onMessage = [this] (const std::string& m) { showToast (m); };
+    controller.onMixChanged = [this] { requestSave(); };
 
     showPage (Page::Device);
     startTimerHz (30);
@@ -65,6 +66,7 @@ MainView::~MainView()
 {
     stopTimer();
     controller.onMessage = nullptr;
+    controller.onMixChanged = nullptr;
     setLookAndFeel (nullptr);
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
 }
@@ -109,6 +111,12 @@ void MainView::timerCallback()
     if (page == Page::Mix) mixPage->refresh();
     else if (page == Page::Advanced) advancedPage->refresh();
     if (toastTicks > 0 && --toastTicks == 0) toast->setVisible (false);
+    if (saveTicks > 0 && --saveTicks == 0) services.saveSession();
+    // The device going away is the one thing a volunteer must hear about at once.
+    const bool running = services.isAudioRunning();
+    if (audioWasRunning && ! running && services.deviceStopped())
+        showToast ("The audio device stopped. Check its connection, then choose it again on the DEVICE page.");
+    audioWasRunning = running;
     repaint (0, 0, getWidth(), AppStyle::kTopBar);
 }
 
@@ -164,8 +172,9 @@ void MainView::resized()
         p->setBounds (bounds);
     if (toast->isVisible())
     {
+        // Under the top bar, over the page's header margin: the bottom of the mix page is the macros.
         const int w = toast->idealWidth();
-        toast->setBounds (getLocalBounds().removeFromBottom (72).withSizeKeepingCentre (w, 44));
+        toast->setBounds (getLocalBounds().withTrimmedTop (AppStyle::kTopBar + 10).removeFromTop (44).withSizeKeepingCentre (w, 44));
     }
 }
 

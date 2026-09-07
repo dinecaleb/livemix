@@ -23,6 +23,7 @@ public:
     virtual double sampleRate() = 0;
     virtual int bufferSize() = 0;
     virtual int xrunCount() = 0;
+    virtual bool deviceStopped() { return false; }   // the device went away without the app closing it
     virtual void reconfigure() = 0;          // assignments changed: rebuild the graph with audio stopped
     virtual void saveSession() = 0;
     virtual juce::String currentInputDevice() = 0;
