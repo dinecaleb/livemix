@@ -20,16 +20,16 @@ namespace
         const float sub = std::max (0.0f, bandExcess (ctx, t, Band::Sub));
         const float low = bandExcess (ctx, t, Band::Low);
         const float cap = f > 0.0f ? f * 0.8f : t.hpfMaxHz;
-        if (sub > 0.0f && cap > d.proposed.hpfHz * 1.05f)
+        if (sub > 0.0f && cap > templateHighPassHz (ctx, t) * 1.05f)
         {
-            const float hz = std::min (d.proposed.hpfHz * (1.0f + 0.1f * std::min (sub, 6.0f)), cap);
+            const float hz = std::min (templateHighPassHz (ctx, t) * (1.0f + 0.1f * std::min (sub, 6.0f)), cap);
             placeHighPass (ctx, t, d, hz, ("Energy below the lowest note is " + fmtDb (sub, 0) + " above the profile tolerance: rumble, stage noise or a boomy cabinet. The high-pass is raised"
                                            + std::string (f > 0.0f ? ", staying under the measured fundamental (" + fmtHz (f) + ")." : ".")).c_str());
         }
         else if (f > 0.0f && d.proposed.hpfEnabled && d.proposed.hpfHz > cap)
             placeHighPass (ctx, t, d, cap, ("The high-pass sat above the lowest note (" + fmtHz (f) + "); it is lowered so the bass keeps its weight.").c_str());
-        else if (low < -2.0f && d.proposed.hpfEnabled && d.proposed.hpfHz > t.hpfMinHz * 1.2f)
-            placeHighPass (ctx, t, d, d.proposed.hpfHz * 0.85f, "The low end is thinner than the profile target; the high-pass is lowered a little.");
+        else if (low < -2.0f && d.proposed.hpfEnabled && templateHighPassHz (ctx, t) > t.hpfMinHz * 1.2f)
+            placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * 0.85f, "The low end is thinner than the profile target; the high-pass is lowered a little.");
     }
 
     // Gospel bass wants a touch of drive: it rounds spiky notes and puts harmonics where phones can hear them.

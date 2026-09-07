@@ -63,6 +63,9 @@ namespace tune
     bool evaluateInput (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, RecommendationResult& report);
     void removeDcOffset (const TuneContext& ctx, TuneDecisions& d);
 
+    // The profile's high-pass for this source (the template every high-pass move is computed from,
+    // never the current value, so re-tuning the same capture never walks the filter).
+    float templateHighPassHz (const TuneContext& ctx, const SourceTargets& t);
     // The measured fundamental if it sits where the profile expects this source's fundamental; else 0.
     float fundamental (const TuneContext& ctx, const SourceTargets& t);
     float bandDeviation (const TuneContext& ctx, const SourceTargets& t, Band b); // measured - target (dB)

@@ -35,6 +35,12 @@ add_executable(livemix_tests
     DSP/NewStageTests.cpp
     Tune/ProductTuneTests.cpp
     Analysis/VoiceAnalysisTests.cpp
+    Mix/RoutingGraphTests.cpp
+    Mix/MixEngineTests.cpp
+    Mix/MixCaptureTests.cpp
+    Mix/MixPlannerTests.cpp
+    Mix/MixMacrosTests.cpp
+    Mix/MixEngineMatrixTests.cpp
 )
 target_link_libraries(livemix_tests PRIVATE livemix_engine livemix_warnings)
 target_compile_definitions(livemix_tests PRIVATE LIVEMIX_REFERENCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/reference")

@@ -27,17 +27,17 @@ namespace
             const float sub = std::max (0.0f, bandExcess (ctx, t, Band::Sub));
             const float low = bandExcess (ctx, t, Band::Low);
             const float cap = f > 0.0f ? f * 0.8f : t.hpfMaxHz;
-            if ((sub > 0.0f || low > 0.0f) && cap > d.proposed.hpfHz * 1.05f)
+            if ((sub > 0.0f || low > 0.0f) && cap > templateHighPassHz (ctx, t) * 1.05f)
             {
                 const float excess = sub + std::max (0.0f, low);
-                const float hz = std::min (d.proposed.hpfHz * (1.0f + 0.1f * std::min (excess, 6.0f)), cap);
+                const float hz = std::min (templateHighPassHz (ctx, t) * (1.0f + 0.1f * std::min (excess, 6.0f)), cap);
                 placeHighPass (ctx, t, d, hz, ("Energy below the voice is " + fmtDb (excess, 0) + " above the profile tolerance: stage rumble, handling noise or proximity boom. The high-pass is raised"
                                                + std::string (f > 0.0f ? ", staying under the measured fundamental (" + fmtHz (f) + ")." : ".")).c_str());
             }
             else if (f > 0.0f && d.proposed.hpfEnabled && d.proposed.hpfHz > cap)
                 placeHighPass (ctx, t, d, cap, ("The high-pass sat above this voice's fundamental (" + fmtHz (f) + "); it is lowered so the voice keeps its weight.").c_str());
-            else if (low < -2.0f && d.proposed.hpfEnabled && d.proposed.hpfHz > t.hpfMinHz * 1.2f)
-                placeHighPass (ctx, t, d, d.proposed.hpfHz * 0.85f, "The voice is thinner than the profile target; the high-pass is lowered a little to let its warmth back in.");
+            else if (low < -2.0f && d.proposed.hpfEnabled && templateHighPassHz (ctx, t) > t.hpfMinHz * 1.2f)
+                placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * 0.85f, "The voice is thinner than the profile target; the high-pass is lowered a little to let its warmth back in.");
             shapeBody (ctx, t, d, f);
             controlLowMid (ctx, t, d);
             notchResonance (ctx, t, d, 500.0f, 1500.0f, "nasal tone");
@@ -62,7 +62,7 @@ namespace
             removeDcOffset (ctx, d);
             const float low = bandExcess (ctx, t, Band::Low) + std::max (0.0f, bandExcess (ctx, t, Band::Sub));
             if (low > 0.0f)
-                placeHighPass (ctx, t, d, d.proposed.hpfHz * (1.0f + 0.12f * std::min (low, 6.0f)),
+                placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * (1.0f + 0.12f * std::min (low, 6.0f)),
                                ("Low energy is " + fmtDb (low, 0) + " above the profile tolerance: stage rumble and spill from the band in the choir mics. The high-pass is raised.").c_str());
             controlLowMid (ctx, t, d);
             controlHarshness (ctx, t, d);
@@ -83,7 +83,7 @@ namespace
             removeDcOffset (ctx, d);
             const float low = bandExcess (ctx, t, Band::Low) + std::max (0.0f, bandExcess (ctx, t, Band::Sub));
             if (low > 0.0f)
-                placeHighPass (ctx, t, d, d.proposed.hpfHz * (1.0f + 0.12f * std::min (low, 6.0f)),
+                placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * (1.0f + 0.12f * std::min (low, 6.0f)),
                                ("Low energy is " + fmtDb (low, 0) + " above the profile tolerance: boom from a close microphone or a lectern. The high-pass is raised; speech stays clear without it.").c_str());
             controlLowMid (ctx, t, d);
             notchResonance (ctx, t, d, 400.0f, 1200.0f, "boxiness");

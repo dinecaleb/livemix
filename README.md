@@ -1,4 +1,10 @@
-# Dine
+# Dine / DINELIVE
+
+**DINELIVE** (2026-09) is the standalone live/broadcast mixing application built on the same engine: connect a
+multichannel device, assign inputs, choose Modern Gospel, press TUNE MIX. See `docs/ARCHITECTURE-DINELIVE.md`; code in
+`src/Mix` (engine) and `app/` (application, offline stems tool, UI snapshots). Run it with
+`open build/app/DineLive_artefacts/Release/DINELIVE.app` (or copy the bundle to /Applications); without a band, choose
+PLAY A RECORDING... on the first page and point it at a folder of stems.
 
 A family of professional live/broadcast mixing plugins built on one shared engine (Dine Core). The goal is
 to behave like a professional Gospel/worship engineer who already knows the sound you are after: excellent

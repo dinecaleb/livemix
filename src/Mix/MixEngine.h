@@ -1,0 +1,126 @@
+#pragma once
+#include <array>
+#include <atomic>
+#include <memory>
+#include <vector>
+#include "MixSession.h"
+#include "MixParameters.h"
+#include "RoutingGraph.h"
+#include "DSP/ChannelProcessor.h"
+#include "FX/FxChain.h"
+#include "Core/Smoother.h"
+#include "Core/TripleBuffer.h"
+
+namespace livemix
+{
+
+// Audio-thread taps used while Tune Mix listens (MixCapture implements this).
+// Every call is wait-free; the engine only calls them while isActive().
+class MixTap
+{
+public:
+    virtual ~MixTap() = default;
+    virtual bool isActive() const noexcept = 0;
+    virtual void pushStripInput (int strip, const AudioBlockView& raw) noexcept = 0;         // what the converter delivered
+    virtual void pushStripProcessed (int strip, const AudioBlockView& processed) noexcept = 0; // after the chain, before the fader
+    virtual void pushBus (MixBus bus, const AudioBlockView& input) noexcept = 0;               // what the bus chain receives (after summing and the bus fader, before its processing)
+    virtual void pushMasterOutput (const AudioBlockView& output) noexcept = 0;                  // what leaves the master (the broadcast)
+};
+
+// The whole DINELIVE mix as one real-time processor:
+//
+//   device inputs -> strips (ChannelProcessor each) -> fader/pan -> DRUMS | BASS | MUSIC | VOCALS buses
+//                                                    -> post-fader sends -> FX returns (FxChain, wet only)
+//   buses -> fader -> MASTER (ChannelProcessor with limiter + loudness meter) -> stereo output
+//
+// prepare() allocates everything for the session; process() never allocates,
+// locks or blocks. Parameters arrive whole through a TripleBuffer and are applied
+// only when a new snapshot was published, so a knob drag costs one apply, not one
+// per block. Meters live in the processors (atomics) and are read by the UI.
+class MixEngine
+{
+public:
+    MixEngine();
+    ~MixEngine();
+
+    // Message thread, audio stopped. Builds the graph for the session.
+    void prepare (double sampleRate, int maxBlockSize, const MixSession& session);
+    void reset() noexcept;   // clear DSP state, keep parameters
+
+    // Message thread: publish a complete snapshot. Wait-free for both sides.
+    void setParameters (const MixParameters& p);
+    const MixParameters& getAppliedParameters() const noexcept { return applied; } // audio-thread view (read for display only)
+
+    // Audio thread. inputs: device channels; outputs: at least 1 channel (mono sum) or 2 (L/R). Extra outputs are cleared.
+    void process (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples) noexcept;
+
+    // Tune Mix listening. Set on the message thread before starting a capture; the engine checks isActive() per block.
+    void setTap (MixTap* newTap) noexcept { tap.store (newTap, std::memory_order_release); }
+
+    int getLatencySamples() const noexcept;
+    double getSampleRate() const noexcept { return sr; }
+    int getNumStrips() const noexcept { return numStrips; }
+    const RoutingGraph& getGraph() const noexcept { return graph; }
+
+    // Meters (any thread).
+    const ChannelProcessor& getStrip (int index) const noexcept { return strips[size_t (index)]->processor; }
+    const ChannelProcessor& getBus (MixBus bus) const noexcept { return buses[size_t (bus)].processor; }
+    const FxChain& getFx (FxSlot slot) const noexcept { return fx[size_t (slot)].chain; }
+    bool isBusUsed (MixBus b) const noexcept { return graph.busUsed[size_t (b)]; }
+    bool isFxUsed (FxSlot s) const noexcept { return graph.fxUsed[size_t (s)]; }
+
+    // Audio-thread cost, for the performance tests and the diagnostics view.
+    struct Stats { float lastBlockMicros = 0.0f, peakBlockMicros = 0.0f; int blocks = 0; };
+    Stats getStats() const noexcept;
+    void resetStats() noexcept { peakMicros.store (0.0f); blockCount.store (0); }
+
+private:
+    struct Strip
+    {
+        ChannelProcessor processor;
+        int inputA = -1, inputB = -1, channels = 1;
+        MixBus bus = MixBus::Music;
+        Smoother inputGain;                                     // digital preamp, linear
+        Smoother gainL, gainR;                                  // fader x pan, linear
+        std::array<Smoother, int (FxSlot::Count)> send;         // linear
+        std::array<std::vector<float>, kMaxChannels> scratch;
+        std::array<float*, kMaxChannels> ptrs {};
+    };
+    struct Bus
+    {
+        ChannelProcessor processor;
+        Smoother gain;
+        std::array<std::vector<float>, 2> buffer;               // accumulator, stereo
+        std::array<float*, 2> ptrs {};
+    };
+    struct Fx
+    {
+        FxChain chain;
+        Smoother returnGain;
+        std::array<std::vector<float>, 2> buffer;               // send accumulator, stereo
+        std::array<float*, 2> ptrs {};
+    };
+
+    void applyParameters (const MixParameters& p) noexcept;
+    static void panGains (float pan, bool stereo, float& l, float& r) noexcept;
+
+    double sr = 48000.0;
+    int maxBlock = 0;
+    int numStrips = 0;
+    MixSession session;
+    RoutingGraph graph;
+
+    std::vector<std::unique_ptr<Strip>> strips;
+    std::array<Bus, int (MixBus::Count)> buses;
+    std::array<Fx, int (FxSlot::Count)> fx;
+
+    TripleBuffer<MixParameters> mailbox;
+    MixParameters applied;                                       // audio thread's copy of the last snapshot
+    bool haveApplied = false;
+
+    std::atomic<MixTap*> tap { nullptr };
+    std::atomic<float> lastMicros { 0.0f }, peakMicros { 0.0f };
+    std::atomic<int> blockCount { 0 };
+};
+
+} // namespace livemix

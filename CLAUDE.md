@@ -42,3 +42,14 @@
   idempotent). Verify with `build/tests/livemix_tests Reverb|Delay|FxChain`, `build/modules/FX/livemix_fx_plugin_tests`,
   `auval -v aufx Lmfx Lvmx` and `build/modules/FX/livemix_fx_ui_snapshots <dir>`.
 - Read the PRD sections 6-8, 42, 48 and `docs/ARCHITECTURE-DINE-CORE.md` before touching the audio path or adding a product.
+- DINELIVE standalone (2026-09 pivot; see `docs/ARCHITECTURE-DINELIVE.md`): the mix layer lives in `src/Mix`
+  (`MixSession`/`RoutingGraph` build buses + returns from assignments; `MixEngine` is the real-time graph, parameters
+  arrive whole via `Core/TripleBuffer`; `MixCapture`/`OfflineCapture` listen to every input at once; `MixPlanner` =
+  per-strip Tune + input gain + relationships + balance + buses/master; `MixMacros` = the five overview controls, 50 =
+  the plan). Mix-level numbers only in `src/Profiles/MixProfileData.cpp`. The plan must stay idempotent on the same
+  listen (`MixPlannerTests`); every level decision is absolute from the capture, never "current + delta".
+  The app is `app/` (`MixController` no JUCE, `AudioHost` device, `ui/` pages). Verify with
+  `build/app/dinelive_ui_snapshots <dir>` and the real stems: `build/app/dinelive_mix_stems "<stems folder>" 30 <outdir>`
+  (writes raw/before/after/after-retuned WAVs, exit 0 = re-plan on the same listen changed nothing). App tests:
+  `build/app/dinelive_app_tests`; real device: `build/app/dinelive_device_check 3`; recording playback through the host: `build/app/dinelive_device_check 4 "<stems folder>"`.
+  In the app, PLAY A RECORDING... on the device page plays a stems folder as the inputs (assignments guessed from file names).

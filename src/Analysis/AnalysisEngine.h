@@ -6,8 +6,7 @@
 #include <vector>
 #include "AnalysisFifo.h"
 #include "AnalysisResult.h"
-#include "Core/FFT.h"
-#include "DSP/Biquad.h"
+#include "AnalysisAccumulator.h"
 
 namespace livemix
 {
@@ -15,6 +14,8 @@ namespace livemix
 // Owns the capture FIFO and a worker thread. The audio thread only ever calls
 // pushAudio(), which is wait-free. Everything else runs on the worker or the
 // caller's (message) thread. Results never touch DSP parameters directly.
+// The measurements themselves live in AnalysisAccumulator; this class adds the
+// FIFO, the trigger ("wait for signal") and the thread.
 class AnalysisEngine
 {
 public:
@@ -51,59 +52,17 @@ public:
 
 private:
     void workerLoop();
-    void resetAccumulators();
-    void consumeFrames (const float* interleaved, int numFrames);
-    void processAnalysisFrame();
-    void finalise();
 
     AnalysisFifo fifo;
     std::vector<float> popBuffer;
+    AnalysisAccumulator accumulator;
 
-    // Accumulators (worker thread only)
     double sr = 48000.0;
     int channels = 1;
     int targetFrames = 0;
     int capturedFrames = 0;
     float triggerLevelDb = -200.0f;
     int maxWaitFrames = 0;
-
-    double sumSquares = 0.0, sumSamples = 0.0;
-    std::array<double, kMaxChannels> channelSumSquares {};
-    float peakAbs = 0.0f;
-    int clipCount = 0;
-
-    int analysisFrameSize = 480; // 10 ms
-    int analysisFramePos = 0;
-    double frameSumSquares = 0.0;
-    std::vector<int> levelHistogram; // 1 dB bins from -100 .. 0
-    int totalAnalysisFrames = 0, silentFrames = 0;
-    float prevFrameDb = -120.0f;
-    std::vector<float> recentFrameDb; // small ring for floor tracking
-    int recentPos = 0;
-    int transientCount = 0;
-    double transientRiseSum = 0.0;
-    bool decayTracking = false;
-    float decayPeakDb = -120.0f;
-    int decayFrames = 0;
-    double decaySumMs = 0.0;
-    int decayCount = 0;
-
-    // Sibilance: high band (>= 5 kHz) vs full band per 10 ms frame, histogram of the difference on loud frames.
-    Biquad sibilanceHpf;
-    double frameHighSumSquares = 0.0;
-    std::vector<int> sibilanceHistogram; // 1 dB bins, -60 .. +10 dB
-    int sibilanceFrames = 0, sibilantFrames = 0;
-    // Stereo correlation and BS.1770 loudness
-    double sumLR = 0.0;
-    Biquad kShelf, kHighpass;
-    std::array<double, kMaxChannels> kSumSquares {};
-    float interpPeak = 0.0f;
-    std::array<float, kMaxChannels> lastSample {};
-
-    RealFFT fft;
-    std::vector<float> fftInput, window, powerAccum, powerScratch;
-    int fftPos = 0;
-    int fftFrames = 0;
 
     // Threading
     std::thread worker;

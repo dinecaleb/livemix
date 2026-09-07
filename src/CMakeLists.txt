@@ -15,6 +15,7 @@ add_library(livemix_engine STATIC
     DSP/LoudnessMeter.cpp
     DSP/ChannelProcessor.cpp
     DSP/EqResponse.cpp
+    Analysis/AnalysisAccumulator.cpp
     Analysis/AnalysisEngine.cpp
     Analysis/KitAnalysis.cpp
     Recommendations/RecommendationEngine.cpp
@@ -29,6 +30,13 @@ add_library(livemix_engine STATIC
     Profiles/ProfileData.cpp
     Profiles/ProductData.cpp
     Profiles/MacroMapping.cpp
+    Profiles/MixProfileData.cpp
+    Mix/RoutingGraph.cpp
+    Mix/MixEngine.cpp
+    Mix/MixCapture.cpp
+    Mix/OfflineCapture.cpp
+    Mix/MixPlanner.cpp
+    Mix/MixMacros.cpp
     Communication/InstanceRegistry.cpp
     Communication/KitController.cpp
     Intelligence/SafetyValidator.cpp

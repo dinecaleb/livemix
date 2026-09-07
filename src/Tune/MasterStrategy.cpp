@@ -22,7 +22,7 @@ namespace
             removeDcOffset (ctx, d);
             const float sub = bandExcess (ctx, t, Band::Sub);
             if (sub > 0.0f)
-                placeHighPass (ctx, t, d, d.proposed.hpfHz * (1.0f + 0.1f * std::min (sub, 6.0f)),
+                placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * (1.0f + 0.1f * std::min (sub, 6.0f)),
                                ("Sub energy is " + fmtDb (sub, 0) + " above the profile tolerance: rumble that eats headroom without being heard. The subsonic filter is raised a little.").c_str());
             shapeBody (ctx, t, d, 0.0f);
             controlLowMid (ctx, t, d);

@@ -19,10 +19,10 @@ namespace
     {
         const float low = bandExcess (ctx, t, Band::Low) + std::max (0.0f, bandExcess (ctx, t, Band::Sub));
         if (low > 0.0f)
-            placeHighPass (ctx, t, d, d.proposed.hpfHz * (1.0f + 0.12f * std::min (low, 6.0f)),
+            placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * (1.0f + 0.12f * std::min (low, 6.0f)),
                            ("Low energy is " + fmtDb (low, 0) + " above the profile tolerance: " + std::string (what) + ". The high-pass is raised so the bass and the kick own the bottom.").c_str());
-        else if (low < -2.0f && d.proposed.hpfEnabled && d.proposed.hpfHz > t.hpfMinHz * 1.2f)
-            placeHighPass (ctx, t, d, d.proposed.hpfHz * 0.85f, "The guitar is thinner than the profile target; the high-pass is lowered a little to let its body back in.");
+        else if (low < -2.0f && d.proposed.hpfEnabled && templateHighPassHz (ctx, t) > t.hpfMinHz * 1.2f)
+            placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * 0.85f, "The guitar is thinner than the profile target; the high-pass is lowered a little to let its body back in.");
     }
 
     // Driven amps and cabs put a fizzy layer above 6 kHz. When brilliance and air sit well above the

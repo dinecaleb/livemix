@@ -228,6 +228,12 @@ float bandExcess (const TuneContext& ctx, const SourceTargets& t, Band b)
     return 0.0f;
 }
 
+float templateHighPassHz (const TuneContext& ctx, const SourceTargets& t)
+{
+    const ChannelParameters tpl = Profiles::baseline (ctx.profile, ctx.role);
+    return tpl.hpfEnabled ? clamp (tpl.hpfHz, t.hpfMinHz, t.hpfMaxHz) : t.hpfMinHz;
+}
+
 void placeHighPass (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, float hz, const char* why)
 {
     const float target = roundHz (clamp (hz, t.hpfMinHz, t.hpfMaxHz));
@@ -304,7 +310,7 @@ void shapeBody (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d
     if (sub > 0.0f && t.hpfMaxHz > t.hpfMinHz)
     {
         // Excess sub is rumble and stage noise, not tone: filter it, don't EQ it. Never above the fundamental.
-        float hz = clamp (std::max (d.proposed.hpfHz * 1.3f, centre * 0.6f), t.hpfMinHz, t.hpfMaxHz);
+        float hz = clamp (std::max (templateHighPassHz (ctx, t) * 1.3f, centre * 0.6f), t.hpfMinHz, t.hpfMaxHz);
         if (fundamentalHz > 0.0f) hz = std::min (hz, fundamentalHz * 0.8f);
         placeHighPass (ctx, t, d, hz, ("Sub energy is " + num ("%.0f dB", double (sub)) + " above the profile tolerance; the high-pass is raised toward the fundamental to remove rumble without thinning the body.").c_str());
     }
@@ -326,7 +332,7 @@ void shapeBody (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d
     else if (low > 0.0f)
     {
         // Relative to the profile template, not the current setting: re-tuning the same capture lands on the same value.
-        const auto& tpl = Profiles::baseline (ctx.profile, ctx.role).toneBands[0];
+        const auto tpl = Profiles::baseline (ctx.profile, ctx.role).toneBands[0];
         const float currentGain = shelf.enabled ? shelf.gainDb : 0.0f;
         const float templateGain = tpl.enabled ? tpl.gainDb : 0.0f;
         const float gain = roundDb (clamp (templateGain - 0.6f * low, -0.5f * t.maxEqCutDb, t.maxEqBoostDb));
@@ -370,7 +376,10 @@ void shapeAttack (const TuneContext& ctx, const SourceTargets& t, TuneDecisions&
         }
         if (soft && t.transientAppropriate)
         {
-            const float attack = clamp (roundDb (d.proposed.transientAttack * 10.0f + 1.5f) / 10.0f, 0.0f, t.transientMaxAttack);
+            // From the template and the measured softness (never the current value): re-tuning the same capture lands on the same amount.
+            const float templateAttack = Profiles::baseline (ctx.profile, ctx.role).transientAttack;
+            const float riseDeficit = std::max (0.0f, t.transientRiseLowDb - a.meanTransientRiseDb);
+            const float attack = clamp (roundDb ((templateAttack + 0.15f + 0.03f * riseDeficit) * 10.0f) / 10.0f, 0.0f, t.transientMaxAttack);
             if (attack > d.proposed.transientAttack + 0.05f)
                 d.move (Recommendation::Kind::Transient, TuneSection::Attack, "Sharpened the attack: transient " + num ("%+.0f%%", double (attack * 100.0f)),
                         capital (plural (eventNoun (ctx))) + " rise by only " + num ("%.0f dB", double (a.meanTransientRiseDb)) + " on average; a little transient emphasis restores definition without EQ.",
@@ -379,7 +388,7 @@ void shapeAttack (const TuneContext& ctx, const SourceTargets& t, TuneDecisions&
     }
     else if (presence > 0.0f)
     {
-        const auto& tpl = Profiles::baseline (ctx.profile, ctx.role).toneBands[2];
+        const auto tpl = Profiles::baseline (ctx.profile, ctx.role).toneBands[2];
         const float currentGain = peak.enabled ? peak.gainDb : 0.0f;
         const float templateGain = tpl.enabled ? tpl.gainDb : 0.0f;
         const float gain = roundDb (clamp (templateGain - 0.6f * presence, -0.5f * t.maxEqCutDb, t.maxEqBoostDb));
@@ -444,7 +453,7 @@ void shapeAir (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d)
     }
     else if (excess > 0.5f)
     {
-        const auto& tpl = Profiles::baseline (ctx.profile, ctx.role).toneBands[3];
+        const auto tpl = Profiles::baseline (ctx.profile, ctx.role).toneBands[3];
         const float templateGain = tpl.enabled ? tpl.gainDb : 0.0f;
         const float gain = roundDb (clamp (templateGain - 0.5f * excess, -0.6f * t.maxEqCutDb, t.maxEqBoostDb));
         if (currentGain - gain < 0.5f) return;

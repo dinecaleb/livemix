@@ -78,6 +78,8 @@ if (LIVEMIX_BUILD_PLUGIN)
     add_subdirectory(modules/Guitar)
     add_subdirectory(modules/Bass)
     add_subdirectory(modules/FX)
+    # DINELIVE standalone application and offline tools (app/), hosts of the same engine.
+    add_subdirectory(app)
 endif()
 
 # ---------------------------------------------------------------------------

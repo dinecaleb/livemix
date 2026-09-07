@@ -100,10 +100,10 @@ namespace
             removeDcOffset (ctx, d);
             const float low = bandExcess (ctx, t, Band::Low) + std::max (0.0f, bandExcess (ctx, t, Band::Sub));
             if (low > 0.0f)
-                placeHighPass (ctx, t, d, d.proposed.hpfHz * (1.0f + 0.12f * std::min (low, 6.0f)),
+                placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * (1.0f + 0.12f * std::min (low, 6.0f)),
                                ("Low energy is " + fmtDb (low, 0) + " above the profile tolerance: kick and low spill in the " + std::string (room ? "room" : "overheads") + ". The high-pass is raised so the close mics own the low end.").c_str());
-            else if (low < -1.5f && d.proposed.hpfEnabled && d.proposed.hpfHz > t.hpfMinHz * 1.25f)
-                placeHighPass (ctx, t, d, d.proposed.hpfHz * 0.8f,
+            else if (low < -1.5f && d.proposed.hpfEnabled && templateHighPassHz (ctx, t) > t.hpfMinHz * 1.25f)
+                placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * 0.8f,
                                "The low end is thinner than the profile target; the high-pass is lowered a little to let the kit's weight back in.");
             controlLowMid (ctx, t, d);
             controlHarshness (ctx, t, d);
@@ -134,7 +134,7 @@ namespace
             removeDcOffset (ctx, d);
             const float low = bandExcess (ctx, t, Band::LowMid) + std::max (0.0f, bandExcess (ctx, t, Band::Low));
             if (low > 0.0f)
-                placeHighPass (ctx, t, d, d.proposed.hpfHz * (1.0f + 0.1f * std::min (low, 6.0f)),
+                placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * (1.0f + 0.1f * std::min (low, 6.0f)),
                                ("Low and low-mid energy is " + fmtDb (low, 0) + " above the profile tolerance: snare and kick spill. The high-pass is raised.").c_str());
             controlHarshness (ctx, t, d);
             shapeAir (ctx, t, d);
