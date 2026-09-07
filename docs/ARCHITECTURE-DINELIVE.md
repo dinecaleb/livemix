@@ -188,6 +188,39 @@ Two latent rules in the existing strategies were fixed on the way, because Tune 
 "raise the high-pass" rule multiplied the *current* frequency (it walked on re-tune) and the transient "sharpen"
 rule added to the current amount. Both now compute from the profile template, as the project rule says.
 
+### Second pass (2026-09-07, later): the first TUNE MIX lands
+
+Listening to the church stems showed the first plan landing at -27.2 LUFS and a second listen moving faders by up to
+8 dB: the faders were fitted from peaks measured under the *baseline* chain, the digital input gain was limited to one
+"human preamp step" (+10 dB), and the master trim did not know the compressor the plan was about to choose. Now:
+
+- **Input gain in one move.** `tune::captureGainToHealthyDb` is the unbounded move into the profile's healthy capture
+  range; the per-source rule still limits a person to one step, Tune Mix applies the whole move digitally (bounded by
+  `maxInputGainDb` and the chain-input ceiling).
+- **Predicted processed levels.** `MixPlanner::predictedProcessedPeakDb` = measured processed peak + gain change +
+  (compressor curve under the proposed chain - under the chain that ran), where the compressor has reached
+  `1 - exp(-rise / attack)` of its static reduction by the time the source's peak arrives (`compPeakRise*Ms` per family;
+  close drum mics let nearly the whole hit through, voices see ~60 %). `predictedProcessedRmsDb` does the same for the
+  average level with the reduction taken at a level between RMS and peak (`compDetectorCrestShare*`). Buses are planned
+  from the predicted RMS of their strips; the master from the predicted bus outputs, and it is tuned twice so its trim
+  accounts for the compressor it chose. On the church stems the first pass lands at -22.6 LUFS (Gospel) / -23.4
+  (Worship) and the re-tune says "Loudness on target"; per-strip prediction errors are within about 1 dB, two backing
+  vocals within 2.6 dB. `dinelive_mix_stems` prints the prediction check.
+- **Faint inputs.** A raw peak that never got above `faintInputDb` (-38 dBFS at the device) is a mic that is off, a
+  bad cable or a player who sat out: nothing is tuned, raised or balanced and the plan says "check this input" (the
+  church Kick and Rack Tom). Previously they got +20 dB of gain.
+- **App.** The session is saved a second after KEEP / REVERT / a macro or Advanced move (not only on quit); a saved mix
+  survives a launch without its device and is applied when the same inputs are prepared; a device that stops on its own
+  is announced once; Mix Health is the share of inputs heard, not faint and at a healthy level, with the reasons in
+  the status line; the toast sits under the top bar.
+
+Known limits of the prediction: it is a model, fitted to one recording (numbers in `MixProfileData.cpp`); EQ ahead of
+the compressor, transient shaping and saturation are not modelled. The exact answer would be to keep the raw listen
+and render it through the proposed chain inside the planner (memory: ~6 MB per mono input per 30 s); that is the
+next step if more recordings show the model drifting.
+
 Not done (next): recording engine, House Sound, per-parameter Advanced editing (the strip's EQ/comp tiles from the
 plugins), reinforcement, SQLite (JSON is enough for one session document), the React bridge spike, real-device
-soak tests at 44.1/88.2/96 kHz and 32/256-sample buffers.
+soak tests at 44.1/88.2/96 kHz and 32/256-sample buffers, a mix-level check that strip, bus and master "harshness"
+cuts do not stack (the after mix loses ~4 dB of upper-mids against the raw sum), a per-family high-pass floor for
+vocals (the lead's 82 Hz "fundamental" is bleed).

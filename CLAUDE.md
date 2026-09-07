@@ -47,7 +47,11 @@
   arrive whole via `Core/TripleBuffer`; `MixCapture`/`OfflineCapture` listen to every input at once; `MixPlanner` =
   per-strip Tune + input gain + relationships + balance + buses/master; `MixMacros` = the five overview controls, 50 =
   the plan). Mix-level numbers only in `src/Profiles/MixProfileData.cpp`. The plan must stay idempotent on the same
-  listen (`MixPlannerTests`); every level decision is absolute from the capture, never "current + delta".
+  listen (`MixPlannerTests`); every level decision is absolute from the capture, never "current + delta". Faders and
+  the master trim are fitted from levels *predicted under the proposed chain* (`MixPlanner::predictedProcessed{Peak,Rms}Db`,
+  compressor model numbers in `MixProfileData`), so one TUNE MIX lands; check with the stems tool's PREDICTION CHECK
+  and the `after` LUFS line (target -23, within ~1 LU) when touching gain, fader, bus or master rules. Inputs below
+  `faintInputDb` at the device are "faint": flagged, never tuned or raised.
   The app is `app/` (`MixController` no JUCE, `AudioHost` device, `ui/` pages). Verify with
   `build/app/dinelive_ui_snapshots <dir>` and the real stems: `build/app/dinelive_mix_stems "<stems folder>" 30 <outdir>`
   (writes raw/before/after/after-retuned WAVs, exit 0 = re-plan on the same listen changed nothing). App tests:
