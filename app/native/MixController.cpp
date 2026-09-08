@@ -38,6 +38,7 @@ void MixController::prepare (double sr, int maxBlockSize)
     plan.reset();
     compare = Compare::After;
     macros = MixMacroValues {};
+    bypassed = false;
     tuneCount = 0;
     mixed = false;
     stage = engine.getNumStrips() > 0 ? Stage::Ready : Stage::Setup;
@@ -48,7 +49,32 @@ void MixController::prepare (double sr, int maxBlockSize)
 MixParameters MixController::compose() const
 {
     const MixParameters& base = (plan && stage == Stage::Preview) ? (compare == Compare::Before ? plan->before : plan->proposed) : kept;
+    if (bypassed)
+    {
+        // The console feed: no processing, no fader moves, no returns. Only the listening
+        // controls (mute / solo) survive, so soloing one source still works while comparing.
+        auto raw = startingPoint (session, engine.getGraph());
+        raw.bypassProcessing = true;
+        for (int i = 0; i < raw.numStrips && i < base.numStrips; ++i)
+        {
+            raw.strips[size_t (i)].mute = base.strips[size_t (i)].mute;
+            raw.strips[size_t (i)].solo = base.strips[size_t (i)].solo;
+        }
+        for (int b = 0; b < int (MixBus::Count); ++b)
+        {
+            raw.buses[size_t (b)].mute = base.buses[size_t (b)].mute;
+            raw.buses[size_t (b)].solo = base.buses[size_t (b)].solo;
+        }
+        return raw;
+    }
     return MixMacros::apply (base, macros, engine.getGraph(), session.profile);
+}
+
+void MixController::setBypass (bool on)
+{
+    if (bypassed == on) return;
+    bypassed = on;
+    publish();                       // the kept mix is not touched, so there is nothing to save
 }
 
 void MixController::publish()
@@ -129,6 +155,7 @@ bool MixController::busHeard (MixBus bus) const noexcept
 
 std::string MixController::getStatusText() const
 {
+    if (bypassed) return "BYPASS: hearing the inputs as they arrive.";
     switch (stage)
     {
         case Stage::Setup:     return "Assign your inputs to begin.";
@@ -213,6 +240,15 @@ void MixController::setStripFader (int strip, float db)
     if (onMixChanged) onMixChanged();
 }
 
+void MixController::setStripPan (int strip, float pan)
+{
+    if (! validStrip (kept, strip)) return;
+    kept.strips[size_t (strip)].pan = clamp (pan, -1.0f, 1.0f);
+    if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].pan = kept.strips[size_t (strip)].pan;
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
 void MixController::setStripInputGain (int strip, float db)
 {
     if (! validStrip (kept, strip)) return;
@@ -253,6 +289,15 @@ void MixController::setBusFader (MixBus bus, float db)
 {
     kept.buses[size_t (bus)].faderDb = clamp (db, -60.0f, 12.0f);
     if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].faderDb = kept.buses[size_t (bus)].faderDb;
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::setBusMute (MixBus bus, bool mute)
+{
+    if (bus == MixBus::Count) return;
+    kept.buses[size_t (bus)].mute = mute;
+    if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].mute = mute;
     publish();
     if (onMixChanged) onMixChanged();
 }

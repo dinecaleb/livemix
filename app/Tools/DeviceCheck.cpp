@@ -3,9 +3,10 @@
 //   dinelive_device_check [seconds=5] [input device name] [output device name] [buffer=64]
 // Without names the device with the most inputs is used for input and the default output for output.
 #include <juce_events/juce_events.h>
-#include "native/MixController.h"
 #include "native/AudioHost.h"
-#include "native/MultitrackSource.h"
+#include "native/DawEngine.h"
+#include "native/MixController.h"
+#include "native/MultitrackImport.h"
 #include <cstdio>
 #include <thread>
 
@@ -20,23 +21,29 @@ int main (int argc, char** argv)
     const int buffer = argc > 4 ? juce::String (argv[4]).getIntValue() : 64;
 
     MixController controller;
-    AudioHost host (controller);
-    MultitrackSource recording;
+    DawEngine daw (controller);
+    AudioHost host (controller, daw);
 
-    // A folder as the second argument plays that multitrack as the inputs.
+    // A folder as the second argument becomes a session of tracks and clips, played back
+    // through the timeline exactly as the application plays a recorded service.
     if (inputName.isNotEmpty() && juce::File (inputName).isDirectory())
     {
-        const juce::String err = recording.load (juce::File (inputName));
-        if (err.isNotEmpty()) { std::printf ("recording: %s\n", err.toRawUTF8()); return 1; }
-        std::printf ("RECORDING %s: %d files, %d inputs, %.0f Hz, %.0f s\n", recording.getFolder().getFileName().toRawUTF8(), int (recording.getTracks().size()),
-                     recording.getTotalChannels(), recording.getFileSampleRate(), recording.getLengthSeconds());
-        controller.setSession (recording.suggestedSession (MixSession {}));
+        auto imported = MultitrackImport::fromFolder (juce::File (inputName), MixSession {});
+        if (imported.error.isNotEmpty()) { std::printf ("recording: %s\n", imported.error.toRawUTF8()); return 1; }
+        std::printf ("RECORDING %s: %d files, %.0f Hz, %.1f s\n", juce::File (inputName).getFileName().toRawUTF8(),
+                     imported.files, imported.sampleRate,
+                     double (imported.project.lengthSamples()) / imported.project.sampleRate);
+        controller.setSession (imported.session);
+        daw.setSession (imported.session);
         for (const auto& in : controller.getSession().inputs)
             std::printf ("  in %2d%s %-14s -> %s%s\n", in.inputA + 1, in.inputB >= 0 ? "/" : " ", in.name.c_str(), channelRoleName (in.role), in.enabled ? "" : "  (not recognised, left unassigned)");
         const auto outs = host.listOutputDevices();
         if (outputName.isEmpty() && ! outs.isEmpty()) outputName = outs[0].name;
-        const juce::String openErr = host.openPlayback (recording, outputName, buffer);
+        const juce::String openErr = host.openOutputOnly (outputName, imported.sampleRate > 0.0 ? imported.sampleRate : 48000.0, buffer);
         if (openErr.isNotEmpty()) { std::printf ("open failed: %s\n", openErr.toRawUTF8()); return 1; }
+        daw.setProject (imported.project);
+        daw.locate (0);
+        daw.play();
         std::printf ("playing through '%s': %.0f Hz, %d samples, %d strips, latency %d\n", outputName.toRawUTF8(), host.getSampleRate(), host.getBufferSize(),
                      controller.getEngine().getNumStrips(), controller.getEngine().getLatencySamples());
         const auto t0 = juce::Time::getMillisecondCounterHiRes();
@@ -50,10 +57,12 @@ int main (int argc, char** argv)
             outPeak = std::max (outPeak, controller.getEngine().getBus (MixBus::Master).getOutputMeter().consumeMaxPeakDb());
         }
         const auto st = controller.getEngine().getStats();
-        std::printf ("after %.1f s: %d blocks, peak %.0f us, %d dropouts, position %.1f s, master out peak %.1f dBFS\n", seconds, st.blocks, double (st.peakBlockMicros), host.getXRunCount(),
-                     recording.getPositionSeconds(), double (outPeak));
+        std::printf ("after %.1f s: %d blocks, peak %.0f us, %d dropouts, %d playback underruns, position %.1f s, master out peak %.1f dBFS\n",
+                     seconds, st.blocks, double (st.peakBlockMicros), host.getXRunCount(), daw.getPlayer().getUnderruns(),
+                     daw.getTransport().getPositionSeconds(), double (outPeak));
         int heard = 0;
         for (size_t i = 0; i < peaks.size(); ++i) { std::printf ("  strip %2d %-14s input peak %6.1f dBFS\n", int (i) + 1, controller.getGraph().strips[i].name.c_str(), double (peaks[i])); if (peaks[i] > -60.0f) ++heard; }
+        daw.stop();
         host.close();
         std::printf ("closed. %d of %d strips carried audio. %s\n", heard, int (peaks.size()), st.blocks > 0 && heard > 0 ? "OK" : "PROBLEM");
         return st.blocks > 0 && heard > 0 ? 0 : 2;
@@ -82,6 +91,7 @@ int main (int argc, char** argv)
     for (const auto& d : inputs) if (d.name == inputName) channels = std::max (1, d.inputChannels);
     for (int i = 0; i < std::min (8, channels); ++i) s.inputs.push_back ({ "In " + std::to_string (i + 1), roles[i], i, -1 });
     controller.setSession (s);
+    daw.setSession (s);
 
     std::printf ("\nopening input '%s', output '%s', %d samples...\n", inputName.toRawUTF8(), outputName.toRawUTF8(), buffer);
     const juce::String err = host.open (inputName, outputName, 48000.0, buffer);
@@ -108,6 +118,7 @@ int main (int argc, char** argv)
     // Reconfigure while running: a changed session rebuilds the graph with the callback stopped.
     s.inputs.push_back ({ "Extra", ChannelRole::Organ, 0, -1 });
     controller.setSession (s);
+    daw.setSession (s);
     host.reconfigure();
     juce::MessageManager::getInstance()->runDispatchLoopUntil (500);
     std::printf ("after reconfigure: %d strips, prepared %s, blocks since %d\n", controller.getEngine().getNumStrips(), controller.isPrepared() ? "yes" : "NO", controller.getEngine().getStats().blocks);

@@ -1,19 +1,19 @@
 #pragma once
 #include <juce_audio_devices/juce_audio_devices.h>
+#include "DawEngine.h"
 #include "MixController.h"
-#include "MultitrackSource.h"
 
 namespace livemix
 {
 
 // The only place DINELIVE touches an audio device. Wraps juce::AudioDeviceManager
-// (CoreAudio on macOS: Dante Virtual Soundcard, USB consoles and interfaces all
-// appear here) and forwards the callback to MixController::process(). Every input
-// channel of the chosen device is enabled; the mix goes to the first output pair.
+// (CoreAudio on macOS: Dante Virtual Soundcard, USB consoles and interfaces all appear
+// here) and hands every block to DawEngine, which records the raw inputs, plays the
+// timeline back and mixes. The mix goes to the first output pair.
 class AudioHost : private juce::AudioIODeviceCallback
 {
 public:
-    explicit AudioHost (MixController& controller);
+    AudioHost (MixController& controller, DawEngine& daw);
     ~AudioHost() override;
 
     struct DeviceInfo { juce::String name; int inputChannels = 0; int outputChannels = 0; };
@@ -21,18 +21,17 @@ public:
     juce::Array<DeviceInfo> listOutputDevices();
 
     // Opens the devices and starts the callback. Returns an empty string on success.
-    juce::String open (const juce::String& inputDevice, const juce::String& outputDevice, double preferredSampleRate = 48000.0, int preferredBufferSize = 64);
+    juce::String open (const juce::String& inputDevice, const juce::String& outputDevice,
+                       double preferredSampleRate = 48000.0, int preferredBufferSize = 64);
+    // Output only: playing a recorded session back with no console connected.
+    juce::String openOutputOnly (const juce::String& outputDevice,
+                                 double preferredSampleRate = 48000.0, int preferredBufferSize = 128);
     // Swap the stereo output while keeping the same input graph. Caller should snapshot/restore
     // the kept mix around this (prepare rebuilds the graph). Empty string on success.
     juce::String setOutputDevice (const juce::String& outputDevice);
     void close();
     bool isOpen() const noexcept { return running && ! deviceStopped.load (std::memory_order_relaxed); }
     bool deviceStoppedUnexpectedly() const noexcept { return running && deviceStopped.load (std::memory_order_relaxed); }
-
-    // Plays a folder of recorded stems as the inputs (the source must stay alive while open): output device only.
-    juce::String openPlayback (MultitrackSource& source, const juce::String& outputDevice, int preferredBufferSize = 128);
-    bool isPlayback() const noexcept { return playback != nullptr; }
-    MultitrackSource* getPlayback() const noexcept { return playback; }
 
     // Stops the callback, re-prepares the controller for its current session, restarts. Call after the assignments change.
     void reconfigure();
@@ -55,14 +54,12 @@ private:
     void audioDeviceStopped() override;
 
     MixController& controller;
+    DawEngine& daw;
     juce::AudioDeviceManager deviceManager;
     bool running = false;
     bool closing = false;
     std::atomic<bool> deviceStopped { false };   // the device stopped without close(): unplugged, or taken by the system
     juce::String lastError;
-    MultitrackSource* playback = nullptr;
-    juce::AudioBuffer<float> playbackBuffer;
-    std::vector<const float*> playbackPtrs;
 };
 
 } // namespace livemix

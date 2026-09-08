@@ -18,8 +18,8 @@ public:
     DevicePage (MixController&, AppServices&);
     ~DevicePage() override;
     std::function<void()> onContinue;
-    std::function<void()> onContinueToAssign;   // a recording was opened: review the guessed assignments
-    void openRecording (const juce::File& folder);  // programmatic (snapshot tool / tests)
+    std::function<void()> onContinueToAssign;                  // an import happened: review the guessed assignments
+    std::function<void (const juce::File&)> onImportRecording; // a folder of stems becomes tracks and clips
     void refresh();
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -42,7 +42,7 @@ private:
     DinePopup outputButton;
     DineButton continueButton { "Continue", DineButton::Style::Filled };
     DineButton rescanButton { "Rescan", DineButton::Style::Standard };
-    DineButton recordingButton { "Play a recording...", DineButton::Style::Standard };
+    DineButton recordingButton { "Import a multitrack...", DineButton::Style::Standard };
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
@@ -99,7 +99,7 @@ private:
 
     MixController& controller;
     std::vector<std::unique_ptr<Tile>> purposeTiles, soundTiles;
-    DineButton continueButton { "Build the mix", DineButton::Style::Filled };
+    DineButton continueButton { "Open the session", DineButton::Style::Filled };
     DineButton backButton { "Back", DineButton::Style::Standard };
 };
 

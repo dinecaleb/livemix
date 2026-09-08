@@ -116,17 +116,17 @@ DevicePage::DevicePage (MixController& c, AppServices& s) : controller (c), serv
     addAndMakeVisible (recordingButton);
     continueButton.setCaps (false);
     rescanButton.setIcon (Dine::Icon::Refresh);
-    recordingButton.setIcon (Dine::Icon::Play);
+    recordingButton.setIcon (Dine::Icon::Waveform);
     outputButton.onClick = [this] { chooseOutput (outputButton); };
     rescanButton.onClick = [this] { refresh(); };
-    recordingButton.setTooltip ("Play a folder of recorded stems (AIFF / WAV / FLAC) as the inputs, so you can go through the whole app without a band.");
+    recordingButton.setTooltip ("Turn a folder of recorded stems (AIFF / WAV / FLAC) into tracks, so you can mix, tune and export without a band in the room.");
     recordingButton.onClick = [this]
     {
         chooser = std::make_unique<juce::FileChooser> ("Choose a folder of multitrack stems", juce::File::getSpecialLocation (juce::File::userMusicDirectory));
         chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [this] (const juce::FileChooser& fc)
         {
             const auto folder = fc.getResult();
-            if (folder.isDirectory()) openRecording (folder);
+            if (folder.isDirectory() && onImportRecording) onImportRecording (folder);
         });
     };
     continueButton.onClick = [this]
@@ -177,15 +177,6 @@ void DevicePage::refresh()
     continueButton.setEnabled (selected >= 0);
     resized();
     repaint();
-}
-
-void DevicePage::openRecording (const juce::File& folder)
-{
-    error = services.openRecording (folder, outputName);
-    if (error.isNotEmpty()) { repaint(); return; }
-    controller.setSession (services.recordingSuggestion (controller.getSession()));
-    repaint();
-    if (onContinueToAssign) onContinueToAssign();
 }
 
 void DevicePage::select (int index)
@@ -274,11 +265,11 @@ void DevicePage::paint (juce::Graphics& g)
                           + juce::String (services.numInputChannels()) + " in"
                     : juce::String ("48.0 kHz  ") + Glyph::dot() + "  set when the device opens",
                 clock, juce::Justification::centredLeft);
-    auto practice = row (Dine::Metric::control, "Practice");
+    auto practice = row (Dine::Metric::control, "Recording");
     practice.removeFromLeft (recordingButton.getWidth() + 12);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (11.5f));
-    g.drawText ("Plays a folder of stems as if the band were live.", practice, juce::Justification::centredLeft, true);
+    g.drawText ("Loads a folder of stems as tracks you can play, mix and export.", practice, juce::Justification::centredLeft, true);
 
     if (error.isNotEmpty())
     {
@@ -491,7 +482,11 @@ AssignPage::~AssignPage() = default;
 
 void AssignPage::refresh()
 {
+    // Every channel the device brings in, and never fewer than the session already uses: an
+    // imported multitrack, or a session opened without its console, still shows all its inputs.
     numInputs = juce::jlimit (0, kMaxInputs, services.numInputChannels());
+    for (const auto& in : controller.getSession().inputs)
+        numInputs = juce::jlimit (0, kMaxInputs, juce::jmax (numInputs, in.inputA + 1, in.inputB + 1));
     entries.assign (size_t (numInputs), Entry {});
     for (const auto& in : controller.getSession().inputs)
     {

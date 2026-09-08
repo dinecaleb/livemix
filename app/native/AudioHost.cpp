@@ -3,7 +3,7 @@
 namespace livemix
 {
 
-AudioHost::AudioHost (MixController& c) : controller (c)
+AudioHost::AudioHost (MixController& c, DawEngine& d) : controller (c), daw (d)
 {
     // Register the device types without opening anything yet.
     deviceManager.initialise (0, 0, nullptr, false);
@@ -71,6 +71,27 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
     return {};
 }
 
+juce::String AudioHost::openOutputOnly (const juce::String& outputDevice, double preferredSampleRate, int preferredBufferSize)
+{
+    close();
+    juce::AudioDeviceManager::AudioDeviceSetup setup;
+    setup.inputDeviceName = {};
+    setup.outputDeviceName = outputDevice;
+    setup.sampleRate = preferredSampleRate;
+    setup.bufferSize = preferredBufferSize;
+    setup.useDefaultInputChannels = false;
+    setup.inputChannels.clear();
+    setup.useDefaultOutputChannels = false;
+    setup.outputChannels.setRange (0, 2, true);
+    lastError = deviceManager.setAudioDeviceSetup (setup, true);
+    if (lastError.isNotEmpty()) return lastError;
+    if (deviceManager.getCurrentAudioDevice() == nullptr) { lastError = "The output device could not be opened."; return lastError; }
+    deviceStopped.store (false);
+    deviceManager.addAudioCallback (this);
+    running = true;
+    return {};
+}
+
 juce::String AudioHost::setOutputDevice (const juce::String& outputDevice)
 {
     if (! running) { lastError = "No audio device is open."; return lastError; }
@@ -106,31 +127,8 @@ void AudioHost::close()
         deviceManager.closeAudioDevice();
         running = false;
     }
-    if (playback != nullptr) { playback->release(); playback = nullptr; }
     deviceStopped.store (false);
     closing = false;
-}
-
-juce::String AudioHost::openPlayback (MultitrackSource& source, const juce::String& outputDevice, int preferredBufferSize)
-{
-    close();
-    if (! source.isLoaded()) { lastError = "No recording is loaded."; return lastError; }
-    juce::AudioDeviceManager::AudioDeviceSetup setup;
-    setup.inputDeviceName = {};
-    setup.outputDeviceName = outputDevice;
-    setup.sampleRate = source.getFileSampleRate();
-    setup.bufferSize = preferredBufferSize;
-    setup.useDefaultInputChannels = false;
-    setup.inputChannels.clear();
-    setup.useDefaultOutputChannels = false;
-    setup.outputChannels.setRange (0, 2, true);
-    playback = &source;
-    lastError = deviceManager.setAudioDeviceSetup (setup, true);
-    if (lastError.isNotEmpty()) { playback = nullptr; return lastError; }
-    if (deviceManager.getCurrentAudioDevice() == nullptr) { playback = nullptr; lastError = "The output device could not be opened."; return lastError; }
-    deviceManager.addAudioCallback (this);
-    running = true;
-    return {};
 }
 
 void AudioHost::reconfigure()
@@ -138,22 +136,25 @@ void AudioHost::reconfigure()
     if (! running)
     {
         controller.prepare (controller.getSampleRate(), controller.getBlockSize());
+        daw.prepare (controller.getSampleRate(), controller.getBlockSize());
         return;
     }
     closing = true;   // the stop that follows is ours
     deviceManager.removeAudioCallback (this);
     closing = false;
     if (auto* device = deviceManager.getCurrentAudioDevice())
+    {
         controller.prepare (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
+        daw.prepare (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
+    }
     deviceManager.addAudioCallback (this);
 }
 
-juce::String AudioHost::getInputDeviceName() const  { return playback != nullptr ? "Recording: " + playback->getFolder().getFileName() : deviceManager.getAudioDeviceSetup().inputDeviceName; }
+juce::String AudioHost::getInputDeviceName() const  { return deviceManager.getAudioDeviceSetup().inputDeviceName; }
 juce::String AudioHost::getOutputDeviceName() const { return deviceManager.getAudioDeviceSetup().outputDeviceName; }
 
 int AudioHost::getNumInputChannels() const
 {
-    if (playback != nullptr) return playback->getTotalChannels();
     if (auto* device = deviceManager.getCurrentAudioDevice()) return device->getActiveInputChannels().countNumberOfSetBits();
     return 0;
 }
@@ -181,22 +182,7 @@ void AudioHost::audioDeviceIOCallbackWithContext (const float* const* inputChann
             if (outputChannelData[ch] != nullptr) juce::FloatVectorOperations::clear (outputChannelData[ch], numSamples);
         return;
     }
-    if (playback != nullptr)
-    {
-        // The recording is the console: fill the input layout from the files, then mix exactly as live.
-        const int channels = playbackBuffer.getNumChannels();
-        if (numSamples > playbackBuffer.getNumSamples() || channels == 0)
-        {
-            for (int ch = 0; ch < numOutputChannels; ++ch)
-                if (outputChannelData[ch] != nullptr) juce::FloatVectorOperations::clear (outputChannelData[ch], numSamples);
-            return;
-        }
-        playback->fillNext (playbackBuffer.getArrayOfWritePointers(), channels, numSamples);
-        for (int ch = 0; ch < channels; ++ch) playbackPtrs[size_t (ch)] = playbackBuffer.getReadPointer (ch);
-        controller.process (playbackPtrs.data(), channels, outputChannelData, numOutputChannels, numSamples);
-        return;
-    }
-    controller.process (inputChannelData, numInputChannels, outputChannelData, numOutputChannels, numSamples);
+    daw.processBlock (inputChannelData, numInputChannels, outputChannelData, numOutputChannels, numSamples);
 }
 
 void AudioHost::audioDeviceAboutToStart (juce::AudioIODevice* device)
@@ -204,12 +190,7 @@ void AudioHost::audioDeviceAboutToStart (juce::AudioIODevice* device)
     deviceStopped.store (false);
     // Called before the first callback, off the audio thread: the one place the graph is (re)built for the device.
     controller.prepare (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
-    if (playback != nullptr)
-    {
-        playback->prepare (device->getCurrentBufferSizeSamples(), device->getCurrentSampleRate());
-        playbackBuffer.setSize (playback->getTotalChannels(), device->getCurrentBufferSizeSamples() * 4, false, true, true);
-        playbackPtrs.assign (size_t (playback->getTotalChannels()), nullptr);
-    }
+    daw.prepare (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
 }
 
 void AudioHost::audioDeviceStopped()

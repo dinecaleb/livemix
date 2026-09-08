@@ -1,15 +1,16 @@
-// DINELIVE: the standalone live/broadcast mixing application.
+// DINELIVE: the live recording and broadcast DAW.
 //   Console / interface / Dante -> DINELIVE -> OBS / Ecamm / recording
-// One MixController owns the mix, one AudioHost owns the device, MainView shows one
-// page at a time. Mixes are saved as named .dinelive.json documents; the last one
-// reloads on launch. Output can be changed any time without wiping the mix.
+// One MixController owns the mix, one DawEngine owns the timeline and the recorder, one
+// AudioHost owns the device, MainView shows one workspace at a time. A session is a folder
+// with its recordings inside; the last one reloads on launch.
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_audio_utils/juce_audio_utils.h>
-#include "native/MixController.h"
 #include "native/AudioHost.h"
-#include "native/SessionStore.h"
-#include "native/MultitrackSource.h"
+#include "native/DawEngine.h"
 #include "native/MixBounce.h"
+#include "native/MixController.h"
+#include "native/MultitrackImport.h"
+#include "native/SessionStore.h"
 #include "ui/MainView.h"
 #include <optional>
 
@@ -19,13 +20,16 @@ namespace
 {
     juce::File lastSessionPointer()
     {
-        return SessionStore::sessionsFolder().getParentDirectory().getChildFile ("last-session.txt");
+        return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                   .getChildFile ("DINELIVE").getChildFile ("last-session.txt");
     }
 
     class HostServices : public AppServices
     {
     public:
-        HostServices (MixController& c, AudioHost& h) : controller (c), host (h) {}
+        HostServices (MixController& c, DawEngine& d, AudioHost& h) : controller (c), dawEngine (d), host (h) {}
+
+        DawEngine& daw() override { return dawEngine; }
 
         juce::Array<Device> inputDevices() override
         {
@@ -39,18 +43,25 @@ namespace
             for (const auto& d : host.listOutputDevices()) out.add ({ d.name, d.inputChannels, d.outputChannels });
             return out;
         }
-        juce::String openDevices (const juce::String& input, const juce::String& output) override { return host.open (input, output); }
+        juce::String openDevices (const juce::String& input, const juce::String& output) override
+        {
+            hold();
+            const auto err = host.open (input, output);
+            applyPendingMix();
+            return err;
+        }
+        juce::String openOutputOnly (const juce::String& output) override
+        {
+            hold();
+            const auto err = host.openOutputOnly (output);
+            applyPendingMix();
+            return err;
+        }
 
         juce::String changeOutput (const juce::String& output) override
         {
             // Snapshot the mix, swap the device (prepare rebuilds the graph), then put the mix back.
-            SessionStore::Document snap;
-            snap.session = controller.getSession();
-            snap.macros = controller.getMacros();
-            snap.tuneCount = controller.getTuneCount();
-            snap.hasMix = controller.isPrepared() && controller.hasKeptMix();
-            if (snap.hasMix) snap.mix = controller.getKept();
-            holdMix (snap);
+            hold();
             const juce::String err = host.setOutputDevice (output);
             applyPendingMix();
             if (err.isEmpty()) saveSession();
@@ -65,10 +76,118 @@ namespace
         bool deviceStopped() override { return host.deviceStoppedUnexpectedly(); }
         void reconfigure() override
         {
+            hold();
             host.reconfigure();
             applyPendingMix();
         }
+        juce::String currentInputDevice() override { return host.getInputDeviceName(); }
+        juce::String currentOutputDevice() override { return host.getOutputDeviceName(); }
+        juce::String currentSessionName() override { return juce::String (controller.getSession().name); }
+        juce::File sessionFolder() override { return dawEngine.getProject().folder; }
 
+        juce::String importMultitrack (const juce::File& folder) override
+        {
+            auto result = MultitrackImport::fromFolder (folder, controller.getSession());
+            if (result.error.isNotEmpty()) return result.error;
+
+            controller.setSession (result.session);
+            dawEngine.setSession (result.session);
+            result.project.folder = dawEngine.getProject().folder;   // keep the session's own folder, if it has one
+            dawEngine.setProject (result.project);
+
+            // Imported audio plays through the same graph as a console, so an output is all that is needed.
+            if (! host.isOpen())
+            {
+                juce::String output = host.getOutputDeviceName();
+                if (output.isEmpty()) { const auto outs = host.listOutputDevices(); if (! outs.isEmpty()) output = outs[0].name; }
+                if (output.isNotEmpty()) host.openOutputOnly (output, result.sampleRate > 0.0 ? result.sampleRate : 48000.0);
+            }
+            else
+            {
+                host.reconfigure();
+            }
+            dawEngine.setSession (result.session);
+            dawEngine.setProject (result.project);
+            saveSession();
+            return {};
+        }
+
+        juce::String exportMix (const juce::File& dest, ExportFormat format, std::function<bool (float)> progress) override
+        {
+            MixBounce::Options options;
+            options.onProgress = std::move (progress);
+            return MixBounce::renderProject (controller.getSession(),
+                                             controller.getRunning(),
+                                             dawEngine.getProject(),
+                                             dest,
+                                             format == ExportFormat::Mp3 ? MixBounce::Format::Mp3 : MixBounce::Format::Wav,
+                                             options);
+        }
+
+        void newSession() override
+        {
+            MixSession fresh;
+            fresh.name = "Untitled";
+            controller.setSession (fresh);
+            dawEngine.setSession (fresh);
+            dawEngine.setProject (Project {});
+            dawEngine.locate (0);
+            if (host.isOpen()) host.reconfigure();
+        }
+
+        void saveSession() override
+        {
+            if (controller.getSession().inputs.empty()) return;
+            auto file = documentFile();
+            if (file == juce::File()) file = SessionStore::fileFor (juce::String (controller.getSession().name));
+            writeDocument (file);
+        }
+
+        juce::String saveSessionAs (const juce::String& name) override
+        {
+            juce::String n = name.trim();
+            if (n.isEmpty()) return "Give the session a name.";
+            controller.setSessionName (n.toStdString());
+            const auto file = SessionStore::fileFor (n);
+            // Moving to a new folder: the takes stay where they are, and their clips keep absolute paths.
+            const auto oldFolder = dawEngine.getProject().folder;
+            if (oldFolder != juce::File() && oldFolder != file.getParentDirectory())
+                for (auto& track : dawEngine.getProject().tracks)
+                    for (auto& clip : track.clips)
+                        if (! juce::File::isAbsolutePath (clip.file))
+                            clip.file = oldFolder.getChildFile ("Audio Files").getChildFile (clip.file).getFullPathName();
+            dawEngine.getProject().folder = file.getParentDirectory();
+            if (! writeDocument (file)) return "Could not save the session.";
+            return {};
+        }
+
+        juce::String loadSession (const juce::File& file) override
+        {
+            SessionStore::Document doc;
+            if (! SessionStore::load (file, doc)) return "That file is not a DINELIVE session.";
+            controller.setSession (doc.session);
+            dawEngine.setSession (doc.session);
+            dawEngine.setProject (doc.project);
+            pending = doc;
+
+            juce::String err;
+            if (doc.inputDevice.isNotEmpty())
+                err = host.open (doc.inputDevice, doc.outputDevice.isNotEmpty() ? doc.outputDevice : doc.inputDevice);
+            else if (doc.project.hasAudio() && doc.outputDevice.isNotEmpty())
+                err = host.openOutputOnly (doc.outputDevice);
+            else if (host.isOpen())
+                host.reconfigure();
+            applyPendingMix();
+            dawEngine.setSession (doc.session);
+            dawEngine.setProject (doc.project);
+            dawEngine.locate (0);
+            if (err.isEmpty()) lastSessionPointer().replaceWithText (file.getFullPathName());
+            return err;
+        }
+
+        juce::Array<SessionStore::Listing> listSessions() override { return SessionStore::listSessions(); }
+
+        // Restoring a mix that a device change is about to wipe.
         void holdMix (const SessionStore::Document& doc) { pending = doc; }
         void applyPendingMix()
         {
@@ -84,77 +203,32 @@ namespace
             }
             pending.reset();
         }
-        juce::String currentInputDevice() override { return host.getInputDeviceName(); }
-        juce::String currentOutputDevice() override { return host.getOutputDeviceName(); }
-        juce::String currentSessionName() override { return juce::String (controller.getSession().name); }
-
-        juce::String openRecording (const juce::File& folder, const juce::String& outputDevice) override
-        {
-            const juce::String err = recording.load (folder);
-            if (err.isNotEmpty()) return err;
-            juce::String out = outputDevice;
-            if (out.isEmpty()) { const auto outs = host.listOutputDevices(); if (! outs.isEmpty()) out = outs[0].name; }
-            return host.openPlayback (recording, out);
-        }
-        bool isPlayingRecording() override { return host.isPlayback(); }
-        juce::File recordingFolder() const override { return recording.isLoaded() ? recording.getFolder() : juce::File(); }
-        MixSession recordingSuggestion (const MixSession& base) override { return recording.suggestedSession (base); }
-
-        juce::String exportMix (const MixSession& session,
-                                const MixParameters& params,
-                                const juce::File& stemsFolder,
-                                const juce::File& dest,
-                                ExportFormat format) override
-        {
-            const auto folder = stemsFolder.isDirectory() ? stemsFolder : recordingFolder();
-            if (! folder.isDirectory())
-                return "Export needs a folder of stems. Use Play a recording… on the Audio device page first.";
-            return MixBounce::renderToFile (session,
-                                            params,
-                                            folder,
-                                            dest,
-                                            format == ExportFormat::Mp3 ? MixBounce::Format::Mp3 : MixBounce::Format::Wav);
-        }
-
-        void saveSession() override
-        {
-            const auto file = SessionStore::fileFor (juce::String (controller.getSession().name));
-            writeDocument (file);
-        }
-
-        juce::String saveSessionAs (const juce::String& name) override
-        {
-            juce::String n = name.trim();
-            if (n.isEmpty()) return "Give the mix a name.";
-            controller.setSessionName (n.toStdString());
-            const auto file = SessionStore::fileFor (n);
-            if (! writeDocument (file)) return "Could not save the mix.";
-            return {};
-        }
-
-        juce::String loadSession (const juce::File& file) override
-        {
-            SessionStore::Document doc;
-            if (! SessionStore::load (file, doc)) return "That file is not a DINELIVE mix.";
-            controller.setSession (doc.session);
-            holdMix (doc);
-            juce::String err;
-            if (doc.inputDevice.isNotEmpty())
-                err = host.open (doc.inputDevice, doc.outputDevice.isNotEmpty() ? doc.outputDevice : doc.inputDevice);
-            else if (host.isOpen())
-                host.reconfigure();
-            applyPendingMix();
-            if (err.isEmpty()) lastSessionPointer().replaceWithText (file.getFullPathName());
-            return err;
-        }
-
-        juce::Array<SessionStore::Listing> listSessions() override { return SessionStore::listSessions(); }
 
     private:
+        void hold()
+        {
+            SessionStore::Document snap;
+            snap.session = controller.getSession();
+            snap.macros = controller.getMacros();
+            snap.tuneCount = controller.getTuneCount();
+            snap.hasMix = controller.isPrepared() && controller.hasKeptMix();
+            if (snap.hasMix) snap.mix = controller.getKept();
+            else if (pending.has_value() && pending->hasMix) snap = *pending;
+            pending = snap;
+        }
+
+        juce::File documentFile() const
+        {
+            const auto folder = dawEngine.getProject().folder;
+            if (folder == juce::File()) return {};
+            return folder.getChildFile (folder.getFileName() + ".dinelive.json");
+        }
+
         bool writeDocument (const juce::File& file)
         {
             SessionStore::Document d;
             d.session = controller.getSession();
+            d.project = dawEngine.getProject();
             d.inputDevice = host.getInputDeviceName();
             d.outputDevice = host.getOutputDeviceName();
             d.macros = controller.getMacros();
@@ -163,13 +237,14 @@ namespace
             if (d.hasMix) d.mix = controller.getKept();
             else if (pending.has_value() && pending->hasMix) { d.hasMix = true; d.mix = pending->mix; d.tuneCount = pending->tuneCount; }
             if (! SessionStore::save (d, file)) return false;
+            dawEngine.getProject().folder = file.getParentDirectory();
             lastSessionPointer().replaceWithText (file.getFullPathName());
             return true;
         }
 
         MixController& controller;
+        DawEngine& dawEngine;
         AudioHost& host;
-        MultitrackSource recording;
         std::optional<SessionStore::Document> pending;
     };
 
@@ -182,9 +257,18 @@ namespace
             setUsingNativeTitleBar (true);
             setContentOwned (new MainView (c, s), true);
             setResizable (true, true);
-            setResizeLimits (1120, 720, 4000, 3000);
-            centreWithSize (1400, 920);
+            setResizeLimits (1180, 760, 6000, 4000);
+            centreWithSize (1520, 960);
             setVisible (true);
+           #if JUCE_MAC
+            juce::MenuBarModel::setMacMainMenu (view().getMenuModel());
+           #endif
+        }
+        ~MainWindow() override
+        {
+           #if JUCE_MAC
+            juce::MenuBarModel::setMacMainMenu (nullptr);
+           #endif
         }
         void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
         MainView& view() { return *dynamic_cast<MainView*> (getContentComponent()); }
@@ -201,34 +285,49 @@ public:
     void initialise (const juce::String&) override
     {
         controller = std::make_unique<MixController>();
-        host = std::make_unique<AudioHost> (*controller);
-        services = std::make_unique<HostServices> (*controller, *host);
+        dawEngine = std::make_unique<DawEngine> (*controller);
+        host = std::make_unique<AudioHost> (*controller, *dawEngine);
+        services = std::make_unique<HostServices> (*controller, *dawEngine, *host);
 
         SessionStore::Document doc;
         const auto pointer = lastSessionPointer();
-        if (pointer.existsAsFile() && SessionStore::load (juce::File (pointer.loadFileAsString().trim()), doc))
+        const bool restored = pointer.existsAsFile()
+                              && SessionStore::load (juce::File (pointer.loadFileAsString().trim()), doc);
+        if (restored)
         {
             controller->setSession (doc.session);
-            restored = doc;
+            dawEngine->setSession (doc.session);
+            dawEngine->setProject (doc.project);
         }
+
         window = std::make_unique<MainWindow> (getApplicationName(), *controller, *services);
-        if (restored.has_value())
+
+        if (restored)
         {
-            services->holdMix (*restored);
-            if (restored->inputDevice.isNotEmpty() && host->open (restored->inputDevice, restored->outputDevice).isEmpty())
+            services->holdMix (doc);
+            const bool opened = doc.inputDevice.isNotEmpty()
+                                    ? host->open (doc.inputDevice, doc.outputDevice).isEmpty()
+                                    : (doc.project.hasAudio() && doc.outputDevice.isNotEmpty()
+                                           && host->openOutputOnly (doc.outputDevice).isEmpty());
+            if (opened)
             {
                 services->applyPendingMix();
-                window->view().showPage (controller->getSession().inputs.empty() ? MainView::Page::Assign : MainView::Page::Mix);
+                dawEngine->setSession (doc.session);
+                dawEngine->setProject (doc.project);
+                window->view().showPage (controller->getSession().inputs.empty() ? MainView::Page::Assign
+                                                                                 : MainView::Page::Tracks);
             }
         }
     }
 
     void shutdown() override
     {
+        if (dawEngine != nullptr) dawEngine->stop();
         if (services != nullptr && controller != nullptr && ! controller->getSession().inputs.empty()) services->saveSession();
         window.reset();
         host.reset();
         services.reset();
+        dawEngine.reset();
         controller.reset();
     }
 
@@ -236,10 +335,10 @@ public:
 
 private:
     std::unique_ptr<MixController> controller;
+    std::unique_ptr<DawEngine> dawEngine;
     std::unique_ptr<AudioHost> host;
     std::unique_ptr<HostServices> services;
     std::unique_ptr<MainWindow> window;
-    std::optional<SessionStore::Document> restored;
 };
 
 START_JUCE_APPLICATION (DineLiveApplication)

@@ -1,24 +1,32 @@
 #pragma once
+#include <functional>
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "native/DawEngine.h"
 #include "native/MixController.h"
 #include "native/SessionStore.h"
 
 namespace livemix
 {
 
-// What the UI needs from the outside world besides the controller: devices and
-// persistence. The application implements it with AudioHost + SessionStore; the
-// headless snapshot tool implements it with fakes, so every screen renders without
-// a device.
+// What the UI needs from the outside world besides the controller and the DAW engine:
+// devices, persistence, import and export. The application implements it with AudioHost +
+// SessionStore; the headless snapshot tool implements it with fakes, so every screen
+// renders without a device.
 class AppServices
 {
 public:
     virtual ~AppServices() = default;
 
+    // ---- the DAW: transport, timeline, recorder ----
+    virtual DawEngine& daw() = 0;
+
+    // ---- devices ----
     struct Device { juce::String name; int inputChannels = 0; int outputChannels = 0; };
     virtual juce::Array<Device> inputDevices() = 0;
     virtual juce::Array<Device> outputDevices() = 0;
     virtual juce::String openDevices (const juce::String& input, const juce::String& output) = 0;   // "" on success
+    // Output only: playing a recorded session back with no console connected. "" on success.
+    virtual juce::String openOutputOnly (const juce::String& output) = 0;
     // Change stereo output without re-running setup. Keeps the current mix. "" on success.
     virtual juce::String changeOutput (const juce::String& output) = 0;
     virtual bool isAudioRunning() = 0;
@@ -28,31 +36,29 @@ public:
     virtual int xrunCount() = 0;
     virtual bool deviceStopped() { return false; }   // the device went away without the app closing it
     virtual void reconfigure() = 0;          // assignments changed: rebuild the graph with audio stopped
-    virtual void saveSession() = 0;
-    // Save under a new name (Save As). Updates the live session name. "" on success.
-    virtual juce::String saveSessionAs (const juce::String& name) = 0;
-    // Load a previously saved mix; restores assignments, macros, kept mix, and reopens devices when possible.
-    // Returns "" on success. Caller should show Mix (or Assign) afterward.
-    virtual juce::String loadSession (const juce::File& file) = 0;
-    virtual juce::Array<SessionStore::Listing> listSessions() = 0;
     virtual juce::String currentInputDevice() = 0;
     virtual juce::String currentOutputDevice() = 0;
+
+    // ---- the session document ----
+    virtual void saveSession() = 0;
+    // Start over: clears the assignments, the timeline and the mix, keeping the device open.
+    virtual void newSession() = 0;
+    // Save under a new name (Save As). Updates the live session name and its folder. "" on success.
+    virtual juce::String saveSessionAs (const juce::String& name) = 0;
+    // Load a previously saved session; restores assignments, timeline, macros, kept mix, and
+    // reopens devices when possible. Returns "" on success.
+    virtual juce::String loadSession (const juce::File& file) = 0;
+    virtual juce::Array<SessionStore::Listing> listSessions() = 0;
     virtual juce::String currentSessionName() = 0;
+    virtual juce::File sessionFolder() = 0;   // empty until the session has been saved
 
-    // A folder of recorded stems played as the inputs (bands testing with a multitrack). "" on success.
-    virtual juce::String openRecording (const juce::File& folder, const juce::String& outputDevice) = 0;
-    virtual bool isPlayingRecording() = 0;
-    virtual juce::File recordingFolder() const { return {}; }   // empty when not playing stems
-    virtual MixSession recordingSuggestion (const MixSession& base) = 0;   // names and sources guessed from the file names
+    // A folder of stems becomes tracks and clips: assign, TUNE MIX, mix and export without a console.
+    virtual juce::String importMultitrack (const juce::File& folder) = 0;
 
-    // Bounce a mix through a stems folder to stereo WAV or MP3. "" on success. Safe to call
-    // off the message thread when session/params are already copied.
+    // Bounce the recorded timeline through the current mix to stereo WAV or MP3. "" on success.
+    // Safe to run on a worker thread. `progress` returns false to cancel.
     enum class ExportFormat { Wav = 0, Mp3 };
-    virtual juce::String exportMix (const MixSession& session,
-                                    const MixParameters& params,
-                                    const juce::File& stemsFolder,
-                                    const juce::File& dest,
-                                    ExportFormat) = 0;
+    virtual juce::String exportMix (const juce::File& dest, ExportFormat, std::function<bool (float)> progress) = 0;
 };
 
 // Shared page look: a titled card area on the design's ground.

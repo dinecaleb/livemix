@@ -69,6 +69,14 @@ public:
     void revertPlan();
     int getTuneCount() const noexcept { return tuneCount; }
 
+    // ---- BYPASS: hear the inputs with nothing DINELIVE does ----
+    // Every chain is bypassed, faders and input gains go back to their starting point and
+    // the returns go silent, so what comes out is the console feed itself. Nothing about
+    // the kept mix changes: switch it off and the mix is exactly as it was. Mutes and solos
+    // are carried across so you can still audition one source while comparing.
+    void setBypass (bool on);
+    bool isBypassed() const noexcept { return bypassed; }
+
     // ---- Macros (50 = the plan) ----
     void setMacro (MixMacro m, float value);
     const MixMacroValues& getMacros() const noexcept { return macros; }
@@ -77,10 +85,12 @@ public:
     // ---- Advanced edits (on the kept mix; they survive macro moves) ----
     void setStripFader (int strip, float db);
     void setStripInputGain (int strip, float db);
+    void setStripPan (int strip, float pan);            // -1 left .. +1 right (balance on a stereo strip)
     void setStripMute (int strip, bool mute);
     void setStripSolo (int strip, bool solo);
     void setStripSend (int strip, FxSlot slot, float db);
     void setBusFader (MixBus bus, float db);
+    void setBusMute (MixBus bus, bool mute);
     void setBusSolo (MixBus bus, bool solo);
     void clearSolos();
     const MixParameters& getKept() const noexcept { return kept; }          // without macros
@@ -116,6 +126,7 @@ private:
     std::optional<MixPlan> plan;
     Compare compare = Compare::After;
     MixMacroValues macros;
+    bool bypassed = false;              // hearing the raw inputs; the kept mix is untouched
     int tuneCount = 0;
     bool mixed = false;                 // a plan was kept (or a saved mix restored): the mix is more than the baselines
     ListenSettings listen;

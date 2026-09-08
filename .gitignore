@@ -15,5 +15,4 @@ external/JUCE/
 *.swp
 
 # Stray local artefacts
-livemix/
 .tmp-*

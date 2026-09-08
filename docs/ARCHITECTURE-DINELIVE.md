@@ -233,3 +233,46 @@ plugins), reinforcement, SQLite (JSON is enough for one session document), the R
 soak tests at 44.1/88.2/96 kHz and 32/256-sample buffers, a mix-level check that strip, bus and master "harshness"
 cuts do not stack (the after mix loses ~4 dB of upper-mids against the raw sum), a per-family high-pass floor for
 vocals (the lead's 82 Hz "fundamental" is bleed).
+
+---
+
+## 10. The DAW milestone (2026-09-08)
+
+The brief for DINELIVE changed from "a standalone mixer" to **the live recording and broadcast DAW**. The mix
+layer above is unchanged; one object was added between the device and it. Full report: `docs/MILESTONE-7.md`.
+
+```
+CoreAudio device
+      │  N input channels
+      ▼
+app/native  AudioHost                                    <- the only JUCE audio-device code
+      │
+      ▼
+app/native  DawEngine::processBlock()                    <- no allocation, no locks, no files
+      │  1. Recorder::write   raw device inputs -> lock-free FIFO -> writer thread -> WAV per armed track
+      │  2. TimelinePlayer::read   ring filled ahead by a reader thread from ClipSource
+      │  3. the input matrix: every device channel, with playback swapped in per track
+      │     (monitorUsesLiveInput: Off / Input / Auto — one rule, in Project.h)
+      ▼
+src/Mix     MixEngine::process()                         <- exactly as before
+      ▼
+stereo output  -> OBS / Ecamm / recorder
+```
+
+Consequences worth remembering:
+
+- **TUNE MIX did not change.** It listens to whatever the matrix carries, so it works identically on live inputs
+  and on a recorded service played back from the timeline (§42 of the brief).
+- **The raw recording is the raw input** (§41). Processing, faders and the master never touch what is written.
+- **The loop wraps to the sample** in both `Transport::advance` and the player's fill, so the playhead and what is
+  heard cannot drift apart.
+- **A session is a folder**: `~/Music/DINELIVE/<name>/<name>.dinelive.json` with `Audio Files/` beside it.
+  `SessionStore` is version 2; version 1 documents open with an empty timeline.
+- **There is one playback path.** `MultitrackSource` (a stems folder streamed as fake device inputs) is gone;
+  `MultitrackImport` turns a folder into tracks and clips, which record, edit, save and export like anything else.
+- **LIVE SAFE** (§36) locks TUNE MIX, imports, new sessions and timeline edits; mutes, faders and the transport
+  stay available, because an operator must always be able to act.
+
+Still open after this milestone: fades and crossfades, comping, moving clips between tracks, markers drawn in the
+ruler, count-in and metronome, processed-stem and stereo-master recording alongside the raw inputs, House Sound,
+drum reinforcement, third-party plugin hosting, and the React bridge spike.

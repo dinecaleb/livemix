@@ -376,7 +376,10 @@ void DineMeter::paint (juce::Graphics& g)
 }
 
 // ============================================================================ DineButton
-DineButton::DineButton (const juce::String& t, Style s) : juce::Button (t), style (s) {}
+DineButton::DineButton (const juce::String& t, Style s) : juce::Button (t), style (s)
+{
+    setWantsKeyboardFocus (false);   // Space and Return belong to the transport, not to whatever was clicked last
+}
 
 int DineButton::idealWidth() const
 {
@@ -440,7 +443,10 @@ void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
 }
 
 // ============================================================================ DinePopup
-DinePopup::DinePopup() : juce::Button ({}) {}
+DinePopup::DinePopup() : juce::Button ({})
+{
+    setWantsKeyboardFocus (false);   // Space and Return belong to the transport, not to whatever was clicked last
+}
 
 int DinePopup::idealWidth() const
 {
@@ -461,7 +467,10 @@ void DinePopup::paintButton (juce::Graphics& g, bool over, bool down)
 }
 
 // ============================================================================ DineNavItem
-DineNavItem::DineNavItem (const juce::String& l, Dine::Icon i) : juce::Button (l), label (l), icon (i) {}
+DineNavItem::DineNavItem (const juce::String& l, Dine::Icon i) : juce::Button (l), label (l), icon (i)
+{
+    setWantsKeyboardFocus (false);   // Space and Return belong to the transport, not to whatever was clicked last
+}
 
 void DineNavItem::paintButton (juce::Graphics& g, bool over, bool)
 {
@@ -495,7 +504,10 @@ void DineNavItem::paintButton (juce::Graphics& g, bool over, bool)
 }
 
 // ============================================================================ DineSwitch
-DineSwitch::DineSwitch (const juce::String& on, const juce::String& off) : juce::Button (on), onText (on), offText (off) {}
+DineSwitch::DineSwitch (const juce::String& on, const juce::String& off) : juce::Button (on), onText (on), offText (off)
+{
+    setWantsKeyboardFocus (false);   // Space and Return belong to the transport, not to whatever was clicked last
+}
 
 void DineSwitch::paintButton (juce::Graphics& g, bool over, bool)
 {
@@ -565,7 +577,51 @@ void DineLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w, 
 {
     const bool vertical = style == juce::Slider::LinearVertical;
     const bool bipolar = bool (s.getProperties().getWithDefault ("dineBipolar", false));
+    const bool consoleFader = bool (s.getProperties().getWithDefault ("dineFader", false));
     const juce::Colour fillColour = s.isEnabled() ? Dine::accent : Dine::ink4;
+
+    // A console fader: a deep slot with the level filled in behind, and a moulded cap
+    // wide enough to grab. The cap never leaves the slot, so the ends read as the ends.
+    if (consoleFader)
+    {
+        const float capLong = 13.0f, capShort = juce::jmin (26.0f, float (vertical ? w : h) - 2.0f);
+        auto full = juce::Rectangle<float> (float (x), float (y), float (w), float (h));
+        auto slot = vertical ? full.withSizeKeepingCentre (6.0f, full.getHeight())
+                             : full.withSizeKeepingCentre (full.getWidth(), 6.0f);
+        Dine::drawWell (g, slot, 3.0f);
+        // The travelled part of the slot is tinted, not lit: the meter is the bright thing
+        // on a strip, and a bank of faders should not read as a wall of colour.
+        g.setColour (fillColour.withAlpha (s.isEnabled() ? 0.45f : 0.25f));
+        if (vertical)
+        {
+            const float top = juce::jlimit (slot.getY(), slot.getBottom(), sliderPos);
+            g.fillRoundedRectangle (juce::Rectangle<float> (slot.getX(), top, slot.getWidth(), slot.getBottom() - top), 3.0f);
+        }
+        else
+        {
+            const float right = juce::jlimit (slot.getX(), slot.getRight(), sliderPos);
+            g.fillRoundedRectangle (juce::Rectangle<float> (slot.getX(), slot.getY(), right - slot.getX(), slot.getHeight()), 3.0f);
+        }
+
+        const float centre = vertical ? juce::jlimit (full.getY() + capLong * 0.5f, full.getBottom() - capLong * 0.5f, sliderPos)
+                                      : juce::jlimit (full.getX() + capLong * 0.5f, full.getRight() - capLong * 0.5f, sliderPos);
+        auto cap = vertical ? juce::Rectangle<float> (full.getCentreX() - capShort * 0.5f, centre - capLong * 0.5f, capShort, capLong)
+                            : juce::Rectangle<float> (centre - capLong * 0.5f, full.getCentreY() - capShort * 0.5f, capLong, capShort);
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRoundedRectangle (cap.translated (0.0f, 1.0f), 3.0f);
+        juce::ColourGradient capFill (juce::Colour (0xff62666e), cap.getCentreX(), cap.getY(),
+                                      juce::Colour (0xff2b2d32), cap.getCentreX(), cap.getBottom(), false);
+        if (! vertical) capFill = juce::ColourGradient (juce::Colour (0xff62666e), cap.getX(), cap.getCentreY(),
+                                                        juce::Colour (0xff2b2d32), cap.getRight(), cap.getCentreY(), false);
+        g.setGradientFill (capFill);
+        g.fillRoundedRectangle (cap, 3.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.drawRoundedRectangle (cap.reduced (0.25f), 3.0f, 0.5f);
+        g.setColour (juce::Colours::white.withAlpha (s.isEnabled() ? 0.85f : 0.35f));
+        if (vertical) g.fillRect (cap.getX() + 2.0f, cap.getCentreY() - 0.5f, cap.getWidth() - 4.0f, 1.0f);
+        else          g.fillRect (cap.getCentreX() - 0.5f, cap.getY() + 2.0f, 1.0f, cap.getHeight() - 4.0f);
+        return;
+    }
 
     if (! vertical)
     {

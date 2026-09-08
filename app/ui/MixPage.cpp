@@ -285,13 +285,16 @@ public:
                 g.setColour (Dine::accent);
                 g.strokePath (arc, juce::PathStrokeType (thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
+            // The number and its caption both live inside the ring, never over the arc.
             g.setColour (Dine::ink);
             g.setFont (Dine::mono (25.0f, 500));
             g.drawText (waiting ? Glyph::dash() : juce::String (int (std::round (progress * 100.0f))),
-                        ring.withTrimmedBottom (16.0f).toNearestInt(), juce::Justification::centred);
+                        ring.withTrimmedBottom (24.0f).toNearestInt(), juce::Justification::centred);
             g.setColour (Dine::ink2);
             g.setFont (Dine::text (10.0f));
-            g.drawText (waiting ? "waiting" : "% listened", ring.removeFromBottom (26.0f).toNearestInt(), juce::Justification::centred);
+            g.drawText (waiting ? "waiting" : "% listened",
+                        ring.withTrimmedTop (ring.getHeight() * 0.5f + 8.0f).withHeight (17.0f).toNearestInt(),
+                        juce::Justification::centred);
         }
 
         auto text = sheetBounds().reduced (26, 24).withTrimmedLeft (104 + 20).removeFromTop (104);

@@ -139,6 +139,94 @@ namespace
                 m.fx[size_t (f)].enabled = bool (fo->getProperty ("enabled"));
             }
     }
+
+    juce::var projectToVar (const Project& p)
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty ("sampleRate", p.sampleRate);
+        obj->setProperty ("tempo", p.tempo);
+        obj->setProperty ("liveSafe", p.liveSafe);
+        obj->setProperty ("loopEnabled", p.loopEnabled);
+        obj->setProperty ("loopStart", double (p.loopStart));
+        obj->setProperty ("loopEnd", double (p.loopEnd));
+        juce::Array<juce::var> tracks;
+        for (const auto& t : p.tracks)
+        {
+            auto* to = new juce::DynamicObject();
+            to->setProperty ("armed", t.armed);
+            to->setProperty ("monitor", int (t.monitor));
+            to->setProperty ("height", t.height);
+            juce::Array<juce::var> clips;
+            for (const auto& c : t.clips)
+            {
+                auto* co = new juce::DynamicObject();
+                co->setProperty ("name", c.name);
+                co->setProperty ("file", c.file);
+                co->setProperty ("start", double (c.start));
+                co->setProperty ("offset", double (c.offset));
+                co->setProperty ("length", double (c.length));
+                co->setProperty ("fileSampleRate", c.fileSampleRate);
+                clips.add (juce::var (co));
+            }
+            to->setProperty ("clips", clips);
+            tracks.add (juce::var (to));
+        }
+        obj->setProperty ("tracks", tracks);
+        juce::Array<juce::var> markers;
+        for (const auto& m : p.markers)
+        {
+            auto* mo = new juce::DynamicObject();
+            mo->setProperty ("name", m.name);
+            mo->setProperty ("position", double (m.position));
+            markers.add (juce::var (mo));
+        }
+        obj->setProperty ("markers", markers);
+        return juce::var (obj);
+    }
+
+    void projectFromVar (const juce::var& v, Project& p)
+    {
+        auto* obj = v.getDynamicObject();
+        if (obj == nullptr) return;
+        if (obj->hasProperty ("sampleRate")) p.sampleRate = double (obj->getProperty ("sampleRate"));
+        if (obj->hasProperty ("tempo")) p.tempo = double (obj->getProperty ("tempo"));
+        p.liveSafe = bool (obj->getProperty ("liveSafe"));
+        p.loopEnabled = bool (obj->getProperty ("loopEnabled"));
+        p.loopStart = juce::int64 (double (obj->getProperty ("loopStart")));
+        p.loopEnd = juce::int64 (double (obj->getProperty ("loopEnd")));
+        p.tracks.clear();
+        if (auto* tracks = obj->getProperty ("tracks").getArray())
+            for (const auto& tv : *tracks)
+            {
+                TrackState t;
+                if (auto* to = tv.getDynamicObject())
+                {
+                    t.armed = bool (to->getProperty ("armed"));
+                    const int m = int (to->getProperty ("monitor"));
+                    t.monitor = (m >= 0 && m < int (MonitorMode::Count)) ? MonitorMode (m) : MonitorMode::Auto;
+                    if (to->hasProperty ("height")) t.height = juce::jlimit (34, 320, int (to->getProperty ("height")));
+                    if (auto* clips = to->getProperty ("clips").getArray())
+                        for (const auto& cv : *clips)
+                            if (auto* co = cv.getDynamicObject())
+                            {
+                                AudioClip c;
+                                c.name = co->getProperty ("name").toString();
+                                c.file = co->getProperty ("file").toString();
+                                c.start = juce::int64 (double (co->getProperty ("start")));
+                                c.offset = juce::int64 (double (co->getProperty ("offset")));
+                                c.length = juce::int64 (double (co->getProperty ("length")));
+                                c.fileSampleRate = double (co->getProperty ("fileSampleRate"));
+                                if (c.length > 0 && c.file.isNotEmpty()) t.clips.push_back (c);
+                            }
+                }
+                p.tracks.push_back (t);
+            }
+        p.markers.clear();
+        if (auto* markers = obj->getProperty ("markers").getArray())
+            for (const auto& mv : *markers)
+                if (auto* mo = mv.getDynamicObject())
+                    p.markers.push_back ({ mo->getProperty ("name").toString(), juce::int64 (double (mo->getProperty ("position"))) });
+    }
 }
 
 namespace SessionStore
@@ -173,6 +261,7 @@ juce::var toVar (const Document& d)
     obj->setProperty ("tuneCount", d.tuneCount);
     obj->setProperty ("hasMix", d.hasMix);
     if (d.hasMix) obj->setProperty ("mix", mixToVar (d.mix));
+    obj->setProperty ("project", projectToVar (d.project));
     return juce::var (obj);
 }
 
@@ -205,17 +294,30 @@ bool fromVar (const juce::var& v, Document& d)
     d.tuneCount = int (obj->getProperty ("tuneCount"));
     d.hasMix = bool (obj->getProperty ("hasMix"));
     if (d.hasMix) mixFromVar (obj->getProperty ("mix"), d.mix);
+    projectFromVar (obj->getProperty ("project"), d.project);      // absent in version 1: no timeline yet
+    d.project.syncTracks (d.session);
     return true;
 }
 
 juce::File sessionsFolder()
 {
+    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("DINELIVE");
+}
+
+juce::File legacyFolder()
+{
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("DINELIVE").getChildFile ("Sessions");
+}
+
+juce::File folderFor (const juce::String& sessionName)
+{
+    return sessionsFolder().getChildFile (juce::File::createLegalFileName (sessionName.isEmpty() ? "Session" : sessionName));
 }
 
 juce::File fileFor (const juce::String& sessionName)
 {
-    return sessionsFolder().getChildFile (juce::File::createLegalFileName (sessionName.isEmpty() ? "Session" : sessionName) + ".dinelive.json");
+    const auto folder = folderFor (sessionName);
+    return folder.getChildFile (folder.getFileName() + ".dinelive.json");
 }
 
 bool save (const Document& d, const juce::File& file)
@@ -228,25 +330,38 @@ bool load (const juce::File& file, Document& d)
 {
     if (! file.existsAsFile()) return false;
     const juce::var v = juce::JSON::parse (file);
-    return fromVar (v, d);
+    if (! fromVar (v, d)) return false;
+    // Recorded takes are named relative to the document, so the folder comes from where it was found.
+    const auto parent = file.getParentDirectory();
+    d.project.folder = parent == legacyFolder() ? juce::File() : parent;
+    return true;
 }
 
 juce::Array<Listing> listSessions()
 {
+    // Names come from the file, not from its contents: a session folder can hold hours of
+    // audio, and opening the list must not read (or walk past) any of it.
     juce::Array<Listing> out;
-    const auto folder = sessionsFolder();
-    if (! folder.isDirectory()) return out;
-    for (const auto& f : folder.findChildFiles (juce::File::findFiles, false, "*.dinelive.json"))
+    auto add = [&out] (const juce::File& f)
     {
-        Document d;
-        if (! load (f, d)) continue;
         Listing L;
-        L.name = juce::String (d.session.name);
+        L.name = f.getFileName().upToLastOccurrenceOf (".dinelive.json", false, false);
         if (L.name.isEmpty()) L.name = f.getFileNameWithoutExtension();
         L.file = f;
         L.modified = f.getLastModificationTime();
         out.add (L);
+    };
+    if (sessionsFolder().isDirectory())
+    {
+        for (const auto& dir : sessionsFolder().findChildFiles (juce::File::findDirectories, false))
+            for (const auto& f : dir.findChildFiles (juce::File::findFiles, false, "*.dinelive.json"))
+                add (f);
+        for (const auto& f : sessionsFolder().findChildFiles (juce::File::findFiles, false, "*.dinelive.json"))
+            add (f);
     }
+    if (legacyFolder().isDirectory())
+        for (const auto& f : legacyFolder().findChildFiles (juce::File::findFiles, false, "*.dinelive.json"))
+            add (f);
     std::sort (out.begin(), out.end(), [] (const Listing& a, const Listing& b) { return a.modified > b.modified; });
     return out;
 }

@@ -20,15 +20,28 @@ target_include_directories(dinelive_mix_stems PRIVATE ${CMAKE_SOURCE_DIR}/src ${
 # DINELIVE standalone application (JUCE GUI app) and its headless UI snapshot tool.
 # The UI code is shared by both targets; only the entry point and the device host differ.
 # ---------------------------------------------------------------------------
-set(DINELIVE_UI_SOURCES
+# The application layer with no device in it: the mix controller, the DAW (transport,
+# recorder, timeline player), the session document, import and offline bounce.
+set(DINELIVE_APP_SOURCES
     native/MixController.cpp
     native/SessionStore.cpp
     native/MixBounce.cpp
+    native/ClipSource.cpp
+    native/DawEngine.cpp
+    native/Recorder.cpp
+    native/TimelinePlayer.cpp
+    native/MultitrackImport.cpp)
+
+set(DINELIVE_UI_SOURCES
+    ${DINELIVE_APP_SOURCES}
     ui/AppTheme.cpp
     ui/SetupPages.cpp
+    ui/TracksPage.cpp
     ui/MixPage.cpp
     ui/MixerPage.cpp
+    ui/LivePage.cpp
     ui/AdvancedPage.cpp
+    ui/TransportBar.cpp
     ui/MainView.cpp
     ${CMAKE_SOURCE_DIR}/src/UI/LiveMixLookAndFeel.cpp
     ${CMAKE_SOURCE_DIR}/src/UI/Widgets.cpp
@@ -51,7 +64,7 @@ juce_add_gui_app(DineLive
     HARDENED_RUNTIME_ENABLED TRUE
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "DINELIVE mixes the inputs of your audio device.")
-target_sources(DineLive PRIVATE Main.cpp native/AudioHost.cpp native/MultitrackSource.cpp ${DINELIVE_UI_SOURCES})
+target_sources(DineLive PRIVATE Main.cpp native/AudioHost.cpp ${DINELIVE_UI_SOURCES})
 target_include_directories(DineLive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(DineLive PRIVATE ${DINELIVE_DEFINES}
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:DineLive,JUCE_PRODUCT_NAME>"
@@ -70,19 +83,21 @@ if (LIVEMIX_BUILD_TESTS)
     # Application-layer tests: controller state machine and session document (no device, no UI).
     add_executable(dinelive_app_tests
         Tests/AppTests.cpp
-        native/MixController.cpp
-        native/SessionStore.cpp
+        Tests/DawTests.cpp
+        ${DINELIVE_APP_SOURCES}
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp)
     target_include_directories(dinelive_app_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)
     target_compile_definitions(dinelive_app_tests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
         JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
-    target_link_libraries(dinelive_app_tests PRIVATE livemix_engine juce::juce_core juce::juce_recommended_config_flags)
+    target_link_libraries(dinelive_app_tests PRIVATE livemix_engine juce::juce_core juce::juce_audio_formats
+        juce::juce_audio_basics juce::juce_events juce::juce_recommended_config_flags)
     add_test(NAME dinelive_app_tests COMMAND dinelive_app_tests)
 endif()
 
 # Real-device soak check (opens an audio device through AudioHost, runs the engine, reports).
-add_executable(dinelive_device_check Tools/DeviceCheck.cpp native/MixController.cpp native/AudioHost.cpp native/MultitrackSource.cpp)
+add_executable(dinelive_device_check Tools/DeviceCheck.cpp native/AudioHost.cpp ${DINELIVE_APP_SOURCES})
 target_include_directories(dinelive_device_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(dinelive_device_check PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
 target_link_libraries(dinelive_device_check PRIVATE livemix_engine juce::juce_audio_devices juce::juce_audio_formats juce::juce_events juce::juce_recommended_config_flags)
+target_compile_definitions(dinelive_device_check PRIVATE JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}")
