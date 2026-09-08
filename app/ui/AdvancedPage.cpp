@@ -97,11 +97,12 @@ public:
         meter.setInterceptsMouseClicks (false, false);
     }
 
-    void set (float peakDb, float rmsDb, bool clipped, const juce::String& levelText, bool muted)
+    void set (float peakDb, float rmsDb, bool clipped, const juce::String& levelText, bool muted, bool soloed = false)
     {
         meter.setLevels (peakDb, rmsDb, clipped);
         level = levelText;
         mute = muted;
+        solo = soloed;
         repaint();
     }
 
@@ -114,12 +115,12 @@ public:
 
         auto r = getLocalBounds().reduced (7, 0);
         Dine::drawIcon (g, icon, r.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f),
-                        mute ? Dine::crit : kind == Kind::Channel ? (on ? Dine::accent : Dine::glyph) : busTint (bus));
+                        mute ? Dine::crit : solo ? Dine::accent : kind == Kind::Channel ? (on ? Dine::accent : Dine::glyph) : busTint (bus));
         r.removeFromLeft (8);
 
-        g.setColour (mute ? Dine::crit : Dine::ink3);
+        g.setColour (mute ? Dine::crit : solo ? Dine::accent : Dine::ink3);
         g.setFont (Dine::mono (11.0f));
-        g.drawText (mute ? juce::String ("mute") : level, r.removeFromRight (42), juce::Justification::centredRight);
+        g.drawText (mute ? juce::String ("mute") : (solo ? juce::String ("solo") : level), r.removeFromRight (42), juce::Justification::centredRight);
         r.removeFromRight (6 + 34);   // the meter lives here
 
         g.setColour (mute ? Dine::ink3 : Dine::ink);
@@ -138,7 +139,7 @@ public:
     Kind kind;
     MixBus bus;
     int strip = -1;
-    bool mute = false;
+    bool mute = false, solo = false;
     Dine::Icon icon;
     DineMeter meter;
 };
@@ -182,10 +183,23 @@ public:
             if (! sel.isBus)
                 controller.setStripMute (sel.strip, ! controller.getKept().strips[size_t (sel.strip)].mute);
         };
+        soloButton.setClickingTogglesState (false);
+        soloButton.setFontPx (12.5f);
+        soloButton.onClick = [this]
+        {
+            if (sel.isBus)
+            {
+                if (sel.bus != MixBus::Master)
+                    controller.setBusSolo (sel.bus, ! controller.getKept().buses[size_t (sel.bus)].solo);
+            }
+            else
+                controller.setStripSolo (sel.strip, ! controller.getKept().strips[size_t (sel.strip)].solo);
+        };
 
         addAndMakeVisible (gain);
         addAndMakeVisible (fader);
         addAndMakeVisible (muteButton);
+        addAndMakeVisible (soloButton);
         addAndMakeVisible (meter);
         for (auto& s : sends) addChildComponent (s);
 
@@ -216,6 +230,13 @@ public:
             fader.setValue (kept.buses[size_t (sel.bus)].faderDb, juce::dontSendNotification);
             setVis (gain, false);
             setVis (muteButton, false);
+            setVis (soloButton, sel.bus != MixBus::Master);
+            if (sel.bus != MixBus::Master)
+            {
+                const bool on = kept.buses[size_t (sel.bus)].solo;
+                soloButton.setButtonText (on ? "Unsolo" : "Solo");
+                soloButton.setStyle (on ? DineButton::Style::Filled : DineButton::Style::Standard);
+            }
             for (auto& s : sends) setVis (s, false);
             if (controller.isPrepared())
             {
@@ -230,10 +251,13 @@ public:
             const auto& st = kept.strips[size_t (sel.strip)];
             setVis (gain, true);
             setVis (muteButton, true);
+            setVis (soloButton, true);
             gain.setValue (st.inputGainDb, juce::dontSendNotification);
             fader.setValue (st.faderDb, juce::dontSendNotification);
             muteButton.setButtonText (st.mute ? "Unmute" : "Mute");
             muteButton.setStyle (st.mute ? DineButton::Style::Filled : DineButton::Style::Standard);
+            soloButton.setButtonText (st.solo ? "Unsolo" : "Solo");
+            soloButton.setStyle (st.solo ? DineButton::Style::Filled : DineButton::Style::Standard);
             const auto& graph = controller.getGraph();
             for (int f = 0; f < int (FxSlot::Count); ++f)
             {
@@ -591,8 +615,19 @@ public:
             gainCol.removeFromBottom (14);
             auto row = gainCol.withHeight (24);
             muteButton.setBounds (row.removeFromRight (juce::jmax (72, muteButton.idealWidth())).withHeight (Dine::Metric::control).withY (row.getY() + 1));
+            row.removeFromRight (8);
+            soloButton.setBounds (row.removeFromRight (juce::jmax (64, soloButton.idealWidth())).withHeight (Dine::Metric::control).withY (row.getY() + 1));
             row.removeFromRight (12);
             gain.setBounds (row);
+        }
+        else if (soloButton.isVisible())
+        {
+            auto gainCol = lr;
+            gainCol.removeFromRight (20);
+            gainCol.removeFromTop (16 + 4);
+            gainCol.removeFromBottom (14);
+            auto row = gainCol.withHeight (24);
+            soloButton.setBounds (row.removeFromRight (juce::jmax (64, soloButton.idealWidth())).withHeight (Dine::Metric::control).withY (row.getY() + 1));
         }
 
         controls.removeFromTop (14);
@@ -631,6 +666,7 @@ private:
     std::array<juce::Slider, int (FxSlot::Count)> sends;
 
     DineButton muteButton { "Mute", DineButton::Style::Standard };
+    DineButton soloButton { "Solo", DineButton::Style::Standard };
     DineMeter meter;
     juce::Viewport reportView;
     Report report;
@@ -750,13 +786,14 @@ void AdvancedPage::refresh()
         {
             const auto& m = engine.getStrip (r->strip).getOutputMeter();
             const auto& st = kept.strips[size_t (r->strip)];
-            r->set (m.consumeMaxPeakDb(), m.getMaxRmsDb(), m.hasClipped(), db1 (st.faderDb), st.mute);
+            r->set (m.consumeMaxPeakDb(), m.getMaxRmsDb(), m.hasClipped(), db1 (st.faderDb), st.mute, st.solo);
         }
         else
         {
             const auto& m = engine.getBus (r->bus).getOutputMeter();
             r->set (m.consumeMaxPeakDb(), m.getMaxRmsDb(), m.hasClipped(),
-                    db1 (kept.buses[size_t (r->bus)].faderDb), kept.buses[size_t (r->bus)].mute);
+                    db1 (kept.buses[size_t (r->bus)].faderDb), kept.buses[size_t (r->bus)].mute,
+                    kept.buses[size_t (r->bus)].solo);
         }
     }
     detail->refresh();

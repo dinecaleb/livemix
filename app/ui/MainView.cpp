@@ -1,4 +1,5 @@
 #include "MainView.h"
+#include "native/MixBounce.h"
 
 namespace livemix
 {
@@ -86,11 +87,12 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     assignPage = std::make_unique<AssignPage> (controller, services);
     purposePage = std::make_unique<PurposePage> (controller);
     mixPage = std::make_unique<MixPage> (controller);
+    mixerPage = std::make_unique<MixerPage> (controller);
     advancedPage = std::make_unique<AdvancedPage> (controller);
     toast = std::make_unique<Toast>();
     sessionButton = std::make_unique<SessionButton>();
     for (juce::Component* p : { (juce::Component*) devicePage.get(), (juce::Component*) assignPage.get(), (juce::Component*) purposePage.get(),
-                                (juce::Component*) mixPage.get(), (juce::Component*) advancedPage.get() })
+                                (juce::Component*) mixPage.get(), (juce::Component*) mixerPage.get(), (juce::Component*) advancedPage.get() })
         addChildComponent (*p);
 
     // ---- sidebar
@@ -107,10 +109,10 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
         setupItems[size_t (i)]->onClick = [this, p = setupPages[i]] { showPage (p); };
         addAndMakeVisible (*setupItems[size_t (i)]);
     }
-    const char* mixLabels[2] = { "Mix", "Advanced" };
-    const Dine::Icon mixIcons[2] = { Dine::Icon::Waveform, Dine::Icon::List };
-    const Page mixPages[2] = { Page::Mix, Page::Advanced };
-    for (int i = 0; i < 2; ++i)
+    const char* mixLabels[3] = { "Mix", "Mixer", "Advanced" };
+    const Dine::Icon mixIcons[3] = { Dine::Icon::Waveform, Dine::Icon::Sliders, Dine::Icon::List };
+    const Page mixPages[3] = { Page::Mix, Page::Mixer, Page::Advanced };
+    for (int i = 0; i < 3; ++i)
     {
         mixItems[size_t (i)] = std::make_unique<DineNavItem> (mixLabels[i], mixIcons[i]);
         mixItems[size_t (i)]->onClick = [this, p = mixPages[i]] { showPage (p); };
@@ -121,14 +123,19 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     addAndMakeVisible (*sessionButton);
     sessionButton->onClick = [this] { sessionMenu(); };
     addAndMakeVisible (segMix);
+    addAndMakeVisible (segMixer);
     addAndMakeVisible (segAdvanced);
     segMix.setFontPx (12.0f);
+    segMixer.setFontPx (12.0f);
     segAdvanced.setFontPx (12.0f);
     segMix.setPadX (13);
+    segMixer.setPadX (13);
     segAdvanced.setPadX (13);
     segMix.setClickingTogglesState (false);
+    segMixer.setClickingTogglesState (false);
     segAdvanced.setClickingTogglesState (false);
     segMix.onClick = [this] { showPage (Page::Mix); };
+    segMixer.onClick = [this] { showPage (Page::Mixer); };
     segAdvanced.onClick = [this] { showPage (Page::Advanced); };
     addAndMakeVisible (outputButton);
     outputButton.setTooltip ("Where the finished mix goes out.");
@@ -148,6 +155,16 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     purposePage->onContinue = [this] { enterMix(); };
     mixPage->onOpenAdvanced = [this] { showPage (Page::Advanced); };
     mixPage->onToast = [this] (const juce::String& t) { showToast (t); };
+    mixerPage->onOpenStrip = [this] (int strip)
+    {
+        showPage (Page::Advanced);
+        advancedPage->select (strip);
+    };
+    mixerPage->onOpenBus = [this] (MixBus bus)
+    {
+        showPage (Page::Advanced);
+        advancedPage->selectBus (bus);
+    };
     advancedPage->onBack = [this] { showPage (Page::Mix); };
     controller.onMessage = [this] (const std::string& m) { showToast (m); };
     controller.onMixChanged = [this] { requestSave(); };
@@ -170,6 +187,7 @@ void MainView::enterMix()
     services.reconfigure();
     services.saveSession();
     advancedPage->rebuild();
+    mixerPage->rebuild();
     showPage (Page::Mix);
 }
 
@@ -180,10 +198,12 @@ void MainView::showPage (Page p)
     assignPage->setVisible (p == Page::Assign);
     purposePage->setVisible (p == Page::Purpose);
     mixPage->setVisible (p == Page::Mix);
+    mixerPage->setVisible (p == Page::Mixer);
     advancedPage->setVisible (p == Page::Advanced);
     if (p == Page::Device) devicePage->refresh();
     if (p == Page::Assign) assignPage->refresh();
     if (p == Page::Purpose) purposePage->refresh();
+    if (p == Page::Mixer) mixerPage->rebuild();
     if (p == Page::Advanced) advancedPage->rebuild();
     updateChrome();
     resized();
@@ -209,16 +229,21 @@ void MainView::updateChrome()
     mixItems[0]->setSelected (page == Page::Mix);
     mixItems[0]->setEnabled (mixable);
     mixItems[0]->setMeta (controller.getTuneCount() > 0 ? "tuned" : juce::String());
-    mixItems[1]->setSelected (page == Page::Advanced);
+    mixItems[1]->setSelected (page == Page::Mixer);
     mixItems[1]->setEnabled (mixable);
     mixItems[1]->setMeta (hasInputs ? juce::String (int (session.inputs.size())) : juce::String());
+    mixItems[2]->setSelected (page == Page::Advanced);
+    mixItems[2]->setEnabled (mixable);
+    mixItems[2]->setMeta (hasInputs ? juce::String (int (session.inputs.size())) : juce::String());
 
     setupsItem.setMeta (juce::String (services.listSessions().size()));
 
-    const bool mixing = page == Page::Mix || page == Page::Advanced;
+    const bool mixing = page == Page::Mix || page == Page::Mixer || page == Page::Advanced;
     segMix.setVisible (mixing);
+    segMixer.setVisible (mixing);
     segAdvanced.setVisible (mixing);
     segMix.setToggleState (page == Page::Mix, juce::dontSendNotification);
+    segMixer.setToggleState (page == Page::Mixer, juce::dontSendNotification);
     segAdvanced.setToggleState (page == Page::Advanced, juce::dontSendNotification);
     outputButton.setVisible (running || mixing);
 
@@ -247,13 +272,89 @@ void MainView::sessionMenu()
     menu.addItem (2, "Save as a new setup...");
     menu.addSeparator();
     menu.addItem (3, "Open a setup...");
+    menu.addSeparator();
+    menu.addItem (4, "Export mix as WAV...");
+    menu.addItem (5, "Export mix as MP3...");
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sessionButton.get()).withMinimumWidth (240),
                         [this] (int result)
                         {
                             if (result == 1) saveNow();
                             else if (result == 2) saveAs();
                             else if (result == 3) openMix();
+                            else if (result == 4) exportMix (AppServices::ExportFormat::Wav);
+                            else if (result == 5) exportMix (AppServices::ExportFormat::Mp3);
                         });
+}
+
+void MainView::exportMix (AppServices::ExportFormat format)
+{
+    if (! controller.isPrepared() || controller.getSession().inputs.empty())
+    {
+        showToast ("Finish setup and assign inputs before exporting.");
+        return;
+    }
+
+    juce::File stems = services.recordingFolder();
+    auto beginSave = [this, format, stems] (juce::File folder)
+    {
+        if (! folder.isDirectory())
+        {
+            showToast ("Export needs a folder of stems. Use Play a recording… on Audio device first.");
+            return;
+        }
+        const bool mp3 = format == AppServices::ExportFormat::Mp3;
+        const juce::String ext = mp3 ? "*.mp3" : "*.wav";
+        const juce::String label = mp3 ? "MP3 audio" : "WAV audio";
+        const auto suggest = juce::File::getSpecialLocation (juce::File::userMoviesDirectory)
+                                 .getChildFile (services.currentSessionName().isNotEmpty()
+                                                    ? services.currentSessionName()
+                                                    : "DINELIVE mix")
+                                 .withFileExtension (mp3 ? "mp3" : "wav");
+        exportChooser = std::make_unique<juce::FileChooser> ("Export the mixed stereo for video", suggest, ext);
+        exportChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                        | juce::FileBrowserComponent::warnAboutOverwriting,
+                                    [this, format, folder, label] (const juce::FileChooser& fc)
+                                    {
+                                        const auto dest = fc.getResult();
+                                        if (dest == juce::File()) return;
+                                        if (! controller.isPrepared())
+                                        {
+                                            showToast ("Open a device or recording and finish setup before exporting.");
+                                            return;
+                                        }
+                                        showToast ("Exporting " + label + Glyph::ellip());
+                                        const auto session = controller.getSession();
+                                        const auto params = controller.getRunning();
+                                        const auto bounceFormat = format == AppServices::ExportFormat::Mp3
+                                                                      ? MixBounce::Format::Mp3
+                                                                      : MixBounce::Format::Wav;
+                                        juce::Component::SafePointer<MainView> safe (this);
+                                        juce::Thread::launch ([safe, session, params, bounceFormat, folder, dest]
+                                        {
+                                            const auto err = MixBounce::renderToFile (session, params, folder, dest, bounceFormat);
+                                            juce::MessageManager::callAsync ([safe, err, dest]
+                                            {
+                                                if (safe == nullptr) return;
+                                                if (err.isNotEmpty()) safe->showToast (err);
+                                                else safe->showToast ("Exported " + dest.getFileName() + ".");
+                                            });
+                                        });
+                                    });
+    };
+
+    if (stems.isDirectory())
+    {
+        beginSave (stems);
+        return;
+    }
+
+    exportChooser = std::make_unique<juce::FileChooser> ("Choose the multitrack folder to export from",
+                                                         juce::File::getSpecialLocation (juce::File::userMusicDirectory));
+    exportChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                                [beginSave] (const juce::FileChooser& fc)
+                                {
+                                    beginSave (fc.getResult());
+                                });
 }
 
 void MainView::saveNow()
@@ -298,6 +399,7 @@ void MainView::openMix()
                             const auto err = services.loadSession (listed[result - 1].file);
                             if (err.isNotEmpty()) { showToast (err); return; }
                             advancedPage->rebuild();
+                            mixerPage->rebuild();
                             showPage (controller.getSession().inputs.empty() ? Page::Assign : Page::Mix);
                             showToast ("Opened \"" + services.currentSessionName() + "\".");
                             updateChrome();
@@ -334,6 +436,7 @@ void MainView::timerCallback()
 {
     controller.poll();
     if (page == Page::Mix) mixPage->refresh();
+    else if (page == Page::Mixer) mixerPage->refresh();
     else if (page == Page::Advanced) advancedPage->refresh();
     if (toastTicks > 0 && --toastTicks == 0) toast->setVisible (false);
     if (saveTicks > 0 && --saveTicks == 0) services.saveSession();
@@ -416,10 +519,10 @@ void MainView::paint (juce::Graphics& g)
     g.setColour (Dine::hair);
     g.fillRect (float (toolbar.getX()), float (toolbar.getBottom()) - 0.5f, float (toolbar.getWidth()), 0.5f);
 
-    // The Mix | Advanced segment sits in its own track.
+    // The Mix | Mixer | Advanced segment sits in its own track.
     if (segMix.isVisible())
     {
-        auto track = segMix.getBounds().getUnion (segAdvanced.getBounds()).expanded (2, 2);
+        auto track = segMix.getBounds().getUnion (segMixer.getBounds()).getUnion (segAdvanced.getBounds()).expanded (2, 2);
         Dine::fillRounded (g, track.toFloat(), juce::Colours::white.withAlpha (0.07f), 7.0f);
     }
 }
@@ -448,15 +551,17 @@ void MainView::resized()
     if (segMix.isVisible())
     {
         const int wA = juce::jmax (72, segAdvanced.idealWidth());
+        const int wX = juce::jmax (60, segMixer.idealWidth());
         const int wM = juce::jmax (52, segMix.idealWidth());
-        auto seg = right.removeFromRight (wA + wM).withSizeKeepingCentre (wA + wM, Dine::Metric::control);
+        auto seg = right.removeFromRight (wA + wX + wM).withSizeKeepingCentre (wA + wX + wM, Dine::Metric::control);
         segMix.setBounds (seg.removeFromLeft (wM));
+        segMixer.setBounds (seg.removeFromLeft (wX));
         segAdvanced.setBounds (seg);
     }
 
     auto content = contentBounds();
     for (juce::Component* p : { (juce::Component*) devicePage.get(), (juce::Component*) assignPage.get(), (juce::Component*) purposePage.get(),
-                                (juce::Component*) mixPage.get(), (juce::Component*) advancedPage.get() })
+                                (juce::Component*) mixPage.get(), (juce::Component*) mixerPage.get(), (juce::Component*) advancedPage.get() })
         p->setBounds (content);
 
     if (toast->isVisible())

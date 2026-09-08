@@ -112,6 +112,7 @@ MixParameters startingPoint (const MixSession& session, const RoutingGraph& grap
         s.faderDb = 0.0f;
         s.pan = r.pan;
         s.mute = false;
+        s.solo = false;
         s.sendDb = r.sendDb;
     }
     for (int b = 0; b < int (MixBus::Count); ++b)
@@ -120,6 +121,7 @@ MixParameters startingPoint (const MixSession& session, const RoutingGraph& grap
         bus.channel = StyleProfile::baseline (busRole (MixBus (b), session.purpose), session.profile);
         bus.faderDb = MixProfile::defaultBusFaderDb (session.profile, MixBus (b));
         bus.mute = false;
+        bus.solo = false;
     }
     for (int f = 0; f < int (FxSlot::Count); ++f)
     {

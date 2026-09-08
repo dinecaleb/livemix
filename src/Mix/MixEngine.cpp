@@ -125,6 +125,21 @@ void MixEngine::setParameters (const MixParameters& p)
 void MixEngine::applyParameters (const MixParameters& p) noexcept
 {
     const int n = p.numStrips < numStrips ? p.numStrips : numStrips;
+
+    // Classic additive solo: when anything is soloed, mute-unless-soloed. Mute always wins.
+    // A bus solo keeps every strip on that bus; a strip solo also keeps its bus into the master.
+    bool anySolo = false;
+    for (int i = 0; i < n; ++i)
+        if (p.strips[size_t (i)].solo) { anySolo = true; break; }
+    if (! anySolo)
+        for (int b = 0; b < int (MixBus::Master); ++b)
+            if (graph.busUsed[size_t (b)] && p.buses[size_t (b)].solo) { anySolo = true; break; }
+
+    std::array<bool, int (MixBus::Count)> busHasSoloedStrip {};
+    for (int i = 0; i < n; ++i)
+        if (p.strips[size_t (i)].solo)
+            busHasSoloedStrip[size_t (strips[size_t (i)]->bus)] = true;
+
     for (int i = 0; i < n; ++i)
     {
         auto& s = *strips[size_t (i)];
@@ -140,7 +155,9 @@ void MixEngine::applyParameters (const MixParameters& p) noexcept
             s.processor.setParameters (sp.channel);
 
         s.inputGain.setTarget (dbToGain (sp.inputGainDb));
-        const float g = sp.mute ? 0.0f : dbToGain (sp.faderDb);
+        const bool busSolo = p.buses[size_t (s.bus)].solo;
+        const bool silenced = sp.mute || (anySolo && ! sp.solo && ! busSolo);
+        const float g = silenced ? 0.0f : dbToGain (sp.faderDb);
         float pl, pr;
         panGains (sp.pan, s.channels == 2, pl, pr);
         s.gainL.setTarget (g * pl);
@@ -167,7 +184,11 @@ void MixEngine::applyParameters (const MixParameters& p) noexcept
         }
         else
             bus.processor.setParameters (bp.channel);
-        bus.gain.setTarget (bp.mute ? 0.0f : dbToGain (bp.faderDb));
+
+        bool silenced = bp.mute;
+        if (MixBus (b) != MixBus::Master && anySolo)
+            silenced = silenced || (! bp.solo && ! busHasSoloedStrip[size_t (b)]);
+        bus.gain.setTarget (silenced ? 0.0f : dbToGain (bp.faderDb));
         if (! haveApplied) bus.gain.snapToTarget();
     }
     for (int f = 0; f < int (FxSlot::Count); ++f)

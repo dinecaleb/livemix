@@ -129,11 +129,16 @@ TEST_CASE ("MixController: setup -> ready -> listening -> preview -> keep, with 
     // Advanced edits go into the kept mix.
     c.setStripFader (0, -3.0f);
     c.setStripMute (1, true);
+    c.setStripSolo (0, true);
     c.setStripInputGain (4, 6.0f);
     CHECK (c.getKept().strips[0].faderDb == -3.0f);
     CHECK (c.getKept().strips[1].mute);
+    CHECK (c.getKept().strips[0].solo);
     CHECK (c.getKept().strips[4].inputGainDb == 6.0f);
     CHECK (c.getRunning().strips[0].faderDb == -3.0f);
+    CHECK (c.getRunning().strips[0].solo);
+    c.clearSolos();
+    CHECK (! c.getKept().strips[0].solo);
     f.play (0.3);
     CHECK (f.outputPeak() > 0.001f);
 }

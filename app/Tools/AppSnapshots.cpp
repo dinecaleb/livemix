@@ -41,6 +41,10 @@ namespace
         juce::String openRecording (const juce::File&, const juce::String&) override { return "Recordings are not available in the snapshot tool."; }
         bool isPlayingRecording() override { return false; }
         MixSession recordingSuggestion (const MixSession& base) override { return base; }
+        juce::String exportMix (const MixSession&, const MixParameters&, const juce::File&, const juce::File&, ExportFormat) override
+        {
+            return "Export is not available in the snapshot tool.";
+        }
     private:
         MixController& controller;
         bool running = false;
@@ -189,6 +193,10 @@ int main (int argc, char** argv)
     view.getAdvancedPage().selectBus (MixBus::Master);
     rig.feed (0.3);
     rig.snap (dir, "10-advanced-master");
+
+    view.showPage (MainView::Page::Mixer);
+    rig.feed (0.3);
+    rig.snap (dir, "10a-mixer");
 
     view.showPage (MainView::Page::Mix);
     rig.controller.keepPlan();

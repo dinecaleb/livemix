@@ -42,7 +42,17 @@ public:
     // A folder of recorded stems played as the inputs (bands testing with a multitrack). "" on success.
     virtual juce::String openRecording (const juce::File& folder, const juce::String& outputDevice) = 0;
     virtual bool isPlayingRecording() = 0;
+    virtual juce::File recordingFolder() const { return {}; }   // empty when not playing stems
     virtual MixSession recordingSuggestion (const MixSession& base) = 0;   // names and sources guessed from the file names
+
+    // Bounce a mix through a stems folder to stereo WAV or MP3. "" on success. Safe to call
+    // off the message thread when session/params are already copied.
+    enum class ExportFormat { Wav = 0, Mp3 };
+    virtual juce::String exportMix (const MixSession& session,
+                                    const MixParameters& params,
+                                    const juce::File& stemsFolder,
+                                    const juce::File& dest,
+                                    ExportFormat) = 0;
 };
 
 // Shared page look: a titled card area on the design's ground.

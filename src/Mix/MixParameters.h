@@ -16,6 +16,7 @@ struct StripParameters
     float faderDb = 0.0f;
     float pan = 0.0f;                                   // -1 = left .. +1 = right (balance on stereo strips)
     bool mute = false;
+    bool solo = false;
     std::array<float, int (FxSlot::Count)> sendDb {};   // post-fader send level; kSilenceDb = no send
 
     StripParameters() { sendDb.fill (kSilenceDb); }
@@ -26,6 +27,7 @@ struct BusParameters
     ChannelParameters channel;
     float faderDb = 0.0f;
     bool mute = false;
+    bool solo = false;
 };
 
 struct FxSlotParameters

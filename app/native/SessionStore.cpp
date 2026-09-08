@@ -68,6 +68,7 @@ namespace
             so->setProperty ("faderDb", s.faderDb);
             so->setProperty ("pan", s.pan);
             so->setProperty ("mute", s.mute);
+            so->setProperty ("solo", s.solo);
             juce::Array<juce::var> sends;
             for (float db : s.sendDb) sends.add (db);
             so->setProperty ("sendDb", sends);
@@ -81,6 +82,7 @@ namespace
             bo->setProperty ("channel", channelToVar (b.channel));
             bo->setProperty ("faderDb", b.faderDb);
             bo->setProperty ("mute", b.mute);
+            bo->setProperty ("solo", b.solo);
             buses.add (juce::var (bo));
         }
         obj->setProperty ("buses", buses);
@@ -113,6 +115,7 @@ namespace
                 s.faderDb = float (double (so->getProperty ("faderDb")));
                 s.pan = float (double (so->getProperty ("pan")));
                 s.mute = bool (so->getProperty ("mute"));
+                s.solo = bool (so->getProperty ("solo"));
                 if (auto* sends = so->getProperty ("sendDb").getArray())
                     for (int f = 0; f < std::min (int (FxSlot::Count), sends->size()); ++f) s.sendDb[size_t (f)] = float (double (sends->getReference (f)));
             }
@@ -124,6 +127,7 @@ namespace
                 channelFromVar (bo->getProperty ("channel"), m.buses[size_t (b)].channel);
                 m.buses[size_t (b)].faderDb = float (double (bo->getProperty ("faderDb")));
                 m.buses[size_t (b)].mute = bool (bo->getProperty ("mute"));
+                m.buses[size_t (b)].solo = bool (bo->getProperty ("solo"));
             }
         if (auto* fx = obj->getProperty ("fx").getArray())
             for (int f = 0; f < std::min (int (FxSlot::Count), fx->size()); ++f)

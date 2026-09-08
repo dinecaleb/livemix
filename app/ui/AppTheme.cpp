@@ -531,7 +531,9 @@ DineLookAndFeel::DineLookAndFeel()
     setColour (juce::TextEditor::outlineColourId, Dine::hair);
     setColour (juce::TextEditor::focusedOutlineColourId, Dine::accent);
     setColour (juce::CaretComponent::caretColourId, Dine::accent);
-    setColour (juce::PopupMenu::backgroundColourId, Dine::popover);
+    // Transparent so MenuWindow can be non-opaque (JUCE otherwise fillsAll white
+    // under rounded chrome and leaves bright corner triangles).
+    setColour (juce::PopupMenu::backgroundColourId, juce::Colours::transparentBlack);
     setColour (juce::PopupMenu::textColourId, Dine::ink);
     setColour (juce::PopupMenu::highlightedBackgroundColourId, Dine::accent.withAlpha (0.35f));
     setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
@@ -609,6 +611,11 @@ void DineLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w, 
 
 void DineLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int w, int h)
 {
+    // When semi-transparent windows aren't available, JUCE still paints the opaque
+    // peer white first — cover that before the rounded chrome.
+    if (! juce::Desktop::canUseSemiTransparentWindows())
+        g.fillAll (Dine::popover);
+
     auto r = juce::Rectangle<float> (0.0f, 0.0f, float (w), float (h));
     Dine::fillRounded (g, r, Dine::popover, 8.0f);
     Dine::hairlineRounded (g, r, Dine::hairStrong, 8.0f);
@@ -674,6 +681,8 @@ void DineLookAndFeel::drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x,
 
 void DineLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text, int w, int h)
 {
+    // TooltipWindow is always opaque; cover the peer so rounded chrome has no white corners.
+    g.fillAll (Dine::popover);
     auto r = juce::Rectangle<float> (0.0f, 0.0f, float (w), float (h));
     Dine::fillRounded (g, r, Dine::popover, 8.0f);
     Dine::hairlineRounded (g, r, Dine::hairStrong, 8.0f);

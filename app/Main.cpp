@@ -9,6 +9,7 @@
 #include "native/AudioHost.h"
 #include "native/SessionStore.h"
 #include "native/MultitrackSource.h"
+#include "native/MixBounce.h"
 #include "ui/MainView.h"
 #include <optional>
 
@@ -96,7 +97,24 @@ namespace
             return host.openPlayback (recording, out);
         }
         bool isPlayingRecording() override { return host.isPlayback(); }
+        juce::File recordingFolder() const override { return recording.isLoaded() ? recording.getFolder() : juce::File(); }
         MixSession recordingSuggestion (const MixSession& base) override { return recording.suggestedSession (base); }
+
+        juce::String exportMix (const MixSession& session,
+                                const MixParameters& params,
+                                const juce::File& stemsFolder,
+                                const juce::File& dest,
+                                ExportFormat format) override
+        {
+            const auto folder = stemsFolder.isDirectory() ? stemsFolder : recordingFolder();
+            if (! folder.isDirectory())
+                return "Export needs a folder of stems. Use Play a recording… on the Audio device page first.";
+            return MixBounce::renderToFile (session,
+                                            params,
+                                            folder,
+                                            dest,
+                                            format == ExportFormat::Mp3 ? MixBounce::Format::Mp3 : MixBounce::Format::Wav);
+        }
 
         void saveSession() override
         {

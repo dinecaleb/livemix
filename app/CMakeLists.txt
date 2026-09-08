@@ -23,9 +23,11 @@ target_include_directories(dinelive_mix_stems PRIVATE ${CMAKE_SOURCE_DIR}/src ${
 set(DINELIVE_UI_SOURCES
     native/MixController.cpp
     native/SessionStore.cpp
+    native/MixBounce.cpp
     ui/AppTheme.cpp
     ui/SetupPages.cpp
     ui/MixPage.cpp
+    ui/MixerPage.cpp
     ui/AdvancedPage.cpp
     ui/MainView.cpp
     ${CMAKE_SOURCE_DIR}/src/UI/LiveMixLookAndFeel.cpp

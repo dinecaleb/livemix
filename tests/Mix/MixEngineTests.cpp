@@ -110,6 +110,27 @@ TEST_CASE ("MixEngine: pan, fader and mute behave like a console")
     CHECK_NEAR (d2.peak (0, settle), 0.5f * dbToGain (-6.0f) * std::cos (float (M_PI) / 4.0f), 0.01);
 }
 
+TEST_CASE ("MixEngine: solo mutes everything else; mute still wins")
+{
+    MixEngine e;
+    e.prepare (kSr, 64, smallSession());
+    MixParameters p = rawMix (e);
+    p.strips[0].pan = -1.0f;                 // kick hard left so the right channel is a clean check
+    p.strips[0].solo = true;                 // kick solo
+    p.strips[1].solo = true;                 // snare also solo (additive)
+    p.strips[1].mute = true;                 // but snare is muted — mute wins
+    e.setParameters (p);
+
+    Device d (8, 2, 48000);
+    sineOnInput (d, 0, 100.0f, 0.5f);        // kick
+    sineOnInput (d, 1, 1000.0f, 0.5f);       // snare
+    sineOnInput (d, 5, 440.0f, 0.5f);        // lead (not soloed)
+    d.run (e, 64);
+    const int settle = 24000;
+    CHECK (d.peak (0, settle) > 0.2f);       // kick still heard on the left
+    CHECK (d.peak (1, settle) < 0.05f);      // snare muted despite solo; lead silenced by solo
+}
+
 TEST_CASE ("MixEngine: the digital input gain sits before the chain and the listen tap")
 {
     MixEngine e;

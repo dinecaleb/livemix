@@ -78,8 +78,11 @@ public:
     void setStripFader (int strip, float db);
     void setStripInputGain (int strip, float db);
     void setStripMute (int strip, bool mute);
+    void setStripSolo (int strip, bool solo);
     void setStripSend (int strip, FxSlot slot, float db);
     void setBusFader (MixBus bus, float db);
+    void setBusSolo (MixBus bus, bool solo);
+    void clearSolos();
     const MixParameters& getKept() const noexcept { return kept; }          // without macros
     const MixParameters& getBase() const noexcept { return (plan && stage == Stage::Preview) ? (compare == Compare::Before ? plan->before : plan->proposed) : kept; } // what is audible, without macros
     const MixParameters& getRunning() const noexcept { return running; }    // what the engine was last given

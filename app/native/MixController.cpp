@@ -231,6 +231,15 @@ void MixController::setStripMute (int strip, bool mute)
     if (onMixChanged) onMixChanged();
 }
 
+void MixController::setStripSolo (int strip, bool solo)
+{
+    if (! validStrip (kept, strip)) return;
+    kept.strips[size_t (strip)].solo = solo;
+    if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].solo = solo;
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
 void MixController::setStripSend (int strip, FxSlot slot, float db)
 {
     if (! validStrip (kept, strip)) return;
@@ -244,6 +253,32 @@ void MixController::setBusFader (MixBus bus, float db)
 {
     kept.buses[size_t (bus)].faderDb = clamp (db, -60.0f, 12.0f);
     if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].faderDb = kept.buses[size_t (bus)].faderDb;
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::setBusSolo (MixBus bus, bool solo)
+{
+    if (bus == MixBus::Master || bus == MixBus::Count) return;
+    kept.buses[size_t (bus)].solo = solo;
+    if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].solo = solo;
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::clearSolos()
+{
+    bool changed = false;
+    for (int i = 0; i < kept.numStrips; ++i)
+        if (kept.strips[size_t (i)].solo) { kept.strips[size_t (i)].solo = false; changed = true; }
+    for (int b = 0; b < int (MixBus::Count); ++b)
+        if (kept.buses[size_t (b)].solo) { kept.buses[size_t (b)].solo = false; changed = true; }
+    if (plan && stage == Stage::Preview)
+    {
+        for (int i = 0; i < plan->proposed.numStrips; ++i) plan->proposed.strips[size_t (i)].solo = false;
+        for (int b = 0; b < int (MixBus::Count); ++b) plan->proposed.buses[size_t (b)].solo = false;
+    }
+    if (! changed) return;
     publish();
     if (onMixChanged) onMixChanged();
 }
