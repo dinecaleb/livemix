@@ -159,13 +159,13 @@ namespace
     {
     public:
         MainWindow (const juce::String& name, MixController& c, AppServices& s)
-            : juce::DocumentWindow (name, Tokens::ground, juce::DocumentWindow::allButtons)
+            : juce::DocumentWindow (name, Dine::desk, juce::DocumentWindow::allButtons)
         {
             setUsingNativeTitleBar (true);
             setContentOwned (new MainView (c, s), true);
             setResizable (true, true);
-            setResizeLimits (980, 680, 4000, 3000);
-            centreWithSize (1280, 860);
+            setResizeLimits (1120, 720, 4000, 3000);
+            centreWithSize (1400, 920);
             setVisible (true);
         }
         void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }

@@ -212,7 +212,16 @@ Listening to the church stems showed the first plan landing at -27.2 LUFS and a 
 - **App.** The session is saved a second after KEEP / REVERT / a macro or Advanced move (not only on quit); a saved mix
   survives a launch without its device and is applied when the same inputs are prepared; a device that stops on its own
   is announced once; Mix Health is the share of inputs heard, not faint and at a healthy level, with the reasons in
-  the status line; the toast sits under the top bar.
+  the status line; the HUD toast sits at the foot of the content.
+- **Look (v2, 2026-09).** The app follows the "DINELIVE v2" design (Claude Design project `DINELIVE v2.dc.html`):
+  native macOS materials (desk #101113, window #1b1c1e, card #232528, vibrancy sidebar), half-pixel hairlines,
+  5-11 px radii, 24-26 px controls, the system face at Mac sizes with capitals kept for the product verbs only
+  (TUNE MIX / RE-TUNE / KEEP / REVERT / BEFORE / AFTER), one accent (#4db8a4) and three semantic colours
+  (heard #4cc98a, faint #f0a33f, muted #e5645e). The tokens, the icon set, the buttons, the source list, the switch,
+  the meter and the look-and-feel live in `app/ui/AppTheme.{h,cpp}` (`Dine::`, `DineLookAndFeel`); the plug-in keeps
+  its own `Tokens` in `src/UI`. The shell is sidebar (Library / Set up / Mix + the device's state) + unified toolbar
+  (setup name and its menu, Mix | Advanced, output) + one page; TUNE MIX and its result arrive as sheets from under
+  the toolbar, and the mix page carries an input rail with a meter per input.
 
 Known limits of the prediction: it is a model, fitted to one recording (numbers in `MixProfileData.cpp`); EQ ahead of
 the compressor, transient shaping and saturation are not modelled. The exact answer would be to keep the raw listen

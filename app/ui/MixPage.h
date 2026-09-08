@@ -3,18 +3,18 @@
 #include <array>
 #include <functional>
 #include <memory>
+#include <vector>
 #include "AppServices.h"
+#include "AppTheme.h"
 #include "UI/Widgets.h"
-#include "UI/MeterComponent.h"
 #include "Mix/MixMacros.h"
 
 namespace livemix
 {
 
-// The main screen after setup: MIX HEALTH, the five groups with their meters, TUNE MIX,
-// the five macros, and the plan card (BEFORE / AFTER, KEEP, REVERT) while a plan is
-// previewed. While listening an overlay shows "LISTENING..." with a tick per group.
-// Nothing here looks like a console; Advanced is one click away for engineers.
+// The screen after setup: mix health and TUNE MIX, the five group strips with their
+// meters, the five macros, and every input on a rail down the right. While DINELIVE
+// listens, and again when the plan is ready, a sheet drops from under the toolbar.
 class MixPage : public juce::Component
 {
 public:
@@ -35,20 +35,31 @@ public:
 private:
     class GroupTile;
     class MacroSlider;
-    class ListenOverlay;
-    class PlanCard;
+    class ListenSheet;
+    class ResultSheet;
+    class InputRow;
 
+    struct Layout
+    {
+        juce::Rectangle<int> health, tune, groups, macros, rail;
+    };
+    Layout layout() const;
     void refreshTuneButton();
+    void rebuildRail();
 
     MixController& controller;
     std::array<std::unique_ptr<GroupTile>, 5> groups;      // DRUMS BASS MUSIC VOCALS FX
     std::array<std::unique_ptr<MacroSlider>, int (MixMacro::Count)> macros;
-    std::unique_ptr<ListenOverlay> overlay;
-    std::unique_ptr<PlanCard> card;
-    FlatButton tuneButton { "TUNE MIX", FlatButton::Style::Solid };
-    FlatButton advancedButton { "ADVANCED", FlatButton::Style::Outline };
-    FlatButton resetMacrosButton { "RESET", FlatButton::Style::Ghost };
+    std::unique_ptr<ListenSheet> listenSheet;
+    std::unique_ptr<ResultSheet> resultSheet;
+    std::vector<std::unique_ptr<InputRow>> inputRows;
+    juce::Viewport railView;
+    juce::Component railHolder;
+    DineButton tuneButton { "TUNE MIX", DineButton::Style::Filled };
+    DineButton advancedButton { "Open Advanced", DineButton::Style::Standard };
+    DineButton resetMacrosButton { "Reset all", DineButton::Style::Ghost };
     int health = 0;
+    int builtRailFor = -1;
     juce::String status;
     MixController::Stage lastStage = MixController::Stage::Setup;
 };

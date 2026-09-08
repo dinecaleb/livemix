@@ -1,5 +1,4 @@
 #include "AdvancedPage.h"
-#include "UI/LiveMixLookAndFeel.h"
 #include "Core/DbUtils.h"
 
 namespace livemix
@@ -7,9 +6,11 @@ namespace livemix
 
 namespace
 {
+    constexpr int kListWidth = 262;
+
     juce::String db1 (float v)
     {
-        return (v >= 0.0f ? "+" : Glyph::minus()) + juce::String (std::fabs (v), 1) + " dB";
+        return (v >= 0.0f ? "+" : Glyph::minus()) + juce::String (std::fabs (v), 1);
     }
 
     // 1-based device channel(s) the strip is patched to ("in 4", "in 9/10").
@@ -21,38 +22,34 @@ namespace
         return "in " + juce::String (s.inputA + 1);
     }
 
-    // Family tint for the left rail — muted so the list stays readable, distinct so
-    // drums / vocals / buses separate at a glance.
     juce::Colour busTint (MixBus b) noexcept
     {
         switch (b)
         {
-            case MixBus::Drums:  return Tokens::warn;
-            case MixBus::Bass:   return Tokens::accentText;
-            case MixBus::Music:  return Tokens::accentStroke;
-            case MixBus::Vocals: return Tokens::okText;
-            case MixBus::Master: return Tokens::textHi;
-            case MixBus::Count:
-            default:             return Tokens::mark;
+            case MixBus::Drums:  return Dine::warn;
+            case MixBus::Bass:   return Dine::accent;
+            case MixBus::Music:  return juce::Colour (0xff8fa2d8);
+            case MixBus::Vocals: return Dine::ok;
+            case MixBus::Master: return Dine::ink;
+            default:             return Dine::ink2;
         }
     }
 
-    const char* kindLabel (bool isBus, MixBus bus) noexcept
+    // "DRUMS" -> "Drums": capitals are kept for the product verbs only.
+    juce::String sentenceCase (const juce::String& s)
     {
-        if (! isBus) return "CH";
-        return bus == MixBus::Master ? "OUT" : "BUS";
+        return s.substring (0, 1).toUpperCase() + s.substring (1).toLowerCase();
     }
 
-    // Short send labels so they fit the control column without colliding with values.
     const char* sendLabel (FxSlot f) noexcept
     {
         switch (f)
         {
-            case FxSlot::VocalPlate: return "PLATE";
-            case FxSlot::VocalDelay: return "DELAY";
-            case FxSlot::BgvHall:    return "HALL";
-            case FxSlot::SnarePlate: return "SNR PLATE";
-            case FxSlot::DrumRoom:   return "DRM ROOM";
+            case FxSlot::VocalPlate: return "Plate";
+            case FxSlot::VocalDelay: return "Delay";
+            case FxSlot::BgvHall:    return "Hall";
+            case FxSlot::SnarePlate: return "Snare plate";
+            case FxSlot::DrumRoom:   return "Drum room";
             case FxSlot::Count:
             default:                 return "?";
         }
@@ -63,30 +60,27 @@ namespace
 class AdvancedPage::SectionHeader : public juce::Component
 {
 public:
-    SectionHeader (const juce::String& title, const juce::String& count, MixBus bus, bool busesSection)
-        : label (title), countText (count), tint (busTint (bus)), isBuses (busesSection)
-    {
-    }
+    SectionHeader (const juce::String& title, const juce::String& count, MixBus bus)
+        : label (title), countText (count), tint (busTint (bus)) {}
 
     void paint (juce::Graphics& g) override
     {
-        auto r = getLocalBounds().reduced (4, 0);
-        auto rail = r.removeFromLeft (3).toFloat().reduced (0.0f, 6.0f);
-        g.setColour (tint.withAlpha (isBuses ? 0.85f : 0.55f));
-        g.fillRoundedRectangle (rail, 1.5f);
-        r.removeFromLeft (8);
-        g.setColour (isBuses ? Tokens::textHi : Tokens::textMid);
-        g.setFont (LiveMixLookAndFeel::condensed (11.0f, 700, 0.12f));
-        g.drawText (label, r.removeFromLeft (r.getWidth() - 70), juce::Justification::centredLeft);
-        g.setColour (Tokens::textDim);
-        g.setFont (LiveMixLookAndFeel::mono (10.0f));
+        auto r = getLocalBounds().reduced (7, 0);
+        auto dot = r.removeFromLeft (7);
+        g.setColour (tint.withAlpha (0.9f));
+        g.fillEllipse (dot.withSizeKeepingCentre (6, 6).toFloat());
+        r.removeFromLeft (7);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.0f, 600));
+        g.drawText (label, r.removeFromLeft (r.getWidth() - 60), juce::Justification::centredLeft);
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::mono (10.5f));
         g.drawText (countText, r, juce::Justification::centredRight);
     }
 
 private:
     juce::String label, countText;
     juce::Colour tint;
-    bool isBuses = false;
 };
 
 // ------------------------------------------------------------------ Row
@@ -95,16 +89,9 @@ class AdvancedPage::Row : public juce::Button
 public:
     enum class Kind { Channel, Bus, Master };
 
-    Row (const juce::String& title, const juce::String& sub, Kind k, MixBus busFamily, int stripIndex = -1,
-         const juce::String& deviceIn = {})
-        : juce::Button (title),
-          name (title),
-          subtitle (sub),
-          inputLabel (deviceIn),
-          kind (k),
-          bus (busFamily),
-          strip (stripIndex),
-          meter (MeterComponent::Orientation::Horizontal)
+    Row (const juce::String& title, Kind k, MixBus busFamily, ChannelRole role, int stripIndex = -1)
+        : juce::Button (title), name (title), kind (k), bus (busFamily), strip (stripIndex),
+          icon (k == Kind::Channel ? Dine::iconForRole (role) : Dine::Icon::Bus), meter (DineMeter::Style::Bar)
     {
         addAndMakeVisible (meter);
         meter.setInterceptsMouseClicks (false, false);
@@ -121,83 +108,46 @@ public:
     void paintButton (juce::Graphics& g, bool over, bool) override
     {
         const bool on = getToggleState();
-        const bool isChannel = kind == Kind::Channel;
-        auto outer = getLocalBounds();
-        if (isChannel) outer = outer.withTrimmedLeft (10);
-        auto b = outer.toFloat().reduced (0.5f);
+        auto b = getLocalBounds().toFloat();
+        if (on)        Dine::fillRounded (g, b, Dine::accent.withAlpha (0.18f), Dine::Radius::control);
+        else if (over) Dine::fillRounded (g, b, juce::Colours::white.withAlpha (0.06f), Dine::Radius::control);
 
-        const juce::Colour fill = on ? Tokens::accentDim.withAlpha (0.35f)
-                                     : (over ? Tokens::raised
-                                             : (isChannel ? Tokens::panel : Tokens::inset));
-        const juce::Colour stroke = on ? Tokens::accentStroke
-                                       : (isChannel ? Tokens::hairRow : Tokens::hairStrong);
-        LiveMixLookAndFeel::drawSurface (g, b, fill, stroke, Tokens::Radius::control);
+        auto r = getLocalBounds().reduced (7, 0);
+        Dine::drawIcon (g, icon, r.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f),
+                        mute ? Dine::crit : kind == Kind::Channel ? (on ? Dine::accent : Dine::glyph) : busTint (bus));
+        r.removeFromLeft (8);
 
-        // Family colour rail — thicker on buses so they read as group masters.
-        auto rail = b.removeFromLeft (isChannel ? 3.0f : 5.0f).reduced (0.0f, 4.0f);
-        g.setColour (busTint (bus).withAlpha (on ? 1.0f : (isChannel ? 0.55f : 0.9f)));
-        g.fillRoundedRectangle (rail, 1.5f);
+        g.setColour (mute ? Dine::crit : Dine::ink3);
+        g.setFont (Dine::mono (11.0f));
+        g.drawText (mute ? juce::String ("mute") : level, r.removeFromRight (42), juce::Justification::centredRight);
+        r.removeFromRight (6 + 34);   // the meter lives here
 
-        auto r = outer.reduced (isChannel ? 12 : 14, isChannel ? 6 : 8);
-        r.removeFromLeft (isChannel ? 4 : 6);
-
-        auto top = r.removeFromTop (isChannel ? 16 : 18);
-        const char* chip = kindLabel (kind != Kind::Channel, bus);
-        const float chipW = LiveMixLookAndFeel::chipWidth (chip, 9.0f);
-        auto chipBounds = top.removeFromLeft (int (chipW)).toFloat().withSizeKeepingCentre (chipW, 16.0f);
-        const juce::Colour chipFg = kind == Kind::Master ? Tokens::textHi
-                                                        : (kind == Kind::Bus ? busTint (bus) : Tokens::textMid);
-        const juce::Colour chipBg = kind == Kind::Channel ? Tokens::inset
-                                                         : busTint (bus).withAlpha (0.12f);
-        LiveMixLookAndFeel::drawChip (g, chipBounds, chip, chipFg,
-                                      kind == Kind::Channel ? Tokens::hair : chipFg.withAlpha (0.45f),
-                                      chipBg, 9.0f);
-        top.removeFromLeft (6);
-        if (isChannel && inputLabel.isNotEmpty())
-        {
-            const float inW = LiveMixLookAndFeel::chipWidth (inputLabel, 9.0f);
-            auto inBounds = top.removeFromLeft (int (inW)).toFloat().withSizeKeepingCentre (inW, 16.0f);
-            LiveMixLookAndFeel::drawChip (g, inBounds, inputLabel, Tokens::accentText,
-                                          Tokens::accent.withAlpha (0.45f), Tokens::accentDim.withAlpha (0.35f), 9.0f);
-            top.removeFromLeft (8);
-        }
-        else top.removeFromLeft (2);
-
-        g.setColour (mute ? Tokens::textDim : Tokens::textHi);
-        g.setFont (LiveMixLookAndFeel::condensed (isChannel ? 13.0f : 14.5f, isChannel ? 600 : 700, 0.04f));
-        g.drawText (name, top.removeFromLeft (top.getWidth() / 2), juce::Justification::centredLeft);
-
-        g.setColour (mute ? Tokens::critText : Tokens::textMid);
-        g.setFont (LiveMixLookAndFeel::mono (11.0f));
-        g.drawText (mute ? "MUTED" : level, top, juce::Justification::centredRight);
-
-        g.setColour (Tokens::textLow);
-        g.setFont (LiveMixLookAndFeel::body (10.5f));
-        g.drawText (subtitle, r.removeFromTop (14), juce::Justification::centredLeft);
+        g.setColour (mute ? Dine::ink3 : Dine::ink);
+        g.setFont (Dine::text (12.5f, kind == Kind::Channel ? (on ? 600 : 400) : 600));
+        g.drawText (name, r, juce::Justification::centredLeft, true);
     }
 
     void resized() override
     {
-        auto bounds = getLocalBounds();
-        if (kind == Kind::Channel) bounds = bounds.withTrimmedLeft (10);
-        const int insetX = kind == Kind::Channel ? 12 : 14;
-        const int insetY = kind == Kind::Channel ? 6 : 8;
-        meter.setBounds (bounds.reduced (insetX, insetY).withTrimmedLeft (6).removeFromBottom (6));
+        auto r = getLocalBounds().reduced (7, 0);
+        r.removeFromRight (42 + 6);
+        meter.setBounds (r.removeFromRight (34).withSizeKeepingCentre (34, 4));
     }
 
-    juce::String name, subtitle, inputLabel, level;
+    juce::String name, level;
     Kind kind;
     MixBus bus;
     int strip = -1;
     bool mute = false;
-    MeterComponent meter;
+    Dine::Icon icon;
+    DineMeter meter;
 };
 
 // ------------------------------------------------------------------ Detail
 class AdvancedPage::Detail : public juce::Component
 {
 public:
-    explicit Detail (MixController& c) : controller (c), meter (MeterComponent::Orientation::Vertical)
+    explicit Detail (MixController& c) : controller (c), meter (DineMeter::Style::Segments)
     {
         auto setupSlider = [] (juce::Slider& s, double lo, double hi, double step, double def, bool vertical)
         {
@@ -207,7 +157,7 @@ public:
             s.setDoubleClickReturnValue (true, def);
         };
         setupSlider (gain, -24.0, 24.0, 0.5, 0.0, false);
-        setupSlider (fader, -60.0, 12.0, 0.5, 0.0, true);
+        setupSlider (fader, -60.0, 12.0, 0.5, 0.0, false);
         for (auto& s : sends) setupSlider (s, -60.0, 6.0, 0.5, -60.0, false);
 
         gain.onValueChange = [this] { if (! updating && ! sel.isBus) controller.setStripInputGain (sel.strip, float (gain.getValue())); };
@@ -226,6 +176,7 @@ public:
             };
 
         muteButton.setClickingTogglesState (false);
+        muteButton.setFontPx (12.5f);
         muteButton.onClick = [this]
         {
             if (! sel.isBus)
@@ -238,24 +189,17 @@ public:
         addAndMakeVisible (meter);
         for (auto& s : sends) addChildComponent (s);
 
-        report.setMultiLine (true, true);
-        report.setReadOnly (true);
-        report.setScrollbarsShown (true);
-        report.setCaretVisible (false);
-        report.setFont (LiveMixLookAndFeel::body (12.5f));
-        report.setColour (juce::TextEditor::backgroundColourId, Tokens::inset);
-        report.setColour (juce::TextEditor::textColourId, Tokens::textMid);
-        report.setColour (juce::TextEditor::outlineColourId, Tokens::hair);
-        report.setColour (juce::TextEditor::focusedOutlineColourId, Tokens::hair);
-        addAndMakeVisible (report);
+        reportView.setViewedComponent (&report, false);
+        reportView.setScrollBarsShown (true, false);
+        addAndMakeVisible (reportView);
     }
 
     void show (const Selection& s)
     {
         sel = s;
         rebuildReport();
-        refresh(); // sets control visibility first
-        resized(); // then lays them out (mute used to land on a send / the report title)
+        refresh();
+        resized();
     }
 
     void refresh()
@@ -278,6 +222,7 @@ public:
                 // Non-consuming read: the channel list owns consumeMaxPeakDb each tick.
                 const auto& m = controller.getEngine().getBus (sel.bus).getOutputMeter();
                 meter.setLevels (m.getMaxPeakDb(), m.getMaxRmsDb(), m.hasClipped());
+                peakDb = meter.getPeakDb();
             }
         }
         else if (sel.strip >= 0 && sel.strip < kept.numStrips)
@@ -287,8 +232,8 @@ public:
             setVis (muteButton, true);
             gain.setValue (st.inputGainDb, juce::dontSendNotification);
             fader.setValue (st.faderDb, juce::dontSendNotification);
-            muteButton.setButtonText (st.mute ? "MUTED" : "MUTE");
-            muteButton.setStyle (st.mute ? FlatButton::Style::Accent : FlatButton::Style::Outline);
+            muteButton.setButtonText (st.mute ? "Unmute" : "Mute");
+            muteButton.setStyle (st.mute ? DineButton::Style::Filled : DineButton::Style::Standard);
             const auto& graph = controller.getGraph();
             for (int f = 0; f < int (FxSlot::Count); ++f)
             {
@@ -300,6 +245,7 @@ public:
             {
                 const auto& m = controller.getEngine().getStrip (sel.strip).getOutputMeter();
                 meter.setLevels (m.getMaxPeakDb(), m.getMaxRmsDb(), m.hasClipped());
+                peakDb = meter.getPeakDb();
             }
         }
         updating = false;
@@ -307,202 +253,387 @@ public:
         repaint();
     }
 
+    // ---- the WHAT / WHY list, in its own scrolling holder
+    class Report : public juce::Component
+    {
+    public:
+        struct Item { juce::String what, why, value; };
+        std::vector<Item> items;
+        juce::String empty;
+
+        int layoutFor (int width)
+        {
+            const auto whyFont = Dine::text (12.5f);
+            const auto valueFont = Dine::mono (11.5f);
+            int y = 0;
+            heights.clear();
+            for (const auto& it : items)
+            {
+                const float w = juce::GlyphArrangement::getStringWidth (whyFont, it.why);
+                const int lines = juce::jlimit (1, 5, int (std::ceil (w / juce::jmax (60.0f, float (width) - kValueW - 16))));
+                const float vw = juce::GlyphArrangement::getStringWidth (valueFont, it.value);
+                const int vlines = juce::jlimit (1, 4, int (std::ceil (vw / juce::jmax (40.0f, float (kValueW) - 6))));
+                const int h = juce::jmax (18 + lines * 17, 18 + vlines * 15) + 12;
+                heights.push_back (h);
+                y += h;
+            }
+            return juce::jmax (y, 40);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            if (items.empty())
+            {
+                g.setColour (Dine::ink3);
+                g.setFont (Dine::text (12.5f));
+                g.drawFittedText (empty, getLocalBounds().removeFromTop (40), juce::Justification::topLeft, 2);
+                return;
+            }
+            auto r = getLocalBounds();
+            for (size_t i = 0; i < items.size() && i < heights.size(); ++i)
+            {
+                auto row = r.removeFromTop (heights[i]);
+                if (i > 0) Dine::drawRule (g, row.withHeight (1), Dine::hairSoft);
+                row = row.reduced (0, 8);
+                auto value = row.removeFromRight (kValueW);
+                g.setColour (Dine::ink3);
+                g.setFont (Dine::mono (11.5f));
+                g.drawFittedText (items[i].value, value, juce::Justification::topRight, 4);
+                row.removeFromRight (14);
+                g.setColour (Dine::ink);
+                g.setFont (Dine::text (13.0f, 600));
+                g.drawText (items[i].what, row.removeFromTop (17), juce::Justification::topLeft, true);
+                g.setColour (Dine::ink2);
+                g.setFont (Dine::text (12.5f));
+                g.drawFittedText (items[i].why, row, juce::Justification::topLeft, 4);
+            }
+        }
+
+        static constexpr int kValueW = 132;
+
+    private:
+        std::vector<int> heights;
+    };
+
     void rebuildReport()
     {
-        juce::String text;
+        report.items.clear();
+        report.empty = "No TUNE MIX yet. This channel runs on the profile's baseline for its source.";
         const auto* plan = controller.getPlan();
         auto add = [&] (const Recommendation& r)
         {
-            text += juce::String (juce::CharPointer_UTF8 ("\xe2\x80\xa2 ")) + r.what + "\n   " + r.why + "\n\n";
+            report.items.push_back ({ juce::String (r.what), juce::String (r.why), formatRecommendationValues (r) });
         };
         if (sel.isBus)
         {
             if (plan != nullptr && plan->buses[size_t (sel.bus)].tune.valid)
             {
-                text += juce::String (plan->buses[size_t (sel.bus)].tune.headline) + "\n\n";
+                headline = juce::String (plan->buses[size_t (sel.bus)].tune.headline);
                 for (const auto& r : plan->buses[size_t (sel.bus)].tune.report.items) add (r);
             }
-            else text = "No Tune Mix yet for this bus. It runs on the profile's baseline.";
+            else { headline = {}; report.empty = "No TUNE MIX yet for this bus. It runs on the profile's baseline."; }
         }
         else if (plan != nullptr && sel.strip >= 0 && sel.strip < int (plan->strips.size()))
         {
             const auto& sp = plan->strips[size_t (sel.strip)];
-            text += juce::String (sp.tune.headline) + "\n\n";
+            headline = juce::String (sp.tune.headline);
             for (const auto& r : sp.mixItems) add (r);
             for (const auto& r : sp.tune.report.items) add (r);
         }
-        else text = "No Tune Mix yet. This input runs on the profile's baseline for its source.";
-        report.setText (text.trim(), false);
+        else headline = {};
+        resized();
+    }
+
+    // The block under the header: the meter column beside the level card, and the
+    // sends (or the master's loudness) under it when there is anything to show.
+    bool hasExtraCard() const
+    {
+        return (sel.isBus && sel.bus == MixBus::Master) || (! sel.isBus && anySendVisible());
+    }
+
+    int controlsHeight() const
+    {
+        const bool extra = hasExtraCard();
+        if (! extra) return kMinControlsH;   // the meter column always keeps its height
+        int n = 0;
+        for (const auto& s : sends) if (s.isVisible()) ++n;
+        return juce::jmax (kMinControlsH, kLevelH + 14 + (sel.isBus ? 110 : 16 + 8 + n * kSendH + 13));
     }
 
     void paint (juce::Graphics& g) override
     {
-        auto b = getLocalBounds().toFloat().reduced (0.5f);
-        LiveMixLookAndFeel::drawElevated (g, b, Tokens::panel, Tokens::hair, Tokens::Radius::card);
-
-        auto r = getLocalBounds().reduced (18, 14);
-        // Leave room for the console strip on the right.
-        r.removeFromRight (92);
-
         const auto& graph = controller.getGraph();
-        juce::String title, sub;
-        MixBus family = MixBus::Master;
-        const char* chip = "CH";
+        juce::String kicker, title, sub;
+        bool muted = false;
         if (sel.isBus)
         {
-            family = sel.bus;
-            chip = kindLabel (true, sel.bus);
-            title = mixBusName (sel.bus);
+            kicker = sel.bus == MixBus::Master ? "Output" : "Group bus";
+            title = sel.bus == MixBus::Master ? juce::String ("Master") : sentenceCase (mixBusName (sel.bus)) + " bus";
             if (sel.bus == MixBus::Master)
                 sub = juce::String (mixPurposeName (controller.getSession().purpose)) + "  " + Glyph::dot() + "  stereo output";
             else
-                sub = juce::String ("Group bus") + "  " + Glyph::dot() + "  stereo  " + Glyph::dot() + "  "
-                      + juce::String (graph.stripsOnBus (sel.bus)) + " inputs  " + juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92")) + "  MASTER";
+                sub = juce::String (graph.stripsOnBus (sel.bus)) + " inputs  " + Glyph::dot() + "  stereo  "
+                      + Glyph::dot() + "  feeds the master";
         }
         else if (sel.strip >= 0 && sel.strip < graph.numStrips())
         {
             const auto& s = graph.strips[size_t (sel.strip)];
-            family = s.bus;
-            chip = "CH";
+            kicker = deviceInLabel (s) + "  " + Glyph::dot() + "  " + juce::String (channelRoleName (s.role));
             title = s.name;
-            const auto in = deviceInLabel (s);
-            sub = (in.isNotEmpty() ? in + "  " + Glyph::dot() + "  " : juce::String())
-                  + juce::String (channelRoleName (s.role)) + "  " + Glyph::dot() + "  "
-                  + (s.numChannels() == 2 ? "stereo" : "mono") + "  " + Glyph::dot() + "  "
-                  + juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92")) + "  " + mixBusName (s.bus);
+            sub = juce::String (s.numChannels() == 2 ? "stereo" : "mono") + "  " + Glyph::dot() + "  feeds "
+                  + sentenceCase (mixBusName (s.bus));
+            const auto& kept = controller.getBase();
+            muted = sel.strip < kept.numStrips && kept.strips[size_t (sel.strip)].mute;
         }
 
-        auto head = r.removeFromTop (28);
-        const float chipW = LiveMixLookAndFeel::chipWidth (chip, 10.0f);
-        auto chipBounds = head.removeFromLeft (int (chipW)).toFloat().withSizeKeepingCentre (chipW, 18.0f);
-        const juce::Colour tint = busTint (family);
-        LiveMixLookAndFeel::drawChip (g, chipBounds, chip,
-                                      sel.isBus ? tint : Tokens::textMid,
-                                      sel.isBus ? tint.withAlpha (0.5f) : Tokens::hair,
-                                      sel.isBus ? tint.withAlpha (0.12f) : Tokens::inset, 10.0f);
-        head.removeFromLeft (10);
-        g.setColour (Tokens::textHi);
-        g.setFont (LiveMixLookAndFeel::condensed (20.0f, 700, 0.03f));
-        g.drawText (title.toUpperCase(), head, juce::Justification::centredLeft);
+        auto area = getLocalBounds();
+        auto head = area.removeFromTop (kHeaderH);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.5f));
+        g.drawText (kicker, head.removeFromTop (15), juce::Justification::topLeft, true);
+        if (muted)
+        {
+            const float w = Dine::pillWidth ("Muted", true);
+            auto chip = head.removeFromRight (int (w)).removeFromTop (22).toFloat();
+            Dine::drawPill (g, chip, "Muted", Dine::crit, Dine::Icon::Dash);
+        }
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (21.0f, 600));
+        g.drawText (title, head.removeFromTop (26), juce::Justification::centredLeft, true);
+        g.setColour (Dine::ink2);
+        g.setFont (Dine::text (12.5f));
+        g.drawText (sub, head, juce::Justification::topLeft, true);
 
-        g.setColour (Tokens::textLow);
-        g.setFont (LiveMixLookAndFeel::body (12.0f));
-        g.drawText (sub, r.removeFromTop (16), juce::Justification::centredLeft);
-        r.removeFromTop (14);
+        area.removeFromTop (16);
 
-        // Control labels (sliders sit on top via resized). Mute lives on the gain row
-        // so it never lands on a send or the report title when sends appear later.
-        g.setColour (Tokens::textMid);
-        g.setFont (LiveMixLookAndFeel::mono (11.5f));
+        // ---- the meter column
+        auto controls = area.removeFromTop (controlsHeight());
+        auto meterCard = controls.removeFromLeft (92);
+        Dine::drawCard (g, meterCard.toFloat());
+        auto mc = meterCard.reduced (10, 11);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.0f));
+        g.drawText ("Meter", mc.removeFromTop (14), juce::Justification::centred);
+        auto readout = mc.removeFromBottom (30);
+        g.setColour (peakDb >= -1.0f ? Dine::crit : Dine::ink);
+        g.setFont (Dine::mono (13.0f, 500));
+        g.drawText (peakDb <= -119.0f ? Glyph::dash() : db1 (peakDb), readout.removeFromTop (16), juce::Justification::centred);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (10.5f));
+        g.drawText ("dBFS", readout, juce::Justification::centred);
+        controls.removeFromLeft (14);
+
+        // ---- gain and fader
+        auto level = controls.removeFromTop (hasExtraCard() ? kLevelH : controls.getHeight());
+        Dine::drawCard (g, level.toFloat());
+        auto lr = level.reduced (16, 14);
+        if (! hasExtraCard()) lr = lr.withSizeKeepingCentre (lr.getWidth(), juce::jmin (lr.getHeight(), 62));
+        auto faderCol = lr.removeFromRight (196);
         if (! sel.isBus)
         {
-            auto row = r.removeFromTop (28);
-            g.drawText ("INPUT GAIN", row.removeFromLeft (90), juce::Justification::centredLeft);
-            row.removeFromRight (78); // mute button
-            g.drawText (db1 (float (gain.getValue())), row.removeFromRight (70), juce::Justification::centredRight);
+            auto gainCol = lr;
+            gainCol.removeFromRight (20);
+            auto top = gainCol.removeFromTop (16);
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::text (12.0f));
+            g.drawText ("Input gain", top.removeFromLeft (90), juce::Justification::centredLeft);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::mono (13.5f, 500));
+            g.drawText (db1 (float (gain.getValue())) + " dB", top, juce::Justification::centredRight);
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (11.0f));
+            g.drawText ("A digital preamp: it sets what the chain receives.", gainCol.removeFromBottom (14), juce::Justification::centredLeft, true);
+            g.setColour (Dine::hair);
+            g.fillRect (float (faderCol.getX()) - 10.0f, float (level.getY()) + 12.0f, 0.5f, float (level.getHeight()) - 24.0f);
         }
-        if (! sel.isBus)
+        else
+        {
+            auto text = lr;
+            text.removeFromRight (20);
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::text (12.0f));
+            g.drawText (sel.bus == MixBus::Master ? "Broadcast bus" : "Group bus", text.removeFromTop (16), juce::Justification::topLeft);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::text (12.5f));
+            g.drawFittedText (sel.bus == MixBus::Master
+                                  ? "Four buses sum here, plus the FX returns. The only things set on the way out are the level and the ceiling."
+                                  : "Every input on this group arrives here, then this one level feeds the master.",
+                              text, juce::Justification::topLeft, 3);
+        }
+        {
+            auto top = faderCol.removeFromTop (16);
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::text (12.0f));
+            g.drawText (sel.isBus ? "Bus level" : "Level", top.removeFromLeft (80), juce::Justification::centredLeft);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::mono (17.0f, 500));
+            g.drawText (db1 (float (fader.getValue())) + " dB", top, juce::Justification::centredRight);
+            auto scale = faderCol.removeFromBottom (14);
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::mono (10.5f));
+            g.drawText (Glyph::minus() + juce::String ("60"), scale, juce::Justification::centredLeft);
+            g.drawText ("0", scale.withWidth (int (scale.getWidth() * 60.0f / 72.0f)), juce::Justification::centredRight);
+            g.drawText ("+12", scale, juce::Justification::centredRight);
+        }
+
+        controls.removeFromTop (14);
+
+        // ---- sends, or the master's loudness
+        auto extra = controls;
+        if (sel.isBus && sel.bus == MixBus::Master)
+        {
+            Dine::drawCard (g, extra.toFloat());
+            auto r = extra.reduced (16, 14);
+            auto top = r.removeFromTop (16);
+            Dine::drawIcon (g, Dine::Icon::Target, top.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f), Dine::glyph);
+            top.removeFromLeft (8);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::text (12.5f, 600));
+            g.drawText ("Loudness", top.removeFromLeft (90), juce::Justification::centredLeft);
+
+            const auto& loud = controller.getEngine().getBus (MixBus::Master).getLoudness();
+            const float st = loud.getShortTermLufs();
+            const float tp = loud.getTruePeakDb();
+            r.removeFromTop (10);
+            auto figures = r.removeFromTop (28);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::mono (26.0f, 500));
+            const juce::String lufs = st > -100.0f ? juce::String (st, 1) : Glyph::dash();
+            const int lw = Dine::textWidth (Dine::mono (26.0f, 500), lufs) + 10;
+            g.drawText (lufs, figures.removeFromLeft (lw), juce::Justification::centredLeft);
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::text (12.0f));
+            g.drawText ("LUFS short term", figures.removeFromLeft (110), juce::Justification::centredLeft);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::mono (17.0f, 500));
+            const juce::String peak = st > -100.0f ? juce::String (tp, 1) : Glyph::dash();
+            const int pw = Dine::textWidth (Dine::mono (17.0f, 500), peak) + 10;
+            g.drawText (peak, figures.removeFromLeft (pw), juce::Justification::centredLeft);
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::text (12.0f));
+            g.drawText ("dBTP peak", figures, juce::Justification::centredLeft);
+            r.removeFromTop (6);
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::text (12.0f));
+            g.drawFittedText (juce::String (mixPurposeName (controller.getSession().purpose))
+                                  + " sets the target loudness and the ceiling; the limiter only catches the peaks above it.",
+                              r, juce::Justification::topLeft, 2);
+        }
+        else if (! sel.isBus && anySendVisible())
+        {
+            Dine::drawCard (g, extra.toFloat());
+            auto r = extra.reduced (16, 13);
+            auto top = r.removeFromTop (16);
+            Dine::drawIcon (g, Dine::Icon::Fx, top.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f), Dine::glyph);
+            top.removeFromLeft (8);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::text (12.5f, 600));
+            g.drawText ("Sends", top, juce::Justification::centredLeft);
+            r.removeFromTop (8);
             for (int f = 0; f < int (FxSlot::Count); ++f)
             {
                 if (! sends[size_t (f)].isVisible()) continue;
-                auto sr = r.removeFromTop (24);
-                g.drawText (sendLabel (FxSlot (f)), sr.removeFromLeft (90), juce::Justification::centredLeft);
-                g.drawText (db1 (float (sends[size_t (f)].getValue())), sr.removeFromRight (70), juce::Justification::centredRight);
+                auto row = r.removeFromTop (kSendH);
+                g.setColour (Dine::ink2);
+                g.setFont (Dine::text (12.0f));
+                g.drawText (sendLabel (FxSlot (f)), row.removeFromLeft (84), juce::Justification::centredLeft);
+                g.setColour (Dine::ink);
+                g.setFont (Dine::mono (12.0f));
+                g.drawText (db1 (float (sends[size_t (f)].getValue())) + " dB", row.removeFromRight (62), juce::Justification::centredRight);
             }
-        if (sel.isBus && sel.bus == MixBus::Master)
-        {
-            const auto& loud = controller.getEngine().getBus (MixBus::Master).getLoudness();
-            auto lr = r.removeFromTop (24);
-            g.drawText ("LOUDNESS", lr.removeFromLeft (90), juce::Justification::centredLeft);
-            const float st = loud.getShortTermLufs();
-            g.drawText (st > -100.0f ? juce::String (st, 1) + " LUFS  " + Glyph::dot() + "  peak " + juce::String (loud.getTruePeakDb(), 1) + " dBTP"
-                                     : "waiting for signal",
-                        lr, juce::Justification::centredRight);
         }
 
-        r.removeFromTop (10);
-        g.setColour (Tokens::textLow);
-        g.setFont (LiveMixLookAndFeel::condensed (11.0f, 600, 0.08f));
-        g.drawText ("WHAT TUNE MIX DECIDED, AND WHY", r.removeFromTop (16), juce::Justification::centredLeft);
+        // ---- what TUNE MIX decided
+        area.removeFromTop (14);
+        Dine::drawCard (g, area.toFloat());
+        auto r = area.reduced (16, 14);
+        auto top = r.removeFromTop (16);
+        Dine::drawIcon (g, Dine::Icon::Waveform, top.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f), Dine::accent);
+        top.removeFromLeft (8);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (12.5f, 600));
+        g.drawText ("What TUNE MIX decided, and why", top.removeFromLeft (230), juce::Justification::centredLeft);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.0f));
+        g.drawText (headline, top, juce::Justification::centredRight, true);
+    }
 
-        // Console strip chrome (meter + fader live in this column).
-        auto console = getLocalBounds().reduced (18, 14).removeFromRight (78);
-        LiveMixLookAndFeel::drawSurface (g, console.toFloat(), Tokens::inset, Tokens::hairStrong, Tokens::Radius::control);
-        auto consoleInner = console.reduced (8, 10);
-        g.setColour (Tokens::textLow);
-        g.setFont (LiveMixLookAndFeel::condensed (10.0f, 600, 0.1f));
-        g.drawText ("LEVEL", consoleInner.removeFromTop (14), juce::Justification::centred);
-        g.setColour (Tokens::textHi);
-        g.setFont (LiveMixLookAndFeel::mono (12.0f));
-        g.drawText (db1 (float (fader.getValue())), consoleInner.removeFromBottom (18), juce::Justification::centred);
-        // Scale marks beside the fader column.
-        auto marks = consoleInner;
-        marks.removeFromLeft (marks.getWidth() / 2);
-        g.setColour (Tokens::textDim);
-        g.setFont (LiveMixLookAndFeel::mono (9.0f));
-        const float marksH = float (marks.getHeight());
-        for (float db : { 0.0f, -6.0f, -12.0f, -24.0f, -48.0f })
-        {
-            // Fader range [-60, +12]: +12 at top, -60 at bottom.
-            const float yNorm = (12.0f - db) / (12.0f - (-60.0f));
-            const int y = marks.getY() + int (yNorm * marksH);
-            g.drawText (db > 0 ? "+" + juce::String (int (db)) : juce::String (int (db)),
-                        marks.getX(), y - 6, marks.getWidth(), 12, juce::Justification::centred);
-        }
+    bool anySendVisible() const
+    {
+        for (const auto& s : sends) if (s.isVisible()) return true;
+        return false;
     }
 
     void resized() override
     {
-        auto bounds = getLocalBounds().reduced (18, 14);
-        auto console = bounds.removeFromRight (78);
-        bounds.removeFromRight (14);
+        auto area = getLocalBounds();
+        area.removeFromTop (kHeaderH + 16);
+        auto controls = area.removeFromTop (controlsHeight());
+        auto meterCard = controls.removeFromLeft (92);
+        auto mc = meterCard.reduced (10, 11);
+        mc.removeFromTop (14 + 6);
+        mc.removeFromBottom (30);
+        meter.setBounds (mc.withSizeKeepingCentre (24, mc.getHeight()));
+        controls.removeFromLeft (14);
 
-        auto consoleInner = console.reduced (8, 10);
-        consoleInner.removeFromTop (14);
-        consoleInner.removeFromBottom (18);
-        auto meterCol = consoleInner.removeFromLeft (consoleInner.getWidth() / 2).reduced (2, 0);
-        auto faderCol = consoleInner.reduced (2, 0);
-        meter.setBounds (meterCol);
-        fader.setBounds (faderCol);
-
-        auto r = bounds;
-        r.removeFromTop (28 + 16 + 14);
-
-        auto slot = [&] (juce::Slider& s, int labelW, int rightReserve)
-        {
-            auto row = r.removeFromTop (24);
-            row.removeFromLeft (labelW);
-            row.removeFromRight (rightReserve);
-            s.setBounds (row);
-        };
+        auto level = controls.removeFromTop (hasExtraCard() ? kLevelH : controls.getHeight());
+        auto lr = level.reduced (16, 14);
+        if (! hasExtraCard()) lr = lr.withSizeKeepingCentre (lr.getWidth(), juce::jmin (lr.getHeight(), 62));
+        auto faderCol = lr.removeFromRight (196);
+        faderCol.removeFromTop (16 + 4);
+        faderCol.removeFromBottom (14);
+        fader.setBounds (faderCol.withHeight (24));
         if (! sel.isBus)
         {
-            // Gain + mute share one row (mute on the right).
-            auto row = r.removeFromTop (28);
-            row.removeFromLeft (90);
-            muteButton.setBounds (row.removeFromRight (70).withHeight (26).withY (row.getY() + 1));
-            row.removeFromRight (8);
-            row.removeFromRight (70); // value readout painted in paint()
+            auto gainCol = lr;
+            gainCol.removeFromRight (20);
+            gainCol.removeFromTop (16 + 4);
+            gainCol.removeFromBottom (14);
+            auto row = gainCol.withHeight (24);
+            muteButton.setBounds (row.removeFromRight (juce::jmax (72, muteButton.idealWidth())).withHeight (Dine::Metric::control).withY (row.getY() + 1));
+            row.removeFromRight (12);
             gain.setBounds (row);
         }
-        if (! sel.isBus)
-            for (auto& s : sends)
-                if (s.isVisible()) slot (s, 90, 74);
-        if (sel.isBus && sel.bus == MixBus::Master) r.removeFromTop (24);
 
-        r.removeFromTop (10 + 16 + 6);
-        report.setBounds (r);
+        controls.removeFromTop (14);
+        auto extra = controls;
+        if (! sel.isBus)
+        {
+            auto r = extra.reduced (16, 13);
+            r.removeFromTop (16 + 8);
+            for (auto& s : sends)
+            {
+                if (! s.isVisible()) continue;
+                auto row = r.removeFromTop (kSendH);
+                row.removeFromLeft (84);
+                row.removeFromRight (62 + 8);
+                s.setBounds (row.withSizeKeepingCentre (row.getWidth(), 20));
+            }
+        }
+
+        area.removeFromTop (14);
+        auto reportArea = area.reduced (16, 14);
+        reportArea.removeFromTop (16 + 8);
+        reportView.setBounds (reportArea);
+        const int h = report.layoutFor (reportArea.getWidth() - 12);
+        report.setSize (reportArea.getWidth() - (h > reportArea.getHeight() ? 10 : 0), juce::jmax (h, reportArea.getHeight()));
     }
+
+    static constexpr int kHeaderH = 60, kMinControlsH = 196, kLevelH = 88, kSendH = 26;
 
 private:
     MixController& controller;
     Selection sel;
     bool updating = false;
+    float peakDb = -120.0f;
+    juce::String headline;
     juce::Slider gain, fader;
     std::array<juce::Slider, int (FxSlot::Count)> sends;
-    FlatButton muteButton { "MUTE", FlatButton::Style::Outline };
-    MeterComponent meter;
-    juce::TextEditor report;
+
+    DineButton muteButton { "Mute", DineButton::Style::Standard };
+    DineMeter meter;
+    juce::Viewport reportView;
+    Report report;
 };
 
 // ------------------------------------------------------------------ AdvancedPage
@@ -513,8 +644,6 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
     addAndMakeVisible (viewport);
     detail = std::make_unique<Detail> (controller);
     addAndMakeVisible (*detail);
-    addAndMakeVisible (backButton);
-    backButton.onClick = [this] { if (onBack) onBack(); };
     rebuild();
 }
 
@@ -527,9 +656,9 @@ void AdvancedPage::rebuild()
     listHolder.removeAllChildren();
 
     const auto& graph = controller.getGraph();
-    auto addHeader = [&] (const juce::String& title, const juce::String& count, MixBus bus, bool busesSection)
+    auto addHeader = [&] (const juce::String& title, const juce::String& count, MixBus bus)
     {
-        auto h = std::make_unique<SectionHeader> (title, count, bus, busesSection);
+        auto h = std::make_unique<SectionHeader> (title, count, bus);
         listHolder.addAndMakeVisible (*h);
         listItems.push_back (std::move (h));
     };
@@ -548,20 +677,13 @@ void AdvancedPage::rebuild()
         const int n = graph.stripsOnBus (bus);
         if (n == 0) continue;
 
-        addHeader (juce::String (mixBusName (bus)),
-                   juce::String (n) + (n == 1 ? " ch" : " ch"),
-                   bus, false);
+        addHeader (sentenceCase (mixBusName (bus)), juce::String (n) + " ch", bus);
 
         for (int i = 0; i < graph.numStrips(); ++i)
         {
             const auto& s = graph.strips[size_t (i)];
             if (s.bus != bus) continue;
-            const auto in = deviceInLabel (s);
-            auto row = std::make_unique<Row> (s.name,
-                                              juce::String (channelRoleName (s.role)) + "  "
-                                                  + juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92")) + "  "
-                                                  + mixBusName (s.bus),
-                                              Row::Kind::Channel, s.bus, i, in);
+            auto row = std::make_unique<Row> (s.name, Row::Kind::Channel, s.bus, s.role, i);
             row->setClickingTogglesState (false);
             row->onClick = [this, i] { select (i); };
             addRow (std::move (row));
@@ -569,10 +691,7 @@ void AdvancedPage::rebuild()
 
         if (controller.isPrepared() && controller.getEngine().isBusUsed (bus))
         {
-            auto row = std::make_unique<Row> (mixBusName (bus),
-                                              juce::String (n) + " inputs  "
-                                                  + juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92")) + "  MASTER",
-                                              Row::Kind::Bus, bus);
+            auto row = std::make_unique<Row> (sentenceCase (mixBusName (bus)) + " bus", Row::Kind::Bus, bus, ChannelRole::KickIn);
             row->setClickingTogglesState (false);
             row->onClick = [this, bus] { selectBus (bus); };
             addRow (std::move (row));
@@ -581,8 +700,8 @@ void AdvancedPage::rebuild()
 
     if (controller.isPrepared() && controller.getEngine().isBusUsed (MixBus::Master))
     {
-        addHeader ("OUTPUT", "1", MixBus::Master, true);
-        auto row = std::make_unique<Row> ("MASTER", "mix output", Row::Kind::Master, MixBus::Master);
+        addHeader ("Output", "1", MixBus::Master);
+        auto row = std::make_unique<Row> ("Master", Row::Kind::Master, MixBus::Master, ChannelRole::KickIn);
         row->setClickingTogglesState (false);
         row->onClick = [this] { selectBus (MixBus::Master); };
         addRow (std::move (row));
@@ -631,16 +750,13 @@ void AdvancedPage::refresh()
         {
             const auto& m = engine.getStrip (r->strip).getOutputMeter();
             const auto& st = kept.strips[size_t (r->strip)];
-            r->set (m.consumeMaxPeakDb(), m.getMaxRmsDb(), m.hasClipped(),
-                    db1 (st.faderDb) + (st.inputGainDb != 0.0f ? "  gain " + db1 (st.inputGainDb) : juce::String()),
-                    st.mute);
+            r->set (m.consumeMaxPeakDb(), m.getMaxRmsDb(), m.hasClipped(), db1 (st.faderDb), st.mute);
         }
         else
         {
             const auto& m = engine.getBus (r->bus).getOutputMeter();
             r->set (m.consumeMaxPeakDb(), m.getMaxRmsDb(), m.hasClipped(),
-                    db1 (kept.buses[size_t (r->bus)].faderDb),
-                    kept.buses[size_t (r->bus)].mute);
+                    db1 (kept.buses[size_t (r->bus)].faderDb), kept.buses[size_t (r->bus)].mute);
         }
     }
     detail->refresh();
@@ -648,41 +764,35 @@ void AdvancedPage::refresh()
 
 void AdvancedPage::paint (juce::Graphics& g)
 {
-    auto area = getLocalBounds().reduced (AppStyle::kMargin);
-    auto header = area.removeFromTop (44);
-    g.setColour (Tokens::textHi);
-    g.setFont (LiveMixLookAndFeel::condensed (28.0f, 700, 0.02f));
-    g.drawText ("Advanced", header.removeFromLeft (180), juce::Justification::centredLeft);
-    g.setColour (Tokens::textLow);
-    g.setFont (LiveMixLookAndFeel::body (13.0f));
-    g.drawText ("Channels feed buses. Buses feed the mix.",
-                header, juce::Justification::centredLeft);
+    auto list = getLocalBounds().removeFromLeft (kListWidth);
+    g.setColour (Dine::rail);
+    g.fillRect (list);
+    g.setColour (Dine::hair);
+    g.fillRect (float (list.getRight()) - 0.5f, 0.0f, 0.5f, float (getHeight()));
 }
 
 void AdvancedPage::resized()
 {
-    auto area = getLocalBounds().reduced (AppStyle::kMargin);
-    auto header = area.removeFromTop (40);
-    backButton.setBounds (header.removeFromRight (90).withSizeKeepingCentre (90, 32));
-    area.removeFromTop (12);
+    auto area = getLocalBounds();
+    auto list = area.removeFromLeft (kListWidth);
+    viewport.setBounds (list.reduced (8, 0).withTrimmedTop (10).withTrimmedBottom (10));
 
-    auto left = area.removeFromLeft (juce::jmin (380, area.getWidth() / 2));
-    area.removeFromLeft (16);
-    viewport.setBounds (left);
-
-    const int channelH = 52, busH = 60, headerH = 28, gap = 4, sectionGap = 10;
+    const int rowH = 30, headerH = 26, sectionGap = 8;
     int total = 0;
+    bool firstHeader = true;
     for (auto& item : listItems)
     {
         if (dynamic_cast<SectionHeader*> (item.get()) != nullptr)
-            total += (total > 0 ? sectionGap : 0) + headerH + gap;
-        else if (auto* row = dynamic_cast<Row*> (item.get()))
-            total += (row->kind == Row::Kind::Channel ? channelH : busH) + gap;
+        {
+            total += (firstHeader ? 0 : sectionGap) + headerH;
+            firstHeader = false;
+        }
+        else total += rowH + 1;
     }
 
-    listHolder.setSize (left.getWidth() - (total > left.getHeight() ? 12 : 0), juce::jmax (total, left.getHeight()));
+    listHolder.setSize (viewport.getWidth() - (total > viewport.getHeight() ? 10 : 0), juce::jmax (total, viewport.getHeight()));
     int y = 0;
-    bool firstHeader = true;
+    firstHeader = true;
     for (auto& item : listItems)
     {
         if (dynamic_cast<SectionHeader*> (item.get()) != nullptr)
@@ -690,16 +800,16 @@ void AdvancedPage::resized()
             if (! firstHeader) y += sectionGap;
             firstHeader = false;
             item->setBounds (0, y, listHolder.getWidth(), headerH);
-            y += headerH + gap;
+            y += headerH;
         }
-        else if (auto* row = dynamic_cast<Row*> (item.get()))
+        else
         {
-            const int h = row->kind == Row::Kind::Channel ? channelH : busH;
-            item->setBounds (0, y, listHolder.getWidth(), h);
-            y += h + gap;
+            item->setBounds (0, y, listHolder.getWidth(), rowH);
+            y += rowH + 1;
         }
     }
-    detail->setBounds (area);
+
+    detail->setBounds (area.reduced (24, 22));
 }
 
 } // namespace livemix

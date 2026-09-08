@@ -4,12 +4,14 @@
 #include <memory>
 #include <vector>
 #include "AppServices.h"
+#include "AppTheme.h"
 #include "UI/Widgets.h"
 
 namespace livemix
 {
 
-// STEP 1: which device brings the inputs in. "32 inputs detected" -> CONTINUE.
+// STEP 1: which device brings the inputs in. The list, the output pair, the clock,
+// and a recording to practise with -> Continue.
 class DevicePage : public juce::Component
 {
 public:
@@ -26,6 +28,7 @@ private:
     class DeviceRow;
     void select (int index);
     void chooseOutput (juce::Component& anchor);
+    juce::Rectangle<int> body() const;
 
     MixController& controller;
     AppServices& services;
@@ -36,15 +39,14 @@ private:
     std::vector<std::unique_ptr<DeviceRow>> rows;
     juce::Viewport viewport;
     juce::Component listHolder;
-    DropdownButton outputButton { "OUTPUT" };
-    FlatButton continueButton { "CONTINUE", FlatButton::Style::Solid };
-    FlatButton rescanButton { "RESCAN", FlatButton::Style::Outline };
-    FlatButton recordingButton { "PLAY A RECORDING...", FlatButton::Style::Outline };
+    DinePopup outputButton;
+    DineButton continueButton { "Continue", DineButton::Style::Filled };
+    DineButton rescanButton { "Rescan", DineButton::Style::Standard };
+    DineButton recordingButton { "Play a recording...", DineButton::Style::Standard };
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
-// STEP 2: every device input on one row: number, name, source, stereo link. Fast:
-// type a name, pick a source from a grouped menu, link a pair with one click.
+// STEP 2: every device input on one row: number, name, source, stereo pair, bus.
 class AssignPage : public juce::Component
 {
 public:
@@ -65,6 +67,7 @@ private:
     void commit();                        // rows -> controller session
     void showSourceMenu (int input, juce::Component& anchor);
     int assignedCount() const;
+    juce::Rectangle<int> body() const;
 
     MixController& controller;
     AppServices& services;
@@ -74,12 +77,12 @@ private:
     std::vector<std::unique_ptr<Row>> rows;
     juce::Viewport viewport;
     juce::Component listHolder;
-    FlatButton continueButton { "CONTINUE", FlatButton::Style::Solid };
-    FlatButton backButton { "BACK", FlatButton::Style::Ghost };
-    FlatButton clearButton { "CLEAR ALL", FlatButton::Style::Ghost };
+    DineButton continueButton { "Continue", DineButton::Style::Filled };
+    DineButton backButton { "Back", DineButton::Style::Standard };
+    DineButton clearButton { "Clear", DineButton::Style::Ghost };
 };
 
-// STEP 3 + 4: WHAT ARE WE MIXING? and the sound. Two rows of big tiles, CONTINUE.
+// STEP 3: purpose (loudness and peaks) and sound (character), as picker cards.
 class PurposePage : public juce::Component
 {
 public:
@@ -92,10 +95,12 @@ public:
 
 private:
     class Tile;
+    juce::Rectangle<int> body() const;
+
     MixController& controller;
     std::vector<std::unique_ptr<Tile>> purposeTiles, soundTiles;
-    FlatButton continueButton { "CONTINUE", FlatButton::Style::Solid };
-    FlatButton backButton { "BACK", FlatButton::Style::Ghost };
+    DineButton continueButton { "Build the mix", DineButton::Style::Filled };
+    DineButton backButton { "Back", DineButton::Style::Standard };
 };
 
 } // namespace livemix

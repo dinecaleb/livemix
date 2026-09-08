@@ -1,17 +1,19 @@
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <array>
 #include <memory>
 #include "AppServices.h"
+#include "AppTheme.h"
 #include "SetupPages.h"
 #include "MixPage.h"
 #include "AdvancedPage.h"
-#include "UI/LiveMixLookAndFeel.h"
 
 namespace livemix
 {
 
-// The window content: a premium top bar (wordmark, session, output, save/open) and one
-// page at a time. Device -> Assign -> Purpose -> Mix, with Advanced one step aside.
+// The window: a vibrancy sidebar (Library / Set up / Mix and the device's state), a
+// unified toolbar (the setup's name and its menu, Mix|Advanced, the output) and one
+// page under it. Device -> Inputs -> Purpose -> Mix, with Advanced one step aside.
 class MainView : public juce::Component, private juce::Timer
 {
 public:
@@ -35,19 +37,22 @@ public:
     void resized() override;
 
 private:
-    int saveTicks = 0;
-    bool audioWasRunning = false;
     class Toast;
+    class SessionButton;
+
     void timerCallback() override;
     void enterMix();
     void updateChrome();
     void saveAs();
+    void saveNow();
     void openMix();
+    void sessionMenu();
     void chooseOutput();
+    juce::Rectangle<int> contentBounds() const;
 
     MixController& controller;
     AppServices& services;
-    LiveMixLookAndFeel lookAndFeel;
+    DineLookAndFeel lookAndFeel;
     juce::TooltipWindow tooltips { this, 700 };
     Page page = Page::Device;
 
@@ -57,14 +62,19 @@ private:
     std::unique_ptr<MixPage> mixPage;
     std::unique_ptr<AdvancedPage> advancedPage;
     std::unique_ptr<Toast> toast;
+    std::unique_ptr<SessionButton> sessionButton;
 
-    FlatButton sessionButton { "SUNDAY", FlatButton::Style::Ghost };
-    FlatButton outputButton { "OUTPUT", FlatButton::Style::Ghost };
-    FlatButton saveButton { "SAVE", FlatButton::Style::Ghost };
-    FlatButton openButton { "OPEN", FlatButton::Style::Ghost };
-    FlatButton deviceButton { "DEVICE", FlatButton::Style::Ghost };
-    FlatButton inputsButton { "INPUTS", FlatButton::Style::Ghost };
-    int toastTicks = 0;
+    // Sidebar: Setups, then the three setup steps, then the two mix views.
+    DineNavItem setupsItem { "Setups", Dine::Icon::List };
+    std::array<std::unique_ptr<DineNavItem>, 3> setupItems;
+    std::array<std::unique_ptr<DineNavItem>, 2> mixItems;
+
+    DineButton segMix { "Mix", DineButton::Style::Segment };
+    DineButton segAdvanced { "Advanced", DineButton::Style::Segment };
+    DinePopup outputButton;
+
+    int saveTicks = 0, toastTicks = 0;
+    bool audioWasRunning = false;
 };
 
 } // namespace livemix

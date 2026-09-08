@@ -52,7 +52,11 @@
   compressor model numbers in `MixProfileData`), so one TUNE MIX lands; check with the stems tool's PREDICTION CHECK
   and the `after` LUFS line (target -23, within ~1 LU) when touching gain, fader, bus or master rules. Inputs below
   `faintInputDb` at the device are "faint": flagged, never tuned or raised.
-  The app is `app/` (`MixController` no JUCE, `AudioHost` device, `ui/` pages). Verify with
+  The app is `app/` (`MixController` no JUCE, `AudioHost` device, `ui/` pages). The app's look is the DINELIVE v2
+  design: tokens, icons, widgets and look-and-feel in `app/ui/AppTheme.{h,cpp}` (`Dine::`), a vibrancy sidebar +
+  unified toolbar shell in `MainView`, sheets for TUNE MIX and its result. Caps only in the product verbs
+  (TUNE MIX / RE-TUNE / KEEP / REVERT / BEFORE / AFTER); the plug-in keeps `Tokens` in `src/UI` and is unaffected.
+  Verify with
   `build/app/dinelive_ui_snapshots <dir>` and the real stems: `build/app/dinelive_mix_stems "<stems folder>" 30 <outdir>`
   (writes raw/before/after/after-retuned WAVs, exit 0 = re-plan on the same listen changed nothing). App tests:
   `build/app/dinelive_app_tests`; real device: `build/app/dinelive_device_check 3`; recording playback through the host: `build/app/dinelive_device_check 4 "<stems folder>"`.

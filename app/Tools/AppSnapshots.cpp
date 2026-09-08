@@ -62,7 +62,7 @@ namespace
         Rig()
         {
             view = std::make_unique<MainView> (controller, services);
-            view->setSize (1280, 860);
+            view->setSize (1400, 920);
             view->setVisible (true);
             in.assign (kInputs, std::vector<float> (kBlock, 0.0f));
             ip.resize (kInputs);
