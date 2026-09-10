@@ -59,6 +59,10 @@ public:
     // Ends the take and turns what was captured into clips on their tracks. Returns how many.
     int stopRecording();
     bool isRecording() const noexcept { return recorder.isRecording(); }
+    // How long the take has been running, and how long the disk would last at this rate
+    // (0 = nothing armed, no folder yet, or a volume that will not say). Message thread.
+    double getRecordingSeconds() const noexcept;
+    double getRecordingSecondsFree() const;
 
     // ---- audio thread ----
     void processBlock (const float* const* deviceInputs, int numInputChannels,
@@ -82,6 +86,7 @@ private:
     // thread reads. `rebuilding` stops the next block using them and `inBlock` waits for the
     // one already in flight, so the swap costs the message thread a block, never a crash.
     void rebuildPlayer();
+    double plannedBytesPerSecond() const;
 
     MixController& controller;
     MixSession session;

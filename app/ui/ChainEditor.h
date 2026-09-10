@@ -112,19 +112,28 @@ public:
 
     void refresh();
     void paint (juce::Graphics&) override;
+    void resized() override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
     static constexpr int height = 128;
     static constexpr int titleH = 24;
+    // Narrower than this and a chip stops being readable, so the path scrolls instead of
+    // squeezing: a stage you cannot read is a stage you cannot pick.
+    static constexpr int minChipW = 74;
 
 private:
     juce::Rectangle<int> chipBounds (int index) const;
     int chipAt (juce::Point<int>) const;
+    int contentWidth() const;
+    int maxScroll() const;
+    void clampScroll();
 
     ChainEditor& chain;
     int hover = -1;
+    int scrollX = 0;
 };
 
 } // namespace livemix

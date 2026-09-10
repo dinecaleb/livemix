@@ -120,6 +120,9 @@ void DawEngine::stop()
 
 void DawEngine::locate (juce::int64 sample)
 {
+    // While a take is being written the playhead belongs to the recording: the clip lands
+    // where the take started, so moving it would only make the picture lie about the audio.
+    if (recorder.isRecording()) return;
     const bool wasPlaying = transport.isPlaying() && ! recorder.isRecording();
     if (wasPlaying) transport.stop();
     transport.setPosition (sample);
@@ -161,6 +164,38 @@ juce::String DawEngine::startRecording()
     if (! transport.isPlaying()) { player.prime (transport.getPosition()); transport.play(); }
     transport.setRecording (true);
     return {};
+}
+
+double DawEngine::getRecordingSeconds() const noexcept
+{
+    if (! recorder.isRecording() || sampleRate <= 0.0) return 0.0;
+    return double (recorder.getFramesWritten()) / sampleRate;
+}
+
+double DawEngine::getRecordingSecondsFree() const
+{
+    if (project.folder == juce::File()) return 0.0;
+    const double perSecond = recorder.isRecording() ? recorder.bytesPerSecond()
+                                                    : plannedBytesPerSecond();
+    return Recorder::secondsFreeOn (project.audioFolder(), perSecond);
+}
+
+// What a take would cost per second if Record were pressed now: every armed track, at the
+// device's rate. Used to say how long the disk would last before anything is recorded.
+double DawEngine::plannedBytesPerSecond() const
+{
+    std::vector<Recorder::Spec> specs;
+    const int n = juce::jmin (int (session.inputs.size()), int (project.tracks.size()));
+    for (int i = 0; i < n; ++i)
+    {
+        if (! project.tracks[size_t (i)].armed) continue;
+        Recorder::Spec s;
+        s.inputA = session.inputs[size_t (i)].inputA;
+        s.inputB = session.inputs[size_t (i)].inputB;
+        specs.push_back (s);
+    }
+    if (specs.empty()) return 0.0;
+    return Recorder::bytesPerSecondFor (specs, sampleRate);
 }
 
 int DawEngine::stopRecording()

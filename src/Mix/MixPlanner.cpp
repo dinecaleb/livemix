@@ -478,7 +478,13 @@ MixPlan plan (const MixPlanContext& ctx)
                 const float hz = R.vocalPocketHz, q = R.vocalPocketQ;
                 d.move (Recommendation::Kind::EQ, TuneSection::Tone,
                         "Made room for the lead vocal in " + upper (sp.name) + ": " + fmtDb (-cut, 1) + " at " + fmtHz (hz),
-                        "Around " + fmtHz (hz) + " this source carries " + (masking >= 0.0f ? fmtDb (masking, 0) + " more energy than" : "almost as much energy as")
+                        // Past ~24 dB the figure has stopped meaning "this is masking the voice" and
+                        // started meaning "the voice has almost nothing in this band" - a number there
+                        // is precision the measurement does not have, so it is described instead.
+                        "Around " + fmtHz (hz) + " this source carries "
+                        + (masking > 24.0f ? std::string ("far more energy than")
+                                           : masking >= 0.0f ? fmtDb (masking, 0) + " more energy than"
+                                                             : std::string ("almost as much energy as"))
                         + " the lead vocal at mix level. Rather than pushing the voice brighter, the music steps aside where the words live.",
                         Confidence::Medium, [=] (ChannelParameters& p) { p.toneEqEnabled = true; p.toneBands[1] = { true, FilterType::Peak, hz, -cut, q }; });
                 commit (d, plan.proposed.strips[size_t (i)].channel, sp.mixItems, plan.relationships);

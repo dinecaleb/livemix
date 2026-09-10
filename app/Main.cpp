@@ -118,14 +118,22 @@ namespace
             return {};
         }
 
-        juce::String exportMix (const juce::File& dest, ExportFormat format, std::function<bool (float)> progress) override
+        std::shared_ptr<const ExportJob> snapshotExport() override
         {
+            auto job = std::make_shared<ExportJob>();
+            job->session = controller.getSession();
+            job->params = controller.getRunning();
+            job->project = dawEngine.getProject();
+            return job;
+        }
+
+        juce::String exportMix (std::shared_ptr<const ExportJob> job, const juce::File& dest,
+                                ExportFormat format, std::function<bool (float)> progress) override
+        {
+            if (job == nullptr) return "There is nothing to export.";
             MixBounce::Options options;
             options.onProgress = std::move (progress);
-            return MixBounce::renderProject (controller.getSession(),
-                                             controller.getRunning(),
-                                             dawEngine.getProject(),
-                                             dest,
+            return MixBounce::renderProject (job->session, job->params, job->project, dest,
                                              format == ExportFormat::Mp3 ? MixBounce::Format::Mp3 : MixBounce::Format::Wav,
                                              options);
         }
@@ -345,7 +353,25 @@ public:
         controller.reset();
     }
 
-    void systemRequestedQuit() override { quit(); }
+    // Quitting mid-take would end the service's recording without a word. The take is
+    // always flushed (shutdown() stops the engine first), but ending it has to be a
+    // decision, not an accident - so the question says exactly what happens either way.
+    void systemRequestedQuit() override
+    {
+        if (dawEngine == nullptr || ! dawEngine->isRecording()) { quit(); return; }
+
+        auto* alert = new juce::AlertWindow ("DLIVE is recording",
+                                             "Quitting stops the take and closes the session. Everything recorded so far "
+                                             "is written to the session's Audio Files folder and kept on the timeline.",
+                                             juce::MessageBoxIconType::NoIcon);
+        alert->addButton ("Keep Recording", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        alert->addButton ("Stop and Quit", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        alert->enterModalState (true, juce::ModalCallbackFunction::create ([this, alert] (int r)
+        {
+            std::unique_ptr<juce::AlertWindow> closer (alert);
+            if (r == 1) quit();
+        }), true);
+    }
 
 private:
     std::unique_ptr<MixController> controller;

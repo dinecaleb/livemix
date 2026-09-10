@@ -882,13 +882,41 @@ public:
         level = levelNorm;
         band = selectedBand;
         running = live;
+        const size_t hadSends = sends.size();
         sends = std::move (sendLevels);
+        // The sends arrive after the layout, so the well is sized for one row until they do.
+        if (hadSends != sends.size())
+            if (auto* parent = getParentComponent()) parent->resized();
         if (spec != nullptr && graphFor (spec->id) == GraphKind::Transfer)
         {
             history.erase (history.begin());
             history.push_back (gr);
         }
         repaint();
+    }
+
+    // How tall this drawing actually wants to be, or 0 where it fills whatever it is given
+    // (a curve, an in/out line). The bars and the sends are short lists: stretched down a
+    // 700 px well they leave a large empty rectangle, which is the one thing that makes a
+    // finished panel look unfinished. The card is sized to the list instead.
+    int naturalHeight() const
+    {
+        if (spec == nullptr) return 0;
+        switch (graphFor (spec->id))
+        {
+            case GraphKind::Sends:
+                return 24 + 52 * juce::jmax (1, int (sends.size()));
+            case GraphKind::Bars:
+            {
+                const bool staging = spec->id == StageId::Input || spec->id == StageId::Output;
+                int sliders = 0;
+                for (const auto& f : spec->fields) if (f.kind == Field::Kind::Slider) ++sliders;
+                return 24 + sliders * 56 + (staging ? 24 + 2 * 30 + 12 : 0);
+            }
+            case GraphKind::Eq:
+            case GraphKind::Transfer:
+            default: return 0;
+        }
     }
 
     void paint (juce::Graphics& g) override
@@ -1255,7 +1283,7 @@ private:
         const int rowH = 56;
         const int needed = sliders * rowH + (staging ? 24 + 2 * 30 + 12 : 0);
         auto rows = r.reduced (10, 6);
-        rows = rows.withSizeKeepingCentre (rows.getWidth(), juce::jmin (rows.getHeight(), needed));
+        rows = rows.withHeight (juce::jmin (rows.getHeight(), needed));
 
         for (const auto& f : spec->fields)
         {
@@ -1327,7 +1355,7 @@ private:
     {
         auto rows = r.reduced (10, 8);
         const int rowH = 52;
-        rows = rows.withSizeKeepingCentre (rows.getWidth(), juce::jmin (rows.getHeight(), rowH * int (sends.size())));
+        rows = rows.withHeight (juce::jmin (rows.getHeight(), rowH * int (sends.size())));
         for (const auto& s : sends)
         {
             auto row = rows.removeFromTop (rowH).withTrimmedBottom (8);
@@ -1827,7 +1855,9 @@ void ChainEditor::resized()
     const int colW = juce::jmin (s.bands > 0 ? kColBandW : kColW, juce::jmax (0, area.getWidth() - kGraphMinW - 14));
     auto column = area.removeFromRight (juce::jmax (0, colW));
     area.removeFromRight (14);
-    graph->setBounds (area);
+    // A drawing with a natural height keeps it; only a curve takes the whole panel.
+    const int wanted = graph->naturalHeight();
+    graph->setBounds (wanted > 0 ? area.withHeight (juce::jmin (area.getHeight(), wanted)) : area);
 
     controlsView.setBounds (column);
     int y = 0;
@@ -1907,15 +1937,42 @@ SignalPath::SignalPath (ChainEditor& c) : chain (c) {}
 
 void SignalPath::refresh() { repaint(); }
 
+// The chips share the row when they all fit at a readable width; when they do not, they
+// keep that width and the row scrolls (wheel, trackpad, or a drag) instead of shrinking
+// every stage into an ellipsis.
 juce::Rectangle<int> SignalPath::chipBounds (int index) const
 {
     const int n = chain.numStages();
     if (n <= 0) return {};
     auto row = getLocalBounds().withTrimmedTop (titleH);
     const int gap = 10;
-    const float w = float (row.getWidth() - gap * (n - 1)) / float (n);
-    return juce::Rectangle<int> (row.getX() + juce::roundToInt (float (index) * (w + float (gap))), row.getY(),
-                                 juce::jmax (24, juce::roundToInt (w)), row.getHeight());
+    const float even = float (row.getWidth() - gap * (n - 1)) / float (n);
+    const float w = juce::jmax (float (minChipW), even);
+    return juce::Rectangle<int> (row.getX() - scrollX + juce::roundToInt (float (index) * (w + float (gap))),
+                                 row.getY(), juce::roundToInt (w), row.getHeight());
+}
+
+int SignalPath::contentWidth() const
+{
+    const int n = chain.numStages();
+    if (n <= 0) return 0;
+    const int gap = 10;
+    const float even = float (getWidth() - gap * (n - 1)) / float (n);
+    const float w = juce::jmax (float (minChipW), even);
+    return juce::roundToInt (float (n) * w) + gap * (n - 1);
+}
+
+int SignalPath::maxScroll() const { return juce::jmax (0, contentWidth() - getWidth()); }
+void SignalPath::clampScroll() { scrollX = juce::jlimit (0, maxScroll(), scrollX); }
+void SignalPath::resized() { clampScroll(); }
+
+void SignalPath::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
+{
+    if (maxScroll() <= 0) return;
+    const float delta = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
+    scrollX -= juce::roundToInt (delta * 220.0f);
+    clampScroll();
+    repaint();
 }
 
 int SignalPath::chipAt (juce::Point<int> p) const
@@ -1955,6 +2012,9 @@ void SignalPath::paint (juce::Graphics& g)
                 juce::Justification::centredLeft, true);
 
     const auto& views = chain.stageViews();
+    juce::Graphics::ScopedSaveState clipToRow (g);
+    g.reduceClipRegion (getLocalBounds().withTrimmedTop (titleH));
+
     for (int i = 0; i < int (views.size()); ++i)
     {
         const auto& v = views[size_t (i)];
@@ -2017,6 +2077,19 @@ void SignalPath::paint (juce::Graphics& g)
             g.drawText (juce::String (juce::CharPointer_UTF8 ("\xe2\x80\xba")), arrow, juce::Justification::centred);
         }
     }
+
+    // A chip cut off at the edge has to look cut off, or the path reads as if it ended
+    // there. The ground fades in from whichever side still has stages behind it.
+    auto row = getLocalBounds().withTrimmedTop (titleH).toFloat();
+    auto fade = [&] (bool left)
+    {
+        auto edge = left ? row.withWidth (26.0f) : row.withTrimmedLeft (row.getWidth() - 26.0f);
+        g.setGradientFill (juce::ColourGradient (Dine::window, left ? edge.getX() : edge.getRight(), 0.0f,
+                                                 Dine::window.withAlpha (0.0f), left ? edge.getRight() : edge.getX(), 0.0f, false));
+        g.fillRect (edge);
+    };
+    if (scrollX > 0)             fade (true);
+    if (scrollX < maxScroll())   fade (false);
 }
 
 void SignalPath::mouseUp (const juce::MouseEvent& e)

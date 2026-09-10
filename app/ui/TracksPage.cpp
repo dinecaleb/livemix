@@ -286,18 +286,17 @@ juce::Rectangle<int> TracksPage::faderCell (int track) const
     return { left, top + 26, right - left - 36, 10 };
 }
 
-float TracksPage::faderDbAt (int track, int x) const
-{
-    const auto cell = faderCell (track);
-    if (cell.isEmpty()) return 0.0f;
-    const float norm = juce::jlimit (0.0f, 1.0f, float (x - cell.getX()) / float (juce::jmax (1, cell.getWidth())));
-    return std::round (faderRange().convertFrom0to1 (norm) * 2.0f) * 0.5f;
-}
-
-void TracksPage::dragFader (int track, int x)
+// A fader is grabbed where it stands and moved from there - it never jumps to the click.
+// A live fader that snaps to wherever the mouse landed is how a service gets 12 dB louder
+// by accident. Hold Shift for a quarter-speed move, the same as the console's faders.
+void TracksPage::dragFader (int track, int x, bool fine)
 {
     if (track < 0 || track >= controller.getBase().numStrips) return;
-    controller.setStripFader (track, faderDbAt (track, x));
+    const auto cell = faderCell (track);
+    if (cell.isEmpty()) return;
+    const float travel = float (x - dragStartX) / float (juce::jmax (1, cell.getWidth()));
+    const float norm = juce::jlimit (0.0f, 1.0f, dragFaderNorm + travel * (fine ? 0.25f : 1.0f));
+    controller.setStripFader (track, std::round (faderRange().convertFrom0to1 (norm) * 10.0f) * 0.1f);
     repaint();
 }
 
@@ -1515,6 +1514,12 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
             return;
         }
 
+        // While a take is running the playhead is the recording's, not the mouse's.
+        if (services.daw().isRecording())
+        {
+            if (onToast) onToast ("The playhead follows the recording. Stop recording to move it.");
+            return;
+        }
         drag = Drag::Playhead;
         services.daw().getTransport().setPosition (snapSample (xToSample (p.x), -1, -1));
         repaint();
@@ -1544,7 +1549,9 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
             selection = { track, -1 };
             drag = Drag::Fader;
             dragTrack = track;
-            dragFader (track, p.x);
+            dragStartX = p.x;
+            dragFaderNorm = faderRange().convertTo0to1 (
+                juce::jlimit (-60.0f, 12.0f, controller.getBase().strips[size_t (track)].faderDb));
             return;
         }
 
@@ -1641,7 +1648,7 @@ void TracksPage::mouseDrag (const juce::MouseEvent& e)
         }
 
         case Drag::Fader:
-            dragFader (dragTrack, p.x);
+            dragFader (dragTrack, p.x, e.mods.isShiftDown());
             break;
 
         case Drag::Scroll:
@@ -1764,7 +1771,12 @@ void TracksPage::mouseDoubleClick (const juce::MouseEvent& e)
         const int track = trackAtY (p.y);
         if (track < 0) return;
         if (p.y >= trackTop (track) + trackHeight (track) - kResizeGrip) return;
-        if (const auto cell = faderCell (track); ! cell.isEmpty() && cell.expanded (0, 4).contains (p)) return;
+        // Double-click a fader for unity, exactly as the mixer's faders do.
+        if (const auto cell = faderCell (track); ! cell.isEmpty() && cell.expanded (0, 4).contains (p))
+        {
+            if (! controller.isBypassed()) { controller.setStripFader (track, 0.0f); repaint(); }
+            return;
+        }
         for (int k = 0; k < 4; ++k) if (keyCell (track, k).contains (p)) return;
         selection = { track, -1 };
         updateChainStrip();

@@ -18,7 +18,7 @@ public:
         addAndMakeVisible (fader);
         fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
-        fader.setRange (-60.0, 6.0, 0.1);
+        fader.setRange (-60.0, 12.0, 0.1);   // the same throw as the mixer's bus faders
         fader.setSkewFactorFromMidPoint (-12.0);
         fader.setDoubleClickReturnValue (true, 0.0);
         fader.getProperties().set ("dineFader", true);
@@ -157,6 +157,51 @@ private:
     bool muted = false, soloed = false;
 };
 
+// The transport's Record, sized for the room rather than for a toolbar: on LIVE the
+// operator is standing, the screen is across the desk, and this is the button that has to
+// be found without looking. It carries the record dot and the only red on the page.
+class LivePage::RecordKey : public juce::Button
+{
+public:
+    RecordKey() : juce::Button ("Record")
+    {
+        setTooltip ("Record every armed track (R). LIVE SAFE never locks the transport.");
+        setClickingTogglesState (false);
+    }
+
+    void setRecording (bool r) { if (r != recording) { recording = r; repaint(); } }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto r = getLocalBounds().toFloat();
+        const auto ground = recording ? Dine::crit.withAlpha (down ? 1.0f : over ? 0.95f : 0.88f)
+                                      : Dine::fill.overlaidWith (Dine::crit.withAlpha (over ? 0.22f : 0.12f));
+        Dine::fillRounded (g, r, ground, Dine::Radius::control);
+        Dine::hairlineRounded (g, r, recording ? Dine::crit : Dine::crit.withAlpha (0.45f), Dine::Radius::control);
+
+        auto inner = getLocalBounds().reduced (14, 0);
+        const float d = 11.0f;
+        auto dot = juce::Rectangle<float> (d, d).withCentre ({ float (inner.getX()) + d * 0.5f, r.getCentreY() });
+        g.setColour (recording ? Dine::onAccent : Dine::crit);
+        if (recording) g.fillRect (dot.reduced (1.5f));      // a square: pressing it stops
+        else           g.fillEllipse (dot);
+
+        g.setColour (recording ? Dine::onAccent : Dine::ink);
+        g.setFont (Dine::text (13.0f, 600).withExtraKerningFactor (0.06f));
+        g.drawText (recording ? "STOP RECORDING" : "RECORD",
+                    inner.withTrimmedLeft (int (d) + 10), juce::Justification::centredLeft, false);
+    }
+
+    int idealWidth() const
+    {
+        return 14 * 2 + 11 + 10 + Dine::textWidth (Dine::text (13.0f, 600).withExtraKerningFactor (0.06f),
+                                                   "STOP RECORDING");
+    }
+
+private:
+    bool recording = false;
+};
+
 LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services (s)
 {
     for (int i = 0; i < int (MixBus::Count); ++i)
@@ -164,6 +209,10 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         faders[size_t (i)] = std::make_unique<GroupFader> (controller, MixBus (i));
         addAndMakeVisible (*faders[size_t (i)]);
     }
+    recordButton = std::make_unique<RecordKey>();
+    addAndMakeVisible (*recordButton);
+    recordButton->onClick = [this] { if (onToggleRecord) onToggleRecord(); };
+
     addAndMakeVisible (liveSafeButton);
     liveSafeButton.setCaps (true);
     liveSafeButton.setClickingTogglesState (false);
@@ -201,10 +250,17 @@ void LivePage::refresh()
     }
 
     const auto& transport = services.daw().getTransport();
+    auto& daw = services.daw();
+    const bool recording = daw.isRecording();
     clock = Transport::formatTime (transport.getPositionSeconds());
-    state = services.daw().isRecording() ? "RECORDING"
-          : transport.isPlaying()        ? "PLAYING"
-          : services.isAudioRunning()    ? "READY" : "NO DEVICE";
+    state = recording                 ? "RECORDING"
+          : transport.isPlaying()     ? "PLAYING"
+          : services.isAudioRunning() ? "READY" : "NO DEVICE";
+
+    if (recording != recordingOn) { recordingOn = recording; recordButton->setRecording (recording); resized(); }
+    recordButton->setEnabled (services.isAudioRunning());
+
+    updateDiskNote();
 
     // LIVE SAFE is a lock: it has to read as on or off from the back of the room, so the
     // button fills and says which it is, rather than relying on a toggle nobody can see.
@@ -220,6 +276,51 @@ void LivePage::refresh()
     repaint();
 }
 
+// What the STATE card says under its word. While a take is running this is the one number
+// an operator watches: how long it has been recording, and how long the disk will last.
+// Before it starts, it says whether anything is armed and what that would cost.
+void LivePage::updateDiskNote()
+{
+    auto& daw = services.daw();
+    const bool recording = daw.isRecording();
+
+    if (--diskTicks <= 0)                       // ~ every 2 s at 30 Hz, never per frame
+    {
+        diskTicks = 60;
+        secondsFree = daw.getRecordingSecondsFree();
+    }
+
+    auto span = [] (double seconds) -> juce::String
+    {
+        const int total = int (seconds);
+        if (total >= 24 * 3600) return "a day or more";      // past this the number is noise, not information
+        if (total >= 2 * 3600)  return juce::String (total / 3600) + " h";
+        if (total >= 3600)      return "1 h " + juce::String ((total / 60) % 60) + " m";
+        return juce::String (juce::jmax (0, total / 60)) + " m";
+    };
+
+    const int armed = daw.getProject().numArmed();
+    const juce::String room = secondsFree > 0.0 ? span (secondsFree) + " of room left" : juce::String();
+    const bool tight = secondsFree > 0.0 && secondsFree < 15.0 * 60.0;
+
+    stateNoteColour = tight ? Dine::crit : Dine::ink3;
+    if (recording)
+    {
+        stateNote = "TAKE " + Transport::formatTime (daw.getRecordingSeconds()).dropLastCharacters (4)
+                  + (room.isEmpty() ? juce::String() : "   " + Glyph::dot() + "   " + room);
+    }
+    else if (armed == 0)
+    {
+        stateNote = "Nothing armed. Arm the tracks to record on the Tracks page.";
+        stateNoteColour = Dine::warn;
+    }
+    else
+    {
+        stateNote = juce::String (armed) + (armed == 1 ? " track armed" : " tracks armed")
+                  + (room.isEmpty() ? juce::String() : "   " + Glyph::dot() + "   " + room);
+    }
+}
+
 juce::Rectangle<int> LivePage::body() const
 {
     return getLocalBounds().reduced (Dine::Metric::padX, Dine::Metric::padY);
@@ -232,6 +333,7 @@ void LivePage::paint (juce::Graphics& g)
 
     // ---- title
     auto head = r.removeFromTop (58);
+    head.removeFromRight (recordButton->getWidth() + 20);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (22.0f, 700));
     g.drawText (services.currentSessionName().isEmpty() ? "Untitled" : services.currentSessionName(),
@@ -249,7 +351,7 @@ void LivePage::paint (juce::Graphics& g)
     const int cardWidth = (strip.getWidth() - 3 * 12) / 4;
 
     auto card = [&] (juce::Rectangle<int> area, const juce::String& caption, const juce::String& value,
-                     juce::Colour colour, const juce::String& note)
+                     juce::Colour colour, const juce::String& note, juce::Colour noteColour = Dine::ink3)
     {
         Dine::drawCard (g, area.toFloat());
         auto inner = area.reduced (16, 13);
@@ -259,14 +361,15 @@ void LivePage::paint (juce::Graphics& g)
         g.setColour (colour);
         g.setFont (Dine::mono (24.0f, 500));
         g.drawText (value, inner.removeFromTop (30), juce::Justification::topLeft, true);
-        g.setColour (Dine::ink3);
+        g.setColour (noteColour);
         g.setFont (Dine::text (11.0f));
         g.drawText (note, inner, juce::Justification::topLeft, true);
     };
 
     const bool recording = services.daw().isRecording();
     card (strip.removeFromLeft (cardWidth), "STATE", state,
-          recording ? Dine::crit : (services.isAudioRunning() ? Dine::ok : Dine::ink4), clock);
+          recording ? Dine::crit : (services.isAudioRunning() ? Dine::ok : Dine::ink4),
+          stateNote, stateNoteColour);
     strip.removeFromLeft (12);
     card (strip.removeFromLeft (cardWidth), "OUTPUT", services.isAudioRunning() ? "ACTIVE" : "OFF",
           services.isAudioRunning() ? Dine::ok : Dine::ink4,
@@ -337,7 +440,13 @@ void LivePage::paint (juce::Graphics& g)
 void LivePage::resized()
 {
     auto r = body();
-    r.removeFromTop (58 + 12 + 86 + 16 + 18);
+    {
+        // Record sits on the title line, at the far edge: the biggest, reddest thing on the page.
+        auto head = r.removeFromTop (58);
+        const int w = juce::jmax (170, recordButton->idealWidth());
+        recordButton->setBounds (head.removeFromRight (w).withSizeKeepingCentre (w, 38));
+    }
+    r.removeFromTop (12 + 86 + 16 + 18);
     auto safeRow = r.removeFromBottom (52);
     liveSafeButton.setBounds (safeRow.removeFromLeft (juce::jmax (140, liveSafeButton.idealWidth()))
                                   .withSizeKeepingCentre (juce::jmax (140, liveSafeButton.idealWidth()), 30));

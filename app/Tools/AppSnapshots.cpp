@@ -53,7 +53,9 @@ namespace
         juce::String currentSessionName() override { return sessionName; }
         juce::File sessionFolder() override { return dawEngine.getProject().folder; }
         juce::String importMultitrack (const juce::File&) override { return "Import is not available in the snapshot tool."; }
-        juce::String exportMix (const juce::File&, ExportFormat, std::function<bool (float)>) override
+        std::shared_ptr<const ExportJob> snapshotExport() override { return {}; }
+        juce::String exportMix (std::shared_ptr<const ExportJob>, const juce::File&, ExportFormat,
+                                std::function<bool (float)>) override
         {
             return "Export is not available in the snapshot tool.";
         }
@@ -412,6 +414,22 @@ int main (int argc, char** argv)
     view.showOutputs();
     rig.feed (0.4);
     rig.snap (dir, "18-outputs");
+
+    // ---- the smallest window DLIVE allows (MainWindow::setResizeLimits). A workspace that
+    // only works at the developer's resolution is a workspace that breaks on a laptop at the
+    // back of a church, so every one of them is rendered here too.
+    view.closeSheets();
+    rig.view->setSize (1180, 760);
+    for (const auto& small : { std::pair<MainView::Page, const char*> { MainView::Page::Tracks,    "21-min-tracks" },
+                               { MainView::Page::Mixer,     "22-min-mixer" },
+                               { MainView::Page::Tune,      "23-min-tune" },
+                               { MainView::Page::Live,      "24-min-live" },
+                               { MainView::Page::Inspector, "25-min-inspector" } })
+    {
+        view.showPage (small.first);
+        rig.feed (0.4);
+        rig.snap (dir, small.second);
+    }
 
     std::printf ("stage %d, health %d%%\n", int (rig.controller.getStage()), rig.controller.getMixHealthPercent());
     rig.view.reset();

@@ -60,9 +60,22 @@ public:
     virtual juce::String importMultitrack (const juce::File& folder) = 0;
 
     // Bounce the recorded timeline through the current mix to stereo WAV or MP3. "" on success.
-    // Safe to run on a worker thread. `progress` returns false to cancel.
+    //
+    // An export reads the session, the running mix and every clip for as long as it takes to
+    // render - minutes, for a service - while the message thread is still free to move a
+    // fader, rename an input or record another take. So the render works from a *copy* taken
+    // on the message thread (snapshotExport), never from the live document: `exportMix` is
+    // the only thing the worker touches. `progress` returns false to cancel.
     enum class ExportFormat { Wav = 0, Mp3 };
-    virtual juce::String exportMix (const juce::File& dest, ExportFormat, std::function<bool (float)> progress) = 0;
+    struct ExportJob
+    {
+        MixSession session;
+        MixParameters params;
+        Project project;
+    };
+    virtual std::shared_ptr<const ExportJob> snapshotExport() = 0;   // message thread
+    virtual juce::String exportMix (std::shared_ptr<const ExportJob>, const juce::File& dest,
+                                    ExportFormat, std::function<bool (float)> progress) = 0;   // worker thread
 };
 
 // Shared page look: a titled card area on the design's ground.

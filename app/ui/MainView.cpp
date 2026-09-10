@@ -401,6 +401,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     mixerPage->onToast = [this] (const juce::String& t) { showToast (t); };
     livePage->onToast = [this] (const juce::String& t) { showToast (t); };
     livePage->onLiveSafeChanged = [this] { updateChrome(); repaint(); };
+    livePage->onToggleRecord = [this] { handleCommand (501); };
     advancedPage->onBack = [this] { showPage (Page::Tune); };
     advancedPage->onRetune = [this] { handleCommand (400); };
     advancedPage->onTuneChannel = [this] (int strip) { tuneChannel (strip); };
@@ -597,6 +598,14 @@ void MainView::setBypass (bool on)
     mixPage->repaint();
 }
 
+void MainView::closeSheets()
+{
+    outputsSheet.reset();
+    channelSheet.reset();
+    updateChrome();
+    resized();
+}
+
 void MainView::showOutputs()
 {
     if (outputsSheet != nullptr) { outputsSheet->refresh(); return; }
@@ -762,7 +771,10 @@ void MainView::handleCommand (int id)
         case 403: setBypass (! controller.isBypassed()); break;
 
         case 500: transportBar->togglePlay(); break;
-        case 501: if (! liveSafeBlocks ("recording")) transportBar->toggleRecord(); break;
+        // Recording is transport, and LIVE SAFE never locks the transport: the page that
+        // tells you to "lock the session before the service starts" must not then refuse to
+        // record the service. (The toolbar key always went straight through; this agrees.)
+        case 501: transportBar->toggleRecord(); break;
         case 502: transportBar->returnToStart(); break;
         case 503: transportBar->toggleLoop(); break;
 
@@ -892,6 +904,8 @@ void MainView::exportMix (AppServices::ExportFormat format)
         return;
     }
 
+    if (exporting) { showToast ("An export is already running. It will say when it is done."); return; }
+
     const bool mp3 = format == AppServices::ExportFormat::Mp3;
     const auto suggest = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
                              .getChildFile (services.currentSessionName().isNotEmpty() ? services.currentSessionName() : "DLIVE mix")
@@ -903,15 +917,23 @@ void MainView::exportMix (AppServices::ExportFormat format)
                           {
                               const auto dest = fc.getResult();
                               if (dest == juce::File()) return;
-                              showToast ("Exporting" + Glyph::ellip());
+                              if (exporting) return;
+
+                              // The render reads the session, the mix and every clip for as long as it
+                              // takes; the console keeps running behind it. So it works from a copy
+                              // taken here, on the message thread, not from the live document.
+                              auto job = services.snapshotExport();
+                              exporting = true;
+                              showToast ("Exporting " + dest.getFileName() + Glyph::ellip());
                               juce::Component::SafePointer<MainView> safe (this);
                               auto& srv = services;
-                              juce::Thread::launch ([safe, &srv, dest, format]
+                              juce::Thread::launch ([safe, &srv, job, dest, format]
                               {
-                                  const auto err = srv.exportMix (dest, format, {});
+                                  const auto err = srv.exportMix (job, dest, format, {});
                                   juce::MessageManager::callAsync ([safe, err, dest]
                                   {
                                       if (safe == nullptr) return;
+                                      safe->exporting = false;
                                       safe->showToast (err.isNotEmpty() ? err : "Exported " + dest.getFileName() + ".");
                                   });
                               });
@@ -1103,9 +1125,13 @@ void MainView::paintSidebar (juce::Graphics& g)
     auto inner = status.reduced (11, 10);
     auto line = inner.removeFromTop (15);
     const bool running = services.isAudioRunning();
-    const juce::Colour dot = ! running ? Dine::ink4 : services.xrunCount() > 0 ? Dine::warn : Dine::ok;
+    // "Not running" and "the interface just vanished" are not the same news. A device that
+    // went away during a service has to keep saying so, not settle into a grey resting state.
+    const bool lost = ! running && services.deviceStopped();
+    const juce::Colour dot = lost ? Dine::crit : ! running ? Dine::ink4
+                                  : services.xrunCount() > 0 ? Dine::warn : Dine::ok;
     auto dotArea = line.removeFromLeft (10);
-    if (running)
+    if (running || lost)
     {
         g.setColour (dot.withAlpha (0.35f));
         g.fillEllipse (dotArea.withSizeKeepingCentre (12, 12).toFloat());
@@ -1113,21 +1139,26 @@ void MainView::paintSidebar (juce::Graphics& g)
     g.setColour (dot);
     g.fillEllipse (dotArea.withSizeKeepingCentre (7, 7).toFloat());
     line.removeFromLeft (4);
-    g.setColour (Dine::ink);
+    g.setColour (lost ? Dine::crit : Dine::ink);
     g.setFont (Dine::text (12.0f, 600));
-    g.drawText (! running ? "Not running" : services.daw().isRecording() ? "Recording" : "Running",
+    g.drawText (lost ? "Device lost" : ! running ? "Not running"
+                     : services.daw().isRecording() ? "Recording" : "Running",
                 line, juce::Justification::centredLeft);
 
     inner.removeFromTop (4);
     g.setColour (Dine::ink2);
     g.setFont (Dine::text (11.0f));
-    const juce::String device = services.currentInputDevice().isNotEmpty() ? services.currentInputDevice()
+    const juce::String device = lost ? services.currentInputDevice().isNotEmpty()
+                                           ? services.currentInputDevice() + " stopped"
+                                           : juce::String ("The audio device stopped")
+                              : services.currentInputDevice().isNotEmpty() ? services.currentInputDevice()
                                                                            : (running ? services.currentOutputDevice() + " (output only)" : "No audio device");
     g.drawText (device, inner.removeFromTop (14), juce::Justification::topLeft, true);
-    g.setColour (services.xrunCount() > 0 ? Dine::warn : Dine::ink3);
-    g.setFont (Dine::mono (11.0f));
+    g.setColour (lost ? Dine::crit : services.xrunCount() > 0 ? Dine::warn : Dine::ink3);
+    g.setFont (lost ? Dine::text (11.0f) : Dine::mono (11.0f));
     juce::String clock = running ? juce::String (services.sampleRate() / 1000.0, 1) + " kHz  " + Glyph::dot() + "  "
                                        + juce::String (services.bufferSize()) + " smp"
+                       : lost    ? juce::String ("Choose it again under Audio device")
                                  : juce::String ("--");
     if (running && services.xrunCount() > 0) clock += "  " + Glyph::dot() + "  " + juce::String (services.xrunCount()) + " drops";
     g.drawText (clock, inner.removeFromTop (14), juce::Justification::topLeft, true);
@@ -1174,8 +1205,10 @@ void MainView::resized()
             transportW = juce::jmin (transportBar->minimumWidth(), right.getWidth());
     }
 
-    const int sessionW = juce::jmin (sessionButton->idealWidth(),
-                                     juce::jmax (80, right.getWidth() - transportW - 24));
+    // The clock is the one readout a DAW is never allowed to truncate, so the session
+    // name yields to it rather than the other way round: it can shrink to nothing (the
+    // session is also on the sidebar and in the File menu), the timecode cannot.
+    const int sessionW = juce::jlimit (0, sessionButton->idealWidth(), right.getWidth() - transportW - 24);
     sessionButton->setBounds (right.removeFromLeft (sessionW).withSizeKeepingCentre (sessionW, 38));
 
     if (transportW > 0)

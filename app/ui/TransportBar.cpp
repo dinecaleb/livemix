@@ -286,6 +286,7 @@ void TransportBar::paint (juce::Graphics& g)
     Dine::fillRounded (g, keysWell.toFloat(), juce::Colours::black.withAlpha (0.34f), 8.0f);
     Dine::hairlineRounded (g, keysWell.toFloat(), Dine::hairSoft, 8.0f);
 
+    if (! showClock) return;
     Dine::fillRounded (g, clockWell.toFloat(), juce::Colours::black.withAlpha (0.42f), 8.0f);
     if (showLength)
     {
@@ -336,10 +337,16 @@ void TransportBar::resized()
     place (*loopButton, kKeyW);
 
     r.removeFromLeft (kClusterGap);
+    // The cells are dropped whole, never squeezed: a clock reading "00:..." is worse than
+    // no clock at all, and the keys still say what the transport is doing.
     showLength = r.getWidth() >= clockCellWidth() + 1 + lengthCellWidth();
-    clockWell = r.removeFromLeft (juce::jmin (r.getWidth(),
-                                              showLength ? clockCellWidth() + 1 + lengthCellWidth()
-                                                         : clockCellWidth()));
+    showClock = r.getWidth() >= clockCellWidth();
+    if (! showClock)
+    {
+        clockWell = timeCell = lengthCell = {};
+        return;
+    }
+    clockWell = r.removeFromLeft (showLength ? clockCellWidth() + 1 + lengthCellWidth() : clockCellWidth());
     auto cells = clockWell;
     timeCell = cells.removeFromLeft (clockCellWidth());
     cells.removeFromLeft (1);

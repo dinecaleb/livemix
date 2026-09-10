@@ -51,7 +51,7 @@ private:
     juce::int64 lastPosition = -1, lastLength = -1;
 
     juce::Rectangle<int> keysWell, clockWell, timeCell, lengthCell;
-    bool showLength = true;
+    bool showLength = true, showClock = true;
 };
 
 } // namespace livemix

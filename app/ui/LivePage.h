@@ -21,6 +21,7 @@ public:
 
     std::function<void (const juce::String&)> onToast;
     std::function<void()> onLiveSafeChanged;
+    std::function<void()> onToggleRecord;      // the transport's own Record, so there is one code path
 
     void refresh();                    // 30 Hz
     void rebuild();
@@ -29,6 +30,7 @@ public:
 
 private:
     class GroupFader;
+    class RecordKey;
 
     juce::Rectangle<int> body() const;
 
@@ -36,10 +38,17 @@ private:
     AppServices& services;
     std::array<std::unique_ptr<GroupFader>, int (MixBus::Count)> faders;
     DineButton liveSafeButton { "LIVE SAFE", DineButton::Style::Standard };
+    std::unique_ptr<RecordKey> recordButton;
     int health = 0;
     bool liveSafeOn = false;
+    bool recordingOn = false;
     float headroomDb = 0.0f;
-    juce::String clock, state;
+    juce::String clock, state, stateNote;
+    juce::Colour stateNoteColour;
+    // The disk is a syscall, so it is asked a few times a minute rather than 30 times a second.
+    void updateDiskNote();
+    int diskTicks = 0;
+    double secondsFree = 0.0;
 };
 
 } // namespace livemix

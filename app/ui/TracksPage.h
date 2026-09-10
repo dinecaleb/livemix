@@ -94,8 +94,7 @@ private:
     // The header's own volume fader, so a level can come down without leaving the timeline.
     // Tall rows get it under the name; a short row gets it as a slim bar along the foot.
     juce::Rectangle<int> faderCell (int track) const;
-    float faderDbAt (int track, int x) const;
-    void dragFader (int track, int x);
+    void dragFader (int track, int x, bool fine);
     bool compactHeader (int track) const;
     int markerAt (juce::Point<int> p) const;
     juce::Rectangle<int> markerFlag (int index) const;
@@ -149,6 +148,7 @@ private:
     ClipRef dragClip;
     juce::int64 dragAnchorSample = 0, dragClipStart = 0, dragClipOffset = 0, dragClipLength = 0;
     int dragTrack = -1, dragStartHeight = 0, dragStartY = 0, dragStartX = 0;
+    float dragFaderNorm = 0.0f;         // where the fader was when it was grabbed, 0..1 of the throw
     int dragMarker = -1;
     juce::int64 loopAnchor = 0;
     double dragStartScrollX = 0.0;

@@ -198,6 +198,41 @@ TEST_CASE ("Recorder: refuses to start with nothing armed")
     CHECK (! recorder.isRecording());
 }
 
+TEST_CASE ("Recorder: a block bigger than the capture path is reported, never silently lost")
+{
+    const auto folder = scratchFolder().getChildFile ("oversized");
+    folder.deleteRecursively();
+
+    Recorder recorder;
+    std::vector<Recorder::Spec> specs { { 0, "Kick", 0, -1 } };
+    CHECK (recorder.start (folder, specs, kSr, 0).isEmpty());
+    CHECK (recorder.getError().isEmpty());
+
+    // Larger than the recorder's own maximum block: the audio cannot be captured, so the
+    // take must say so rather than come out quietly short of the performance.
+    constexpr int kHuge = 16384;
+    std::vector<float> in (size_t (kHuge), 0.25f);
+    const float* ip[1] = { in.data() };
+    recorder.write (ip, 1, kHuge);
+    CHECK (recorder.getError().isNotEmpty());
+    CHECK (recorder.getFramesWritten() == 0);
+    recorder.stop();
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("Recorder: what a take costs per second, so the disk can be asked how long it will last")
+{
+    // 24-bit: three bytes a sample, a channel at a time.
+    std::vector<Recorder::Spec> mono { { 0, "Kick", 0, -1 } };
+    CHECK (std::abs (Recorder::bytesPerSecondFor (mono, kSr) - 3.0 * kSr) < 1.0);
+    std::vector<Recorder::Spec> pair { { 0, "Kick", 0, -1 }, { 1, "Keys", 2, 3 } };
+    CHECK (std::abs (Recorder::bytesPerSecondFor (pair, kSr) - 9.0 * kSr) < 1.0);
+    CHECK (Recorder::bytesPerSecondFor ({}, kSr) == 0.0);
+    // A volume that will not answer gives 0, never an invented number.
+    CHECK (Recorder::secondsFreeOn (scratchFolder(), 0.0) == 0.0);
+    CHECK (Recorder::secondsFreeOn (scratchFolder(), 3.0 * kSr) > 0.0);
+}
+
 // ---------------------------------------------------------------- playback
 TEST_CASE ("ClipSource: clips land at their place on the timeline and are silent elsewhere")
 {
@@ -470,7 +505,16 @@ TEST_CASE ("DawEngine: recording an armed track adds it to the timeline as a cli
     CHECK (daw.getTransport().isPlaying());
 
     Callback cb (daw);
-    cb.run (80, 0.4f);
+    cb.run (40, 0.4f);
+
+    // The playhead belongs to the take while it runs: the clip lands where recording
+    // started, so a locate in the middle would only make the picture lie about the audio.
+    const juce::int64 during = daw.getTransport().getPosition();
+    daw.locate (0);
+    CHECK (daw.getTransport().getPosition() >= during);
+    CHECK (daw.isRecording());
+
+    cb.run (40, 0.4f);
 
     CHECK (daw.stopRecording() == 2);
     daw.stop();

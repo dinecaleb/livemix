@@ -54,6 +54,13 @@ public:
     // Non-empty once a write failed (a full or too-slow disk). Recording should be stopped and the user told.
     juce::String getError() const;
 
+    // How fast a take fills the disk, and how long the volume would last at that rate.
+    // Message thread only (getBytesFreeOnVolume is a syscall): the UI polls it a few times
+    // a minute, never per block.
+    double bytesPerSecond() const noexcept;
+    static double bytesPerSecondFor (const std::vector<Spec>& specs, double sampleRate) noexcept;
+    static double secondsFreeOn (const juce::File& folder, double bytesPerSec) noexcept;
+
     // Audio thread. Captures the device inputs exactly as they arrived.
     void write (const float* const* deviceInputs, int numInputChannels, int numSamples) noexcept;
 
@@ -78,6 +85,7 @@ private:
     std::atomic<bool> inCallback { false };
     std::atomic<juce::int64> frames { 0 };
     std::atomic<bool> failed { false };
+    std::atomic<bool> oversized { false };
     juce::int64 startSample = 0;
     double rate = 48000.0;
 };

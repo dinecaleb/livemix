@@ -47,6 +47,7 @@ public:
 
     void openMixerWindow();
     void showOutputs();                   // the Outputs sheet: where the sound leaves this Mac
+    void closeSheets();                   // dismiss whatever sheet is over the workspace
 
     // TUNE CHANNEL: one source listened to and tuned on its own, from wherever it was
     // clicked. The sheet drops over the workspace you are on - the console keeps playing
@@ -91,6 +92,7 @@ private:
     void chooseOutput();
     void importMultitrack();
     void exportMix (AppServices::ExportFormat format);
+    bool exporting = false;              // one bounce at a time; two would race for the file
     void timelineChanged();
     bool liveSafeBlocks (const juce::String& what);
     juce::Rectangle<int> contentBounds() const;
