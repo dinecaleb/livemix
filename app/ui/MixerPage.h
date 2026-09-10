@@ -5,6 +5,7 @@
 #include <vector>
 #include "AppServices.h"
 #include "AppTheme.h"
+#include "ChainStrip.h"
 
 namespace livemix
 {
@@ -31,6 +32,7 @@ public:
     ~MixerPage() override;
 
     std::function<void (int strip)> onOpenStrip;
+    std::function<void (int strip)> onTuneStrip;       // TUNE CHANNEL: listen to this source and tune it on its own
     std::function<void (MixBus bus)> onOpenBus;
     std::function<void()> onOpenWindow;                 // "open the mixer in its own window"
     std::function<void (const juce::String&)> onToast;
@@ -41,6 +43,14 @@ public:
     Size getStripSize() const noexcept { return stripSize; }
     void setShow (Show);
     Show getShow() const noexcept { return show; }
+    void setSendsVisible (bool);
+    bool sendsVisible() const noexcept { return showSends; }
+
+    // Pick a strip out: the foot of the page then reads its chain. This is what a click on a
+    // strip does, and what the Inspector uses to keep the two views pointing at one source.
+    void selectStrip (int strip);
+    void selectBus (MixBus);
+    int selectedStrip() const noexcept { return selected; }   // what the foot reads, and what TUNE CHANNEL tunes
 
     // The detached window is already its own window: it does not offer the button again.
     void setWindowButtonVisible (bool);
@@ -54,7 +64,9 @@ private:
     class Strip;
     class Bank;
 
+    Strip* masterStrip() const;
     void layoutStrips();
+    void updateChainStrip();
     void layoutList();
     void updateControls();
     bool visibleInFilter (const Strip&) const;
@@ -64,16 +76,21 @@ private:
 
     juce::Viewport viewport;
     std::unique_ptr<Bank> bank;
+    ChainStrip chainStrip;
     std::vector<std::unique_ptr<Strip>> strips;          // inputs, then each group bus, then the master
     int builtForStrips = -1;
 
     View view = View::Strips;
     Size stripSize = Size::Normal;
     Show show = Show::All;
+    bool showSends = true;
+    int selected = -1;                                   // the strip whose chain the foot shows
+    MixBus selectedBus = MixBus::Count;
 
     std::array<std::unique_ptr<DineButton>, 2> viewTabs;
     std::array<std::unique_ptr<DineButton>, 3> sizeTabs;
     std::array<std::unique_ptr<DineButton>, 3> showTabs;
+    DineButton sendsButton { "Sends", DineButton::Style::Standard };
     DineButton clearSolos { "Clear solos", DineButton::Style::Standard };
     DineButton windowButton { "Open in a window", DineButton::Style::Standard };
     bool windowButtonWanted = true;

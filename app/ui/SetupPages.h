@@ -2,6 +2,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 #include "AppServices.h"
 #include "AppTheme.h"
@@ -20,6 +21,7 @@ public:
     std::function<void()> onContinue;
     std::function<void()> onContinueToAssign;                  // an import happened: review the guessed assignments
     std::function<void (const juce::File&)> onImportRecording; // a folder of stems becomes tracks and clips
+    std::function<void()> onSetUpOutputs;                      // the Outputs sheet: more than one pair at once
     void refresh();
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -42,6 +44,7 @@ private:
     DinePopup outputButton;
     DineButton continueButton { "Continue", DineButton::Style::Filled };
     DineButton rescanButton { "Rescan", DineButton::Style::Standard };
+    DineButton outputsButton { "Set up outputs...", DineButton::Style::Standard };
     DineButton recordingButton { "Import a multitrack...", DineButton::Style::Standard };
     std::unique_ptr<juce::FileChooser> chooser;
 };
@@ -72,7 +75,7 @@ private:
     MixController& controller;
     AppServices& services;
     int numInputs = 0;
-    struct Entry { juce::String name; bool assigned = false; ChannelRole role = ChannelRole::KickIn; bool linkedToNext = false; bool linkedFromPrevious = false; };
+    struct Entry { juce::String name; std::string icon; bool assigned = false; ChannelRole role = ChannelRole::KickIn; bool linkedToNext = false; bool linkedFromPrevious = false; };
     std::vector<Entry> entries;
     std::vector<std::unique_ptr<Row>> rows;
     juce::Viewport viewport;

@@ -140,9 +140,11 @@ Levels levels (const TuneContext& ctx)
 float captureGainToHealthyDb (const AnalysisResult& a, const SourceTargets& t)
 {
     const float centre = 0.5f * (t.capturePeakMinDb + t.capturePeakMaxDb);
-    if (a.clipCount > 0 || a.peakDb > -0.5f) return std::min (std::round (centre - a.peakDb) - 2.0f, -3.0f);
-    if (a.peakDb > t.capturePeakMaxDb) return std::min (std::round (centre - a.peakDb), -1.0f);
-    if (a.peakDb < t.capturePeakMinDb) return std::max (std::round (t.capturePeakMinDb + 3.0f - a.peakDb), 1.0f);
+    // Gain staging follows the level the source really plays at, not an isolated click: see musicalPeakDb.
+    const float peak = a.musicalPeakDb > -119.0f ? a.musicalPeakDb : a.peakDb;
+    if (a.clipCount > 0 || peak > -0.5f) return std::min (std::round (centre - peak) - 2.0f, -3.0f);
+    if (peak > t.capturePeakMaxDb) return std::min (std::round (centre - peak), -1.0f);
+    if (peak < t.capturePeakMinDb) return std::max (std::round (t.capturePeakMinDb + 3.0f - peak), 1.0f);
     return 0.0f;
 }
 
@@ -165,8 +167,23 @@ bool evaluateInput (const TuneContext& ctx, const SourceTargets& t, TuneDecision
     const bool sparse = a.silencePercent > 60.0f;
     const float step = t.captureGainMaxStepDb;
     const std::string preampNote = " This is the console or interface preamp, not the plugin trim: trim cannot restore resolution that was never captured.";
+    // Gain staging reads the level the source really plays at, so one click cannot call a healthy channel hot.
+    // The raw peak is still the clipping test - a clipped sample is damage whatever caused it.
+    const float peak = a.musicalPeakDb > -119.0f ? a.musicalPeakDb : a.peakDb;
+    const bool spiky = a.peakDb - peak > 6.0f;
 
-    if (a.clipCount > 0 || a.peakDb > -0.5f)
+    if (spiky && a.peakDb > -0.5f)
+    {
+        // The track's loudest sample is far above anything musical on it: a click, not the source. Turning the
+        // preamp down would only make the source quieter and leave the click at full scale.
+        report.inputHealth = "Clicks";
+        d.note (Recommendation::Kind::CaptureGain, TuneSection::Input, "Isolated clicks on this input, not a level problem",
+                "The loudest sample reaches " + num ("%.1f dBFS", double (a.peakDb)) + " while the source itself plays around "
+                + num ("%.0f dBFS", double (peak)) + " - " + num ("%.0f dB", double (a.peakDb - peak)) + " below it. That is a click or a pop "
+                "(a patch change, phantom power, a loose connector), not the instrument. The level is left alone; check the cable and the connector.",
+                Confidence::High);
+    }
+    else if (a.clipCount > 0 || peak > -0.5f)
     {
         report.inputHealth = "Clipping";
         const float delta = std::max (captureGainToHealthyDb (a, t), -step);
@@ -175,23 +192,23 @@ bool evaluateInput (const TuneContext& ctx, const SourceTargets& t, TuneDecision
                 std::to_string (a.clipCount) + " clipped samples were detected. Digital clipping cannot be repaired after the converter." + preampNote,
                 Confidence::High);
     }
-    else if (a.peakDb > t.capturePeakMaxDb)
+    else if (peak > t.capturePeakMaxDb)
     {
         report.inputHealth = "Hot";
         const float delta = std::max (captureGainToHealthyDb (a, t), -step);
         report.suggestedCaptureGainDb = delta;
         d.note (Recommendation::Kind::CaptureGain, TuneSection::Input, "Reduce preamp approximately " + fmtDb (delta, 0),
-                "Peaks reached " + num ("%.1f dBFS", double (a.peakDb)) + ", above the healthy range of " + num ("%.0f", double (t.capturePeakMinDb))
+                "Peaks reached " + num ("%.1f dBFS", double (peak)) + ", above the healthy range of " + num ("%.0f", double (t.capturePeakMinDb))
                 + " to " + num ("%.0f dBFS", double (t.capturePeakMaxDb)) + ". A louder " + eventNoun (ctx) + " could clip the converter." + preampNote,
                 Confidence::High);
     }
-    else if (a.peakDb < t.capturePeakMinDb)
+    else if (peak < t.capturePeakMinDb)
     {
         report.inputHealth = "Low";
         // Conservative: aim for the low edge of the healthy range plus a little, never more than one bounded step.
         const float delta = std::min (captureGainToHealthyDb (a, t), step);
         report.suggestedCaptureGainDb = delta;
-        std::string why = "Peaks reached only " + num ("%.1f dBFS", double (a.peakDb)) + ". The signal is clean but below the healthy range of "
+        std::string why = "Peaks reached only " + num ("%.1f dBFS", double (peak)) + ". The signal is clean but below the healthy range of "
                         + num ("%.0f", double (t.capturePeakMinDb)) + " to " + num ("%.0f dBFS", double (t.capturePeakMaxDb)) + "." + preampNote
                         + " Adjust the preamp, then Re-Tune.";
         if (sparse) why += " Confidence is reduced because the capture contained long quiet sections.";

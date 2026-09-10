@@ -1,11 +1,11 @@
-# DINELIVE: from a plugin family to one standalone mix engine
+# DLIVE: from a plugin family to one standalone mix engine
 
-Date: 2026-09-07. This is the audit and plan for the product pivot: DINELIVE becomes a standalone live/broadcast
+Date: 2026-09-07. This is the audit and plan for the product pivot: DLIVE becomes a standalone live/broadcast
 mixing application built on the existing engine. The plugins stay; they become thin hosts of the same core.
 
 The product promise this document serves:
 
-> Connect your inputs. Tell DINELIVE what they are. Choose your sound. Play. DINELIVE builds the mix.
+> Connect your inputs. Tell DLIVE what they are. Choose your sound. Play. DLIVE builds the mix.
 
 ---
 
@@ -18,7 +18,7 @@ Repository: ~24.7k lines of C++20. Two layers, already separated:
 | Engine (`src/`) | `livemix_engine` | none | ~9k lines | 109 unit/integration tests pass; allocation-tracked |
 | Plugins (`modules/`, `src/State`, `src/UI`) | `LiveMix<Product>` AU + Standalone | yes | ~6k lines | 7 AUs validate with `auval` |
 
-Engine contents and their reuse status for DINELIVE:
+Engine contents and their reuse status for DLIVE:
 
 | Area | Files | Reusable as-is | Notes |
 |---|---|---|---|
@@ -29,7 +29,7 @@ Engine contents and their reuse status for DINELIVE:
 | Profiles | `src/Profiles/ProfileData.cpp` (Modern Gospel + Worship deltas; targets and baselines for 24 families incl. Drum Bus, Vocal Bus, Keys Bus, Guitar Bus, Bass Bus, Master) | Yes | Bus families already exist, so bus processing needs data, not new DSP. `mixPeakTargetDb` per family is a first mix-balance model. |
 | Kit rules | `src/Analysis/KitAnalysis` | Yes, generalise | Already reasons about kick/snare reference, close mics vs overheads, balance trims. This is the seed of the RelationshipEngine. |
 | Safety | `src/Intelligence/SafetyValidator`, `src/State/ParameterSpecs` | Yes | Bounds defined once. Every proposed change goes through it. |
-| Macros | `src/Profiles/MacroMapping` | Yes (Advanced) | Per-strip knobs; DINELIVE's mix-level macros (VOCALS Warm/Bright, DRUMS Tight/Big, SPACE, ENERGY) are new and sit above these. |
+| Macros | `src/Profiles/MacroMapping` | Yes (Advanced) | Per-strip knobs; DLIVE's mix-level macros (VOCALS Warm/Bright, DRUMS Tight/Big, SPACE, ENERGY) are new and sit above these. |
 | AI | `src/Intelligence/*Provider*`, `AnalyzeCoordinator` | Keep, unused | Switched off on purpose. Nothing here changes. |
 | Kit communication | `src/Communication/*` | Not needed in the app | Solves inter-plugin discovery; in one process the mix engine simply owns every strip. Keep for the plugins. |
 | Plugin host | `modules/Common/ChannelPluginProcessor` | No | Tune preview flow (BEFORE/AFTER/KEEP/REVERT), state (ValueTree), parameter path (APVTS + `ParameterBridge`), `kTuneSeconds = 12`. The flow is worth copying; the code is JUCE-plugin specific. |
@@ -131,7 +131,7 @@ the slice, not before it.
 |---|---|
 | Multi-stream Tune windows: the band may not start together; a 30 s window per input wastes silence | One shared trigger ("any input above -45 dBFS") starts all captures; per-strip silence is already measured and lowers confidence |
 | Relationship rules fighting per-channel rules (idempotence) | Relationships run after strip Tune, edit through `TuneDecisions::move`, compute from profile templates, and the whole plan is re-run on the same capture in tests (must produce NO CHANGE) |
-| Balance needs processed levels, but processing is what Tune decides | Two-pass listen: raw analysis while the baseline chain runs, then faders fitted from the measured processed peaks (`mixPeakTargetDb`); the offline tool renders a second pass to verify |
+| Balance needs processed levels, but processing is what Tune decides | Two-pass listen: raw analysis while the baseline chain runs, then faders fitted from how loud each source is while it plays (`mixLevelTargetDb`, an active-RMS target); the offline tool renders a second pass to verify |
 | `mixPeakTargetDb` was written for one plugin at a time, not a full mix | Mix-level balance targets move to `MixProfileData` (relative to the lead vocal); the per-family values become the fallback |
 | Device channel counts change (Dante VSC 32/64, USB 18) | Assignments are stored by input index and name; missing inputs are flagged, never silently reassigned |
 | Sample-rate / buffer changes mid-session | `prepare()` on the message thread with audio stopped; every module already supports re-prepare |
@@ -149,7 +149,7 @@ Steps, each keeping every existing test and plugin build green:
 2. **Engine: `AnalysisAccumulator` split + `MixCapture`** (one worker thread, N FIFOs, shared trigger).
 3. **Engine: `MixProfileData` + `MixPlanner` + relationships**: per-strip Tune, bus baselines, FX sends, balance,
    kick<->bass, lead<->BGV, lead<->keys, toms<->overheads; idempotence test on synthetic and real stems.
-4. **Tool: `dinelive_mix_stems`**: renders BEFORE (raw sum) and AFTER (Tune Mix) of the church stems to WAV and
+4. **Tool: `dlive_mix_stems`**: renders BEFORE (raw sum) and AFTER (Tune Mix) of the church stems to WAV and
    prints the plan. This is the success test: listen.
 5. **App: `app/`** JUCE standalone: device page, assignment page, purpose + sound, TUNE MIX overlay, mix overview
    with five macros and BEFORE/AFTER, Advanced drill-down reusing `AdvancedPanel`. Session saved as versioned JSON.
@@ -170,15 +170,15 @@ Done, all tests green (133 engine cases, 7 plugin suites, plugins unchanged in s
 |---|---|---|
 | Mix graph | `src/Mix/MixSession.h`, `RoutingGraph`, `MixParameters.h`, `MixEngine` | 64 strips + 4 buses + 5 returns + master; ~165 us per 64-sample block for 64 strips (12 % of budget); allocation-free; parameters published whole through `Core/TripleBuffer.h` |
 | Multi-input listen | `src/Analysis/AnalysisAccumulator` (split out of `AnalysisEngine`, whose API is unchanged), `src/Mix/MixCapture` (one worker, one FIFO per stream, shared trigger), `src/Mix/OfflineCapture` (synchronous, for tools and tests) | Captures every strip raw and processed, every bus input and the master output |
-| Mix planner | `src/Mix/MixPlanner`, numbers in `src/Profiles/MixProfileData.cpp` | Per-strip Tune (unchanged `TuneEngine`) -> digital input gain (the preamp recommendation, applied where DINELIVE owns the input) -> relationships (kick/bass sub, lead/music pocket, lead/backing group, toms/overheads, room mics/drum room) -> faders from processed peaks -> lead-as-reference offset -> buses and master (loudness closed-loop from the measured master output). Idempotent on the same listen (tested on synthetic and real stems) |
+| Mix planner | `src/Mix/MixPlanner`, numbers in `src/Profiles/MixProfileData.cpp` | Per-strip Tune (unchanged `TuneEngine`) -> digital input gain (the preamp recommendation, applied where DLIVE owns the input) -> relationships (kick/bass sub, lead/music pocket, lead/backing group, toms/overheads, room mics/drum room) -> faders from processed loudness while playing (peak only as a headroom guard) -> lead-as-reference offset -> buses and master (loudness closed-loop from the measured master output). Idempotent on the same listen (tested on synthetic and real stems) |
 | Mix macros | `src/Mix/MixMacros` | VOCALS Warm/Bright, DRUMS Tight/Big, BASS Clean/Huge, SPACE, ENERGY; 50 = the plan; bounded, tested |
-| Offline success test | `app/Tools/MixStems.cpp` -> `build/app/dinelive_mix_stems <stems folder>` | Renders raw / before / after / after-retuned WAVs from a stems folder, prints every decision, proves idempotence. On the church multitrack the re-tuned mix lands within 1 LU of the -23 LUFS broadcast target |
-| Standalone app | `app/` -> `build/app/DineLive_artefacts/Release/DINELIVE.app` | Device -> Assign -> Purpose/Sound -> Mix (health, groups, TUNE MIX, macros, BEFORE/AFTER, KEEP/REVERT) -> Advanced (strips, buses, gains, faders, sends, every WHAT/WHY). `MixController` (no JUCE) owns the mix; `AudioHost` owns the device; JSON session in ~/Library/Application Support/DINELIVE |
-| UI verification | `build/app/dinelive_ui_snapshots <dir>` | Headless PNGs of every page and state, driven without a device |
-| App tests | `build/app/dinelive_app_tests` | Controller state machine (listen -> preview -> keep / revert / abort / no signal), macros on top of the kept mix, Advanced edits, JSON session round trip |
+| Offline success test | `app/Tools/MixStems.cpp` -> `build/app/dlive_mix_stems <stems folder>` | Renders raw / before / after / after-retuned WAVs from a stems folder, prints every decision, proves idempotence. On the church multitrack the re-tuned mix lands within 1 LU of the -23 LUFS broadcast target |
+| Standalone app | `app/` -> `build/app/DLive_artefacts/Release/DLIVE.app` | Device -> Assign -> Purpose/Sound -> Mix (health, groups, TUNE MIX, macros, BEFORE/AFTER, KEEP/REVERT) -> Advanced (strips, buses, gains, faders, sends, every WHAT/WHY). `MixController` (no JUCE) owns the mix; `AudioHost` owns the device; JSON session in ~/Library/Application Support/DLIVE |
+| UI verification | `build/app/dlive_ui_snapshots <dir>` | Headless PNGs of every page and state, driven without a device |
+| App tests | `build/app/dlive_app_tests` | Controller state machine (listen -> preview -> keep / revert / abort / no signal), macros on top of the kept mix, Advanced edits, JSON session round trip |
 | Rate / buffer matrix | `MixEngineMatrixTests` in `build/tests/livemix_tests` | 44.1 / 48 / 88.2 / 96 kHz x 32 / 64 / 128 / 256 samples: finite, level-sane, 5-12 % of the budget for 16 processed strips; the planner reaches the same decisions at 44.1 and 96 kHz |
-| Recording playback | `app/native/MultitrackSource`, "PLAY A RECORDING..." on the device page | A folder of stems (AIFF / WAV / FLAC / CAF) becomes the inputs: streamed from disk on a thread, looped at the longest file, names and sources guessed from the file names (`native/StemNames.h`, shared with the stems tool). The band, or anyone with a multitrack, walks through the real app and hears the mix from the chosen output. `dinelive_device_check 4 "<stems folder>"` exercises it: 14 strips, 0 dropouts, ~280 us peak per 128-sample block |
-| Real device | `build/app/dinelive_device_check [seconds] [input] [output] [buffer]` | Opens a CoreAudio device through `AudioHost`, runs the callback, reports blocks / cost / dropouts, reconfigures while running. On this Mac: 48 kHz, 64 samples, 0 dropouts, ~40 us peak per block |
+| Recording playback | `app/native/MultitrackSource`, "PLAY A RECORDING..." on the device page | A folder of stems (AIFF / WAV / FLAC / CAF) becomes the inputs: streamed from disk on a thread, looped at the longest file, names and sources guessed from the file names (`native/StemNames.h`, shared with the stems tool). The band, or anyone with a multitrack, walks through the real app and hears the mix from the chosen output. `dlive_device_check 4 "<stems folder>"` exercises it: 14 strips, 0 dropouts, ~280 us peak per 128-sample block |
+| Real device | `build/app/dlive_device_check [seconds] [input] [output] [buffer]` | Opens a CoreAudio device through `AudioHost`, runs the callback, reports blocks / cost / dropouts, reconfigures while running. On this Mac: 48 kHz, 64 samples, 0 dropouts, ~40 us peak per block |
 
 Mix rules added from listening to the church report: a speech microphone that is "heard" while the lead vocal sings is
 spill and is left alone (Tune Mix again while the pastor speaks); a stereo drum mix from the console is a source of its
@@ -201,11 +201,21 @@ Listening to the church stems showed the first plan landing at -27.2 LUFS and a 
   (compressor curve under the proposed chain - under the chain that ran), where the compressor has reached
   `1 - exp(-rise / attack)` of its static reduction by the time the source's peak arrives (`compPeakRise*Ms` per family;
   close drum mics let nearly the whole hit through, voices see ~60 %). `predictedProcessedRmsDb` does the same for the
-  average level with the reduction taken at a level between RMS and peak (`compDetectorCrestShare*`). Buses are planned
+  average level with the reduction taken at a level between RMS and peak (`compDetectorCrestShare*`), and
+  `predictedProcessedActiveRmsDb` lifts that by the source's own active-to-overall offset to give the loudness the
+  balance is fitted to. Buses are planned
   from the predicted RMS of their strips; the master from the predicted bus outputs, and it is tuned twice so its trim
-  accounts for the compressor it chose. On the church stems the first pass lands at -22.6 LUFS (Gospel) / -23.4
-  (Worship) and the re-tune says "Loudness on target"; per-strip prediction errors are within about 1 dB, two backing
-  vocals within 2.6 dB. `dinelive_mix_stems` prints the prediction check.
+  accounts for the compressor it chose. On the church stems the first pass lands at -23.8 LUFS
+  (`stems recording`) and -22.9 LUFS (`caleb`), both inside 1 LU of the target, and the re-tune says "Loudness on
+  target"; per-strip prediction errors are within about 1 dB, two backing vocals within 2.6 dB.
+  `dlive_mix_stems` prints the prediction check.
+- **Tempo and the effects.** A live console has no host play head, so a tempo-synced delay would run at the engine's
+  default forever. `AnalysisAccumulator` autocorrelates the onset envelope of every stream (`tempoBpm`,
+  `tempoConfidence`); `MixPlanner` takes the consensus of the sources that actually play a rhythm (a minimum onset
+  density gates the vote - a stage has more sustained sources than drums, and letting them vote buries the kick) and
+  publishes it as `MixParameters::tempoBpm`. `MixEngine` hands it to every return, and the same tempo fits the reverb
+  tails through `MixProfile::reverbBeats`, bounded by each effect's own decay so the character survives. Measured
+  100 BPM (`caleb`, true ~100) and 126 BPM (`stems recording`, true ~125).
 - **Faint inputs.** A raw peak that never got above `faintInputDb` (-38 dBFS at the device) is a mic that is off, a
   bad cable or a player who sat out: nothing is tuned, raised or balanced and the plan says "check this input" (the
   church Kick and Rack Tom). Previously they got +20 dB of gain.
@@ -213,7 +223,7 @@ Listening to the church stems showed the first plan landing at -27.2 LUFS and a 
   survives a launch without its device and is applied when the same inputs are prepared; a device that stops on its own
   is announced once; Mix Health is the share of inputs heard, not faint and at a healthy level, with the reasons in
   the status line; the HUD toast sits at the foot of the content.
-- **Look (v2, 2026-09).** The app follows the "DINELIVE v2" design (Claude Design project `DINELIVE v2.dc.html`):
+- **Look (v2, 2026-09).** The app follows the "DLIVE v2" design (Claude Design project `DLIVE v2.dc.html`):
   native macOS materials (desk #101113, window #1b1c1e, card #232528, vibrancy sidebar), half-pixel hairlines,
   5-11 px radii, 24-26 px controls, the system face at Mac sizes with capitals kept for the product verbs only
   (TUNE MIX / RE-TUNE / KEEP / REVERT / BEFORE / AFTER), one accent (#4db8a4) and three semantic colours
@@ -238,7 +248,7 @@ vocals (the lead's 82 Hz "fundamental" is bleed).
 
 ## 10. The DAW milestone (2026-09-08)
 
-The brief for DINELIVE changed from "a standalone mixer" to **the live recording and broadcast DAW**. The mix
+The brief for DLIVE changed from "a standalone mixer" to **the live recording and broadcast DAW**. The mix
 layer above is unchanged; one object was added between the device and it. Full report: `docs/MILESTONE-7.md`.
 
 ```
@@ -266,7 +276,7 @@ Consequences worth remembering:
 - **The raw recording is the raw input** (§41). Processing, faders and the master never touch what is written.
 - **The loop wraps to the sample** in both `Transport::advance` and the player's fill, so the playhead and what is
   heard cannot drift apart.
-- **A session is a folder**: `~/Music/DINELIVE/<name>/<name>.dinelive.json` with `Audio Files/` beside it.
+- **A session is a folder**: `~/Music/DLIVE/<name>/<name>.dlive.json` with `Audio Files/` beside it.
   `SessionStore` is version 2; version 1 documents open with an empty timeline.
 - **There is one playback path.** `MultitrackSource` (a stems folder streamed as fake device inputs) is gone;
   `MultitrackImport` turns a folder into tracks and clips, which record, edit, save and export like anything else.

@@ -21,35 +21,10 @@ namespace
 
     constexpr int kTitleBlock = 54;   // title + subtitle
 
-    // The roles a volunteer can pick, grouped the way the mix is built.
-    struct RoleGroup { const char* name; std::vector<ChannelRole> roles; };
-    const std::vector<RoleGroup>& roleGroups()
-    {
-        static const std::vector<RoleGroup> groups {
-            { "Drums", { ChannelRole::KickIn, ChannelRole::KickOut, ChannelRole::SnareTop, ChannelRole::SnareBottom, ChannelRole::HiHat,
-                         ChannelRole::RackTom, ChannelRole::FloorTom, ChannelRole::Overhead, ChannelRole::OverheadLeft, ChannelRole::OverheadRight, ChannelRole::Room, ChannelRole::DrumBus } },
-            { "Bass",  { ChannelRole::BassDI, ChannelRole::BassAmp, ChannelRole::SynthBass } },
-            { "Music", { ChannelRole::Piano, ChannelRole::ElectricPiano, ChannelRole::Organ, ChannelRole::SynthPad, ChannelRole::SynthLead,
-                         ChannelRole::AcousticGuitar, ChannelRole::ElectricGuitarClean, ChannelRole::ElectricGuitarDrive } },
-            { "Vocals", { ChannelRole::LeadVocal, ChannelRole::BackingVocal, ChannelRole::Choir, ChannelRole::Speech } },
-        };
-        return groups;
-    }
-
-    // Plain words for the menu: "Tracks" is a synth pad, "Pastor" is speech.
-    juce::String friendlyRoleName (ChannelRole r)
-    {
-        switch (r)
-        {
-            case ChannelRole::SynthPad:  return "Synth Pad / Tracks";
-            case ChannelRole::Speech:    return "Pastor / Speech";
-            case ChannelRole::Overhead:  return "Overheads (stereo pair)";
-            case ChannelRole::DrumBus:   return "Drum mix (stereo, from the console)";
-            case ChannelRole::BassDI:    return "Bass (DI)";
-            case ChannelRole::BassAmp:   return "Bass (amp mic)";
-            default:                     return channelRoleName (r);
-        }
-    }
+    // The sources and their plain names live in AppTheme (Dine::roleGroups /
+    // Dine::friendlyRoleName), so this page and the TRACKS header menu offer the same list.
+    using Dine::roleGroups;
+    using Dine::friendlyRoleName;
 
     juce::Colour busColour (MixBus b) noexcept
     {
@@ -118,6 +93,10 @@ DevicePage::DevicePage (MixController& c, AppServices& s) : controller (c), serv
     rescanButton.setIcon (Dine::Icon::Refresh);
     recordingButton.setIcon (Dine::Icon::Waveform);
     outputButton.onClick = [this] { chooseOutput (outputButton); };
+    addAndMakeVisible (outputsButton);
+    outputsButton.setTooltip ("Send the mix to more than one pair of outputs at once: the PA on 1-2, headphones or a "
+                              "cue on 3-4, each with its own level.");
+    outputsButton.onClick = [this] { if (onSetUpOutputs) onSetUpOutputs(); };
     rescanButton.onClick = [this] { refresh(); };
     recordingButton.setTooltip ("Turn a folder of recorded stems (AIFF / WAV / FLAC) into tracks, so you can mix, tune and export without a band in the room.");
     recordingButton.onClick = [this]
@@ -212,7 +191,7 @@ void DevicePage::paint (juce::Graphics& g)
 {
     auto area = body();
     drawPageTitle (g, area.removeFromTop (kTitleBlock), "Audio device",
-                   "Choose where the band comes in. DINELIVE never changes your console.");
+                   "Choose where the band comes in. DLIVE never changes your console.");
     area.removeFromTop (18);
 
     const int listH = juce::jmax (46, int (rows.size()) * 46);
@@ -332,7 +311,12 @@ void DevicePage::resized()
         inner.removeFromTop (12);
         return r;
     };
-    outputButton.setBounds (row (Dine::Metric::control).removeFromLeft (330));
+    {
+        auto outRow = row (Dine::Metric::control);
+        outputButton.setBounds (outRow.removeFromLeft (330));
+        outRow.removeFromLeft (10);
+        outputsButton.setBounds (outRow.removeFromLeft (juce::jmax (150, outputsButton.idealWidth())));
+    }
     row (18);
     auto practice = row (Dine::Metric::control);
     if (! rows.empty())
@@ -419,7 +403,7 @@ public:
             return;
         }
 
-        Dine::drawIcon (g, e.assigned ? Dine::iconForRole (e.role) : Dine::Icon::Dash,
+        Dine::drawIcon (g, e.assigned ? Dine::iconFor (e.icon, e.role) : Dine::Icon::Dash,
                         r.removeFromLeft (16).toFloat().withSizeKeepingCentre (16.0f, 16.0f),
                         e.assigned ? Dine::glyph : Dine::ink4);
 
@@ -493,6 +477,7 @@ void AssignPage::refresh()
         if (in.inputA < 0 || in.inputA >= numInputs) continue;
         auto& e = entries[size_t (in.inputA)];
         e.name = in.name;
+        e.icon = in.icon;
         e.assigned = in.enabled;
         e.role = in.role;
         if (in.inputB >= 0 && in.inputB < numInputs) { e.linkedToNext = in.inputB == in.inputA + 1; entries[size_t (in.inputB)].linkedFromPrevious = e.linkedToNext; }
@@ -526,6 +511,7 @@ void AssignPage::commit()
         if (! e.assigned || e.linkedFromPrevious) continue;
         InputAssignment a;
         a.name = e.name.isEmpty() ? juce::String (channelRoleName (e.role)).toStdString() : e.name.toStdString();
+        a.icon = e.icon;
         a.role = e.role;
         a.inputA = i;
         a.inputB = e.linkedToNext && i + 1 < numInputs ? i + 1 : -1;
@@ -622,7 +608,7 @@ void AssignPage::paint (juce::Graphics& g)
 {
     auto area = body();
     auto head = area.removeFromTop (kTitleBlock);
-    drawPageTitle (g, head, "Inputs", "Name each input and say what it is. DINELIVE picks the bus; you can change it in Advanced.");
+    drawPageTitle (g, head, "Inputs", "Name each input and say what it is. DLIVE picks the bus; you can change it in Advanced.");
     g.setColour (assignedCount() > 0 ? Dine::accent : Dine::ink3);
     g.setFont (Dine::mono (12.0f));
     g.drawText (juce::String (assignedCount()) + " of " + juce::String (numInputs) + " assigned",

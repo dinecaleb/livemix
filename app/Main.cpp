@@ -1,5 +1,5 @@
-// DINELIVE: the live recording and broadcast DAW.
-//   Console / interface / Dante -> DINELIVE -> OBS / Ecamm / recording
+// DLIVE: the live recording and broadcast DAW.
+//   Console / interface / Dante -> DLIVE -> OBS / Ecamm / recording
 // One MixController owns the mix, one DawEngine owns the timeline and the recorder, one
 // AudioHost owns the device, MainView shows one workspace at a time. A session is a folder
 // with its recordings inside; the last one reloads on launch.
@@ -21,7 +21,7 @@ namespace
     juce::File lastSessionPointer()
     {
         return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                   .getChildFile ("DINELIVE").getChildFile ("last-session.txt");
+                   .getChildFile ("DLIVE").getChildFile ("last-session.txt");
     }
 
     class HostServices : public AppServices
@@ -70,6 +70,8 @@ namespace
 
         bool isAudioRunning() override { return host.isOpen(); }
         int numInputChannels() override { return host.getNumInputChannels(); }
+        int numOutputChannels() override { return host.getNumOutputChannels(); }
+        juce::StringArray outputChannelNames() override { return host.getOutputChannelNames(); }
         double sampleRate() override { return host.getSampleRate(); }
         int bufferSize() override { return host.getBufferSize(); }
         int xrunCount() override { return host.getXRunCount(); }
@@ -77,6 +79,10 @@ namespace
         void reconfigure() override
         {
             hold();
+            // The assignments are what changed, so the timeline hears about them first: every
+            // track follows its own input, and the clips stay with the source they were
+            // recorded from instead of sliding under the next one's name.
+            dawEngine.setSession (controller.getSession());
             host.reconfigure();
             applyPendingMix();
         }
@@ -164,7 +170,7 @@ namespace
         juce::String loadSession (const juce::File& file) override
         {
             SessionStore::Document doc;
-            if (! SessionStore::load (file, doc)) return "That file is not a DINELIVE session.";
+            if (! SessionStore::load (file, doc)) return "That file is not a DLIVE session.";
             controller.setSession (doc.session);
             dawEngine.setSession (doc.session);
             dawEngine.setProject (doc.project);
@@ -194,8 +200,12 @@ namespace
             if (! pending.has_value() || ! controller.isPrepared()) return;
             const auto& now = controller.getSession().inputs;
             const auto& then = pending->session.inputs;
+            // The graph, not the labels: a source renamed still routes and sounds the same, so
+            // a rename never costs the mix. A different source, channel or count does rebuild it.
             bool same = now.size() == then.size();
-            for (size_t i = 0; same && i < now.size(); ++i) same = now[i].role == then[i].role && now[i].name == then[i].name;
+            for (size_t i = 0; same && i < now.size(); ++i)
+                same = now[i].role == then[i].role && now[i].inputA == then[i].inputA && now[i].inputB == then[i].inputB;
+            controller.setOutputFeeds (pending->outputs);   // routing belongs to the device, not the mix
             if (same && pending->hasMix)
             {
                 controller.restoreKept (pending->mix, pending->tuneCount);
@@ -210,8 +220,11 @@ namespace
             SessionStore::Document snap;
             snap.session = controller.getSession();
             snap.macros = controller.getMacros();
+            snap.outputs = controller.getOutputFeeds();
             snap.tuneCount = controller.getTuneCount();
-            snap.hasMix = controller.isPrepared() && controller.hasKeptMix();
+            // The kept mix outlives setSession (only prepare() clears it), so a snapshot taken
+            // after the assignments changed still has the faders and chains to put back.
+            snap.hasMix = controller.hasKeptMix();
             if (snap.hasMix) snap.mix = controller.getKept();
             else if (pending.has_value() && pending->hasMix) snap = *pending;
             pending = snap;
@@ -221,7 +234,7 @@ namespace
         {
             const auto folder = dawEngine.getProject().folder;
             if (folder == juce::File()) return {};
-            return folder.getChildFile (folder.getFileName() + ".dinelive.json");
+            return folder.getChildFile (folder.getFileName() + ".dlive.json");
         }
 
         bool writeDocument (const juce::File& file)
@@ -232,6 +245,7 @@ namespace
             d.inputDevice = host.getInputDeviceName();
             d.outputDevice = host.getOutputDeviceName();
             d.macros = controller.getMacros();
+            d.outputs = controller.getOutputFeeds();
             d.tuneCount = controller.getTuneCount();
             d.hasMix = controller.isPrepared() && controller.hasKeptMix();
             if (d.hasMix) d.mix = controller.getKept();
@@ -275,10 +289,10 @@ namespace
     };
 }
 
-class DineLiveApplication : public juce::JUCEApplication
+class DLiveApplication : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return "DINELIVE"; }
+    const juce::String getApplicationName() override { return "DLIVE"; }
     const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
     bool moreThanOneInstanceAllowed() override { return false; }
 
@@ -341,4 +355,4 @@ private:
     std::unique_ptr<MainWindow> window;
 };
 
-START_JUCE_APPLICATION (DineLiveApplication)
+START_JUCE_APPLICATION (DLiveApplication)

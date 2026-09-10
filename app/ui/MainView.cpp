@@ -116,6 +116,27 @@ private:
     bool on = false;
 };
 
+// The toolbar's sidebar switch, in the place macOS puts it: the far left, before the
+// document. It is the same command as View > Sidebar and Ctrl-Cmd-S.
+class MainView::SidebarButton : public juce::Button
+{
+public:
+    SidebarButton() : juce::Button ("Sidebar") { setWantsKeyboardFocus (false); }
+
+    void setOn (bool o) { if (o != on) { on = o; repaint(); } }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto r = getLocalBounds().toFloat();
+        if (over || down) Dine::fillRounded (g, r, juce::Colours::white.withAlpha (down ? 0.12f : 0.07f), Dine::Radius::control);
+        Dine::drawIcon (g, Dine::Icon::Sidebar, r.withSizeKeepingCentre (17.0f, 17.0f),
+                        on ? Dine::ink2 : Dine::ink4, 1.3f);
+    }
+
+private:
+    bool on = true;
+};
+
 // ---------------------------------------------------------------- mixer window
 // The console on its own window (a second screen, usually), with the timeline still in
 // front of you. It is the same MixController, so both consoles always agree.
@@ -123,7 +144,7 @@ class MainView::MixerWindow : public juce::DocumentWindow, private juce::Timer
 {
 public:
     MixerWindow (MixController& c, AppServices& s, MainView& owner)
-        : juce::DocumentWindow ("Mixer " + juce::String (Glyph::dash()) + " DINELIVE", Dine::window,
+        : juce::DocumentWindow ("Mixer " + juce::String (Glyph::dash()) + " DLIVE", Dine::window,
                                 juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton
                                     | juce::DocumentWindow::maximiseButton),
           view (owner)
@@ -132,6 +153,7 @@ public:
         page->setWindowButtonVisible (false);
         page->onOpenStrip = [&owner] (int strip) { owner.showPage (Page::Inspector); owner.getAdvancedPage().select (strip); };
         page->onOpenBus = [&owner] (MixBus bus) { owner.showPage (Page::Inspector); owner.getAdvancedPage().selectBus (bus); };
+        page->onTuneStrip = [&owner] (int strip) { owner.toFront (true); owner.tuneChannel (strip); };
         page->onToast = [&owner] (const juce::String& t) { owner.showToast (t); };
         setUsingNativeTitleBar (true);
         setContentNonOwned (page.get(), false);
@@ -203,6 +225,7 @@ public:
                 break;
             case 3:
                 m.addItem (400, "TUNE MIX");
+                m.addItem (404, "TUNE CHANNEL   T", view.selectedChannel() >= 0);
                 m.addSeparator();
                 m.addItem (401, "Reset Macros");
                 m.addItem (402, "Clear Solos");
@@ -223,13 +246,20 @@ public:
                 m.addItem (604, "Inspector");
                 m.addSeparator();
                 m.addItem (608, "Open Mixer in a New Window");
+                m.addItem (609, "Outputs" + juce::String (Glyph::ellip()));
+                m.addSeparator();
+                m.addItem (610, (view.sidebarShown ? "Hide Sidebar" : "Show Sidebar") + juce::String ("   ") + juce::String (juce::CharPointer_UTF8 ("\xe2\x8c\x83\xe2\x8c\x98")) + "S");
+                if (const auto left = view.panelName (true); left != "Sidebar")
+                    m.addItem (611, (view.panelShown (true) ? "Hide " : "Show ") + left + "   [");
+                if (const auto right = view.panelName (false); right.isNotEmpty())
+                    m.addItem (612, (view.panelShown (false) ? "Hide " : "Show ") + right + "   ]");
                 m.addSeparator();
                 m.addItem (605, "Zoom In");
                 m.addItem (606, "Zoom Out");
                 m.addItem (607, "Zoom to Fit");
                 break;
             default:
-                m.addItem (700, "About DINELIVE");
+                m.addItem (700, "About DLIVE");
                 break;
         }
         return m;
@@ -315,6 +345,11 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     bypassButton->onClick = [this] { setBypass (! controller.isBypassed()); };
     addChildComponent (*bypassButton);
 
+    sidebarButton = std::make_unique<SidebarButton>();
+    sidebarButton->setTooltip ("Show or hide the sidebar. The workspace takes the width (Ctrl-Cmd-S).");
+    sidebarButton->onClick = [this] { setSidebarShown (! sidebarShown); };
+    addAndMakeVisible (*sidebarButton);
+
     addAndMakeVisible (outputButton);
     outputButton.setTooltip ("Where the finished mix goes out.");
     outputButton.onClick = [this] { chooseOutput(); };
@@ -327,6 +362,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
         else showPage (Page::Assign);
     };
     devicePage->onContinueToAssign = [this] { showPage (Page::Assign); };
+    devicePage->onSetUpOutputs = [this] { showOutputs(); };
     devicePage->onImportRecording = [this] (const juce::File& folder)
     {
         const auto err = services.importMultitrack (folder);
@@ -344,15 +380,30 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     tracksPage->onToast = [this] (const juce::String& t) { showToast (t); };
     tracksPage->onTimelineChanged = [this] { updateChrome(); };
     tracksPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
+    tracksPage->onOpenAssign = [this] { assignPage->refresh(); showPage (Page::Assign); };
+    tracksPage->onTuneStrip = [this] (int strip) { tuneChannel (strip); };
+    // A track was renamed or given a different source: the console, the Inspector and the
+    // window title all read the session, so they are rebuilt together.
+    tracksPage->onSessionChanged = [this]
+    {
+        advancedPage->rebuild();
+        mixerPage->rebuild();
+        if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+        updateChrome();
+    };
     mixPage->onOpenAdvanced = [this] { showPage (Page::Inspector); };
     mixPage->onToast = [this] (const juce::String& t) { showToast (t); };
+    mixPage->onTuneStrip = [this] (int strip) { tuneChannel (strip); };
     mixerPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
     mixerPage->onOpenBus = [this] (MixBus bus) { showPage (Page::Inspector); advancedPage->selectBus (bus); };
+    mixerPage->onTuneStrip = [this] (int strip) { tuneChannel (strip); };
     mixerPage->onOpenWindow = [this] { openMixerWindow(); };
     mixerPage->onToast = [this] (const juce::String& t) { showToast (t); };
     livePage->onToast = [this] (const juce::String& t) { showToast (t); };
     livePage->onLiveSafeChanged = [this] { updateChrome(); repaint(); };
     advancedPage->onBack = [this] { showPage (Page::Tune); };
+    advancedPage->onRetune = [this] { handleCommand (400); };
+    advancedPage->onTuneChannel = [this] (int strip) { tuneChannel (strip); };
     transportBar->onToast = [this] (const juce::String& t) { showToast (t); };
     transportBar->onTimelineChanged = [this] { timelineChanged(); };
 
@@ -368,6 +419,8 @@ MainView::~MainView()
 {
     stopTimer();
     mixerWindow.reset();          // before the look and feel it draws with
+    outputsSheet.reset();
+    channelSheet.reset();
     controller.onMessage = nullptr;
     controller.onMixChanged = nullptr;
     setLookAndFeel (nullptr);
@@ -481,6 +534,50 @@ void MainView::updateChrome()
     outputButton.setValue (out.isEmpty() ? "No output" : out);
 }
 
+// ---------------------------------------------------------------- the panels
+// Every panel at the edge of the window folds away and comes back the same way: the
+// sidebar from the toolbar, a workspace's own rails from the handle in their gutter.
+// None of it touches the session - it is only where the width goes.
+void MainView::setSidebarShown (bool shown)
+{
+    if (shown == sidebarShown) return;
+    sidebarShown = shown;
+    sidebarButton->setOn (shown);
+    sessionsItem.setVisible (shown);
+    for (auto& item : setupItems) item->setVisible (shown);
+    for (auto& item : workspaceItems) item->setVisible (shown);
+    resized();
+    repaint();
+}
+
+// What the page on screen calls the panel on that side, and whether it is open. A page
+// with no panel of its own leaves the left side to the sidebar and the right side alone.
+juce::String MainView::panelName (bool left) const
+{
+    if (page == Page::Inspector) return left ? "Channels" : "What DINE did";
+    if (page == Page::Tune && ! left) return "Inputs";
+    return left ? "Sidebar" : juce::String();
+}
+
+bool MainView::panelShown (bool left) const
+{
+    if (page == Page::Inspector) return left ? advancedPage->isRailShown() : advancedPage->isTrailShown();
+    if (page == Page::Tune && ! left) return mixPage->isRailShown();
+    return left ? sidebarShown : true;
+}
+
+void MainView::togglePanel (bool left)
+{
+    if (page == Page::Inspector)
+    {
+        if (left) advancedPage->setRailShown (! advancedPage->isRailShown());
+        else      advancedPage->setTrailShown (! advancedPage->isTrailShown());
+        return;
+    }
+    if (page == Page::Tune && ! left) { mixPage->setRailShown (! mixPage->isRailShown()); return; }
+    if (left) setSidebarShown (! sidebarShown);
+}
+
 // ---------------------------------------------------------------- bypass and the second console
 void MainView::setBypass (bool on)
 {
@@ -498,6 +595,80 @@ void MainView::setBypass (bool on)
     if (mixerWindow != nullptr) mixerWindow->getPage().repaint();
     livePage->repaint();
     mixPage->repaint();
+}
+
+void MainView::showOutputs()
+{
+    if (outputsSheet != nullptr) { outputsSheet->refresh(); return; }
+    outputsSheet = std::make_unique<OutputsSheet> (controller, services);
+    outputsSheet->onToast = [this] (const juce::String& t) { showToast (t); };
+    outputsSheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->outputsSheet.reset(); safe->updateChrome(); } });
+    };
+    outputsSheet->onChooseDevice = [this] (const juce::String& name)
+    {
+        if (name == services.currentOutputDevice()) return;
+        const auto err = services.isAudioRunning() ? services.changeOutput (name) : services.openOutputOnly (name);
+        if (err.isNotEmpty()) showToast (err);
+        else { showToast ("Output: " + name); updateChrome(); }
+        if (outputsSheet != nullptr) outputsSheet->refresh();
+    };
+    addAndMakeVisible (*outputsSheet);
+    resized();
+    outputsSheet->toFront (true);
+}
+
+// ---- TUNE CHANNEL
+// The channel a workspace has picked out is the one the Mix menu and `T` tune: MIXER and
+// TRACKS both keep a selection (it is what their chain strip reads), and the Inspector is
+// always looking at one channel.
+int MainView::selectedChannel() const
+{
+    switch (page)
+    {
+        case Page::Mixer:     return mixerPage->selectedStrip();
+        case Page::Tracks:    return tracksPage->selectedTrack();
+        case Page::Inspector: return advancedPage->selectedStrip();
+        default:              return -1;
+    }
+}
+
+void MainView::tuneChannel (int strip, const MixController::ListenSettings& settings)
+{
+    if (liveSafeBlocks ("TUNE CHANNEL")) return;
+    if (! controller.isPrepared() || strip < 0 || strip >= controller.getEngine().getNumStrips())
+    {
+        showToast ("Assign your inputs first: there is nothing to tune yet.");
+        return;
+    }
+    if (controller.isBypassed())
+    {
+        showToast ("BYPASS is on: switch it off to tune a channel.");
+        return;
+    }
+    if (controller.getStage() == MixController::Stage::Listening || controller.getStage() == MixController::Stage::Planning)
+    {
+        showToast ("DLIVE is already listening. Let it finish, or cancel it first.");
+        return;
+    }
+
+    channelSheet.reset();
+    controller.startTuneChannel (strip, settings);
+    if (! controller.isListening()) return;
+
+    channelSheet = std::make_unique<ChannelTuneSheet> (controller, strip);
+    channelSheet->onToast = [this] (const juce::String& t) { showToast (t); };
+    channelSheet->onOpenInspector = [this, strip] { showPage (Page::Inspector); advancedPage->select (strip); };
+    channelSheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->channelSheet.reset(); safe->updateChrome(); } });
+    };
+    addAndMakeVisible (*channelSheet);
+    resized();
+    channelSheet->toFront (true);
 }
 
 void MainView::openMixerWindow()
@@ -581,6 +752,11 @@ void MainView::handleCommand (int id)
             showPage (Page::Tune);
             mixPage->pressTune();
             break;
+        case 404:
+            if (liveSafeBlocks ("TUNE CHANNEL")) break;
+            if (selectedChannel() < 0) { showToast ("Pick a channel first: click a strip on the mixer or a track header."); break; }
+            tuneChannel (selectedChannel());
+            break;
         case 401: controller.resetMacros(); showToast ("Macros back to the plan."); break;
         case 402: controller.clearSolos(); showToast ("Solos cleared."); break;
         case 403: setBypass (! controller.isBypassed()); break;
@@ -599,9 +775,13 @@ void MainView::handleCommand (int id)
         case 606: tracksPage->zoom (1.0 / 1.4); break;
         case 607: tracksPage->zoomToFit(); break;
         case 608: openMixerWindow(); break;
+        case 609: showOutputs(); break;
+        case 610: setSidebarShown (! sidebarShown); break;
+        case 611: togglePanel (true); break;
+        case 612: togglePanel (false); break;
 
         case 700:
-            showToast ("DINELIVE - the live recording and broadcast DAW. Connect. Record. Mix. Tune. Broadcast.");
+            showToast ("DLIVE - the live recording and broadcast DAW. Connect. Record. Mix. Tune. Broadcast.");
             break;
         default: break;
     }
@@ -614,6 +794,8 @@ bool MainView::keyPressed (const juce::KeyPress& key)
 
     if (cmd)
     {
+        // Ctrl-Cmd-S is the sidebar wherever macOS puts one; Cmd-S is still Save.
+        if (code == 'S' && key.getModifiers().isCtrlDown()) { handleCommand (610); return true; }
         if (code == 'S' && ! key.getModifiers().isShiftDown()) { handleCommand (102); return true; }
         if (code == 'S') { handleCommand (103); return true; }
         if (code == 'Z') { handleCommand (200); return true; }
@@ -632,7 +814,10 @@ bool MainView::keyPressed (const juce::KeyPress& key)
     if (code == 'R')                       { handleCommand (501); return true; }
     if (code == 'L')                       { handleCommand (503); return true; }
     if (code == 'B')                       { handleCommand (403); return true; }
+    if (code == 'T')                       { handleCommand (404); return true; }
     if (code == 'M')                       { handleCommand (203); return true; }
+    if (code == '[')                       { handleCommand (611); return true; }
+    if (code == ']')                       { handleCommand (612); return true; }
     if (code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey)
     {
         if (page == Page::Tracks) { handleCommand (202); return true; }
@@ -709,7 +894,7 @@ void MainView::exportMix (AppServices::ExportFormat format)
 
     const bool mp3 = format == AppServices::ExportFormat::Mp3;
     const auto suggest = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
-                             .getChildFile (services.currentSessionName().isNotEmpty() ? services.currentSessionName() : "DINELIVE mix")
+                             .getChildFile (services.currentSessionName().isNotEmpty() ? services.currentSessionName() : "DLIVE mix")
                              .withFileExtension (mp3 ? "mp3" : "wav");
     chooser = std::make_unique<juce::FileChooser> ("Export the stereo mix", suggest, mp3 ? "*.mp3" : "*.wav");
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
@@ -795,9 +980,13 @@ void MainView::chooseOutput()
     for (int i = 0; i < outs.size(); ++i)
         m.addItem (i + 1, outs[i].name, true, outs[i].name == current);
 
+    m.addSeparator();
+    m.addItem (900, "Set up outputs" + Glyph::ellip());
+
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&outputButton).withMinimumWidth (outputButton.getWidth()),
                      [this, outs] (int result)
                      {
+                         if (result == 900) { showOutputs(); return; }
                          if (result <= 0 || result > outs.size()) return;
                          const auto& name = outs[result - 1].name;
                          if (name == services.currentOutputDevice()) return;
@@ -820,6 +1009,8 @@ void MainView::timerCallback()
     else if (page == Page::Live) livePage->refresh();
     else if (page == Page::Inspector) advancedPage->refresh();
 
+    if (channelSheet != nullptr) channelSheet->refresh();
+
     if (toastTicks > 0 && --toastTicks == 0) toast->setVisible (false);
     if (saveTicks > 0 && --saveTicks == 0) services.saveSession();
 
@@ -829,20 +1020,16 @@ void MainView::timerCallback()
         showToast ("The audio device stopped. Check its connection, then choose it again under Audio device.");
     audioWasRunning = running;
 
-    repaint (0, getHeight() - Dine::Metric::footer - 96, Dine::Metric::sidebar, 96);
+    if (sidebarShown) repaint (0, getHeight() - 90, Dine::Metric::sidebar, 90);
 }
 
 // ---------------------------------------------------------------- layout
-juce::Rectangle<int> MainView::transportBounds() const
-{
-    return getLocalBounds().withTrimmedLeft (Dine::Metric::sidebar).removeFromBottom (Dine::Metric::footer);
-}
-
+// The transport lives in the unified toolbar, between the session and the workspace
+// tabs, so it is in the same place on every page and the foot of a workspace is free
+// for the chain strip.
 juce::Rectangle<int> MainView::contentBounds() const
 {
-    auto r = getLocalBounds().withTrimmedLeft (Dine::Metric::sidebar).withTrimmedTop (Dine::Metric::toolbar);
-    if (transportBar != nullptr && transportBar->isVisible()) r = r.withTrimmedBottom (Dine::Metric::footer);
-    return r;
+    return getLocalBounds().withTrimmedLeft (sidebarWidth()).withTrimmedTop (Dine::Metric::toolbar);
 }
 
 // The sidebar is walked once, so paint() and resized() can never disagree about where a row is.
@@ -870,6 +1057,25 @@ void MainView::paint (juce::Graphics& g)
 {
     g.fillAll (Dine::window);
 
+    if (sidebarShown) paintSidebar (g);
+
+    // ---- toolbar
+    auto toolbar = getLocalBounds().withTrimmedLeft (sidebarWidth()).removeFromTop (Dine::Metric::toolbar);
+    g.setColour (Dine::toolbar);
+    g.fillRect (toolbar);
+    g.setColour (Dine::hair);
+    g.fillRect (float (toolbar.getX()), float (toolbar.getBottom()) - 0.5f, float (toolbar.getWidth()), 0.5f);
+
+    if (tabs[0] != nullptr && tabs[0]->isVisible())
+    {
+        auto track = tabs[0]->getBounds();
+        for (int i = 1; i < kWorkspaceTabs; ++i) track = track.getUnion (tabs[size_t (i)]->getBounds());
+        Dine::fillRounded (g, track.expanded (2, 2).toFloat(), juce::Colours::white.withAlpha (0.07f), 7.0f);
+    }
+}
+
+void MainView::paintSidebar (juce::Graphics& g)
+{
     auto sidebar = getLocalBounds().removeFromLeft (Dine::Metric::sidebar);
     g.setColour (Dine::sidebar);
     g.fillRect (sidebar);
@@ -879,7 +1085,7 @@ void MainView::paint (juce::Graphics& g)
     auto brand = sidebar.withHeight (46).reduced (14, 0);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (14.0f, 700).withExtraKerningFactor (0.10f));
-    g.drawText ("DINELIVE", brand, juce::Justification::centredLeft);
+    g.drawText ("DLIVE", brand, juce::Justification::centredLeft);
 
     walkSidebar (Dine::Metric::sidebar,
                  [] (juce::Component*, juce::Rectangle<int>) {},
@@ -925,32 +1131,21 @@ void MainView::paint (juce::Graphics& g)
                                  : juce::String ("--");
     if (running && services.xrunCount() > 0) clock += "  " + Glyph::dot() + "  " + juce::String (services.xrunCount()) + " drops";
     g.drawText (clock, inner.removeFromTop (14), juce::Justification::topLeft, true);
-
-    // ---- toolbar
-    auto toolbar = getLocalBounds().withTrimmedLeft (Dine::Metric::sidebar).removeFromTop (Dine::Metric::toolbar);
-    g.setColour (Dine::toolbar);
-    g.fillRect (toolbar);
-    g.setColour (Dine::hair);
-    g.fillRect (float (toolbar.getX()), float (toolbar.getBottom()) - 0.5f, float (toolbar.getWidth()), 0.5f);
-
-    if (tabs[0] != nullptr && tabs[0]->isVisible())
-    {
-        auto track = tabs[0]->getBounds();
-        for (int i = 1; i < kWorkspaceTabs; ++i) track = track.getUnion (tabs[size_t (i)]->getBounds());
-        Dine::fillRounded (g, track.expanded (2, 2).toFloat(), juce::Colours::white.withAlpha (0.07f), 7.0f);
-    }
 }
 
 void MainView::resized()
 {
-    walkSidebar (Dine::Metric::sidebar,
-                 [] (juce::Component* c, juce::Rectangle<int> r) { if (c != nullptr) c->setBounds (r); },
-                 [] (juce::Rectangle<int>, const char*) {},
-                 &sessionsItem, setupItems, workspaceItems);
+    if (sidebarShown)
+        walkSidebar (Dine::Metric::sidebar,
+                     [] (juce::Component* c, juce::Rectangle<int> r) { if (c != nullptr) c->setBounds (r); },
+                     [] (juce::Rectangle<int>, const char*) {},
+                     &sessionsItem, setupItems, workspaceItems);
 
-    auto toolbar = getLocalBounds().withTrimmedLeft (Dine::Metric::sidebar).removeFromTop (Dine::Metric::toolbar).reduced (14, 0);
-    sessionButton->setBounds (toolbar.removeFromLeft (sessionButton->idealWidth()).withSizeKeepingCentre (sessionButton->idealWidth(), 38));
-    auto right = toolbar;
+    // The right-hand cluster is placed first; the session name and the transport then
+    // share what is left, the transport keeping its width before the name does.
+    auto right = getLocalBounds().withTrimmedLeft (sidebarWidth()).removeFromTop (Dine::Metric::toolbar).reduced (14, 0);
+    sidebarButton->setBounds (right.removeFromLeft (30).withSizeKeepingCentre (30, Dine::Metric::control));
+    right.removeFromLeft (6);
     if (outputButton.isVisible())
     {
         const int w = juce::jlimit (120, 230, outputButton.idealWidth());
@@ -971,7 +1166,21 @@ void MainView::resized()
         bypassButton->setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
     }
 
-    if (transportBar->isVisible()) transportBar->setBounds (transportBounds());
+    int transportW = 0;
+    if (transportBar->isVisible())
+    {
+        transportW = juce::jmin (transportBar->idealWidth(), juce::jmax (0, right.getWidth() - 150));
+        if (transportW < transportBar->minimumWidth())
+            transportW = juce::jmin (transportBar->minimumWidth(), right.getWidth());
+    }
+
+    const int sessionW = juce::jmin (sessionButton->idealWidth(),
+                                     juce::jmax (80, right.getWidth() - transportW - 24));
+    sessionButton->setBounds (right.removeFromLeft (sessionW).withSizeKeepingCentre (sessionW, 38));
+
+    if (transportW > 0)
+        transportBar->setBounds (right.withSizeKeepingCentre (juce::jmin (transportW, right.getWidth()),
+                                                              TransportBar::height));
 
     auto content = contentBounds();
     for (juce::Component* p : { (juce::Component*) devicePage.get(), (juce::Component*) assignPage.get(),
@@ -980,10 +1189,27 @@ void MainView::resized()
                                 (juce::Component*) livePage.get(), (juce::Component*) advancedPage.get() })
         p->setBounds (content);
 
+    if (outputsSheet != nullptr)
+    {
+        outputsSheet->setBounds (getLocalBounds().withTrimmedLeft (sidebarWidth())
+                                                 .withTrimmedTop (Dine::Metric::toolbar));
+        outputsSheet->toFront (false);
+    }
+
+    if (channelSheet != nullptr)
+    {
+        channelSheet->setBounds (getLocalBounds().withTrimmedLeft (sidebarWidth())
+                                                 .withTrimmedTop (Dine::Metric::toolbar));
+        channelSheet->toFront (false);
+    }
+
     if (toast->isVisible())
     {
         const int w = toast->idealWidth();
-        toast->setBounds (content.getCentreX() - w / 2, content.getBottom() - 22 - 30, w, 30);
+        // clear of the chain strip along the foot of a workspace
+        toast->setBounds (content.getCentreX() - w / 2,
+                          content.getBottom() - 22 - 30 - (page == Page::Tracks || page == Page::Mixer ? ChainStrip::height : 0),
+                          w, 30);
         toast->toFront (false);
     }
 }

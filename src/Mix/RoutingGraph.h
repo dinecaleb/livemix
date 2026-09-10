@@ -14,6 +14,7 @@ struct StripRoute
 {
     int input = -1;                                     // index into MixSession::inputs
     std::string name;
+    std::string icon;                                   // empty = drawn from the role
     ChannelRole role = ChannelRole::KickIn;
     int inputA = -1, inputB = -1;                       // device channels
     MixBus bus = MixBus::Music;
@@ -23,7 +24,7 @@ struct StripRoute
     int numChannels() const noexcept { return inputB >= 0 ? 2 : 1; }
 };
 
-// The routing DINELIVE builds from the assignments. Deterministic: the same
+// The routing DLIVE builds from the assignments. Deterministic: the same
 // session always gives the same graph. The user never edits this directly;
 // Advanced mode may later expose the sends.
 struct RoutingGraph

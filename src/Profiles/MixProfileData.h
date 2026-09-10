@@ -8,7 +8,7 @@
 namespace livemix
 {
 
-// Mix-level profile data: how DINELIVE routes, pans, sends and balances a whole
+// Mix-level profile data: how DLIVE routes, pans, sends and balances a whole
 // band. Numbers only (MixProfileData.cpp); the decisions that use them live in
 // src/Mix. Per-source targets stay in ProfileData.cpp.
 namespace MixProfile
@@ -22,6 +22,13 @@ namespace MixProfile
     // Return level into the master, dB.
     float defaultReturnDb (StyleProfileId profile, FxSlot slot);
 
+    // How long a return's tail may run, in beats, once the tempo is known. A reverb whose decay outlasts
+    // the phrase turns a busy gospel arrangement to wash: the tail of one line is still sounding under the
+    // next. The FX profile's own decay is the character of the effect and stays the ceiling - this only
+    // shortens it, and only when the song is quick enough to need it. 0 = leave the tail alone (the big
+    // halls and ambiences are meant to outlast the bar).
+    float reverbBeats (StyleProfileId profile, FxSlot slot);
+
     // Where a source sits left-right when there is one of it (-1..1). Several
     // sources of the same role are spread around this by RoutingGraph.
     float defaultPan (ChannelRole role);
@@ -32,9 +39,19 @@ namespace MixProfile
     // Bus fader starting point, dB.
     float defaultBusFaderDb (StyleProfileId profile, MixBus bus);
 
-    // The processed, pre-fader peak level (dBFS) a source of this family should
-    // reach at its fader for the profile's balance. The lead vocal is the reference.
+    // How loud a source of this family should be while it is playing (processed, pre-fader
+    // active RMS in dBFS) for the profile's balance. The lead vocal is the reference.
+    //
+    // This is a loudness, not a peak, because a peak is not what a fader sets. Desk multitrack
+    // exports routinely carry isolated clicks - one sample 25 dB above anything musical on the
+    // track - and a peak-fitted fader follows the click instead of the instrument. Loudness is
+    // also what the ear balances: a tom and a voice at the same peak are nowhere near the same
+    // level in the mix.
     float mixLevelTargetDb (StyleProfileId profile, RoleFamily family);
+
+    // A processed strip is never allowed to peak above this before its fader, so a loud transient
+    // still has somewhere to go inside the bus. Headroom only: the balance is set by loudness.
+    float stripPeakCeilingDb (StyleProfileId profile);
 
     // ---- Relationships (used by MixPlanner) ----
     struct Relationships
@@ -72,6 +89,16 @@ namespace MixProfile
         float maxInputGainDb = 24.0f;      // digital input gain Tune Mix may add or remove per input
         float inputPeakCeilingDb = -6.0f;  // the chain input never gets pushed above this peak by the gain
         float maxFaderMoveDb = 18.0f;      // a quiet capture still gets a balanced mix; the preamp note says what to fix at the console
+        // Gain staging is the first move in a mix and the console is the right place for it.
+        // DLIVE will make a quiet input work digitally, but past this much digital gain the
+        // preamp itself is wrong (a digital raise lifts the preamp's noise with the source), so
+        // the app says so and names the input. Advice only: nothing about the mix changes.
+        float digitalGainAdviceDb = 9.0f;
+        // A close microphone on a drum hears the whole kit. Raising it raises that bleed with it, so the
+        // balance lifts one only this far and the mix says to turn the preamp up instead - which raises the
+        // instrument without raising what leaks into it. Counted over the input gain and the fader together,
+        // because a digital raise and a fader raise lift the bleed identically.
+        float maxCloseMicRaiseDb = 6.0f;
         float faintInputDb = -38.0f;       // a raw peak (at the device) that never got above this during the listen is a faint input: the
                                            // source did not really play, or the microphone / cable / preamp is the problem. It is not tuned,
                                            // raised or balanced; the mix says to check it.
@@ -84,10 +111,13 @@ namespace MixProfile
         float compPeakRiseSustainedMs = 10.0f;   // voices, bass, keys, guitars
         // Over a whole listen a compressor's average reduction (what moves loudness, and what the buses and master
         // receive) follows a level between the RMS and the peaks: the release holds the reduction between syllables and
-        // hits. 0 = the reduction at the RMS level, 1 = at the peaks. A single source has gaps the release recovers in;
-        // a bus or the master is dense and the reduction is held.
+        // hits. 0 = the reduction at the RMS level, 1 = at the peaks. A single source has gaps the release recovers
+        // in; a bus or the master is dense and the reduction is held, so the bus share is the higher of the two.
+        // Fitted by comparing the predicted master loudness against the second listen on both church multitracks:
+        // the value has to serve a quiet capture (faders up ~10 dB) and a hot one at once, and 0.32 lands both
+        // inside 1 LU of the -23 target. Re-check the `after` LUFS line on both folders when changing it.
         float compDetectorCrestShareStrip = 0.25f;
-        float compDetectorCrestShareBus = 0.4f;
+        float compDetectorCrestShareBus = 0.32f;
     };
     const Relationships& relationships (StyleProfileId profile);
 

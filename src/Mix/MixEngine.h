@@ -5,6 +5,7 @@
 #include <vector>
 #include "MixSession.h"
 #include "MixParameters.h"
+#include "OutputFeeds.h"
 #include "RoutingGraph.h"
 #include "DSP/ChannelProcessor.h"
 #include "FX/FxChain.h"
@@ -27,7 +28,7 @@ public:
     virtual void pushMasterOutput (const AudioBlockView& output) noexcept = 0;                  // what leaves the master (the broadcast)
 };
 
-// The whole DINELIVE mix as one real-time processor:
+// The whole DLIVE mix as one real-time processor:
 //
 //   device inputs -> strips (ChannelProcessor each) -> fader/pan -> DRUMS | BASS | MUSIC | VOCALS buses
 //                                                    -> post-fader sends -> FX returns (FxChain, wet only)
@@ -49,9 +50,15 @@ public:
 
     // Message thread: publish a complete snapshot. Wait-free for both sides.
     void setParameters (const MixParameters& p);
+
+    // Message thread: where the sound leaves the device. Monitoring only - a feed never
+    // changes the mix, so this has its own publish and is not part of MixParameters.
+    void setOutputFeeds (const OutputFeeds& f);
+    const OutputFeeds& getAppliedOutputFeeds() const noexcept { return appliedFeeds; }
     const MixParameters& getAppliedParameters() const noexcept { return applied; } // audio-thread view (read for display only)
 
-    // Audio thread. inputs: device channels; outputs: at least 1 channel (mono sum) or 2 (L/R). Extra outputs are cleared.
+    // Audio thread. inputs: device channels; outputs: at least 1 channel (mono sum) or 2 (L/R).
+    // Every output channel is written: the feeds decide what lands where, the rest is silence.
     void process (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples) noexcept;
 
     // Tune Mix listening. Set on the message thread before starting a capture; the engine checks isActive() per block.
@@ -61,6 +68,21 @@ public:
     double getSampleRate() const noexcept { return sr; }
     int getNumStrips() const noexcept { return numStrips; }
     const RoutingGraph& getGraph() const noexcept { return graph; }
+
+    // Message thread. A strip's name is a label the UI reads, never something process()
+    // looks at, so correcting one costs nothing: the routing, the chains, the kept mix and
+    // the plan all stay exactly as they are. Anything that changes the routing needs
+    // prepare() and a rebuilt graph instead.
+    void setStripName (int strip, const std::string& name)
+    {
+        if (strip >= 0 && strip < int (graph.strips.size())) graph.strips[size_t (strip)].name = name;
+    }
+
+    // The same for what the source is drawn as: a label the UI reads, nothing else.
+    void setStripIcon (int strip, const std::string& icon)
+    {
+        if (strip >= 0 && strip < int (graph.strips.size())) graph.strips[size_t (strip)].icon = icon;
+    }
 
     // Meters (any thread).
     const ChannelProcessor& getStrip (int index) const noexcept { return strips[size_t (index)]->processor; }
@@ -116,6 +138,9 @@ private:
 
     TripleBuffer<MixParameters> mailbox;
     MixParameters applied;                                       // audio thread's copy of the last snapshot
+    TripleBuffer<OutputFeeds> feedMailbox;
+    OutputFeeds appliedFeeds;                                    // audio thread's copy of the output routing
+    std::array<float, kMaxOutputFeeds> feedGain { { 1.0f, 1.0f, 1.0f, 1.0f } };   // dB resolved once per publish
     bool haveApplied = false;
 
     std::atomic<MixTap*> tap { nullptr };

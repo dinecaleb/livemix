@@ -8,11 +8,12 @@
 #include "Mix/MixCapture.h"
 #include "Mix/MixPlanner.h"
 #include "Mix/MixMacros.h"
+#include "Mix/OutputFeeds.h"
 
 namespace livemix
 {
 
-// The message-thread owner of one DINELIVE mix: the session (who is what), the engine,
+// The message-thread owner of one DLIVE mix: the session (who is what), the engine,
 // the listen (TUNE MIX), the plan and its BEFORE / AFTER preview, the five macros and
 // Advanced edits. The UI talks only to this class and reads only plain data from it;
 // the audio thread touches nothing here except process(). No JUCE.
@@ -29,6 +30,15 @@ public:
     const MixSession& getSession() const noexcept { return session; }
     void setSession (const MixSession& s);            // audio must be stopped or reconfigure() called afterwards
     void setSessionName (const std::string& name) { session.name = name; }
+    // Correcting what an input is called. A name is a label, not routing, so this does not
+    // rebuild the graph: the kept mix, the plan, the listen and the timeline's clips all
+    // survive it, and TRACKS, MIXER and the Inspector are renamed together because the
+    // graph's copy is set here too. Changing which source an input *is* goes through
+    // setSession + prepare(), because that changes the bus and the baseline chain.
+    void setInputName (int strip, const std::string& name);
+    // What the source is drawn as. Empty goes back to the role's own icon. Like a rename
+    // this is a label: no rebuild, and nothing about the mix or the plan changes.
+    void setInputIcon (int strip, const std::string& icon);
     void setPurpose (MixPurpose p);
     void setProfile (StyleProfileId p);
 
@@ -50,7 +60,22 @@ public:
     struct ListenSettings { float seconds = 30.0f; float triggerDb = -45.0f; float maxWaitSeconds = 30.0f; };
     void startTuneMix (const ListenSettings& s);
     void startTuneMix() { startTuneMix (ListenSettings {}); }
-    void abortTuneMix();
+
+    // ---- TUNE CHANNEL: one source, on click ----
+    // The same listen and the same planner as TUNE MIX - a channel is never tuned by rules
+    // of its own, and it is still decided in mix context - narrowed to one strip when the
+    // plan is made (MixPlanner::channelOnly): only that strip's chain, input gain, fader
+    // and sends move, the buses and the master stay where they are, and BEFORE / AFTER,
+    // KEEP and REVERT work exactly as they do for a mix. The listen waits for that channel
+    // rather than for the band, and it is shorter: one source needs less to be measured.
+    void startTuneChannel (int strip, const ListenSettings& s);
+    void startTuneChannel (int strip) { startTuneChannel (strip, channelListen()); }
+    static ListenSettings channelListen() { return { 12.0f, -45.0f, 20.0f }; }
+    int getTuningStrip() const noexcept { return tuningStrip; }      // the strip this listen / plan is about; -1 = the whole mix
+    bool isTuningChannel() const noexcept { return tuningStrip >= 0; }
+    std::string getTuningName() const;                               // that channel's name, empty for a mix
+
+    void abortTuneMix();                  // cancels whichever listen is running - the mix's or a channel's
     void poll();                                        // message thread, ~30 Hz: advances Listening -> Planning -> Preview
     Stage getStage() const noexcept { return stage; }
     bool isListening() const noexcept { return stage == Stage::Listening; }
@@ -69,13 +94,20 @@ public:
     void revertPlan();
     int getTuneCount() const noexcept { return tuneCount; }
 
-    // ---- BYPASS: hear the inputs with nothing DINELIVE does ----
+    // ---- BYPASS: hear the inputs with nothing DLIVE does ----
     // Every chain is bypassed, faders and input gains go back to their starting point and
     // the returns go silent, so what comes out is the console feed itself. Nothing about
     // the kept mix changes: switch it off and the mix is exactly as it was. Mutes and solos
     // are carried across so you can still audition one source while comparing.
     void setBypass (bool on);
     bool isBypassed() const noexcept { return bypassed; }
+
+    // ---- Outputs: where the sound leaves the device ----
+    // Monitoring, not mix: a feed never changes the mix, the plan or an export. Feed 0 is the
+    // main output and always exists. Two different devices need an Aggregate Device (macOS
+    // Audio MIDI Setup); it then appears as one device with every channel.
+    void setOutputFeeds (const OutputFeeds&);
+    const OutputFeeds& getOutputFeeds() const noexcept { return outputs; }
 
     // ---- Macros (50 = the plan) ----
     void setMacro (MixMacro m, float value);
@@ -92,6 +124,12 @@ public:
     void setBusFader (MixBus bus, float db);
     void setBusMute (MixBus bus, bool mute);
     void setBusSolo (MixBus bus, bool solo);
+    // The chain itself (the Inspector's stage controls): the whole ChannelParameters at
+    // once, the way the engine takes it. A hand edit lives on the kept mix beside the
+    // faders, so it survives a macro move and is what gets saved; the next TUNE MIX
+    // plans from what it hears and replaces it, exactly as it replaces a fader.
+    void setStripChannel (int strip, const ChannelParameters&);
+    void setBusChannel (MixBus bus, const ChannelParameters&);
     void clearSolos();
     const MixParameters& getKept() const noexcept { return kept; }          // without macros
     const MixParameters& getBase() const noexcept { return (plan && stage == Stage::Preview) ? (compare == Compare::Before ? plan->before : plan->proposed) : kept; } // what is audible, without macros
@@ -99,6 +137,31 @@ public:
     void setKept (const MixParameters& p);                                  // session restore
     void restoreKept (const MixParameters& p, int tuneCount);               // session restore with its history
     bool hasKeptMix() const noexcept { return mixed; }
+
+    // ---- Gain staging: the first move in any mix, in plain words ----
+    // What the last listen says about one input's level. Gain staging comes before cleanup,
+    // effect, mix and master, so this is the one thing the app says about an input before it
+    // says anything else. `known` is false until a plan exists. `consoleMoveDb` is what the
+    // preamp on the desk should still do - DLIVE has already done what it can digitally.
+    struct InputAdvice
+    {
+        // `Digital` is the quiet one that matters most in a church: the level works, but only
+        // because DLIVE raised (or lowered) it by a lot digitally. The preamp is the right
+        // place for that move - a digital raise lifts the preamp's noise with the source.
+        enum class Level { Unknown, NotHeard, Faint, Low, Healthy, Hot, Clipping, Bleed, Digital };
+        bool known = false;
+        Level level = Level::Unknown;
+        float capturePeakDb = -120.0f;    // the loudest moment at the device, before DLIVE's gain
+        float digitalGainDb = 0.0f;       // the input gain DLIVE set
+        float consoleMoveDb = 0.0f;       // what the preamp should still move; 0 = nothing to do
+        std::string headline;             // "TURN THE PREAMP UP 6 dB" / "HEALTHY"
+        std::string detail;               // the sentence that explains it
+        bool needsAttention() const noexcept
+        {
+            return known && level != Level::Healthy && level != Level::Bleed && level != Level::Unknown;
+        }
+    };
+    InputAdvice getInputAdvice (int strip) const;
 
     // ---- Health: the share of assigned inputs that were heard, not faint and at a healthy level in the last listen (0..100;
     // 0 = nothing known yet). The notes say what is not right, in plain words, so the number is never a mystery.
@@ -111,6 +174,7 @@ public:
 private:
     void publish();
     MixParameters compose() const;
+    void startListening (const ListenSettings&, int strip);   // -1 = the whole mix
 
     MixSession session;
     MixEngine engine;
@@ -126,8 +190,10 @@ private:
     std::optional<MixPlan> plan;
     Compare compare = Compare::After;
     MixMacroValues macros;
+    OutputFeeds outputs;                // where the sound leaves the device (monitoring only)
     bool bypassed = false;              // hearing the raw inputs; the kept mix is untouched
     int tuneCount = 0;
+    int tuningStrip = -1;               // TUNE CHANNEL: the one strip being listened to / previewed
     bool mixed = false;                 // a plan was kept (or a saved mix restored): the mix is more than the baselines
     ListenSettings listen;
     Stage restingStage() const noexcept { return mixed ? Stage::Mixed : Stage::Ready; }

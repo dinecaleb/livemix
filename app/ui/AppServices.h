@@ -31,6 +31,10 @@ public:
     virtual juce::String changeOutput (const juce::String& output) = 0;
     virtual bool isAudioRunning() = 0;
     virtual int numInputChannels() = 0;
+    // How many output channels the open device has, and what it calls them. Used by the
+    // Outputs sheet to offer the pairs; 2 is the safe answer for anything that cannot say.
+    virtual int numOutputChannels() { return 2; }
+    virtual juce::StringArray outputChannelNames() { return {}; }
     virtual double sampleRate() = 0;
     virtual int bufferSize() = 0;
     virtual int xrunCount() = 0;

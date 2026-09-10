@@ -196,7 +196,9 @@ int MixCapture::popAll (int maxFrames, bool consume, float triggerLin, bool& tri
             if (isStrip)
             {
                 const float peak = blockPeak (stage.data(), n, s.channels);
-                if (peak >= triggerLin) triggered = true;
+                // TUNE CHANNEL waits for the channel it is tuning, so a busy band does not start
+                // the window before the one source it is listening to has played.
+                if (peak >= triggerLin && (settings.triggerStrip < 0 || int (index) == settings.triggerStrip)) triggered = true;
                 if (peak >= heardLin) s.heard.store (true, std::memory_order_relaxed);
             }
         }

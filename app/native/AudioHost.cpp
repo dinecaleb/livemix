@@ -61,7 +61,7 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
     setup.useDefaultInputChannels = false;
     setup.inputChannels.setRange (0, kMaxInputs, true);     // every input the device has, up to the engine's capacity
     setup.useDefaultOutputChannels = false;
-    setup.outputChannels.setRange (0, 2, true);
+    setup.outputChannels.setRange (0, kMaxOutputs, true);   // every pair the device has: the feeds decide what lands where
     lastError = deviceManager.setAudioDeviceSetup (setup, true);
     if (lastError.isNotEmpty()) return lastError;
     if (deviceManager.getCurrentAudioDevice() == nullptr) { lastError = "The audio device could not be opened."; return lastError; }
@@ -82,7 +82,7 @@ juce::String AudioHost::openOutputOnly (const juce::String& outputDevice, double
     setup.useDefaultInputChannels = false;
     setup.inputChannels.clear();
     setup.useDefaultOutputChannels = false;
-    setup.outputChannels.setRange (0, 2, true);
+    setup.outputChannels.setRange (0, kMaxOutputs, true);   // every pair the device has: the feeds decide what lands where
     lastError = deviceManager.setAudioDeviceSetup (setup, true);
     if (lastError.isNotEmpty()) return lastError;
     if (deviceManager.getCurrentAudioDevice() == nullptr) { lastError = "The output device could not be opened."; return lastError; }
@@ -103,7 +103,7 @@ juce::String AudioHost::setOutputDevice (const juce::String& outputDevice)
     deviceManager.removeAudioCallback (this);
     setup.outputDeviceName = outputDevice;
     setup.useDefaultOutputChannels = false;
-    setup.outputChannels.setRange (0, 2, true);
+    setup.outputChannels.setRange (0, kMaxOutputs, true);   // every pair the device has: the feeds decide what lands where
     lastError = deviceManager.setAudioDeviceSetup (setup, true);
     closing = false;
     if (lastError.isNotEmpty())
@@ -157,6 +157,18 @@ int AudioHost::getNumInputChannels() const
 {
     if (auto* device = deviceManager.getCurrentAudioDevice()) return device->getActiveInputChannels().countNumberOfSetBits();
     return 0;
+}
+
+int AudioHost::getNumOutputChannels() const
+{
+    if (auto* device = deviceManager.getCurrentAudioDevice()) return device->getActiveOutputChannels().countNumberOfSetBits();
+    return 0;
+}
+
+juce::StringArray AudioHost::getOutputChannelNames() const
+{
+    if (auto* device = deviceManager.getCurrentAudioDevice()) return device->getOutputChannelNames();
+    return {};
 }
 
 double AudioHost::getSampleRate() const

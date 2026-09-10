@@ -138,7 +138,7 @@ void DawEngine::setLoop (bool on, juce::int64 start, juce::int64 end)
 juce::String DawEngine::startRecording()
 {
     if (recorder.isRecording()) return {};
-    if (project.folder == juce::File()) return "Save this session before recording, so DINELIVE knows where the audio goes.";
+    if (project.folder == juce::File()) return "Save this session before recording, so DLIVE knows where the audio goes.";
 
     std::vector<Recorder::Spec> specs;
     const int n = juce::jmin (int (session.inputs.size()), int (project.tracks.size()));

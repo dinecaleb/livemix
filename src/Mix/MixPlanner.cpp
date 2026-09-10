@@ -4,6 +4,7 @@
 #include "Intelligence/SafetyValidator.h"
 #include "Profiles/MixProfileData.h"
 #include "Profiles/Profile.h"
+#include "FX/FxProfiles.h"
 #include "Core/DbUtils.h"
 #include "DSP/Compressor.h"
 #include <algorithm>
@@ -13,7 +14,8 @@
 namespace livemix
 {
 
-namespace MixPlanner { float predictedProcessedPeakDb (const MixPlanContext&, int, const StripParameters&); float predictedProcessedRmsDb (const MixPlanContext&, int, const StripParameters&); }
+namespace MixPlanner { float predictedProcessedPeakDb (const MixPlanContext&, int, const StripParameters&); float predictedProcessedRmsDb (const MixPlanContext&, int, const StripParameters&);
+                       float predictedProcessedActiveRmsDb (const MixPlanContext&, int, const StripParameters&); }
 
 namespace
 {
@@ -34,10 +36,71 @@ namespace
         return MixProfile::mixLevelTargetDb (profile, family) + a.bandEnergyDb[size_t (b)];
     }
 
+    // The close microphones on a drum kit: each one hears every other drum in the room, so what a fader
+    // does to one of them it also does to the bleed. Overheads and room microphones are meant to hear the
+    // whole kit, and everything else is not sharing a stand with another instrument.
+    bool isDrumCloseMic (RoleFamily f)
+    {
+        return f == RoleFamily::Kick || f == RoleFamily::Snare || f == RoleFamily::Tom || f == RoleFamily::HiHat;
+    }
+
     bool isMusicFamily (RoleFamily f)
     {
         return f == RoleFamily::Piano || f == RoleFamily::ElectricPiano || f == RoleFamily::Organ || f == RoleFamily::Synth
             || f == RoleFamily::AcousticGuitar || f == RoleFamily::ElectricGuitar;
+    }
+
+    // The tempo the band is actually playing, agreed across the sources. One channel is easily fooled -
+    // a shuffle reads as 4/3 of the beat, a close tom mostly hears the snare - and the confident answer
+    // is not always the right one, but a shuffle does not fool the whole band at once. Each heard source
+    // votes with its own confidence for every candidate within kTempoAgreementPercent of it, and the
+    // candidate carrying the most agreement wins. 0 when nothing agrees.
+    constexpr float kTempoAgreementPercent = 4.0f;
+    // Only a source that actually plays a rhythm gets a vote. A held organ note or an open room
+    // microphone has no onsets to be periodic, so its autocorrelation is reading noise - and there are
+    // usually more of those on a stage than there are drums, so letting them vote buries the kick.
+    constexpr float kTempoVoterOnsetsPerSecond = 0.5f;
+    constexpr int kTempoVoterMinEvents = 8;
+
+    bool tempoVoter (const AnalysisResult& a, const StripPlan& sp)
+    {
+        return sp.heard && a.tempoBpm > 0.0f
+            && a.transientsPerSecond >= kTempoVoterOnsetsPerSecond
+            && a.eventCount >= kTempoVoterMinEvents;
+    }
+
+    float consensusTempoBpm (const MixPlanContext& ctx, const std::vector<StripPlan>& strips, int n, float& agreementOut)
+    {
+        agreementOut = 0.0f;
+        double total = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const auto& a = ctx.capture.strips[size_t (i)];
+            if (! tempoVoter (a, strips[size_t (i)])) continue;
+            total += double (a.tempoConfidence);
+        }
+        if (total <= 0.0) return 0.0f;
+
+        float bestBpm = 0.0f;
+        double bestWeight = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const auto& candidate = ctx.capture.strips[size_t (i)];
+            if (! tempoVoter (candidate, strips[size_t (i)])) continue;
+            double weight = 0.0;
+            double weighted = 0.0;
+            for (int j = 0; j < n; ++j)
+            {
+                const auto& voter = ctx.capture.strips[size_t (j)];
+                if (! tempoVoter (voter, strips[size_t (j)])) continue;
+                if (std::fabs (voter.tempoBpm - candidate.tempoBpm) > candidate.tempoBpm * kTempoAgreementPercent * 0.01f) continue;
+                weight += double (voter.tempoConfidence);
+                weighted += double (voter.tempoConfidence) * double (voter.tempoBpm);
+            }
+            if (weight > bestWeight) { bestWeight = weight; bestBpm = weight > 0.0 ? float (weighted / weight) : candidate.tempoBpm; }
+        }
+        agreementOut = float (bestWeight / total);
+        return bestBpm;
     }
 
     // Applies a strip's relationship decisions through the same validator every Tune path uses.
@@ -69,6 +132,9 @@ namespace
     void shiftLevels (AnalysisResult& a, float db)
     {
         a.peakDb += db; a.rmsDb += db; a.hitLevelDb += db; a.noiseFloorDb += db; a.truePeakDb += db;
+        if (a.activeRmsDb > -119.0f) a.activeRmsDb += db;
+        if (a.musicalPeakDb > -119.0f) a.musicalPeakDb += db;
+        if (a.eventLevelDb > -119.0f) a.eventLevelDb += db;
         if (a.loudnessLufs > -100.0f) a.loudnessLufs += db;
         for (auto& c : a.channelRmsDb) if (c > -100.0f) c += db;
     }
@@ -150,6 +216,17 @@ float predictedProcessedRmsDb (const MixPlanContext& ctx, int i, const StripPara
                                      MixProfile::relationships (ctx.session.profile).compDetectorCrestShareStrip);
 }
 
+// Where a strip's processed loudness-while-playing lands under a parameter set. The processed tap
+// measures peak and RMS over the whole listen; how much of that listen the source was actually playing
+// is a property of the source, which the chain does not change, so the raw measurement's own
+// active-to-overall offset carries across. This is what the balance is fitted to.
+float predictedProcessedActiveRmsDb (const MixPlanContext& ctx, int i, const StripParameters& strip)
+{
+    const auto& a = ctx.capture.strips[size_t (i)];
+    const float dutyCycleDb = (a.activeRmsDb > -119.0f && a.rmsDb > -119.0f) ? std::max (a.activeRmsDb - a.rmsDb, 0.0f) : 0.0f;
+    return predictedProcessedRmsDb (ctx, i, strip) + dutyCycleDb;
+}
+
 int countParameterChanges (const MixParameters& from, const MixParameters& to)
 {
     int n = 0;
@@ -198,6 +275,7 @@ MixPlan plan (const MixPlanContext& ctx)
         sp.faderBeforeDb = sp.faderDb = ctx.current.strips[size_t (i)].faderDb;
         const float gainAtCapture = ctx.atCapture.strips[size_t (i)].inputGainDb;
         sp.inputGainBeforeDb = sp.inputGainDb = ctx.current.strips[size_t (i)].inputGainDb;
+        sp.capturePeakDb = ctx.capture.strips[size_t (i)].peakDb - gainAtCapture;
         sp.heard = heard (ctx.capture.strips[size_t (i)]);
 
         // A signal that never got above the faint level at the device is not a source playing: the mic is off, the cable
@@ -207,7 +285,7 @@ MixPlan plan (const MixPlanContext& ctx)
             sp.heard = false;
             sp.faint = true;
             ++plan.stripsFaint;
-            sp.mixItems.push_back (info (Recommendation::Kind::Info, upper (sp.name) + ": barely reached DINELIVE, check this input",
+            sp.mixItems.push_back (info (Recommendation::Kind::Info, upper (sp.name) + ": barely reached DLIVE, check this input",
                                          "Its loudest moment during the listen was " + num ("%.0f dBFS", double (ctx.capture.strips[size_t (i)].peakDb - gainAtCapture))
                                          + " at the device, too quiet to be a source that is really playing. Check the microphone, the cable and the preamp, "
                                          "then Tune Mix again. Nothing about it was changed.", Confidence::High));
@@ -223,7 +301,7 @@ MixPlan plan (const MixPlanContext& ctx)
         tc.hasOutput = false;   // the mix balances with faders below, not with the strip's output trim
         sp.tune = TuneEngine::tune (tc);
 
-        // Input gain: the console move Tune recommends, done digitally where DINELIVE owns the input stage, in one
+        // Input gain: the console move Tune recommends, done digitally where DLIVE owns the input stage, in one
         // go (a person turns a preamp one step at a time; a number does not have to). Computed from the listen and
         // the gain at the listen (never the current value); the chain input is never pushed above the profile's
         // ceiling, and the strip is re-tuned as it will now be heard.
@@ -231,7 +309,8 @@ MixPlan plan (const MixPlanContext& ctx)
         if (sp.heard && sp.tune.valid && std::fabs (toHealthy) >= 1.0f)
         {
             float gain = gainAtCapture + toHealthy;
-            gain = std::min (gain, gainAtCapture + (R.inputPeakCeilingDb - tc.analysis.peakDb));
+            const float musicalPeak = tc.analysis.musicalPeakDb > -119.0f ? tc.analysis.musicalPeakDb : tc.analysis.peakDb;
+            gain = std::min (gain, gainAtCapture + (R.inputPeakCeilingDb - musicalPeak));
             gain = clamp (roundHalf (gain), -R.maxInputGainDb, R.maxInputGainDb);
             const float delta = gain - gainAtCapture;
             if (std::fabs (delta) >= 0.5f)
@@ -248,9 +327,9 @@ MixPlan plan (const MixPlanContext& ctx)
             const auto& a = ctx.capture.strips[size_t (i)];
             const bool up = sp.inputGainDb > sp.inputGainBeforeDb;
             sp.mixItems.push_back (info (Recommendation::Kind::CaptureGain, upper (sp.name) + " input gain " + fmtDb (sp.inputGainDb, 1),
-                                         "This input reaches DINELIVE at " + num ("%.0f dBFS", double (a.peakDb - (gainAtCapture))) + " peak from the device"
-                                         + (up ? ", under the healthy range, so DINELIVE raises it digitally and the processing works at the right level. Raising the console preamp instead keeps the noise floor down."
-                                               : ", hotter than the healthy range, so DINELIVE lowers it before the processing. Clipping at the converter itself cannot be undone here; lower the preamp when you can."),
+                                         "This input reaches DLIVE at " + num ("%.0f dBFS", double (a.peakDb - (gainAtCapture))) + " peak from the device"
+                                         + (up ? ", under the healthy range, so DLIVE raises it digitally and the processing works at the right level. Raising the console preamp instead keeps the noise floor down."
+                                               : ", hotter than the healthy range, so DLIVE lowers it before the processing. Clipping at the converter itself cannot be undone here; lower the preamp when you can."),
                                          Confidence::High));
         }
     }
@@ -288,6 +367,45 @@ MixPlan plan (const MixPlanContext& ctx)
                                              "A speech microphone open during the song picks up the band, so its level and gain were left alone. "
                                              "Tune Mix again while the pastor speaks and the band is quiet to set it.", Confidence::High));
             }
+    }
+
+    // ---- Tempo: what the delays have to be in time with ----
+    {
+        float agreement = 0.0f;
+        const float bpm = consensusTempoBpm (ctx, plan.strips, n, agreement);
+        // Only a tempo most of the band agrees on is worth retiming the delays to; below that the
+        // engine default stands and the sends stay where the profile put them.
+        if (bpm > 0.0f && agreement >= 0.5f)
+        {
+            plan.proposed.tempoBpm = bpm;
+            // With the tempo known the reverb tails can be fitted to the song as well as the delays: a tail
+            // that outlasts the phrase is the difference between a mix with depth and a mix that washes.
+            // Computed from the tempo and the FX profile, never from the current value, so a re-plan lands here again.
+            const float secondsPerBeat = 60.0f / bpm;
+            for (int f = 0; f < int (FxSlot::Count); ++f)
+            {
+                if (! ctx.graph.fxUsed[size_t (f)]) continue;
+                const float beats = MixProfile::reverbBeats (profile, FxSlot (f));
+                if (beats <= 0.0f) continue;
+                auto& fx = plan.proposed.fx[size_t (f)];
+                if (! fx.fx.reverbEnabled) continue;
+                const float character = FxProfiles::baseline (profile, ctx.graph.fxType[size_t (f)]).reverbDecayS;
+                const float fitted = clamp (beats * secondsPerBeat, 0.5f * character, character);
+                if (std::fabs (fitted - fx.fx.reverbDecayS) < 0.05f) continue;
+                fx.fx.reverbDecayS = fitted;
+                plan.relationships.push_back (info (Recommendation::Kind::Info,
+                                                     std::string (fxSlotName (FxSlot (f))) + " tail shortened to " + num ("%.1f s", double (fitted)),
+                                                     "At " + num ("%.0f BPM", double (bpm)) + " that is about " + num ("%.0f", double (beats))
+                                                     + " beats: the tail clears before the next phrase instead of sounding under it. The effect keeps its character - "
+                                                     + std::string (FxProfiles::intent (ctx.graph.fxType[size_t (f)])) + ".", Confidence::Medium));
+            }
+            if (std::fabs (plan.before.tempoBpm - bpm) >= 1.0f)
+                plan.relationships.push_back (info (Recommendation::Kind::Info, "Delays timed to the song: " + num ("%.0f BPM", double (bpm)),
+                                                     "A delay that is not in time with the band smears the voice instead of supporting it, and a live console has no "
+                                                     "play head to read the tempo from. DLIVE measured it from the listen ("
+                                                     + num ("%.0f%%", double (agreement * 100.0)) + " of the sources agree) and every tempo-synced return now follows it.",
+                                                     agreement > 0.7f ? Confidence::High : Confidence::Medium));
+        }
     }
 
     auto findHeard = [&] (auto predicate) -> int
@@ -424,10 +542,33 @@ MixPlan plan (const MixPlanContext& ctx)
         if (! o.valid || o.peakDb <= -60.0f || a.silencePercent > 60.0f) continue;   // too sparse to place with confidence
         const RoleFamily f = roleFamily (sp.role);
         const float target = MixProfile::mixLevelTargetDb (profile, f);
-        // Where this source will peak once its new gain and chain run: predicted from the listen, so the first
-        // Tune Mix lands the balance instead of needing a second listen to hear the processing it just chose.
+        // How loud this source will be while it plays once its new gain and chain run: predicted from the
+        // listen, so the first Tune Mix lands the balance instead of needing a second listen to hear the
+        // processing it just chose. Loudness, not peak - see mixLevelTargetDb.
+        const float effectiveLevel = predictedProcessedActiveRmsDb (ctx, i, plan.proposed.strips[size_t (i)]);
+        float fader = roundHalf (target - effectiveLevel);
+        // Headroom guard: the balance is a loudness decision, but a strip still must not arrive at its bus
+        // hot enough to leave a transient nowhere to go.
         const float effectivePeak = predictedProcessedPeakDb (ctx, i, plan.proposed.strips[size_t (i)]);
-        sp.faderDb = clamp (roundHalf (target - effectivePeak), -R.maxFaderMoveDb, R.maxFaderMoveDb);
+        fader = std::min (fader, roundHalf (MixProfile::stripPeakCeilingDb (profile) - effectivePeak));
+        // A close microphone that hears the rest of the kit is only lifted so far: past that the bleed comes
+        // up with the instrument and the console preamp is the thing that is actually wrong.
+        if (isDrumCloseMic (f))
+        {
+            // Measured from the gain that ran at the listen, never from the current value, so re-planning
+            // the same listen lands on the same cap.
+            const float gainRaise = std::max (sp.inputGainDb - ctx.atCapture.strips[size_t (i)].inputGainDb, 0.0f);
+            const float allowed = R.maxCloseMicRaiseDb - gainRaise;
+            if (fader > allowed)
+            {
+                fader = roundHalf (std::max (allowed, 0.0f));
+                sp.mixItems.push_back (info (Recommendation::Kind::CaptureGain, upper (sp.name) + ": turn this microphone up at the console",
+                                             "To sit where the mix wants it this close microphone needs more level than DLIVE will add to it. "
+                                             "It also hears the rest of the kit, so raising it here would bring that bleed up with the instrument. "
+                                             "Turn its preamp up at the console and Tune Mix again.", Confidence::High));
+            }
+        }
+        sp.faderDb = clamp (fader, -R.maxFaderMoveDb, R.maxFaderMoveDb);
         sp.balanced = true;
     }
 
@@ -438,8 +579,8 @@ MixPlan plan (const MixPlanContext& ctx)
         const int lead = findHeard ([] (RoleFamily f) { return f == RoleFamily::LeadVocal; });
         if (lead >= 0 && plan.strips[size_t (lead)].balanced)
         {
-            const float effectivePeak = predictedProcessedPeakDb (ctx, lead, plan.proposed.strips[size_t (lead)]);
-            const float needed = roundHalf (MixProfile::mixLevelTargetDb (profile, RoleFamily::LeadVocal) - effectivePeak);
+            const float effectiveLevel = predictedProcessedActiveRmsDb (ctx, lead, plan.proposed.strips[size_t (lead)]);
+            const float needed = roundHalf (MixProfile::mixLevelTargetDb (profile, RoleFamily::LeadVocal) - effectiveLevel);
             const float shortfall = needed - plan.strips[size_t (lead)].faderDb;   // > 0: the lead is quieter than planned
             if (std::fabs (shortfall) >= 0.5f)
             {
@@ -496,9 +637,9 @@ MixPlan plan (const MixPlanContext& ctx)
         if (std::fabs (sp.faderDb - sp.faderBeforeDb) < 0.5f) { sp.faderDb = sp.faderBeforeDb; continue; }
         plan.proposed.strips[size_t (i)].faderDb = sp.faderDb;
         const RoleFamily f = roleFamily (sp.role);
-        const float effectivePeak = predictedProcessedPeakDb (ctx, i, plan.proposed.strips[size_t (i)]);
+        const float effectiveLevel = predictedProcessedActiveRmsDb (ctx, i, plan.proposed.strips[size_t (i)]);
         sp.mixItems.push_back (info (Recommendation::Kind::MixGain, upper (sp.name) + " fader " + fmtDb (sp.faderDb, 1),
-                                     "Processed, this source will peak around " + num ("%.0f dBFS", double (effectivePeak)) + "; in a " + std::string (styleProfileName (profile))
+                                     "Processed, this source sits around " + num ("%.0f dBFS", double (effectiveLevel)) + " while it plays; in a " + std::string (styleProfileName (profile))
                                      + " mix it sits around " + num ("%.0f dBFS", double (MixProfile::mixLevelTargetDb (profile, f)))
                                      + (f == RoleFamily::LeadVocal ? " as the reference the rest is balanced against." : " relative to the lead vocal.")
                                      + (f == RoleFamily::BackingVocal ? " The backing group is held behind the lead." : ""),
@@ -591,9 +732,35 @@ MixPlan plan (const MixPlanContext& ctx)
     plan.noChangeRequired = plan.parametersChanged == 0 && plan.fadersChanged == 0 && plan.sendsChanged == 0 && plan.gainsChanged == 0;
     plan.headline = plan.noChangeRequired ? "MIX: NO CHANGE REQUIRED" : "MIX TUNED";
 
+    // Gain staging is the first move in any mix, so it is the first thing the plan says.
+    // DLIVE set the digital input gain itself; what is left is the console preamp, and
+    // the note names the inputs so nobody has to hunt for them.
+    {
+        std::vector<std::string> wantPreamp;
+        for (const auto& sp : plan.strips)
+        {
+            if (! sp.heard || sp.bleedOnly || ! sp.tune.valid) continue;
+            const bool health = sp.tune.report.inputHealth != "Healthy" && ! sp.tune.report.inputHealth.empty();
+            // DLIVE makes a quiet input work digitally, but a big digital raise means the preamp
+            // itself is low - and a digital raise lifts the preamp's noise with the source.
+            const bool digital = std::fabs (sp.inputGainDb) >= R.digitalGainAdviceDb;
+            if (! health && ! digital) continue;
+            ++plan.stripsWantPreamp;
+            if (wantPreamp.size() < 4) wantPreamp.push_back (upper (sp.name));
+        }
+        if (plan.stripsWantPreamp > 0)
+        {
+            std::string names;
+            for (size_t k = 0; k < wantPreamp.size(); ++k) names += (k == 0 ? "" : ", ") + wantPreamp[k];
+            if (plan.stripsWantPreamp > int (wantPreamp.size())) names += " and " + std::to_string (plan.stripsWantPreamp - int (wantPreamp.size())) + " more";
+            plan.notes.push_back (std::string ("Gain staging first: turn the preamp for ") + names
+                                  + (plan.stripsWantPreamp == 1 ? " at the console, then RE-TUNE." : " at the console, then RE-TUNE."));
+        }
+    }
+
     plan.notes.push_back (std::to_string (plan.stripsHeard) + " of " + std::to_string (n) + " sources heard.");
     if (plan.stripsFaint > 0)
-        plan.notes.push_back (plan.stripsFaint == 1 ? "1 input barely reached DINELIVE: check it." : std::to_string (plan.stripsFaint) + " inputs barely reached DINELIVE: check them.");
+        plan.notes.push_back (plan.stripsFaint == 1 ? "1 input barely reached DLIVE: check it." : std::to_string (plan.stripsFaint) + " inputs barely reached DLIVE: check them.");
     int tuned = 0;
     for (const auto& sp : plan.strips) if (sp.tune.valid && ! sp.tune.noChangeRequired) ++tuned;
     if (tuned > 0) plan.notes.push_back (std::to_string (tuned) + " sources shaped individually (" + std::to_string (plan.parametersChanged) + " settings).");
@@ -610,6 +777,103 @@ MixPlan plan (const MixPlanContext& ctx)
             if (item.kind == Recommendation::Kind::MixGain) { plan.notes.push_back ("Master: " + item.what + "."); break; }
     }
     return plan;
+}
+
+// ---- TUNE CHANNEL ----
+// The plan above, narrowed to one source. The listen and the decisions are the same ones
+// TUNE MIX makes - a channel is never tuned by rules of its own - but only this strip is
+// applied, so `proposed` is `before` everywhere else. That also makes `proposed` exactly
+// what the mix will be once it is kept, which is what the Inspector reads as "what DINE
+// set". The buses and the master are left alone: where one source sits is not a master
+// decision. Every other strip keeps what the listen measured about it (the gain-staging
+// advice and the mix health are about the listen, not about this channel), with the moves
+// this plan does not make taken back out.
+MixPlan channelOnly (const MixPlan& full, int strip, StyleProfileId profile)
+{
+    MixPlan out = full;
+    out.proposed = full.before;
+    out.relationships.clear();
+    out.notes.clear();
+    out.parametersChanged = out.fadersChanged = out.sendsChanged = out.gainsChanged = 0;
+    out.stripsWantPreamp = 0;
+    out.noChangeRequired = true;
+
+    const size_t i = size_t (strip);
+    if (! full.valid || strip < 0 || strip >= int (full.strips.size()) || strip >= full.before.numStrips)
+    {
+        out.headline = "CHANNEL: NOT IN THIS MIX";
+        out.notes.push_back ("That channel is not part of this mix any more. Check the assignments, then tune it again.");
+        return out;
+    }
+
+    for (auto& sp : out.strips)
+    {
+        if (sp.strip == strip) continue;
+        sp.faderDb = sp.faderBeforeDb;
+        sp.inputGainDb = sp.inputGainBeforeDb;
+        sp.balanced = false;
+    }
+
+    const auto& sp = out.strips[i];
+    const std::string NAME = upper (sp.name);
+    if (sp.faint)
+    {
+        out.headline = NAME + ": CHECK THIS INPUT";
+        for (const auto& r : sp.mixItems) if (r.kind == Recommendation::Kind::Info) { out.notes.push_back (r.why); break; }
+        if (out.notes.empty())
+            out.notes.push_back ("Its loudest moment during the listen was too quiet to be a source that is really playing. "
+                                 "Check the microphone, the cable and the preamp, then tune it again.");
+        return out;
+    }
+    if (! sp.heard)
+    {
+        out.headline = NAME + " WAS NOT HEARD";
+        out.notes.push_back ("Nothing played on this input during the listen, so nothing was decided about it. "
+                             "Tune it again while it plays.");
+        return out;
+    }
+
+    out.proposed.strips[i] = full.proposed.strips[i];
+    out.relationships = sp.mixItems;
+    out.parametersChanged = int (diffParameters (out.before.strips[i].channel, out.proposed.strips[i].channel).size());
+    if (std::fabs (out.before.strips[i].faderDb - out.proposed.strips[i].faderDb) >= 0.01f) out.fadersChanged = 1;
+    if (std::fabs (out.before.strips[i].inputGainDb - out.proposed.strips[i].inputGainDb) >= 0.01f) out.gainsChanged = 1;
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+        if (std::fabs (out.before.strips[i].sendDb[size_t (f)] - out.proposed.strips[i].sendDb[size_t (f)]) >= 0.01f) ++out.sendsChanged;
+
+    out.noChangeRequired = out.parametersChanged == 0 && out.fadersChanged == 0 && out.sendsChanged == 0 && out.gainsChanged == 0;
+    out.headline = out.noChangeRequired ? NAME + ": NO CHANGE REQUIRED" : NAME + " TUNED";
+
+    // Gain staging first, on this channel too: DLIVE set the digital gain, the preamp is the user's move.
+    if (sp.tune.valid && ! sp.bleedOnly)
+    {
+        const auto& R = MixProfile::relationships (profile);
+        const bool health = sp.tune.report.inputHealth != "Healthy" && ! sp.tune.report.inputHealth.empty();
+        if (health || std::fabs (sp.inputGainDb) >= R.digitalGainAdviceDb)
+        {
+            ++out.stripsWantPreamp;
+            out.notes.push_back ("Gain staging first: turn the preamp for " + NAME + " at the console, then tune it again.");
+        }
+    }
+    if (sp.bleedOnly)
+        out.notes.push_back (NAME + " was heard as spill while the lead sang, so its level was left alone. "
+                             "Tune it again when it is the source that is playing.");
+    if (out.parametersChanged > 0)
+        out.notes.push_back (std::to_string (out.parametersChanged) + (out.parametersChanged == 1 ? " setting shaped from what it played." : " settings shaped from what it played."));
+    // The gain and the level are only mentioned here when the decision does not already
+    // carry its own sentence: the same move said twice reads as two moves.
+    auto explained = [&sp] (Recommendation::Kind kind)
+    {
+        for (const auto& r : sp.mixItems) if (r.kind == kind) return true;
+        return false;
+    };
+    if (out.gainsChanged > 0 && ! explained (Recommendation::Kind::CaptureGain))
+        out.notes.push_back ("Input gain " + fmtDb (out.proposed.strips[i].inputGainDb, 1) + " so the processing works at the right level.");
+    if (out.fadersChanged > 0 && ! explained (Recommendation::Kind::MixGain))
+        out.notes.push_back ("Level " + fmtDb (out.proposed.strips[i].faderDb, 1) + " against the rest of the mix (it was " + fmtDb (out.before.strips[i].faderDb, 1) + ").");
+    if (out.noChangeRequired)
+        out.notes.push_back ("This channel is already where the profile wants it. Nothing was changed.");
+    return out;
 }
 
 } // namespace MixPlanner

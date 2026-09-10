@@ -1,10 +1,14 @@
 #include "LivePage.h"
 #include "UI/Widgets.h"
+#include <cmath>
 
 namespace livemix
 {
 
-// One group: a name, a meter and a fader big enough to find without looking.
+// One group: a name, a meter, a fader big enough to find without looking, and the two
+// keys that can change what the room hears. Whatever state the group is in - muted,
+// soloed - the tile says so in colour and in words: during a service nobody should have
+// to work out why a group has gone quiet.
 class LivePage::GroupFader : public juce::Component
 {
 public:
@@ -15,57 +19,142 @@ public:
         fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
         fader.setRange (-60.0, 6.0, 0.1);
+        fader.setSkewFactorFromMidPoint (-12.0);
         fader.setDoubleClickReturnValue (true, 0.0);
+        fader.getProperties().set ("dineFader", true);
+        fader.setTooltip ("Level for the whole group. Double-click for 0.0 dB.");
         fader.onValueChange = [this] { controller.setBusFader (bus, float (fader.getValue())); };
+
         addAndMakeVisible (mute);
-        mute.setFontPx (11.0f);
-        mute.setClickingTogglesState (false);
+        addAndMakeVisible (solo);
+        mute.setTooltip ("Mute this group.");
+        solo.setTooltip ("Solo: hear this group alone.");
         mute.onClick = [this] { controller.setBusMute (bus, ! controller.getBase().buses[size_t (bus)].mute); };
+        solo.onClick = [this] { controller.setBusSolo (bus, ! controller.getBase().buses[size_t (bus)].solo); };
     }
 
     void refresh()
     {
-        const auto& params = controller.getBase();
-        const auto& b = params.buses[size_t (bus)];
+        const auto& b = controller.getBase().buses[size_t (bus)];
         if (! fader.isMouseButtonDown()) fader.setValue (b.faderDb, juce::dontSendNotification);
-        mute.setToggleState (b.mute, juce::dontSendNotification);
+        levelText = juce::String (b.faderDb >= 0.0f ? "+" : Glyph::minus()) + juce::String (std::fabs (b.faderDb), 1);
 
         float peak = -120.0f;
         if (controller.isPrepared())
             peak = controller.getEngine().getBus (bus).getOutputMeter().consumeMaxPeakDb();
         meter.setLevels (peak, peak, peak > -0.2f);
+        meter.setMuted (b.mute);
+        peakDb = meter.getPeakDb();
+        peakText = peakDb <= -60.0f ? Glyph::dash() : juce::String (peakDb, 1);
+
+        if (b.mute != muted || b.solo != soloed)
+        {
+            muted = b.mute;
+            soloed = b.solo;
+            mute.setOn (muted);
+            mute.setLetter (muted ? "MUTED" : "MUTE");
+            solo.setOn (soloed);
+        }
         repaint();
     }
 
     void paint (juce::Graphics& g) override
     {
-        Dine::drawCard (g, getLocalBounds().toFloat());
-        g.setColour (Dine::ink);
-        g.setFont (Dine::text (13.0f, 700).withExtraKerningFactor (0.06f));
-        g.drawText (mixBusName (bus), getLocalBounds().reduced (8, 10).withHeight (16), juce::Justification::centred);
+        auto r = getLocalBounds().toFloat();
+        auto ground = Dine::card;
+        if (muted)       ground = ground.overlaidWith (Dine::keyMute.withAlpha (0.10f)).darker (0.18f);
+        else if (soloed) ground = ground.overlaidWith (Dine::accent.withAlpha (0.10f));
+        Dine::drawCard (g, r, ground, muted ? Dine::keyMute.withAlpha (0.45f)
+                                            : soloed ? Dine::accent.withAlpha (0.5f) : Dine::hair);
 
-        g.setColour (Dine::ink3);
+        // the group's colour along the top edge, the way the console strip carries it
+        {
+            juce::Path cap;
+            cap.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), 8.0f,
+                                     Dine::Radius::card, Dine::Radius::card, true, true, false, false);
+            g.saveState();
+            g.reduceClipRegion (juce::Rectangle<int> (0, 0, getWidth(), 3));
+            g.setColour (tint().withAlpha (muted ? 0.30f : 0.85f));
+            g.fillPath (cap);
+            g.restoreState();
+        }
+
+        auto inner = getLocalBounds().reduced (12, 0);
+        auto head = inner.removeFromTop (34).withTrimmedTop (10);
+        g.setColour (muted ? Dine::keyMute : Dine::ink);
+        g.setFont (Dine::text (13.0f, 700).withExtraKerningFactor (0.06f));
+        g.drawText (juce::String (mixBusName (bus)).toUpperCase(), head, juce::Justification::centred, true);
+        Dine::drawRule (g, inner.withHeight (1), Dine::hairSoft);
+
+        // the readouts under the throw: what it is set to, and what is coming through
+        auto feet = getLocalBounds().reduced (12, 0).withTrimmedBottom (kMuteH + 16);
+        auto row = feet.removeFromBottom (16);
+        g.setColour (muted ? Dine::ink4 : Dine::ink);
+        g.setFont (Dine::mono (12.0f, 600));
+        g.drawText (levelText + " dB", row.removeFromLeft (row.getWidth() / 2), juce::Justification::centredLeft);
+        g.setColour (muted || peakText == Glyph::dash() ? Dine::ink4 : Dine::levelColour (peakDb));
         g.setFont (Dine::mono (11.0f));
-        g.drawText (juce::String (controller.getBase().buses[size_t (bus)].faderDb, 1) + " dB",
-                    getLocalBounds().reduced (8).withTrimmedBottom (34).removeFromBottom (14), juce::Justification::centred);
+        g.drawText (peakText, row, juce::Justification::centredRight);
+
+        if (muted)
+        {
+            g.setColour (Dine::keyMute.withAlpha (0.85f));
+            g.setFont (Dine::text (10.0f, 700).withExtraKerningFactor (0.10f));
+            g.drawText ("NOT HEARD", feet.removeFromBottom (14), juce::Justification::centred, false);
+        }
+        else if (soloed)
+        {
+            g.setColour (Dine::accent);
+            g.setFont (Dine::text (10.0f, 700).withExtraKerningFactor (0.10f));
+            g.drawText ("SOLO", feet.removeFromBottom (14), juce::Justification::centred, false);
+        }
     }
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced (10, 8);
-        r.removeFromTop (20);
-        mute.setBounds (r.removeFromBottom (24).reduced (6, 0));
-        r.removeFromBottom (18);
-        meter.setBounds (r.removeFromRight (14).reduced (2, 0));
-        fader.setBounds (r);
+        auto r = getLocalBounds().reduced (12, 10);
+        r.removeFromTop (26);
+        auto keys = r.removeFromBottom (kMuteH);
+        const int w = (keys.getWidth() - 8) * 2 / 3;
+        mute.setBounds (keys.removeFromLeft (w));
+        keys.removeFromLeft (8);
+        solo.setBounds (keys);
+        r.removeFromBottom (16 + 14 + 8);          // the readouts and the state word
+
+        // The throw and its meter are one object, centred in the tile: a group fader is
+        // meant to be found with a glance and moved with one hand.
+        auto body = r.withSizeKeepingCentre (juce::jmin (r.getWidth(), 46 + 10 + 18), r.getHeight());
+        fader.setBounds (body.removeFromLeft (46));
+        body.removeFromLeft (10);
+        meter.setBounds (body.removeFromLeft (18));
     }
 
 private:
+    juce::Colour tint() const
+    {
+        switch (bus)
+        {
+            case MixBus::Drums:  return Dine::warn;
+            case MixBus::Bass:   return Dine::accent;
+            case MixBus::Music:  return juce::Colour (0xff8fa2d8);
+            case MixBus::Vocals: return Dine::ok;
+            case MixBus::Master: return juce::Colour (0xffc8ccd4);
+            case MixBus::Count:  break;
+        }
+        return Dine::ink2;
+    }
+
+    static constexpr int kMuteH = 30;
+
     MixController& controller;
     MixBus bus;
     DineMeter meter { DineMeter::Style::Segments };
     juce::Slider fader;
-    DineButton mute { "MUTE", DineButton::Style::Ghost };
+    DineKey mute { "MUTE", Dine::keyMute };
+    DineKey solo { "SOLO", Dine::keySolo };
+    juce::String levelText { "+0.0" }, peakText { Glyph::dash() };
+    float peakDb = -120.0f;
+    bool muted = false, soloed = false;
 };
 
 LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services (s)
@@ -78,6 +167,8 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     addAndMakeVisible (liveSafeButton);
     liveSafeButton.setCaps (true);
     liveSafeButton.setClickingTogglesState (false);
+    liveSafeButton.setTooltip ("Lock the session for the service: tuning, routing and timeline edits are refused "
+                               "until it is switched off. The faders and the keys keep working.");
     liveSafeButton.onClick = [this]
     {
         auto& project = services.daw().getProject();
@@ -115,7 +206,17 @@ void LivePage::refresh()
           : transport.isPlaying()        ? "PLAYING"
           : services.isAudioRunning()    ? "READY" : "NO DEVICE";
 
-    liveSafeButton.setToggleState (services.daw().getProject().liveSafe, juce::dontSendNotification);
+    // LIVE SAFE is a lock: it has to read as on or off from the back of the room, so the
+    // button fills and says which it is, rather than relying on a toggle nobody can see.
+    const bool safe = services.daw().getProject().liveSafe;
+    if (safe != liveSafeOn)
+    {
+        liveSafeOn = safe;
+        liveSafeButton.setStyle (safe ? DineButton::Style::Filled : DineButton::Style::Standard);
+        liveSafeButton.setButtonText (safe ? "LIVE SAFE ON" : "LIVE SAFE");
+        liveSafeButton.setIcon (safe ? Dine::Icon::Check : Dine::Icon::None);
+        resized();
+    }
     repaint();
 }
 
@@ -187,7 +288,7 @@ void LivePage::paint (juce::Graphics& g)
     g.drawText ("GROUPS", r.removeFromTop (18), juce::Justification::topLeft);
 
     // Under the groups: what an operator would want to know without opening anything.
-    r.removeFromTop (juce::jmin (r.getHeight(), 420) + 20);
+    r.removeFromTop (juce::jlimit (240, 460, r.getHeight() - 152) + 20);
     if (r.getHeight() > 60)
     {
         auto card = r.removeFromTop (juce::jmin (r.getHeight(), 132));
@@ -219,6 +320,18 @@ void LivePage::paint (juce::Graphics& g)
             }
         }
     }
+
+    // ---- the lock, and what it is doing right now
+    {
+        auto safeRow = body().removeFromBottom (52);
+        safeRow.removeFromLeft (liveSafeButton.getWidth() + 14);
+        g.setColour (liveSafeOn ? Dine::warn : Dine::ink4);
+        g.setFont (Dine::text (12.0f));
+        g.drawText (liveSafeOn ? "Locked for the service: tuning, routing and timeline edits are refused. "
+                                 "Faders, mutes and the transport still work."
+                               : "Lock the session before the service starts, so nothing can be changed by accident.",
+                    safeRow.withSizeKeepingCentre (safeRow.getWidth(), 30), juce::Justification::centredLeft, true);
+    }
 }
 
 void LivePage::resized()
@@ -232,7 +345,9 @@ void LivePage::resized()
     const int count = int (MixBus::Count);
     const int gap = 14;
     const int width = juce::jmax (60, (r.getWidth() - gap * (count - 1)) / count);
-    auto row = r.withHeight (juce::jmin (r.getHeight(), 420));
+    // The tiles take the room that is left, down to the "what to watch" card: a fader with
+    // nothing under it is wasted height, and one squeezed into 200 px cannot be trusted.
+    auto row = r.withHeight (juce::jlimit (240, 460, r.getHeight() - 152));
     for (int i = 0; i < count; ++i)
     {
         faders[size_t (i)]->setBounds (row.removeFromLeft (width));

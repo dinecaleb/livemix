@@ -1,4 +1,4 @@
-// DINELIVE application-layer tests: the controller's state machine (setup -> listen -> plan ->
+// DLIVE application-layer tests: the controller's state machine (setup -> listen -> plan ->
 // preview -> keep / revert, compare, macros, Advanced edits) and the session document round trip.
 // No device, no UI: the engine is fed synthetic audio through MixController::process().
 #include "TestFramework.h"
@@ -143,6 +143,144 @@ TEST_CASE ("MixController: setup -> ready -> listening -> preview -> keep, with 
     CHECK (f.outputPeak() > 0.001f);
 }
 
+TEST_CASE ("MixController: the Inspector's chain edits live on the kept mix, reach the engine and survive a macro")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+
+    // A hand edit on one strip: the whole chain arrives at once, the way the engine takes it.
+    auto channel = c.getKept().strips[0].channel;
+    channel.compEnabled = true;
+    channel.compThresholdDb = -18.5f;
+    channel.toneBands[1] = { true, FilterType::Peak, 900.0f, -3.5f, 1.6f };
+    c.setStripChannel (0, channel);
+    CHECK (c.getKept().strips[0].channel.compEnabled);
+    CHECK (c.getKept().strips[0].channel.compThresholdDb == -18.5f);
+    CHECK (c.getRunning().strips[0].channel.toneBands[1].freqHz == 900.0f);
+
+    // And on a bus, where only the master owns a limiter.
+    auto master = c.getKept().buses[size_t (MixBus::Master)].channel;
+    master.limiterCeilingDb = -2.5f;
+    c.setBusChannel (MixBus::Master, master);
+    CHECK (c.getKept().buses[size_t (MixBus::Master)].channel.limiterCeilingDb == -2.5f);
+    CHECK (c.getRunning().buses[size_t (MixBus::Master)].channel.limiterCeilingDb == -2.5f);
+
+    // A macro moves on top of the edit; the edit itself is untouched and comes back.
+    const MixParameters keptWithEdit = c.getKept();
+    c.setMacro (MixMacro::Energy, 80.0f);
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), keptWithEdit) == 0);
+    CHECK (c.getRunning().strips[0].channel.compThresholdDb == -18.5f);
+    c.resetMacros();
+    CHECK (MixPlanner::countParameterChanges (c.getRunning(), keptWithEdit) == 0);
+
+    // BYPASS hears the inputs with none of it, and switching it off puts the mix back.
+    c.setBypass (true);
+    CHECK (c.getRunning().bypassProcessing);
+    CHECK (c.getRunning().strips[0].channel.compThresholdDb != -18.5f);
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), keptWithEdit) == 0);
+    c.setBypass (false);
+    CHECK (c.getRunning().strips[0].channel.compThresholdDb == -18.5f);
+
+    f.play (0.3);
+    CHECK (f.outputPeak() > 0.001f);
+}
+
+TEST_CASE ("MixController: TUNE CHANNEL tunes one source and leaves the rest of the mix exactly where it is")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+
+    // A whole mix first, so the channel tune has a real mix to leave alone.
+    c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    c.keepPlan();
+    const MixParameters afterMix = c.getKept();
+
+    // Bass on its own.
+    const int strip = 1;
+    c.startTuneChannel (strip, { 2.0f, -200.0f, 0.0f });
+    CHECK (c.isListening());
+    CHECK (c.isTuningChannel());
+    CHECK (c.getTuningStrip() == strip);
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    REQUIRE (c.hasPlan());
+    const auto* plan = c.getPlan();
+    CHECK (plan->headline.find ("BASS") == 0);
+
+    // Everything else is untouched: same chain, same fader, same gain, same sends, same buses.
+    for (int i = 0; i < plan->before.numStrips; ++i)
+    {
+        if (i == strip) continue;
+        CHECK (diffParameters (plan->before.strips[size_t (i)].channel, plan->proposed.strips[size_t (i)].channel).empty());
+        CHECK (plan->before.strips[size_t (i)].faderDb == plan->proposed.strips[size_t (i)].faderDb);
+        CHECK (plan->before.strips[size_t (i)].inputGainDb == plan->proposed.strips[size_t (i)].inputGainDb);
+    }
+    for (int b = 0; b < int (MixBus::Count); ++b)
+    {
+        CHECK (diffParameters (plan->before.buses[size_t (b)].channel, plan->proposed.buses[size_t (b)].channel).empty());
+        CHECK (plan->before.buses[size_t (b)].faderDb == plan->proposed.buses[size_t (b)].faderDb);
+    }
+    // ... and the listen still measured every input, so the gain-staging advice is fresh for all of them.
+    for (int i = 0; i < c.getEngine().getNumStrips(); ++i) CHECK (c.getInputAdvice (i).known);
+    CHECK (c.getMixHealthPercent() > 50);
+
+    // BEFORE is the mix as it was kept; KEEP applies the channel and nothing else.
+    c.setCompare (MixController::Compare::Before);
+    CHECK (MixPlanner::countParameterChanges (c.getRunning(), afterMix) == 0);
+    c.setCompare (MixController::Compare::After);
+    c.keepPlan();
+    CHECK (c.getStage() == MixController::Stage::Mixed);
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), c.getPlan()->proposed) == 0);
+    for (int i = 0; i < c.getKept().numStrips; ++i)
+        if (i != strip)
+            CHECK (diffParameters (afterMix.strips[size_t (i)].channel, c.getKept().strips[size_t (i)].channel).empty());
+
+    // REVERT after a channel tune puts that channel back and touches nothing else.
+    const MixParameters afterChannel = c.getKept();
+    c.startTuneChannel (strip, { 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    c.revertPlan();
+    CHECK (! c.hasPlan());
+    CHECK (! c.isTuningChannel());
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), afterChannel) == 0);
+}
+
+TEST_CASE ("MixController: a channel that never played is told so, and nothing is proposed for it")
+{
+    MixController c;
+    MixSession s = band();
+    s.inputs.push_back ({ "Pastor", ChannelRole::Speech, 6, -1 });     // channel 6 is never fed
+    c.setSession (s);
+    c.prepare (kSr, kBlock);
+
+    std::vector<std::string> messages;
+    c.onMessage = [&] (const std::string& m) { messages.push_back (m); };
+
+    Feeder f (c);
+    f.in.resize (7, std::vector<float> (size_t (kBlock), 0.0f));
+    f.ip.resize (7, nullptr);
+    c.startTuneChannel (5, { 1.0f, -200.0f, 0.0f });
+    f.play (1.6);
+    for (int i = 0; i < 300 && c.getStage() == MixController::Stage::Listening; ++i)
+    {
+        c.poll();
+        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+    }
+    CHECK (c.getStage() != MixController::Stage::Preview);
+    bool saidNotHeard = false;
+    for (const auto& m : messages) if (m.find ("NOT HEARD") != std::string::npos) saidNotHeard = true;
+    CHECK (saidNotHeard);
+    // The listen still heard the band, so what it knows about the other inputs is kept.
+    CHECK (c.getInputAdvice (0).known);
+}
+
 TEST_CASE ("MixController: revert restores the mix that ran before the listen; abort returns to ready; a silent listen makes no plan")
 {
     MixController c;
@@ -228,6 +366,7 @@ TEST_CASE ("SessionStore: a session document survives the JSON round trip")
     kept.master().channel.limiterCeilingDb = -1.5f;
     kept.fx[size_t (FxSlot::VocalPlate)].fx.reverbDecayS = 2.4f;
     kept.fx[size_t (FxSlot::VocalPlate)].returnDb = -2.0f;
+    kept.tempoBpm = 96.0f;   // the tempo the synced delays are in time with
 
     SessionStore::Document d;
     d.session = c.getSession();
@@ -246,6 +385,7 @@ TEST_CASE ("SessionStore: a session document survives the JSON round trip")
     SessionStore::Document back;
     REQUIRE (SessionStore::fromVar (juce::JSON::parse (text), back));
     CHECK (back.session.name == "Test Sunday");
+    CHECK_NEAR (back.mix.tempoBpm, 96.0f, 0.01f);   // ... and it comes back, or the delays fall out of time
     CHECK (back.session.purpose == MixPurpose::Livestream);
     CHECK (back.session.profile == StyleProfileId::ModernWorship);
     REQUIRE (back.session.inputs.size() == 5);
@@ -267,7 +407,7 @@ TEST_CASE ("SessionStore: a session document survives the JSON round trip")
     CHECK_NEAR (back.mix.fx[size_t (FxSlot::VocalPlate)].returnDb, -2.0f, 1e-4);
     CHECK_NEAR (back.mix.master().channel.limiterCeilingDb, -1.5f, 1e-4);
 
-    // Not a DINELIVE file: refused, nothing changed.
+    // Not a DLIVE file: refused, nothing changed.
     SessionStore::Document untouched;
     CHECK (! SessionStore::fromVar (juce::JSON::parse ("{\"app\":\"other\"}"), untouched));
     CHECK (! SessionStore::fromVar (juce::var(), untouched));
@@ -290,7 +430,7 @@ TEST_CASE ("SessionStore: save, list, and load a named mix file")
     d.outputDevice = "Out";
     d.hasMix = false;
     // Write into the real sessions folder via a unique name, or fall back to a temp file for the round trip.
-    const auto file = juce::File ("/Users/calebwork/Documents/GitHub/Calive/.tmp-session-test.dinelive.json");
+    const auto file = juce::File ("/Users/calebwork/Documents/GitHub/Calive/.tmp-session-test.dlive.json");
     file.deleteFile();
     REQUIRE (SessionStore::save (d, file));
     REQUIRE (file.existsAsFile());

@@ -1,4 +1,4 @@
-// DINELIVE DAW-layer tests: the playhead, the multitrack recorder, timeline playback, the
+// DLIVE DAW-layer tests: the playhead, the multitrack recorder, timeline playback, the
 // monitoring rule, clip editing and the offline bounce. No device and no UI — the audio
 // callback is played by the test, exactly as AudioHost would.
 #include "TestFramework.h"
@@ -7,6 +7,7 @@
 #include "native/MultitrackImport.h"
 #include "native/SessionStore.h"
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -30,7 +31,7 @@ namespace
 
     juce::File scratchFolder()
     {
-        auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dinelive-tests");
+        auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dlive-tests");
         f.createDirectory();
         return f;
     }
@@ -318,6 +319,129 @@ TEST_CASE ("DawEngine: a live input is heard, a recorded track plays back, monit
     folder.deleteRecursively();
 }
 
+TEST_CASE ("Outputs: a feed lands on its own pair, at its own level, and mute silences only it")
+{
+    MixController controller;
+    DawEngine daw (controller);
+    const auto session = band();
+    controller.setSession (session);
+    daw.setSession (session);
+    controller.prepare (kSr, kBlock);
+    daw.prepare (kSr, kBlock);
+
+    // Six device outputs: the main pair, a cue pair, and one that nothing is sent to.
+    std::vector<std::vector<float>> outs (6, std::vector<float> (size_t (kBlock), 0.0f));
+    std::vector<std::vector<float>> ins (8, std::vector<float> (size_t (kBlock), 0.0f));
+    std::vector<const float*> ip (8, nullptr);
+    long long pos = 0;
+
+    auto run = [&] (int blocks, float level, std::array<float, 6>& peaks)
+    {
+        peaks.fill (0.0f);
+        for (int b = 0; b < blocks; ++b)
+        {
+            for (size_t c = 0; c < ins.size(); ++c)
+            {
+                for (int i = 0; i < kBlock; ++i)
+                    ins[c][size_t (i)] = level * std::sin (2.0f * float (M_PI) * 440.0f * float (pos + i) / float (kSr));
+                ip[c] = ins[c].data();
+            }
+            float* op[6];
+            for (int o = 0; o < 6; ++o) op[size_t (o)] = outs[size_t (o)].data();
+            daw.processBlock (ip.data(), int (ins.size()), op, 6, kBlock);
+            for (int o = 0; o < 6; ++o)
+                for (int i = 0; i < kBlock; ++i)
+                    peaks[size_t (o)] = std::max (peaks[size_t (o)], std::fabs (outs[size_t (o)][size_t (i)]));
+            pos += kBlock;
+        }
+    };
+
+    std::array<float, 6> peaks {};
+
+    // Out of the box: the main feed only, on outputs 1-2.
+    run (40, 0.5f, peaks);
+    CHECK (peaks[0] > 0.001f);
+    CHECK (peaks[1] > 0.001f);
+    CHECK (peaks[2] < 1.0e-6f);
+    CHECK (peaks[3] < 1.0e-6f);
+
+    // A second feed on outputs 3-4 carries the same mix, 12 dB down.
+    auto feeds = controller.getOutputFeeds();
+    feeds.count = 2;
+    feeds.feeds[1].left = 2;
+    feeds.feeds[1].right = 3;
+    feeds.feeds[1].source = MixBus::Master;
+    feeds.feeds[1].gainDb = -12.0f;
+    controller.setOutputFeeds (feeds);
+
+    run (40, 0.5f, peaks);
+    CHECK (peaks[2] > 0.001f);
+    CHECK (peaks[3] > 0.001f);
+    CHECK (peaks[4] < 1.0e-6f);                        // nothing was sent there
+    CHECK (peaks[2] < peaks[0] * 0.5f);                // -12 dB is a quarter of the level
+    CHECK (peaks[2] > peaks[0] * 0.1f);
+
+    // Muting the cue silences that pair and leaves the main one alone.
+    feeds.feeds[1].mute = true;
+    controller.setOutputFeeds (feeds);
+    run (40, 0.5f, peaks);
+    CHECK (peaks[0] > 0.001f);
+    CHECK (peaks[2] < 1.0e-6f);
+
+    // A feed that is not routed anywhere is silent without taking the main one with it.
+    feeds.feeds[1].mute = false;
+    feeds.feeds[1].left = -1;
+    feeds.feeds[1].right = -1;
+    controller.setOutputFeeds (feeds);
+    run (40, 0.5f, peaks);
+    CHECK (peaks[0] > 0.001f);
+    CHECK (peaks[2] < 1.0e-6f);
+
+    daw.release();
+}
+
+TEST_CASE ("Outputs: the routing survives a save and a reload, and an older session opens on the main pair")
+{
+    const auto folder = scratchFolder().getChildFile ("outputs-session");
+    folder.deleteRecursively();
+    folder.createDirectory();
+
+    SessionStore::Document d;
+    d.session = band();
+    d.project.syncTracks (d.session);
+    d.outputs.count = 2;
+    d.outputs.feeds[1].left = 4;
+    d.outputs.feeds[1].right = 5;
+    d.outputs.feeds[1].source = MixBus::Vocals;
+    d.outputs.feeds[1].gainDb = -6.0f;
+    d.outputs.feeds[1].mono = true;
+
+    const auto file = folder.getChildFile ("outputs.dlive.json");
+    CHECK (SessionStore::save (d, file));
+
+    SessionStore::Document back;
+    CHECK (SessionStore::load (file, back));
+    CHECK (back.outputs.count == 2);
+    CHECK (back.outputs.feeds[1].left == 4);
+    CHECK (back.outputs.feeds[1].right == 5);
+    CHECK (back.outputs.feeds[1].source == MixBus::Vocals);
+    CHECK (std::fabs (back.outputs.feeds[1].gainDb + 6.0f) < 0.001f);
+    CHECK (back.outputs.feeds[1].mono);
+
+    // A session written before outputs existed opens on the main pair, not in silence.
+    auto older = juce::JSON::parse (file.loadFileAsString());
+    if (auto* obj = older.getDynamicObject()) obj->removeProperty ("outputs");
+    const auto olderFile = folder.getChildFile ("older.dlive.json");
+    olderFile.replaceWithText (juce::JSON::toString (older));
+    SessionStore::Document legacy;
+    CHECK (SessionStore::load (olderFile, legacy));
+    CHECK (legacy.outputs.count == 1);
+    CHECK (legacy.outputs.feeds[0].left == 0);
+    CHECK (legacy.outputs.feeds[0].right == 1);
+
+    folder.deleteRecursively();
+}
+
 TEST_CASE ("DawEngine: recording an armed track adds it to the timeline as a clip")
 {
     const auto folder = scratchFolder().getChildFile ("record-session");
@@ -332,7 +456,7 @@ TEST_CASE ("DawEngine: recording an armed track adds it to the timeline as a cli
     controller.prepare (kSr, kBlock);
     daw.prepare (kSr, kBlock);
 
-    // No folder yet: DINELIVE says where the audio would go rather than losing it.
+    // No folder yet: DLIVE says where the audio would go rather than losing it.
     CHECK (daw.startRecording().isNotEmpty());
 
     auto project = daw.getProject();
@@ -397,7 +521,7 @@ TEST_CASE ("SessionStore: the timeline survives the round trip, and a version 1 
     d.project.tracks[1].clips.push_back ({ "Bass", "Bass_001.wav", 4800, 0, 96000, kSr });
     d.project.markers.push_back ({ "Sermon", 240000 });
 
-    const auto file = scratchFolder().getChildFile ("round-trip.dinelive.json");
+    const auto file = scratchFolder().getChildFile ("round-trip.dlive.json");
     file.deleteFile();
     REQUIRE (SessionStore::save (d, file));
 
@@ -456,6 +580,177 @@ TEST_CASE ("MultitrackImport: a folder of stems becomes tracks, clips and guesse
     folder.deleteRecursively();
 }
 
+// The shape of the bug these guard: the ASSIGN page rebuilds MixSession::inputs from
+// scratch, so an input dropped out of the middle used to leave the tracks where they were
+// and every clip below it took the next input's name.
+namespace
+{
+    Project bandProject (const MixSession& session)
+    {
+        Project p;
+        p.tracks.resize (session.inputs.size());
+        for (size_t i = 0; i < session.inputs.size(); ++i)
+        {
+            AudioClip clip;
+            clip.name = juce::String (session.inputs[i].name);
+            clip.length = 48000;
+            p.tracks[i].clips.push_back (clip);
+            p.tracks[i].armed = (i == 2);
+        }
+        return p;
+    }
+}
+
+TEST_CASE ("Project: an input dropped from the middle takes its track and clips with it")
+{
+    const MixSession before = band();
+    auto project = bandProject (before);
+
+    MixSession after = before;
+    after.inputs.erase (after.inputs.begin() + 1);          // Bass is no longer assigned
+    project.syncTracks (before, after);
+
+    REQUIRE (project.tracks.size() == after.inputs.size());
+    for (size_t i = 0; i < after.inputs.size(); ++i)
+    {
+        REQUIRE (project.tracks[i].clips.size() == 1);
+        CHECK (project.tracks[i].clips[0].name == juce::String (after.inputs[i].name));
+    }
+    CHECK (project.tracks[1].armed);                        // Keys kept its own state
+}
+
+TEST_CASE ("Project: a new input starts with an empty track and the rest keep their clips")
+{
+    const MixSession before = band();
+    auto project = bandProject (before);
+
+    MixSession after = before;
+    after.inputs.insert (after.inputs.begin() + 1, InputAssignment { "Snare", ChannelRole::SnareTop, 7, -1 });
+    project.syncTracks (before, after);
+
+    REQUIRE (project.tracks.size() == 5);
+    REQUIRE (project.tracks[0].clips.size() == 1);
+    CHECK (project.tracks[0].clips[0].name == "Kick");
+    CHECK (project.tracks[1].clips.empty());                // Snare has never been recorded
+    REQUIRE (project.tracks[2].clips.size() == 1);
+    CHECK (project.tracks[2].clips[0].name == "Bass");
+    REQUIRE (project.tracks[4].clips.size() == 1);
+    CHECK (project.tracks[4].clips[0].name == "Lead");
+}
+
+TEST_CASE ("Project: reordering the inputs reorders the clips with them")
+{
+    const MixSession before = band();
+    auto project = bandProject (before);
+
+    MixSession after;
+    after.inputs = { before.inputs[3], before.inputs[0], before.inputs[2], before.inputs[1] };
+    project.syncTracks (before, after);
+
+    REQUIRE (project.tracks.size() == 4);
+    CHECK (project.tracks[0].clips[0].name == "Lead");
+    CHECK (project.tracks[1].clips[0].name == "Kick");
+    CHECK (project.tracks[2].clips[0].name == "Keys");
+    CHECK (project.tracks[3].clips[0].name == "Bass");
+}
+
+TEST_CASE ("Project: a renamed input keeps its track - the device channel is the identity")
+{
+    const MixSession before = band();
+    auto project = bandProject (before);
+
+    MixSession after = before;
+    after.inputs[2].name = "Jewel";
+    project.syncTracks (before, after);
+
+    REQUIRE (project.tracks.size() == 4);
+    REQUIRE (project.tracks[2].clips.size() == 1);
+    CHECK (project.tracks[2].clips[0].name == "Keys");      // the audio did not move
+    CHECK (project.tracks[2].armed);
+}
+
+TEST_CASE ("MixController: renaming an input is a label, so the mix survives it")
+{
+    MixController controller;
+    controller.setSession (band());
+    controller.prepare (kSr, kBlock);
+    controller.setStripFader (1, -4.5f);
+
+    controller.setInputName (1, "Bass DI");
+    CHECK (controller.getSession().inputs[1].name == "Bass DI");
+    // The console and the Inspector read the graph, so they are renamed with the timeline.
+    CHECK (controller.getGraph().strips[1].name == "Bass DI");
+    // Nothing was rebuilt: the fader, the graph and the stage are exactly where they were.
+    CHECK (controller.isPrepared());
+    CHECK (controller.getGraph().numStrips() == 4);
+    CHECK_NEAR (controller.getKept().strips[1].faderDb, -4.5f, 0.001f);
+
+    controller.setInputName (1, "");                        // an empty name is not a rename
+    CHECK (controller.getSession().inputs[1].name == "Bass DI");
+}
+
+TEST_CASE ("MixController: a track's icon is a label too, and it reaches the console")
+{
+    MixController controller;
+    controller.setSession (band());
+    controller.prepare (kSr, kBlock);
+    controller.setStripFader (2, -3.0f);
+
+    CHECK (controller.getSession().inputs[2].icon.empty());     // by default the role decides
+    controller.setInputIcon (2, "waveform");                    // Keys is really playback tracks
+    CHECK (controller.getSession().inputs[2].icon == "waveform");
+    CHECK (controller.getGraph().strips[2].icon == "waveform");  // MIXER and TUNE read the graph
+    CHECK (controller.isPrepared());
+    CHECK_NEAR (controller.getKept().strips[2].faderDb, -3.0f, 0.001f);
+    CHECK (controller.getSession().inputs[2].role == ChannelRole::Piano);   // the routing is untouched
+
+    controller.setInputIcon (2, "");                            // back to the source's own icon
+    CHECK (controller.getSession().inputs[2].icon.empty());
+    CHECK (controller.getGraph().strips[2].icon.empty());
+}
+
+TEST_CASE ("SessionStore: a chosen icon survives the round trip, and an older session has none")
+{
+    const auto file = scratchFolder().getChildFile ("icons.dlive.json");
+    file.deleteFile();
+
+    SessionStore::Document d;
+    d.session = band();
+    d.session.inputs[2].icon = "waveform";
+    d.project.syncTracks (d.session);
+    REQUIRE (SessionStore::save (d, file));
+
+    SessionStore::Document back;
+    REQUIRE (SessionStore::load (file, back));
+    REQUIRE (back.session.inputs.size() == 4);
+    CHECK (back.session.inputs[2].icon == "waveform");
+    CHECK (back.session.inputs[0].icon.empty());                // never written when it is not set
+    file.deleteFile();
+}
+
+TEST_CASE ("DawEngine: changing the assignments keeps every clip under its own source")
+{
+    MixController controller;
+    DawEngine daw (controller);
+    const MixSession before = band();
+    controller.setSession (before);
+    daw.setSession (before);
+    daw.setProject (bandProject (before));
+
+    MixSession after = before;
+    after.inputs.erase (after.inputs.begin() + 1);          // Bass unassigned on the ASSIGN page
+    controller.setSession (after);
+    daw.setSession (after);                                 // what HostServices::reconfigure does
+
+    const auto& tracks = daw.getProject().tracks;
+    REQUIRE (tracks.size() == after.inputs.size());
+    for (size_t i = 0; i < after.inputs.size(); ++i)
+    {
+        REQUIRE (tracks[i].clips.size() == 1);
+        CHECK (tracks[i].clips[0].name == juce::String (after.inputs[i].name));
+    }
+}
+
 TEST_CASE ("MixBounce: the timeline renders offline to a stereo WAV of the right length")
 {
     const auto folder = scratchFolder().getChildFile ("bounce");
@@ -501,13 +796,13 @@ TEST_CASE ("MixBounce: the timeline renders offline to a stereo WAV of the right
 
 TEST_CASE ("SessionStore: sessions are listed from their folders without reading their audio")
 {
-    const auto folder = SessionStore::folderFor ("DineliveListTest");
+    const auto folder = SessionStore::folderFor ("DliveListTest");
     folder.deleteRecursively();
 
     SessionStore::Document d;
     d.session = band();
-    d.session.name = "DineliveListTest";
-    REQUIRE (SessionStore::save (d, SessionStore::fileFor ("DineliveListTest")));
+    d.session.name = "DliveListTest";
+    REQUIRE (SessionStore::save (d, SessionStore::fileFor ("DliveListTest")));
 
     // A big pile of audio beside the document must not slow the list down or confuse it.
     folder.getChildFile ("Audio Files").createDirectory();
@@ -516,7 +811,7 @@ TEST_CASE ("SessionStore: sessions are listed from their folders without reading
 
     bool found = false;
     for (const auto& listing : SessionStore::listSessions())
-        if (listing.name == "DineliveListTest") { found = true; CHECK (listing.file.existsAsFile()); }
+        if (listing.name == "DliveListTest") { found = true; CHECK (listing.file.existsAsFile()); }
     CHECK (found);
     folder.deleteRecursively();
 }

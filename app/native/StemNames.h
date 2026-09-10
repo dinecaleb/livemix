@@ -25,9 +25,15 @@ namespace StemNames
             { "overhead", ChannelRole::Overhead }, { "oh", ChannelRole::Overhead },
             { "full drums", ChannelRole::DrumBus }, { "drum mix", ChannelRole::DrumBus }, { "drums", ChannelRole::DrumBus },
             { "room",  ChannelRole::Room },
+            // A congregation / audience microphone is a room microphone: it is what the broadcast hears
+            // of the building. (It joins the drum bus with the other room mics - see mixBusForFamily.)
+            { "crowd", ChannelRole::Room }, { "congregation", ChannelRole::Room }, { "audience", ChannelRole::Room },
+            { "ambience", ChannelRole::Room }, { "ambient", ChannelRole::Room },
             { "bass",  ChannelRole::BassDI },
             { "organ", ChannelRole::Organ }, { "keys", ChannelRole::Piano }, { "piano", ChannelRole::Piano }, { "pad", ChannelRole::SynthPad },
-            { "track", ChannelRole::SynthPad }, { "synth", ChannelRole::SynthLead },
+            // Playback from the stage: a loop, a backing track, a click. It is music, so it joins the music bus.
+            { "track", ChannelRole::SynthPad }, { "playback", ChannelRole::SynthPad }, { "loop", ChannelRole::SynthPad },
+            { "click", ChannelRole::SynthPad }, { "synth", ChannelRole::SynthLead },
             { "acoustic", ChannelRole::AcousticGuitar }, { "gtr", ChannelRole::ElectricGuitarClean }, { "guitar", ChannelRole::ElectricGuitarClean },
             { "lead",  ChannelRole::LeadVocal }, { "ld", ChannelRole::LeadVocal },
             { "choir", ChannelRole::Choir },

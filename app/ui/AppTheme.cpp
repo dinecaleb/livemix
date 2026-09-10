@@ -195,6 +195,9 @@ namespace
         static const std::vector<IconStroke> updown { { "M6.8 8.4L10 5.2l3.2 3.2M6.8 11.6L10 14.8l3.2-3.2", 1.5f, false } };
         static const std::vector<IconStroke> bus {
             { "M3.4 5.2h13.2M3.4 10h13.2M3.4 14.8h13.2", 1.4f, false } };
+        static const std::vector<IconStroke> sidebar {
+            { "M3.4 4.2h13.2a1.8 1.8 0 0 1 1.8 1.8v8a1.8 1.8 0 0 1 -1.8 1.8h-13.2a1.8 1.8 0 0 1 -1.8 -1.8v-8a1.8 1.8 0 0 1 1.8 -1.8z", 1.4f, false },
+            { "M7.8 4.2v11.6", 1.4f, false } };
 
         switch (icon)
         {
@@ -220,6 +223,7 @@ namespace
             case Dine::Icon::UpDown:   return updown;
             case Dine::Icon::Dash:     return dash;
             case Dine::Icon::Bus:      return bus;
+            case Dine::Icon::Sidebar:  return sidebar;
             case Dine::Icon::None:
             default:                   return empty;
         }
@@ -258,6 +262,61 @@ void Dine::drawIcon (juce::Graphics& g, Icon icon, juce::Rectangle<float> bounds
         if (part.second.filled) g.fillPath (p);
         else g.strokePath (p, juce::PathStrokeType (juce::jmax (0.75f, part.second.weight * scale * thickness / 1.4f),
                                                     juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+}
+
+const std::vector<Dine::IconChoice>& Dine::iconChoices()
+{
+    static const std::vector<IconChoice> choices {
+        { "drum",     "Drum",            Icon::Drum },
+        { "cymbal",   "Cymbal",          Icon::Cymbal },
+        { "mic",      "Microphone",      Icon::Mic },
+        { "speech",   "Speech",          Icon::Speech },
+        { "guitar",   "Guitar / Bass",   Icon::Guitar },
+        { "piano",    "Keys",            Icon::Piano },
+        { "room",     "Room",            Icon::Room },
+        { "bus",      "Group / console", Icon::Bus },
+        { "waveform", "Playback track",  Icon::Waveform },
+        { "fx",       "Effect",          Icon::Fx },
+        { "sliders",  "Console feed",    Icon::Sliders },
+        { "device",   "Device",          Icon::Device },
+    };
+    return choices;
+}
+
+Dine::Icon Dine::iconFor (const std::string& key, ChannelRole fallback) noexcept
+{
+    if (! key.empty())
+        for (const auto& c : iconChoices())
+            if (key == c.key) return c.icon;
+    return iconForRole (fallback);
+}
+
+const std::vector<Dine::RoleGroup>& Dine::roleGroups()
+{
+    static const std::vector<RoleGroup> groups {
+        { "Drums", { ChannelRole::KickIn, ChannelRole::KickOut, ChannelRole::SnareTop, ChannelRole::SnareBottom, ChannelRole::HiHat,
+                     ChannelRole::RackTom, ChannelRole::FloorTom, ChannelRole::Overhead, ChannelRole::OverheadLeft, ChannelRole::OverheadRight, ChannelRole::Room, ChannelRole::DrumBus } },
+        { "Bass",  { ChannelRole::BassDI, ChannelRole::BassAmp, ChannelRole::SynthBass } },
+        { "Music", { ChannelRole::Piano, ChannelRole::ElectricPiano, ChannelRole::Organ, ChannelRole::SynthPad, ChannelRole::SynthLead,
+                     ChannelRole::AcousticGuitar, ChannelRole::ElectricGuitarClean, ChannelRole::ElectricGuitarDrive } },
+        { "Vocals", { ChannelRole::LeadVocal, ChannelRole::BackingVocal, ChannelRole::Choir, ChannelRole::Speech } },
+    };
+    return groups;
+}
+
+// Plain words for the menu: "Tracks" is a synth pad, "Pastor" is speech.
+juce::String Dine::friendlyRoleName (ChannelRole r)
+{
+    switch (r)
+    {
+        case ChannelRole::SynthPad:  return "Synth Pad / Tracks";
+        case ChannelRole::Speech:    return "Pastor / Speech";
+        case ChannelRole::Overhead:  return "Overheads (stereo pair)";
+        case ChannelRole::DrumBus:   return "Drum mix (stereo, from the console)";
+        case ChannelRole::BassDI:    return "Bass (DI)";
+        case ChannelRole::BassAmp:   return "Bass (amp mic)";
+        default:                     return channelRoleName (r);
     }
 }
 
@@ -312,6 +371,41 @@ void Dine::drawPill (juce::Graphics& g, juce::Rectangle<float> r, const juce::St
     g.drawText (label, inner, juce::Justification::centredLeft);
 }
 
+// ============================================================================ PanBar
+void PanBar::paint (juce::Graphics& g)
+{
+    auto r = getLocalBounds().toFloat().withSizeKeepingCentre (float (getWidth()), 5.0f);
+    Dine::drawWell (g, r, 2.5f);
+    const float centre = r.getCentreX();
+    const float x = centre + value * (r.getWidth() * 0.5f - 3.0f);
+    g.setColour (tint.withAlpha (0.85f));
+    const float lo = juce::jmin (centre, x), hi = juce::jmax (centre, x);
+    if (hi - lo > 0.5f) g.fillRect (juce::Rectangle<float> (lo, r.getY(), hi - lo, r.getHeight()));
+    g.setColour (juce::Colours::white.withAlpha (0.22f));
+    g.fillRect (centre - 0.5f, r.getY() - 2.0f, 1.0f, r.getHeight() + 4.0f);
+    auto knob = juce::Rectangle<float> (x - 3.5f, r.getCentreY() - 5.0f, 7.0f, 10.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.45f));
+    g.fillRoundedRectangle (knob.translated (0.0f, 1.0f), 2.0f);
+    g.setColour (juce::Colour (0xffe8eaee));
+    g.fillRoundedRectangle (knob, 2.0f);
+}
+
+void PanBar::mouseDoubleClick (const juce::MouseEvent&)
+{
+    value = 0.0f;
+    repaint();
+    if (onChange) onChange (value);
+}
+
+void PanBar::drag (const juce::MouseEvent& e)
+{
+    if (! isEnabled()) return;
+    const float half = juce::jmax (1.0f, float (getWidth()) * 0.5f - 3.0f);
+    const float v = juce::jlimit (-1.0f, 1.0f, (float (e.position.x) - float (getWidth()) * 0.5f) / half);
+    setValue (std::fabs (v) < 0.06f ? 0.0f : v);      // a detent at the centre
+    if (onChange) onChange (value);
+}
+
 // ============================================================================ DineMeter
 void DineMeter::setLevels (float peakDb, float holdDb, bool clip)
 {
@@ -321,6 +415,13 @@ void DineMeter::setLevels (float peakDb, float holdDb, bool clip)
     const float newHold = juce::jmax (holdDb, hold - 1.0f);
     if (std::abs (newPeak - peak) < 0.05f && std::abs (newHold - hold) < 0.05f) return;
     peak = newPeak; hold = newHold;
+    repaint();
+}
+
+void DineMeter::setMuted (bool m)
+{
+    if (m == muted) return;
+    muted = m;
     repaint();
 }
 
@@ -338,7 +439,7 @@ void DineMeter::paint (juce::Graphics& g)
             auto lit = b.withTrimmedTop (b.getHeight() * (1.0f - level));
             if (style == Style::Bar)
             {
-                g.setColour (Dine::levelColour (peak));
+                g.setColour (muted ? Dine::ink4.withAlpha (0.55f) : Dine::levelColour (peak));
                 g.fillRoundedRectangle (lit, 2.0f);
             }
             else
@@ -347,14 +448,14 @@ void DineMeter::paint (juce::Graphics& g)
                 for (float y = b.getBottom() - 3.0f; y >= lit.getY() - 0.5f; y -= 3.0f)
                 {
                     const float db = -60.0f + 60.0f * ((b.getBottom() - y) / b.getHeight());
-                    g.setColour (Dine::levelColour (db));
+                    g.setColour (muted ? Dine::ink4.withAlpha (0.55f) : Dine::levelColour (db));
                     g.fillRect (b.getX(), y, b.getWidth(), 1.8f);
                 }
             }
         }
         else
         {
-            g.setColour (Dine::levelColour (peak));
+            g.setColour (muted ? Dine::ink4.withAlpha (0.55f) : Dine::levelColour (peak));
             g.fillRoundedRectangle (b.withWidth (juce::jmax (2.0f, b.getWidth() * level)), 2.0f);
         }
     }
@@ -363,7 +464,8 @@ void DineMeter::paint (juce::Graphics& g)
     const float h = norm (hold);
     if (h > 0.001f)
     {
-        g.setColour (hold >= -0.2f ? Dine::crit : juce::Colours::white.withAlpha (0.75f));
+        g.setColour (muted ? juce::Colours::white.withAlpha (0.25f)
+                           : hold >= -0.2f ? Dine::crit : juce::Colours::white.withAlpha (0.75f));
         if (vertical) g.fillRect (b.getX(), juce::jmax (b.getY(), b.getBottom() - b.getHeight() * h - 1.5f), b.getWidth(), 1.5f);
         else          g.fillRect (juce::jmin (b.getRight() - 1.5f, b.getX() + b.getWidth() * h), b.getY(), 1.5f, b.getHeight());
     }
@@ -503,6 +605,106 @@ void DineNavItem::paintButton (juce::Graphics& g, bool over, bool)
     g.drawText (label, right, juce::Justification::centredLeft, true);
 }
 
+// ============================================================================ DineKey
+DineKey::DineKey (const juce::String& l, juce::Colour onColour)
+    : juce::Button (l), letter (l), tint (onColour)
+{
+    setWantsKeyboardFocus (false);
+}
+
+void DineKey::setOn (bool o)
+{
+    if (o == on) return;
+    on = o;
+    repaint();
+}
+
+void DineKey::setLetter (const juce::String& l)
+{
+    if (l == letter) return;
+    letter = l;
+    repaint();
+}
+
+void DineKey::paintButton (juce::Graphics& g, bool over, bool down)
+{
+    auto r = getLocalBounds().toFloat().reduced (0.5f);
+    const float radius = juce::jmin (4.0f, r.getHeight() * 0.28f);
+    if (on)
+    {
+        Dine::fillRounded (g, r, tint.withAlpha (down ? 0.82f : 1.0f), radius);
+        Dine::hairlineRounded (g, r, juce::Colours::black.withAlpha (0.30f), radius);
+    }
+    else
+    {
+        Dine::fillRounded (g, r, juce::Colours::white.withAlpha (down ? 0.15f : over ? 0.11f : 0.05f), radius);
+        Dine::hairlineRounded (g, r, Dine::hairSoft, radius);
+    }
+
+    g.setColour (! isEnabled() ? Dine::ink4.withAlpha (0.6f)
+                               : on ? juce::Colour (0xff16171a)
+                                    : over ? Dine::ink : Dine::ink3);
+    g.setFont (Dine::text (juce::jlimit (8.5f, 11.5f, float (getHeight()) * 0.58f), on ? 800 : 600));
+    g.drawText (letter, getLocalBounds(), juce::Justification::centred, false);
+}
+
+// ============================================================================ DinePanelTab
+DinePanelTab::DinePanelTab (Side s, const juce::String& panelName)
+    : juce::Button (panelName), side (s), name (panelName)
+{
+    setWantsKeyboardFocus (false);
+    setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    updateTooltip();
+}
+
+void DinePanelTab::setCollapsed (bool c)
+{
+    if (c == collapsed) return;
+    collapsed = c;
+    updateTooltip();
+    repaint();
+}
+
+void DinePanelTab::updateTooltip()
+{
+    setTooltip (collapsed ? "Show " + name.toLowerCase() + "."
+                          : "Hide " + name.toLowerCase() + " and give the width to the middle of the workspace.");
+}
+
+void DinePanelTab::paintButton (juce::Graphics& g, bool over, bool down)
+{
+    auto r = getLocalBounds().toFloat();
+    if (over || down)
+        g.fillAll (juce::Colours::white.withAlpha (down ? 0.10f : 0.05f));
+
+    // The grip, then the chevron: it points the way this click moves the panel.
+    auto grip = juce::Rectangle<float> (r.getCentreX() - 4.0f, r.getCentreY() - 17.0f, 8.0f, 34.0f);
+    Dine::fillRounded (g, grip, juce::Colours::white.withAlpha (over ? 0.13f : 0.06f), 4.0f);
+
+    const bool pointsRight = (side == Side::Right) != collapsed;
+    auto box = juce::Rectangle<float> (r.getCentreX() - 6.0f, r.getCentreY() - 6.0f, 12.0f, 12.0f);
+    {
+        juce::Graphics::ScopedSaveState save (g);
+        if (! pointsRight)
+            g.addTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::pi,
+                                                             box.getCentreX(), box.getCentreY()));
+        Dine::drawIcon (g, Dine::Icon::Chevron, box, over ? Dine::ink : Dine::ink3, 1.2f);
+    }
+
+    // A closed panel says what it is, down the gutter, so nothing is ever hidden without a name.
+    if (collapsed && r.getHeight() > 190.0f)
+    {
+        juce::Graphics::ScopedSaveState save (g);
+        const float length = r.getHeight() - 110.0f;
+        g.addTransform (juce::AffineTransform::rotation (-juce::MathConstants<float>::halfPi)
+                            .translated (0.0f, r.getHeight() - 24.0f));
+        g.setColour (over ? Dine::ink2 : Dine::ink4);
+        g.setFont (Dine::text (10.0f, 600).withExtraKerningFactor (0.10f));
+        g.drawText (name.toUpperCase(), juce::Rectangle<float> (0.0f, 0.0f, length, r.getWidth()),
+                    juce::Justification::centredLeft, false);
+    }
+}
+
 // ============================================================================ DineSwitch
 DineSwitch::DineSwitch (const juce::String& on, const juce::String& off) : juce::Button (on), onText (on), offText (off)
 {
@@ -580,27 +782,25 @@ void DineLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w, 
     const bool consoleFader = bool (s.getProperties().getWithDefault ("dineFader", false));
     const juce::Colour fillColour = s.isEnabled() ? Dine::accent : Dine::ink4;
 
-    // A console fader: a deep slot with the level filled in behind, and a moulded cap
-    // wide enough to grab. The cap never leaves the slot, so the ends read as the ends.
+    // A console fader: a milled slot cut into the strip and a moulded cap wide enough to
+    // grab. The slot stays dark - on a desk the meter is the lit thing and the caps are
+    // read as a line across the bank, so a fader that filled with colour would make a wall
+    // of it. The cap never leaves the slot, so the ends read as the ends.
     if (consoleFader)
     {
-        const float capLong = 13.0f, capShort = juce::jmin (26.0f, float (vertical ? w : h) - 2.0f);
         auto full = juce::Rectangle<float> (float (x), float (y), float (w), float (h));
-        auto slot = vertical ? full.withSizeKeepingCentre (6.0f, full.getHeight())
-                             : full.withSizeKeepingCentre (full.getWidth(), 6.0f);
-        Dine::drawWell (g, slot, 3.0f);
-        // The travelled part of the slot is tinted, not lit: the meter is the bright thing
-        // on a strip, and a bank of faders should not read as a wall of colour.
-        g.setColour (fillColour.withAlpha (s.isEnabled() ? 0.45f : 0.25f));
-        if (vertical)
+        const float capLong = 14.0f;
+        const float capShort = juce::jlimit (16.0f, 30.0f, float (vertical ? w : h) - 2.0f);
+        const float slotWide = juce::jlimit (7.0f, 13.0f, (vertical ? full.getWidth() : full.getHeight()) * 0.36f);
+        auto slot = vertical ? full.withSizeKeepingCentre (slotWide, full.getHeight())
+                             : full.withSizeKeepingCentre (full.getWidth(), slotWide);
+        Dine::drawWell (g, slot, slotWide * 0.5f);
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.drawRoundedRectangle (slot.reduced (0.25f), slotWide * 0.5f, 0.5f);
+        if (! s.isEnabled())
         {
-            const float top = juce::jlimit (slot.getY(), slot.getBottom(), sliderPos);
-            g.fillRoundedRectangle (juce::Rectangle<float> (slot.getX(), top, slot.getWidth(), slot.getBottom() - top), 3.0f);
-        }
-        else
-        {
-            const float right = juce::jlimit (slot.getX(), slot.getRight(), sliderPos);
-            g.fillRoundedRectangle (juce::Rectangle<float> (slot.getX(), slot.getY(), right - slot.getX(), slot.getHeight()), 3.0f);
+            g.setColour (Dine::window.withAlpha (0.35f));
+            g.fillRoundedRectangle (slot, slotWide * 0.5f);
         }
 
         const float centre = vertical ? juce::jlimit (full.getY() + capLong * 0.5f, full.getBottom() - capLong * 0.5f, sliderPos)

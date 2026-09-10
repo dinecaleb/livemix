@@ -8,6 +8,7 @@
 #include <vector>
 #include "AppServices.h"
 #include "AppTheme.h"
+#include "ChainStrip.h"
 
 namespace livemix
 {
@@ -28,11 +29,18 @@ public:
     ~TracksPage() override;
 
     std::function<void (int strip)> onOpenStrip;      // the Inspector
+    std::function<void (int strip)> onTuneStrip;      // TUNE CHANNEL: listen to this source and tune it on its own
     std::function<void (const juce::String&)> onToast;
     std::function<void()> onTimelineChanged;          // markers / loop moved: save
+    std::function<void()> onOpenAssign;               // "Fix the assignments...": the setup page
+    std::function<void()> onSessionChanged;           // a source changed: the routing is rebuilt
 
     void refresh();                    // 30 Hz
     void rebuild();                    // the session, the timeline or the device changed
+
+    // The channel this workspace has picked out (its header is lit and the chain strip
+    // along the foot reads it), or -1. This is what the Mix menu's TUNE CHANNEL tunes.
+    int selectedTrack() const noexcept { return selection.track; }
 
     // Editing, also reachable from the menu and the keyboard.
     void splitAtPlayhead();
@@ -40,6 +48,7 @@ public:
     void undo();
     bool canUndo() const noexcept { return ! undoStack.empty(); }
     void zoom (double factor);
+    void zoomAround (int x, double factor);   // keeps the moment under the pointer still
     void zoomToFit();
     void setRowHeight (RowHeight);
     void addMarkerAtPlayhead();
@@ -56,10 +65,11 @@ public:
     void mouseMove (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    void mouseMagnify (const juce::MouseEvent&, float scaleFactor) override;   // pinch on the trackpad
 
 private:
     enum class Drag { None, Playhead, ClipMove, ClipTrimStart, ClipTrimEnd, TrackHeight, Scroll,
-                      LoopRange, Marker };
+                      LoopRange, Marker, Fader };
     struct ClipRef { int track = -1; int index = -1; bool valid() const noexcept { return track >= 0 && index >= 0; } };
 
     // Geometry
@@ -81,6 +91,11 @@ private:
     // The one place the R / A / M / S keys are positioned, so painting and hit-testing can
     // never disagree about where they are - short rows put them beside the name, tall rows under it.
     juce::Rectangle<int> keyCell (int track, int key) const;
+    // The header's own volume fader, so a level can come down without leaving the timeline.
+    // Tall rows get it under the name; a short row gets it as a slim bar along the foot.
+    juce::Rectangle<int> faderCell (int track) const;
+    float faderDbAt (int track, int x) const;
+    void dragFader (int track, int x);
     bool compactHeader (int track) const;
     int markerAt (juce::Point<int> p) const;
     juce::Rectangle<int> markerFlag (int index) const;
@@ -99,7 +114,21 @@ private:
     void clampScroll();
     void cycleMonitor (int track);
     void markerMenu (int index);
+    // Putting a track right without leaving the timeline. A track and its input can drift
+    // apart - an input dropped or added on the ASSIGN page used to leave the clips behind -
+    // so the header says when a name no longer matches the audio under it and its menu is
+    // the one place to correct the name, the source, or the assignments as a whole.
+    juce::String clipName (int track) const;      // what the audio on this track calls itself
+    bool nameMismatch (int track) const;          // the header and the clips disagree
+    int mismatchCount() const;
+    void renameTrack (int track);                 // the dialog
+    void setTrackName (int track, const juce::String& name);
+    void matchNamesToClips();                     // every mismatched track at once
+    void setTrackSource (int track, ChannelRole);
+    void setTrackIcon (int track, const std::string& key);   // "" = back to the source's own icon
+    void headerMenu (int track);
     void updateToolbar();
+    void updateChainStrip();
 
     MixController& controller;
     AppServices& services;
@@ -110,6 +139,10 @@ private:
 
     std::vector<Project> undoStack;
     std::vector<float> peaks;          // one meter reading per track, taken once per refresh
+    // What the last listen said about each input's level, built once per TUNE MIX rather
+    // than per frame: gain staging only changes when the mix is planned again.
+    std::vector<MixController::InputAdvice> advice;
+    int adviceForTune = -1;
     bool undoPushed = false;
     ClipRef selection;
     Drag drag = Drag::None;
@@ -131,9 +164,10 @@ private:
     int builtForTracks = -1;
     juce::File builtForFolder;
 
+    ChainStrip chainStrip;
     std::array<std::unique_ptr<DineButton>, 3> rowTabs;      // S / M / L row height
     std::unique_ptr<DineButton> zoomOutButton, zoomFitButton, zoomInButton;
-    std::unique_ptr<DineButton> snapButton, followButton, markerButton;
+    std::unique_ptr<DineButton> snapButton, followButton, splitButton, markerButton;
 };
 
 } // namespace livemix

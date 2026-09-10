@@ -34,6 +34,7 @@ struct StripPlan
     std::vector<Recommendation> mixItems;   // relationship and balance decisions about this strip
     float faderBeforeDb = 0.0f, faderDb = 0.0f;
     float inputGainBeforeDb = 0.0f, inputGainDb = 0.0f;   // digital preamp
+    float capturePeakDb = -120.0f;          // the loudest moment at the device during the listen, before any DLIVE gain
 };
 
 struct BusPlan
@@ -64,12 +65,13 @@ struct MixPlan
     int fadersChanged = 0;
     int sendsChanged = 0;
     int gainsChanged = 0;
+    int stripsWantPreamp = 0;                    // heard, but the console preamp itself should still move (gain staging comes first)
 };
 
 // The deterministic "professional engineer" layer above the per-source strategies:
 //   per-strip Tune (TuneEngine, unchanged)
 //   -> relationships (kick <-> bass, lead <-> music, lead <-> backing, toms <-> overheads, room <-> room mics)
-//   -> balance (faders fitted to the profile's mix levels from the measured processed peaks)
+//   -> balance (faders fitted to the profile's mix levels from how loud each source is while it plays)
 //   -> buses and master (TuneEngine on what each bus received, master loudness predicted after the balance)
 //   -> bounds (SafetyValidator on every parameter change; fader and send moves clamped)
 // Every decision is computed from the capture and the profile, never from the current
@@ -77,6 +79,14 @@ struct MixPlan
 namespace MixPlanner
 {
     MixPlan plan (const MixPlanContext& ctx);
+
+    // TUNE CHANNEL: the same plan, narrowed to one source. A channel is never tuned by a
+    // different set of rules - the listen hears the whole band and the planner decides in
+    // mix context as it always does - but only `strip` is applied: its chain, its input
+    // gain, its fader and its sends. The buses and the master stay where they are (a
+    // channel tune is not a master decision), and every other strip keeps what the listen
+    // measured about it, with the moves the full plan would have made taken back out.
+    MixPlan channelOnly (const MixPlan& full, int strip, StyleProfileId profile);
 
     // Bounded application helpers shared with the app (message thread).
     int countParameterChanges (const MixParameters& from, const MixParameters& to);
@@ -86,6 +96,8 @@ namespace MixPlanner
     float predictedProcessedPeakDb (const MixPlanContext& ctx, int i, const StripParameters& strip);
     // The same for the processed RMS (what the buses and the master loudness are predicted from).
     float predictedProcessedRmsDb (const MixPlanContext& ctx, int i, const StripParameters& strip);
+    // And for the processed loudness while the source is playing, which is what the balance is fitted to.
+    float predictedProcessedActiveRmsDb (const MixPlanContext& ctx, int i, const StripParameters& strip);
 }
 
 } // namespace livemix

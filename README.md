@@ -1,14 +1,14 @@
-# Dine / DINELIVE
+# Dine / DLIVE
 
-**DINELIVE** (2026-09) is **the live recording and broadcast DAW**, built on the same engine.
+**DLIVE** (2026-09) is **the live recording and broadcast DAW**, built on the same engine.
 Connect. Record. Mix. Tune. Broadcast.
 
 Four workspaces over one session — **TRACKS** (timeline, clips, waveforms), **MIXER**, **TUNE**, **LIVE** — with a real
 transport, multitrack recording of the raw inputs to WAV, playback and basic clip editing, session folders, and a
 stereo master export. TUNE MIX sits on top of the DAW rather than replacing it: play the band for thirty seconds and
-DINELIVE builds the mix, on live inputs or on what you just recorded. See `docs/MILESTONE-7.md` (the DAW milestone)
-and `docs/ARCHITECTURE-DINELIVE.md` (the mix engine); code in `src/Mix` (engine), `app/native` (DAW + mix host) and
-`app/ui` (workspaces). Run it with `open build/app/DineLive_artefacts/Release/DINELIVE.app` (or copy the bundle to
+DLIVE builds the mix, on live inputs or on what you just recorded. See `docs/MILESTONE-7.md` (the DAW milestone)
+and `docs/ARCHITECTURE-DLIVE.md` (the mix engine); code in `src/Mix` (engine), `app/native` (DAW + mix host) and
+`app/ui` (workspaces). Run it with `open build/app/DLive_artefacts/Release/DLIVE.app` (or copy the bundle to
 /Applications); without a band, use **Import a multitrack...** on the first page and point it at a folder of stems.
 
 A family of professional live/broadcast mixing plugins built on one shared engine (Dine Core). The goal is
@@ -69,15 +69,15 @@ modules/Common/      ChannelPluginProcessor (juce::AudioProcessor, Tune preview:
                      DineChannelProduct.cmake (one function builds a product's AU + Standalone + tests + snapshot tool)
 modules/Drums|Vocals|Keys|Master|Guitar|Bass/  thin product classes + CMake (see each README.md)
 modules/FX/          FxProcessor, FxEditor, FxPanels (Simple / Advanced), FxPresets, plugin target (see modules/FX/README.md)
-app/                 DINELIVE, the application
+app/                 DLIVE, the application
   native/            Project (tracks, clips, markers), Transport, Recorder (raw WAV per armed track),
                      ClipSource + TimelinePlayer (clips -> audio), DawEngine (device -> record / play / mix),
                      MixController (the mix, no JUCE), AudioHost (CoreAudio), SessionStore (versioned JSON),
                      MultitrackImport, MixBounce (offline stereo bounce)
   ui/                MainView (sidebar + toolbar + workspace + transport), TracksPage, MixerPage, MixPage (TUNE),
-                     LivePage, AdvancedPage (the Channel Inspector), TransportBar, AppTheme (DINELIVE v2 tokens)
-  Tools/             dinelive_mix_stems, dinelive_ui_snapshots, dinelive_device_check
-  Tests/             dinelive_app_tests (controller, DAW, documents, import, bounce)
+                     LivePage, AdvancedPage (the Channel Inspector), TransportBar, AppTheme (DLIVE v2 tokens)
+  Tools/             dlive_mix_stems, dlive_ui_snapshots, dlive_device_check
+  Tests/             dlive_app_tests (controller, DAW, documents, import, bounce)
 tests/               unit tests (custom header-only framework), plugin integration tests, benchmark,
                      regression renders (tests/reference/*.f32, regenerate with LIVEMIX_REGEN_REFERENCES=1)
 scripts/             bootstrap / build / test / validate_au
@@ -110,10 +110,10 @@ build/modules/<P>/livemix_<p>_plugin_tests           # shared channel-plugin sui
 build/modules/FX/livemix_fx_plugin_tests
 build/modules/Drums/livemix_tune_stems "<Source>" <file.aif> [seconds]   # offline Tune on a recorded stem
 build/tests/livemix_benchmark   # drums: 1/8/16/32/48 instances x 32/64/128/256 samples; FX: 1/4/8/16 x 64/128/256
-build/app/dinelive_app_tests                          # DINELIVE: controller, transport, recorder, timeline, documents
-build/app/dinelive_mix_stems "<stems folder>" 30 out/ # TUNE MIX on a real multitrack; exit 0 = idempotent re-tune
-build/app/dinelive_device_check 8 "<stems folder>"    # import + timeline playback through a real CoreAudio device
-build/app/dinelive_ui_snapshots out/                  # every DINELIVE workspace and state as PNGs
+build/app/dlive_app_tests                          # DLIVE: controller, transport, recorder, timeline, documents
+build/app/dlive_mix_stems "<stems folder>" 30 out/ # TUNE MIX on a real multitrack; exit 0 = idempotent re-tune
+build/app/dlive_device_check 8 "<stems folder>"    # import + timeline playback through a real CoreAudio device
+build/app/dlive_ui_snapshots out/                  # every DLIVE workspace and state as PNGs
 scripts/validate_au.sh          # auval for every Dine AU (Lmdr Lmvo Lmky Lmma Lmfx)
 ```
 

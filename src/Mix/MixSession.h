@@ -8,11 +8,11 @@
 namespace livemix
 {
 
-// Capacity of one DINELIVE mix. Everything on the audio thread is sized from these.
-inline constexpr int kMaxInputs = 64;   // device input channels DINELIVE will look at
+// Capacity of one DLIVE mix. Everything on the audio thread is sized from these.
+inline constexpr int kMaxInputs = 64;   // device input channels DLIVE will look at
 inline constexpr int kMaxStrips = 64;   // assigned inputs (a stereo pair is one strip)
 
-// The internal buses DINELIVE builds on its own. The user never creates them.
+// The internal buses DLIVE builds on its own. The user never creates them.
 enum class MixBus : int { Drums = 0, Bass, Music, Vocals, Master, Count };
 
 inline constexpr std::array<const char*, int (MixBus::Count)> kMixBusNames { "DRUMS", "BASS", "MUSIC", "VOCALS", "MASTER" };
@@ -22,7 +22,7 @@ inline constexpr const char* mixBusName (MixBus b) noexcept
     return (i >= 0 && i < int (MixBus::Count)) ? kMixBusNames[size_t (i)] : "?";
 }
 
-// The effect returns DINELIVE builds on its own. Each is one FxChain fed by sends.
+// The effect returns DLIVE builds on its own. Each is one FxChain fed by sends.
 enum class FxSlot : int { VocalPlate = 0, VocalDelay, BgvHall, SnarePlate, DrumRoom, Count };
 
 inline constexpr std::array<const char*, int (FxSlot::Count)> kFxSlotNames {
@@ -66,6 +66,12 @@ struct InputAssignment
     int inputA = -1;                        // 0-based device input index
     int inputB = -1;                        // -1 = mono; otherwise the right channel of a stereo pair
     bool enabled = true;
+    // What the source is drawn as. Empty means "whatever the role says", which is right
+    // almost always; a key from Dine::iconChoices() overrides it for the times it is not -
+    // a pad running backing tracks, a DI that is really a talkback mic. A label, never
+    // routing: nothing about the mix reads it. Last, so the brace-initialised sessions all
+    // over the tests keep working.
+    std::string icon;
 
     bool isStereo() const noexcept { return inputB >= 0; }
     int numChannels() const noexcept { return isStereo() ? 2 : 1; }

@@ -38,6 +38,26 @@ struct AnalysisResult
     float rmsDb = -120.0f;
     float crestFactorDb = 0.0f;
     float hitLevelDb = -120.0f;      // 95th percentile of 10 ms frame levels
+    // The level of a typical loud event: the median of the peak frame levels of the detected hits.
+    // On a sparse close microphone (a tom hit six times in a listen) hitLevelDb is a percentile of
+    // bleed and decay tails, tens of dB under a real hit; fitting a compressor or a fader to it
+    // crushes the source. -120 when too few events were detected to be sure - use hitLevelDb then.
+    float eventLevelDb = -120.0f;
+    int eventCount = 0;
+    // Where the bleed sits on a close microphone that hears the rest of the room, dB: the middle of the
+    // quiet group of events when the events split cleanly into two (bleed and instrument). -120 when the
+    // source has no separable bleed - a DI, a vocal, a well-isolated microphone.
+    float bleedLevelDb = -120.0f;
+    // How loud the source is while it is actually playing: the RMS over the 10 ms frames within
+    // kActiveRangeDb of its loud level, so the gaps between phrases and hits do not drag it down.
+    // This, not the sample peak, is what a fader should be set from - a single click on a channel
+    // (they are common on desk multitrack exports) moves the peak by 25 dB and the level by nothing.
+    float activeRmsDb = -120.0f;
+    // The peak the source reaches in normal playing. Isolated clicks - a patch change, phantom power,
+    // a loose connector, all common on desk multitrack exports - can sit 25 dB above anything musical
+    // on a track, and gain staging that follows them pulls a whole channel down for one sample. A peak
+    // more than kSpikeMarginDb above the hit level is one of those, not the instrument.
+    float musicalPeakDb = -120.0f;
     float noiseFloorDb = -120.0f;    // 10th percentile of non-digital-silence frames
     float dynamicRangeDb = 0.0f;     // hitLevel - noiseFloor
     float silencePercent = 0.0f;     // frames below -60 dBFS
@@ -75,6 +95,12 @@ struct AnalysisResult
     // Loudness (BS.1770, ungated over the capture) and interpolated true peak.
     float loudnessLufs = -120.0f;
     float truePeakDb = -120.0f;
+
+    // Tempo, from the periodicity of the onsets (0 = none found). A tempo-synced delay is only in time if
+    // the tempo is right, and a live console has no host play head to read it from: DLIVE measures it.
+    // Confidence is how far the winning periodicity stands above the rest, 0..1.
+    float tempoBpm = 0.0f;
+    float tempoConfidence = 0.0f;
 
     // Bleed estimate 0..1 (how close the between-hit floor sits to the hit level)
     float bleedEstimate = 0.0f;

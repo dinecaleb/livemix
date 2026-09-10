@@ -58,6 +58,7 @@ namespace
     {
         auto* obj = new juce::DynamicObject();
         obj->setProperty ("numStrips", m.numStrips);
+        obj->setProperty ("tempoBpm", m.tempoBpm);   // what the synced delays are in time with
         juce::Array<juce::var> strips;
         for (int i = 0; i < m.numStrips; ++i)
         {
@@ -104,6 +105,8 @@ namespace
         auto* obj = v.getDynamicObject();
         if (obj == nullptr) return;
         m.numStrips = juce::jlimit (0, kMaxStrips, int (obj->getProperty ("numStrips")));
+        // A session saved before DLIVE measured the tempo keeps the engine default until the next Tune Mix.
+        if (obj->hasProperty ("tempoBpm")) m.tempoBpm = juce::jlimit (20.0f, 300.0f, float (double (obj->getProperty ("tempoBpm"))));
         if (auto* strips = obj->getProperty ("strips").getArray())
             for (int i = 0; i < std::min (m.numStrips, strips->size()); ++i)
             {
@@ -235,7 +238,7 @@ namespace SessionStore
 juce::var toVar (const Document& d)
 {
     auto* obj = new juce::DynamicObject();
-    obj->setProperty ("app", "DINELIVE");
+    obj->setProperty ("app", "DLIVE");
     obj->setProperty ("version", kVersion);
     obj->setProperty ("name", juce::String (d.session.name));
     obj->setProperty ("profile", int (d.session.profile));
@@ -249,6 +252,7 @@ juce::var toVar (const Document& d)
         io->setProperty ("name", juce::String (in.name));
         io->setProperty ("role", int (in.role));
         io->setProperty ("roleName", channelRoleName (in.role));   // for humans reading the file; the index is authoritative
+        if (! in.icon.empty()) io->setProperty ("icon", juce::String (in.icon));   // absent = drawn from the role
         io->setProperty ("inputA", in.inputA);
         io->setProperty ("inputB", in.inputB);
         io->setProperty ("enabled", in.enabled);
@@ -262,13 +266,29 @@ juce::var toVar (const Document& d)
     obj->setProperty ("hasMix", d.hasMix);
     if (d.hasMix) obj->setProperty ("mix", mixToVar (d.mix));
     obj->setProperty ("project", projectToVar (d.project));
+    juce::Array<juce::var> feeds;
+    for (int i = 0; i < d.outputs.count && i < kMaxOutputFeeds; ++i)
+    {
+        const auto& f = d.outputs.feeds[size_t (i)];
+        auto* fo = new juce::DynamicObject();
+        fo->setProperty ("left", f.left);
+        fo->setProperty ("right", f.right);
+        fo->setProperty ("source", int (f.source));
+        fo->setProperty ("gainDb", f.gainDb);
+        fo->setProperty ("mute", f.mute);
+        fo->setProperty ("mono", f.mono);
+        feeds.add (juce::var (fo));
+    }
+    obj->setProperty ("outputs", feeds);
     return juce::var (obj);
 }
 
 bool fromVar (const juce::var& v, Document& d)
 {
     auto* obj = v.getDynamicObject();
-    if (obj == nullptr || obj->getProperty ("app").toString() != "DINELIVE") return false;
+    // Sessions written before the app was renamed say DINELIVE; they are the same document.
+    const juce::String app = obj == nullptr ? juce::String() : obj->getProperty ("app").toString();
+    if (app != "DLIVE" && app != "DINELIVE") return false;
     d = Document {};
     d.session.name = obj->getProperty ("name").toString().toStdString();
     d.session.profile = styleProfileFromIndex (int (obj->getProperty ("profile")));
@@ -284,6 +304,7 @@ bool fromVar (const juce::var& v, Document& d)
             InputAssignment in;
             in.name = io->getProperty ("name").toString().toStdString();
             in.role = channelRoleFromIndex (int (io->getProperty ("role")));
+            in.icon = io->getProperty ("icon").toString().toStdString();
             in.inputA = int (io->getProperty ("inputA"));
             in.inputB = io->hasProperty ("inputB") ? int (io->getProperty ("inputB")) : -1;
             in.enabled = io->hasProperty ("enabled") ? bool (io->getProperty ("enabled")) : true;
@@ -295,18 +316,46 @@ bool fromVar (const juce::var& v, Document& d)
     d.hasMix = bool (obj->getProperty ("hasMix"));
     if (d.hasMix) mixFromVar (obj->getProperty ("mix"), d.mix);
     projectFromVar (obj->getProperty ("project"), d.project);      // absent in version 1: no timeline yet
+    d.outputs = OutputFeeds::mainOnly();                            // absent before the outputs feature: the main pair
+    if (auto* feeds = obj->getProperty ("outputs").getArray())
+    {
+        int n = 0;
+        for (const auto& fv : *feeds)
+        {
+            if (n >= kMaxOutputFeeds) break;
+            auto* fo = fv.getDynamicObject();
+            if (fo == nullptr) continue;
+            auto& f = d.outputs.feeds[size_t (n)];
+            f.left = int (fo->getProperty ("left"));
+            f.right = int (fo->getProperty ("right"));
+            const int src = int (fo->getProperty ("source"));
+            f.source = src >= 0 && src < int (MixBus::Count) ? MixBus (src) : MixBus::Master;
+            f.gainDb = float (double (fo->getProperty ("gainDb")));
+            f.mute = bool (fo->getProperty ("mute"));
+            f.mono = bool (fo->getProperty ("mono"));
+            ++n;
+        }
+        if (n > 0) d.outputs.count = n;
+    }
     d.project.syncTracks (d.session);
     return true;
 }
 
 juce::File sessionsFolder()
 {
-    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("DINELIVE");
+    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("DLIVE");
 }
 
 juce::File legacyFolder()
 {
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("DINELIVE").getChildFile ("Sessions");
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("DLIVE").getChildFile ("Sessions");
+}
+
+// Where the app kept its sessions before it was called DLIVE. Nothing is written here and
+// nothing is moved: the sessions that are in it are simply still listed and still open.
+juce::File formerNameFolder()
+{
+    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("DINELIVE");
 }
 
 juce::File folderFor (const juce::String& sessionName)
@@ -317,7 +366,7 @@ juce::File folderFor (const juce::String& sessionName)
 juce::File fileFor (const juce::String& sessionName)
 {
     const auto folder = folderFor (sessionName);
-    return folder.getChildFile (folder.getFileName() + ".dinelive.json");
+    return folder.getChildFile (folder.getFileName() + ".dlive.json");
 }
 
 bool save (const Document& d, const juce::File& file)
@@ -345,23 +394,32 @@ juce::Array<Listing> listSessions()
     auto add = [&out] (const juce::File& f)
     {
         Listing L;
-        L.name = f.getFileName().upToLastOccurrenceOf (".dinelive.json", false, false);
+        L.name = f.getFileName().upToLastOccurrenceOf (".dlive.json", false, false)
+                                .upToLastOccurrenceOf (".dinelive.json", false, false);
         if (L.name.isEmpty()) L.name = f.getFileNameWithoutExtension();
         L.file = f;
         L.modified = f.getLastModificationTime();
         out.add (L);
     };
-    if (sessionsFolder().isDirectory())
+    // Both extensions are listed: a session saved under the old name opens as it is, and is
+    // written back beside its audio the next time it is saved.
+    const char* patterns[] = { "*.dlive.json", "*.dinelive.json" };
+    auto scan = [&] (const juce::File& root, bool withSubfolders)
     {
-        for (const auto& dir : sessionsFolder().findChildFiles (juce::File::findDirectories, false))
-            for (const auto& f : dir.findChildFiles (juce::File::findFiles, false, "*.dinelive.json"))
+        if (! root.isDirectory()) return;
+        for (const char* pattern : patterns)
+        {
+            if (withSubfolders)
+                for (const auto& dir : root.findChildFiles (juce::File::findDirectories, false))
+                    for (const auto& f : dir.findChildFiles (juce::File::findFiles, false, pattern))
+                        add (f);
+            for (const auto& f : root.findChildFiles (juce::File::findFiles, false, pattern))
                 add (f);
-        for (const auto& f : sessionsFolder().findChildFiles (juce::File::findFiles, false, "*.dinelive.json"))
-            add (f);
-    }
-    if (legacyFolder().isDirectory())
-        for (const auto& f : legacyFolder().findChildFiles (juce::File::findFiles, false, "*.dinelive.json"))
-            add (f);
+        }
+    };
+    scan (sessionsFolder(), true);
+    scan (formerNameFolder(), true);
+    scan (legacyFolder(), false);
     std::sort (out.begin(), out.end(), [] (const Listing& a, const Listing& b) { return a.modified > b.modified; });
     return out;
 }

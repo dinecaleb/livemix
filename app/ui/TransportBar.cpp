@@ -3,7 +3,28 @@
 namespace livemix
 {
 
-// A square transport key: a glyph drawn by hand so the shapes stay crisp at 26 px.
+namespace
+{
+    constexpr int kKeyW      = 30;   // go to start, stop, record, loop
+    constexpr int kPlayW     = 44;   // play is the one you reach for without looking
+    constexpr int kKeyH      = 26;
+    constexpr int kKeyGap    = 3;
+    constexpr int kWellPad   = 3;
+    constexpr int kClusterGap = 10;
+
+    int keysWellWidth() { return kWellPad * 2 + kKeyW * 4 + kPlayW + kKeyGap * 4; }
+
+    // The length beside the clock, short enough to sit in a toolbar: m:ss.s.
+    juce::String shortTime (double seconds)
+    {
+        if (seconds < 0.0) seconds = 0.0;
+        const int total = (int) seconds;
+        return juce::String (total / 60) + ":" + juce::String (total % 60).paddedLeft ('0', 2)
+             + "." + juce::String (juce::jlimit (0, 9, (int) ((seconds - (double) total) * 10.0)));
+    }
+}
+
+// A transport key: a glyph drawn by hand so the shapes stay crisp at 26 px.
 class TransportBar::TransportButton : public juce::Button
 {
 public:
@@ -16,55 +37,83 @@ public:
     }
 
     void setActive (bool a) { if (a != active) { active = a; repaint(); } }
+    void setPaused (bool p) { if (p != paused) { paused = p; repaint(); } }
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
-        auto r = getLocalBounds().toFloat().reduced (1.0f);
-        const bool lit = active || down;
-        const juce::Colour tint = glyph == Glyph::Record ? Dine::crit : Dine::accent;
+        auto r = getLocalBounds().toFloat();
+        const bool lit = active || (down && glyph == Glyph::Play);
 
-        if (lit) Dine::fillRounded (g, r, tint.withAlpha (glyph == Glyph::Record ? 0.9f : 0.85f), Dine::Radius::control);
-        else if (over) Dine::fillRounded (g, r, Dine::fillHover, Dine::Radius::control);
-        else Dine::fillRounded (g, r, Dine::fill, Dine::Radius::control);
-        Dine::hairlineRounded (g, r, Dine::hair, Dine::Radius::control);
+        if (glyph == Glyph::Play)
+        {
+            // Play carries the accent whether it is running or waiting: it is the key
+            // an operator hits without looking.
+            juce::ColourGradient grad (lit ? Dine::accentTop : Dine::fill, r.getX(), r.getY(),
+                                       lit ? Dine::accentBottom : Dine::fill, r.getX(), r.getBottom(), false);
+            g.setGradientFill (grad);
+            juce::Path p;
+            p.addRoundedRectangle (r, Dine::Radius::chip);
+            g.fillPath (p);
+        }
+        else if (lit)
+        {
+            const juce::Colour tint = glyph == Glyph::Record ? Dine::crit.withAlpha (0.9f)
+                                                             : Dine::accent.withAlpha (0.22f);
+            Dine::fillRounded (g, r, tint, Dine::Radius::chip);
+        }
+        else if (over)
+        {
+            Dine::fillRounded (g, r, Dine::fill, Dine::Radius::chip);
+        }
 
-        const juce::Colour ink = lit ? Dine::onAccent : (isEnabled() ? Dine::ink : Dine::ink4);
+        juce::Colour ink = Dine::ink2;
+        if (glyph == Glyph::Play)        ink = lit ? Dine::onAccent : Dine::ink;
+        else if (glyph == Glyph::Record) ink = lit ? Dine::onAccent : Dine::ink2;
+        else if (glyph == Glyph::Loop)   ink = lit ? Dine::accent.brighter (0.35f) : Dine::ink2;
+        if (! isEnabled()) ink = Dine::ink4;
+
         auto c = r.getCentre();
-        const float s = juce::jmin (r.getWidth(), r.getHeight()) * 0.36f;
+        const float s = 6.0f;
         g.setColour (ink);
 
         switch (glyph)
         {
             case Glyph::Play:
-            {
-                juce::Path p;
-                p.addTriangle (c.x - s * 0.6f, c.y - s, c.x - s * 0.6f, c.y + s, c.x + s * 0.9f, c.y);
-                g.fillPath (p);
+                if (paused)
+                {
+                    g.fillRect (juce::Rectangle<float> (2.6f, s * 2.0f).withCentre ({ c.x - 2.6f, c.y }));
+                    g.fillRect (juce::Rectangle<float> (2.6f, s * 2.0f).withCentre ({ c.x + 2.6f, c.y }));
+                }
+                else
+                {
+                    juce::Path p;
+                    p.addTriangle (c.x - s * 0.55f, c.y - s, c.x - s * 0.55f, c.y + s, c.x + s * 0.9f, c.y);
+                    g.fillPath (p);
+                }
                 break;
-            }
             case Glyph::Stop:
-                g.fillRoundedRectangle (juce::Rectangle<float> (s * 1.7f, s * 1.7f).withCentre (c), 1.5f);
+                g.fillRect (juce::Rectangle<float> (s * 1.7f, s * 1.7f).withCentre (c));
                 break;
             case Glyph::Record:
-                g.fillEllipse (juce::Rectangle<float> (s * 1.9f, s * 1.9f).withCentre (c));
+                g.fillEllipse (juce::Rectangle<float> (s * 1.8f, s * 1.8f).withCentre (c));
                 break;
             case Glyph::Start:
             {
                 juce::Path p;
                 p.addTriangle (c.x + s * 0.9f, c.y - s, c.x + s * 0.9f, c.y + s, c.x - s * 0.4f, c.y);
                 g.fillPath (p);
-                g.fillRect (juce::Rectangle<float> (1.6f, s * 2.0f).withCentre ({ c.x - s * 0.8f, c.y }));
+                g.fillRect (juce::Rectangle<float> (1.8f, s * 2.0f).withCentre ({ c.x - s * 0.9f, c.y }));
                 break;
             }
             case Glyph::Loop:
             {
+                const auto box = juce::Rectangle<float> (s * 2.2f, s * 1.5f).withCentre (c);
                 juce::Path p;
-                const auto box = juce::Rectangle<float> (s * 2.1f, s * 1.5f).withCentre (c);
                 p.addRoundedRectangle (box, s * 0.7f);
-                g.strokePath (p, juce::PathStrokeType (1.5f));
+                g.strokePath (p, juce::PathStrokeType (1.4f));
                 juce::Path arrow;
-                arrow.addTriangle (box.getCentreX() - 2.5f, box.getY() - 3.0f,
-                                   box.getCentreX() - 2.5f, box.getY() + 3.0f,
+                arrow.addTriangle (box.getCentreX() - 2.4f, box.getY() - 3.0f,
+                                   box.getCentreX() - 2.4f, box.getY() + 3.0f,
                                    box.getCentreX() + 2.0f, box.getY());
                 g.fillPath (arrow);
                 break;
@@ -74,7 +123,7 @@ public:
 
 private:
     Glyph glyph;
-    bool active = false;
+    bool active = false, paused = false;
 };
 
 TransportBar::TransportBar (MixController& c, AppServices& s) : controller (c), services (s)
@@ -85,13 +134,13 @@ TransportBar::TransportBar (MixController& c, AppServices& s) : controller (c), 
         addAndMakeVisible (*b);
     };
     make (startButton, TransportButton::Glyph::Start, "Go to the start (Return)");
-    make (playButton, TransportButton::Glyph::Play, "Play (Space)");
     make (stopButton, TransportButton::Glyph::Stop, "Stop (Space)");
+    make (playButton, TransportButton::Glyph::Play, "Play (Space)");
     make (recordButton, TransportButton::Glyph::Record, "Record every armed track (R)");
     make (loopButton, TransportButton::Glyph::Loop, "Loop the marked range (L)");
 
     startButton->onClick = [this] { returnToStart(); };
-    playButton->onClick = [this] { if (! services.daw().getTransport().isPlaying()) togglePlay(); };
+    playButton->onClick = [this] { togglePlay(); };
     stopButton->onClick = [this] { if (services.daw().getTransport().isPlaying()) togglePlay(); };
     recordButton->onClick = [this] { toggleRecord(); };
     loopButton->onClick = [this] { toggleLoop(); };
@@ -179,8 +228,10 @@ void TransportBar::refresh()
     const bool nowRecording = daw.isRecording();
     const bool nowLooping = daw.getProject().loopEnabled;
     const juce::int64 position = transport.getPosition();
+    const juce::int64 length = daw.getProject().lengthSamples();
 
     playButton->setActive (nowPlaying && ! nowRecording);
+    playButton->setPaused (nowPlaying);
     recordButton->setActive (nowRecording);
     loopButton->setActive (nowLooping);
 
@@ -193,75 +244,106 @@ void TransportBar::refresh()
         if (onTimelineChanged) onTimelineChanged();
     }
 
-    if (position != lastPosition || nowPlaying != playing || nowRecording != recording || nowLooping != looping)
+    if (position != lastPosition || length != lastLength || nowPlaying != playing
+        || nowRecording != recording || nowLooping != looping)
     {
         lastPosition = position;
+        lastLength = length;
         playing = nowPlaying;
         recording = nowRecording;
         looping = nowLooping;
         timeText = Transport::formatTime (transport.getPositionSeconds());
+        const double rate = transport.getSampleRate();
+        lengthText = shortTime (rate > 0.0 ? double (length) / rate : 0.0);
         repaint();
     }
 }
 
+// ---------------------------------------------------------------- measurement
+int TransportBar::clockCellWidth() const
+{
+    return juce::jmax (118, Dine::textWidth (Dine::mono (16.0f), "00:00:00.000") + 24);
+}
+
+int TransportBar::lengthCellWidth() const
+{
+    return juce::jmax (74, Dine::textWidth (Dine::mono (16.0f), "00:00.0") + 24);
+}
+
+int TransportBar::idealWidth() const
+{
+    return keysWellWidth() + kClusterGap + clockCellWidth() + 1 + lengthCellWidth();
+}
+
+int TransportBar::minimumWidth() const
+{
+    return keysWellWidth() + kClusterGap + clockCellWidth();
+}
+
+// ---------------------------------------------------------------- paint
 void TransportBar::paint (juce::Graphics& g)
 {
-    g.fillAll (Dine::toolbar);
-    g.setColour (Dine::hair);
-    g.fillRect (0.0f, 0.0f, float (getWidth()), 0.5f);
+    Dine::fillRounded (g, keysWell.toFloat(), juce::Colours::black.withAlpha (0.34f), 8.0f);
+    Dine::hairlineRounded (g, keysWell.toFloat(), Dine::hairSoft, 8.0f);
 
-    // The clock: the one number an operator glances at during a service.
-    auto clock = juce::Rectangle<int> (loopButton->getRight() + 16, 0, 168, getHeight()).reduced (0, 11);
-    Dine::fillRounded (g, clock.toFloat(), Dine::well, Dine::Radius::chip);
-    g.setColour (recording ? Dine::crit : Dine::ink);
-    g.setFont (Dine::mono (16.0f, 500));
-    g.drawText (timeText, clock, juce::Justification::centred);
-
-    auto right = getLocalBounds().reduced (16, 0).withTrimmedLeft (clock.getRight());
-
-    // Recording / output state, then the machine's numbers.
-    auto label = [&] (juce::Rectangle<int>& r, const juce::String& caption, const juce::String& value, juce::Colour colour)
+    Dine::fillRounded (g, clockWell.toFloat(), juce::Colours::black.withAlpha (0.42f), 8.0f);
+    if (showLength)
     {
-        const int w = juce::jmax (Dine::textWidth (Dine::text (11.0f, 600), caption),
-                                  Dine::textWidth (Dine::mono (12.0f), value)) + 18;
-        auto cell = r.removeFromRight (w);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (10.5f, 600));
-        g.drawText (caption, cell.withTrimmedBottom (cell.getHeight() / 2), juce::Justification::centredRight);
-        g.setColour (colour);
-        g.setFont (Dine::mono (12.0f));
-        g.drawText (value, cell.withTrimmedTop (cell.getHeight() / 2), juce::Justification::centredRight);
+        // The second cell sits a shade lighter, with the well showing through between them.
+        juce::Graphics::ScopedSaveState clip (g);
+        juce::Path rounded;
+        rounded.addRoundedRectangle (clockWell.toFloat(), 8.0f);
+        g.reduceClipRegion (rounded);
+        g.setColour (juce::Colours::white.withAlpha (0.03f));
+        g.fillRect (lengthCell);
+        g.setColour (Dine::hairSoft);
+        g.fillRect (float (lengthCell.getX()) - 1.0f, float (clockWell.getY()), 1.0f, float (clockWell.getHeight()));
+    }
+    Dine::hairlineRounded (g, clockWell.toFloat(), Dine::hairSoft, 8.0f);
+
+    auto cell = [&g] (juce::Rectangle<int> r, const juce::String& caption,
+                      const juce::String& value, juce::Colour valueColour)
+    {
+        auto inner = r.reduced (11, 0).withTrimmedTop (4).withTrimmedBottom (3);
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::text (9.5f, 600).withExtraKerningFactor (0.09f));
+        g.drawText (caption, inner.removeFromTop (11), juce::Justification::centredLeft);
+        g.setColour (valueColour);
+        g.setFont (Dine::mono (16.0f));
+        g.drawText (value, inner, juce::Justification::centredLeft);
     };
 
-    const bool running = services.isAudioRunning();
-    const int drops = services.xrunCount();
-    label (right, "DROPS", juce::String (drops), drops > 0 ? Dine::warn : Dine::ink2);
-    label (right, "BUFFER", running ? juce::String (services.bufferSize()) : "--", Dine::ink2);
-    label (right, "RATE", running ? juce::String (services.sampleRate() / 1000.0, 1) + "k" : "--", Dine::ink2);
-
-    if (recording)
-    {
-        auto pill = right.removeFromRight (108).withSizeKeepingCentre (100, 22);
-        Dine::drawPill (g, pill.toFloat(), "RECORDING", Dine::crit);
-    }
-    else if (services.daw().getProject().numArmed() > 0)
-    {
-        auto pill = right.removeFromRight (100).withSizeKeepingCentre (92, 22);
-        Dine::drawPill (g, pill.toFloat(), juce::String (services.daw().getProject().numArmed()) + " armed", Dine::warn);
-    }
+    cell (timeCell, "TIMECODE", timeText, recording ? Dine::crit : Dine::ink);
+    if (showLength) cell (lengthCell, "LENGTH", lengthText, Dine::ink2);
 }
 
 void TransportBar::resized()
 {
-    auto r = getLocalBounds().reduced (16, 0);
-    const int size = 28;
-    auto place = [&] (juce::Component& c) { c.setBounds (r.removeFromLeft (size).withSizeKeepingCentre (size, size)); r.removeFromLeft (6); };
-    place (*startButton);
-    place (*playButton);
-    place (*stopButton);
-    place (*recordButton);
-    r.removeFromLeft (8);
-    place (*loopButton);
+    auto r = getLocalBounds().withSizeKeepingCentre (getWidth(), juce::jmin (getHeight(), height));
+
+    // The keys sit in a shorter well than the clock, which carries two lines.
+    keysWell = r.removeFromLeft (keysWellWidth()).withSizeKeepingCentre (keysWellWidth(), juce::jmin (r.getHeight(), 32));
+    auto keys = keysWell.reduced (kWellPad).withSizeKeepingCentre (keysWell.getWidth() - kWellPad * 2, kKeyH);
+    auto place = [&keys] (juce::Component& c, int w)
+    {
+        c.setBounds (keys.removeFromLeft (w));
+        keys.removeFromLeft (kKeyGap);
+    };
+    place (*startButton, kKeyW);
+    place (*stopButton, kKeyW);
+    place (*playButton, kPlayW);
+    place (*recordButton, kKeyW);
+    place (*loopButton, kKeyW);
+
+    r.removeFromLeft (kClusterGap);
+    showLength = r.getWidth() >= clockCellWidth() + 1 + lengthCellWidth();
+    clockWell = r.removeFromLeft (juce::jmin (r.getWidth(),
+                                              showLength ? clockCellWidth() + 1 + lengthCellWidth()
+                                                         : clockCellWidth()));
+    auto cells = clockWell;
+    timeCell = cells.removeFromLeft (clockCellWidth());
+    cells.removeFromLeft (1);
+    lengthCell = cells;
 }
 
 } // namespace livemix

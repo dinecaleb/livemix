@@ -37,6 +37,7 @@ private:
     std::array<std::unique_ptr<GroupFader>, int (MixBus::Count)> faders;
     DineButton liveSafeButton { "LIVE SAFE", DineButton::Style::Standard };
     int health = 0;
+    bool liveSafeOn = false;
     float headroomDb = 0.0f;
     juce::String clock, state;
 };

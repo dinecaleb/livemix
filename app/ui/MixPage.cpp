@@ -86,6 +86,24 @@ public:
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (10.5f));
             g.drawText ("dBFS peak", r.removeFromTop (14), juce::Justification::topLeft);
+
+            // The scale beside the meter. Five group meters can carry the numbers a bank of
+            // twenty-four strips cannot: this is where "how loud is that" is actually read.
+            if (tall && meter.isVisible())
+            {
+                const auto m = meter.getBounds();
+                const int marks[] = { 0, -6, -12, -24, -36, -48 };
+                g.setFont (Dine::mono (9.0f));
+                for (int db : marks)
+                {
+                    const float y = float (m.getBottom()) - float (m.getHeight()) * DineMeter::norm (float (db));
+                    g.setColour (juce::Colours::white.withAlpha (0.10f));
+                    g.fillRect (float (m.getX()) - 4.0f, y - 0.5f, 4.0f, 1.0f);
+                    g.setColour (Dine::ink4);
+                    g.drawText (juce::String (-db), m.getX() - 34, juce::roundToInt (y) - 6, 26, 12,
+                                juce::Justification::centredRight);
+                }
+            }
         }
     }
 
@@ -94,9 +112,11 @@ public:
         auto r = getLocalBounds().reduced (12, 11);
         if (getHeight() > 150)
         {
-            // A tall strip reads like a console meter: the numbers on top, the meter under them.
+            // A tall tile reads like a console meter: the numbers on top, then a meter wide
+            // enough to be read across the room, with its scale beside it.
             r.removeFromTop (16 + 4 + 15 + 26 + 14 + 8);
-            meter.setBounds (r.withSizeKeepingCentre (juce::jmin (22, r.getWidth()), r.getHeight()));
+            const int w = juce::jlimit (22, 56, juce::roundToInt (float (r.getWidth()) * 0.40f));
+            meter.setBounds (r.withSizeKeepingCentre (w, r.getHeight()).translated ((r.getWidth() - w) / 6, 0));
         }
         else meter.setBounds (r.removeFromRight (16));
     }
@@ -170,13 +190,28 @@ private:
 };
 
 // ------------------------------------------------------------------ InputRow (the rail)
-class MixPage::InputRow : public juce::Component
+class MixPage::InputRow : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    InputRow (const juce::String& n, ChannelRole role, int number)
-        : name (n), icon (Dine::iconForRole (role)), num (number), meter (DineMeter::Style::Bar)
+    InputRow (const juce::String& n, ChannelRole role, int number, const std::string& iconKey)
+        : name (n), icon (Dine::iconFor (iconKey, role)), num (number), meter (DineMeter::Style::Bar)
     {
         addAndMakeVisible (meter);
+        meter.setInterceptsMouseClicks (false, false);
+        setTooltip ("Click to tune " + name + " on its own. Nothing else in the mix moves.");
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    // The rail is the list of everything the mix is made of, so it is also the shortest way
+    // to tune one of them: click the input and DLIVE listens to that source alone.
+    std::function<void()> onTune;
+
+    void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
+    void mouseExit  (const juce::MouseEvent&) override { hover = false; repaint(); }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (e.mouseWasDraggedSinceMouseDown() || ! getLocalBounds().contains (e.getPosition())) return;
+        if (onTune) onTune();
     }
 
     void set (float peakDb, float holdDb, bool clipped, bool isMuted, bool isFaint)
@@ -194,17 +229,19 @@ public:
         auto b = getLocalBounds().toFloat();
         if (muted)      Dine::fillRounded (g, b, Dine::crit.withAlpha (0.10f), Dine::Radius::control);
         else if (faint) Dine::fillRounded (g, b, Dine::warn.withAlpha (0.10f), Dine::Radius::control);
+        if (hover)      Dine::fillRounded (g, b, Dine::fillSoft, Dine::Radius::control);
 
         auto r = getLocalBounds().reduced (6, 0);
         Dine::drawIcon (g, icon, r.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f),
                         muted ? Dine::crit : faint ? Dine::warn : Dine::glyph);
         r.removeFromLeft (9);
 
-        const juce::String state = muted ? "Muted" : faint ? "Faint" : dbText (peak);
-        const juce::Colour stateColour = muted ? Dine::crit : faint ? Dine::warn : Dine::ink3;
-        auto right = r.removeFromRight (muted || faint ? 42 : 34);
+        const juce::String state = hover ? "TUNE" : muted ? "Muted" : faint ? "Faint" : dbText (peak);
+        const juce::Colour stateColour = hover ? Dine::accent : muted ? Dine::crit : faint ? Dine::warn : Dine::ink3;
+        auto right = r.removeFromRight (muted || faint || hover ? 42 : 34);
         g.setColour (stateColour);
-        g.setFont (muted || faint ? Dine::text (10.5f, 600) : Dine::mono (10.5f));
+        g.setFont (hover ? Dine::text (10.5f, 700).withExtraKerningFactor (0.08f)
+                         : muted || faint ? Dine::text (10.5f, 600) : Dine::mono (10.5f));
         g.drawText (state, right, juce::Justification::centredRight);
 
         auto text = r.withTrimmedRight (6).removeFromTop (getHeight() - 12);
@@ -225,12 +262,12 @@ public:
     Dine::Icon icon;
     int num = 0;
     float peak = -120.0f;
-    bool muted = false, faint = false;
+    bool muted = false, faint = false, hover = false;
     DineMeter meter;
 };
 
 // ------------------------------------------------------------------ ListenSheet
-// A macOS sheet: it drops from under the toolbar while DINELIVE listens.
+// A macOS sheet: it drops from under the toolbar while DLIVE listens.
 class MixPage::ListenSheet : public juce::Component
 {
 public:
@@ -304,7 +341,7 @@ public:
         text.removeFromTop (5);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText (waiting ? "Have the band play a song the way they normally would. DINELIVE starts as soon as it hears them."
+        g.drawFittedText (waiting ? "Have the band play a song the way they normally would. DLIVE starts as soon as it hears them."
                                   : "Keep playing. Every input is measured at once, then the mix is built around the lead vocal.",
                           text, juce::Justification::topLeft, 4);
 
@@ -332,7 +369,7 @@ public:
         auto foot = sheetBounds().reduced (26, 24).removeFromBottom (26);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (11.5f));
-        g.drawText ("The mix keeps playing while DINELIVE listens.", foot, juce::Justification::centredLeft, true);
+        g.drawText ("The mix keeps playing while DLIVE listens.", foot, juce::Justification::centredLeft, true);
     }
 
     void resized() override
@@ -515,6 +552,10 @@ MixPage::MixPage (MixController& c) : controller (c)
     railView.setScrollBarsShown (true, false);
     addAndMakeVisible (railView);
 
+    railTab = std::make_unique<DinePanelTab> (DinePanelTab::Side::Right, "Inputs");
+    railTab->onClick = [this] { setRailShown (! railShown); };
+    addAndMakeVisible (*railTab);
+
     listenSheet = std::make_unique<ListenSheet> (controller);
     resultSheet = std::make_unique<ResultSheet> (controller, *this);
     addAndMakeVisible (tuneButton);
@@ -537,6 +578,16 @@ MixPage::MixPage (MixController& c) : controller (c)
 }
 
 MixPage::~MixPage() = default;
+
+void MixPage::setRailShown (bool shown)
+{
+    if (shown == railShown) return;
+    railShown = shown;
+    railTab->setCollapsed (! shown);
+    railView.setVisible (shown);
+    resized();
+    repaint();
+}
 
 void MixPage::pressTune()
 {
@@ -569,7 +620,8 @@ void MixPage::rebuildRail()
     for (int i = 0; i < graph.numStrips(); ++i)
     {
         const auto& s = graph.strips[size_t (i)];
-        auto row = std::make_unique<InputRow> (s.name, s.role, s.inputA + 1);
+        auto row = std::make_unique<InputRow> (s.name, s.role, s.inputA + 1, s.icon);
+        row->onTune = [this, i] { if (onTuneStrip) onTuneStrip (i); };
         railHolder.addAndMakeVisible (*row);
         inputRows.push_back (std::move (row));
     }
@@ -620,8 +672,11 @@ void MixPage::refresh()
     health = controller.getMixHealthPercent();
     status = controller.getStatusText();
     const auto stage = controller.getStage();
-    const bool listenOn = stage == MixController::Stage::Listening || stage == MixController::Stage::Planning;
-    const bool preview = stage == MixController::Stage::Preview && controller.hasPlan();
+    // TUNE CHANNEL has its own sheet over whatever workspace it was started from, so these
+    // two - which are about the whole mix - stay out of its way.
+    const bool mixTune = ! controller.isTuningChannel();
+    const bool listenOn = mixTune && (stage == MixController::Stage::Listening || stage == MixController::Stage::Planning);
+    const bool preview = mixTune && stage == MixController::Stage::Preview && controller.hasPlan();
     if (listenSheet->isVisible() != listenOn) { listenSheet->setVisible (listenOn); if (listenOn) listenSheet->toFront (false); }
     if (resultSheet->isVisible() != preview) { resultSheet->setVisible (preview); if (preview) { resultSheet->toFront (false); resized(); } }
     if (listenOn) listenSheet->repaint();
@@ -635,7 +690,8 @@ MixPage::Layout MixPage::layout() const
 {
     Layout l;
     auto b = getLocalBounds();
-    l.rail = b.removeFromRight (Dine::Metric::rail);
+    l.rail = b.removeFromRight (railWidth());
+    l.railTab = l.rail.removeFromLeft (Dine::Metric::panelTab);   // the gutter the handle sits in
     auto left = b.reduced (0, 20).withTrimmedLeft (24).withTrimmedRight (22);
     auto top = left.removeFromTop (76);
     l.tune = top.removeFromRight (268);
@@ -720,16 +776,20 @@ void MixPage::paint (juce::Graphics& g)
 
     // ---- the input rail
     g.setColour (Dine::rail);
-    g.fillRect (l.rail);
+    g.fillRect (l.rail.getUnion (l.railTab));
     g.setColour (Dine::hair);
-    g.fillRect (float (l.rail.getX()), 0.0f, 0.5f, float (getHeight()));
+    g.fillRect (float (l.railTab.getX()), 0.0f, 0.5f, float (getHeight()));
+    if (! railShown) return;
     auto head = l.rail.reduced (12, 0).withY (12).withHeight (16);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (12.0f, 600));
     g.drawText ("Inputs", head.removeFromLeft (44), juce::Justification::centredLeft);
     g.setColour (Dine::ink3);
     g.setFont (Dine::mono (11.0f));
-    g.drawText (juce::String (int (inputRows.size())), head, juce::Justification::centredLeft);
+    g.drawText (juce::String (int (inputRows.size())), head.removeFromLeft (24), juce::Justification::centredLeft);
+    g.setColour (Dine::ink4);
+    g.setFont (Dine::text (10.5f));
+    g.drawText ("click one to tune it", head, juce::Justification::centredRight, true);
 
     if (inputRows.empty())
     {
@@ -791,6 +851,7 @@ void MixPage::resized()
     for (auto& m : macros) { m->setBounds (row.removeFromLeft (mw)); row.removeFromLeft (mgap); }
 
     // ---- rail
+    railTab->setBounds (l.railTab);
     int faintCount = 0;
     for (const auto& r : inputRows) if (r->faint) ++faintCount;
     auto rail = l.rail.reduced (8, 0).withTrimmedTop (34);

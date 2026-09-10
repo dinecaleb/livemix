@@ -1,7 +1,7 @@
-// Headless DINELIVE UI snapshots: builds the real controller, DAW engine and MainView
+// Headless DLIVE UI snapshots: builds the real controller, DAW engine and MainView
 // without a device, feeds a synthetic 16-input band through the engine, writes a short
 // multitrack to disk so the timeline has real waveforms, then walks every workspace and
-// state and writes PNGs. Usage: dinelive_ui_snapshots <output-dir>
+// state and writes PNGs. Usage: dlive_ui_snapshots <output-dir>
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_events/juce_events.h>
 #include "native/DawEngine.h"
@@ -32,6 +32,13 @@ namespace
         juce::String changeOutput (const juce::String& out) override { output = out; return {}; }
         bool isAudioRunning() override { return running; }
         int numInputChannels() override { return running ? kInputs : 0; }
+        int numOutputChannels() override { return running ? 8 : 0; }        // a four-pair interface
+        juce::StringArray outputChannelNames() override
+        {
+            juce::StringArray names;
+            for (int i = 1; i <= 8; ++i) names.add ("Out " + juce::String (i));
+            return names;
+        }
         double sampleRate() override { return kSr; }
         int bufferSize() override { return kBlock; }
         int xrunCount() override { return 0; }
@@ -241,6 +248,25 @@ int main (int argc, char** argv)
     view.getTracksPage().setRowHeight (TracksPage::RowHeight::Medium);
     rig.feed (0.3);
 
+    // A track whose name no longer describes the audio under it: the header flags it in amber
+    // and its right-click menu is where a name, a source or the assignments are put right.
+    {
+        const std::string wasSnare = rig.controller.getSession().inputs[1].name;
+        const std::string wasKeys = rig.controller.getSession().inputs[7].name;
+        rig.controller.setInputName (1, "Rack Tom");
+        rig.controller.setInputName (7, "Jewel");
+        // ...and a track drawn as something the role would never pick: Keys running playback.
+        rig.controller.setInputIcon (7, "waveform");
+        view.getTracksPage().rebuild();
+        rig.feed (0.3);
+        rig.snap (dir, "06d-tracks-name-mismatch");
+        rig.controller.setInputName (1, wasSnare);
+        rig.controller.setInputName (7, wasKeys);
+        rig.controller.setInputIcon (7, {});
+        view.getTracksPage().rebuild();
+        rig.feed (0.3);
+    }
+
     view.showPage (MainView::Page::Tune);
     rig.feed (0.5);
     rig.snap (dir, "07-tune-ready");
@@ -262,9 +288,20 @@ int main (int argc, char** argv)
     view.getAdvancedPage().select (0); // Kick — a channel, not a bus
     rig.feed (0.3);
     rig.snap (dir, "11-inspector-strip");
+    view.getAdvancedPage().selectStage (3);  // corrective EQ: the curve, its nodes and the band cards
+    rig.feed (0.3);
+    rig.snap (dir, "11b-inspector-eq");
+    view.getAdvancedPage().selectStage (5);  // the compressor: its in/out line and the live reduction
+    rig.feed (0.3);
+    rig.snap (dir, "11c-inspector-comp");
+    view.getAdvancedPage().selectStage (0);  // back to the input, so the next channel opens where it left off
     view.getAdvancedPage().select (1); // Snare — often has a snare-plate send after Tune
     rig.feed (0.3);
     rig.snap (dir, "12-inspector-send");
+    view.getAdvancedPage().selectStage (10); // the sends close the path where the session uses FX
+    rig.feed (0.3);
+    rig.snap (dir, "12b-inspector-sends");
+    view.getAdvancedPage().selectStage (0);
     view.getAdvancedPage().selectBus (MixBus::Drums);
     rig.feed (0.3);
     rig.snap (dir, "13-inspector-bus");
@@ -272,7 +309,21 @@ int main (int argc, char** argv)
     rig.feed (0.3);
     rig.snap (dir, "14-inspector-master");
 
+    // Every panel at the edge folded away: the sidebar and both of the Inspector's
+    // columns, so the channel and its chain have the whole window.
+    view.getAdvancedPage().select (0);
+    view.setSidebarShown (false);
+    view.getAdvancedPage().setRailShown (false);
+    view.getAdvancedPage().setTrailShown (false);
+    rig.feed (0.3);
+    rig.snap (dir, "14b-inspector-panels-folded");
+    view.getAdvancedPage().setRailShown (true);
+    view.getAdvancedPage().setTrailShown (true);
+
     view.showPage (MainView::Page::Mixer);
+    rig.feed (0.3);
+    rig.snap (dir, "15-mixer-no-sidebar");
+    view.setSidebarShown (true);
     rig.feed (0.3);
     rig.snap (dir, "15-mixer");
 
@@ -291,12 +342,24 @@ int main (int argc, char** argv)
     rig.snap (dir, "15e-mixer-groups");
     view.getMixerPage().setShow (MixerPage::Show::All);
     view.getMixerPage().setView (MixerPage::View::Strips);
+    view.getMixerPage().selectStrip (10);            // the lead vocal: the chain strip along the foot
+    rig.controller.setStripMute (2, true);           // a muted strip has to read as muted
+    rig.controller.setStripSolo (10, true);
+    rig.feed (0.4);
+    rig.snap (dir, "15g-mixer-mute-solo");
+    rig.controller.setStripMute (2, false);
+    rig.controller.setStripSolo (10, false);
+    rig.feed (0.3);
     view.setBypass (true);
     rig.feed (0.3);
     rig.snap (dir, "15f-mixer-bypass");
     view.setBypass (false);
 
     view.showPage (MainView::Page::Tune);
+    view.getMixPage().setRailShown (false);
+    rig.feed (0.3);
+    rig.snap (dir, "16b-tune-rail-folded");
+    view.getMixPage().setRailShown (true);
     rig.controller.keepPlan();
     view.getMixPage().setMacroValue (MixMacro::Space, 72.0f);
     view.getMixPage().setMacroValue (MixMacro::Drums, 30.0f);
@@ -306,6 +369,49 @@ int main (int argc, char** argv)
     view.showPage (MainView::Page::Live);
     rig.feed (0.5);
     rig.snap (dir, "17-live");
+
+    // A muted group, and a soloed one: during a service the state has to be readable at a
+    // glance, so both are snapped.
+    rig.controller.setBusMute (MixBus::Drums, true);
+    rig.controller.setBusSolo (MixBus::Vocals, true);
+    rig.feed (0.5);
+    rig.snap (dir, "17b-live-muted");
+    rig.controller.setBusMute (MixBus::Drums, false);
+    rig.controller.setBusSolo (MixBus::Vocals, false);
+    rig.feed (0.3);
+
+    // TUNE CHANNEL: one source listened to and tuned on its own, over whatever workspace
+    // it was clicked on. Here: the lead vocal, from the console.
+    view.showPage (MainView::Page::Mixer);
+    view.getMixerPage().selectStrip (10);
+    rig.controller.setStripInputGain (10, -12.0f);   // as if the desk had been moved under it
+    rig.controller.setStripFader (10, -8.0f);
+    rig.feed (0.3);
+    view.tuneChannel (10, { 4.0f, -45.0f, 5.0f });
+    rig.feed (1.2);
+    rig.snap (dir, "19-channel-listening");
+    rig.feed (4.5);
+    for (int i = 0; i < 100 && rig.controller.getStage() != MixController::Stage::Preview; ++i) { rig.controller.poll(); rig.pump (10); }
+    rig.feed (0.5);
+    rig.snap (dir, "20-channel-tuned");
+    rig.controller.keepPlan();
+    rig.feed (0.5);
+    rig.pump (50);
+
+    // Outputs: the main pair, plus a cue on 3-4 carrying the vocals group.
+    view.showPage (MainView::Page::Mixer);
+    {
+        auto feeds = rig.controller.getOutputFeeds();
+        feeds.count = 2;
+        feeds.feeds[1].left = 2;
+        feeds.feeds[1].right = 3;
+        feeds.feeds[1].source = MixBus::Vocals;
+        feeds.feeds[1].gainDb = -4.5f;
+        rig.controller.setOutputFeeds (feeds);
+    }
+    view.showOutputs();
+    rig.feed (0.4);
+    rig.snap (dir, "18-outputs");
 
     std::printf ("stage %d, health %d%%\n", int (rig.controller.getStage()), rig.controller.getMixHealthPercent());
     rig.view.reset();

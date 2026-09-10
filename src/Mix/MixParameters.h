@@ -12,7 +12,7 @@ namespace livemix
 struct StripParameters
 {
     ChannelParameters channel;
-    float inputGainDb = 0.0f;                           // digital preamp before analysis and the chain (the console gain DINELIVE owns)
+    float inputGainDb = 0.0f;                           // digital preamp before analysis and the chain (the console gain DLIVE owns)
     float faderDb = 0.0f;
     float pan = 0.0f;                                   // -1 = left .. +1 = right (balance on stereo strips)
     bool mute = false;
@@ -46,6 +46,11 @@ struct MixParameters
     std::array<StripParameters, kMaxStrips> strips {};
     std::array<BusParameters, int (MixBus::Count)> buses {};
     std::array<FxSlotParameters, int (FxSlot::Count)> fx {};
+
+    // What the band is playing, so a tempo-synced delay is in time with the song. A live console has no
+    // host play head; TUNE MIX measures this from the listen. 120 is the engine default, used until a
+    // listen finds a tempo.
+    float tempoBpm = 120.0f;
 
     // BEFORE: pass every strip and bus through unprocessed (faders, pans and routing
     // stay), returns are silent. The master limiter keeps its delay so latency is constant.

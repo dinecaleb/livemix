@@ -71,7 +71,7 @@ private:
 
     static juce::File uniqueTakeFile (const juce::File& folder, const juce::String& trackName);
 
-    juce::TimeSliceThread thread { "DINELIVE recorder" };
+    juce::TimeSliceThread thread { "DLIVE recorder" };
     std::vector<Writer> writers;
     std::vector<float> silence;                 // a missing device channel records as silence, not as garbage
     std::atomic<bool> active { false };

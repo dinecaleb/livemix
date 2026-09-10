@@ -63,6 +63,24 @@ float defaultReturnDb (StyleProfileId, FxSlot)
     return 0.0f; // the sends carry the amount; returns stay at unity so SPACE scales one place
 }
 
+float reverbBeats (StyleProfileId profile, FxSlot slot)
+{
+    // Modern Gospel is dense and quick: the lead's plate has to be gone before the next line, the backing
+    // hall may bloom a little longer because it sits behind them, and a drum room is an ambience, not a tail.
+    float beats;
+    switch (slot)
+    {
+        case FxSlot::VocalPlate: beats = 3.0f; break;
+        case FxSlot::BgvHall:    beats = 4.0f; break;
+        case FxSlot::SnarePlate: beats = 2.0f; break;
+        case FxSlot::DrumRoom:   beats = 1.5f; break;
+        default:                 beats = 0.0f; break;   // delays have no tail to fit
+    }
+    if (profile == StyleProfileId::ModernWorship && beats > 0.0f)
+        beats += 1.0f;   // worship breathes: the tails are allowed to run a beat longer
+    return beats;
+}
+
 float defaultPan (ChannelRole role)
 {
     switch (role)
@@ -102,31 +120,32 @@ float defaultBusFaderDb (StyleProfileId, MixBus)
 
 float mixLevelTargetDb (StyleProfileId profile, RoleFamily family)
 {
-    // Processed pre-fader peaks (dBFS) that give the Modern Gospel balance when every
-    // fader sits at 0: the lead vocal is the reference, the kick and snare just under
-    // it, bass a little below, keys and guitars under the vocals, cymbals and room low.
+    // Processed pre-fader active RMS (dBFS) that gives the Modern Gospel balance when every fader
+    // sits at 0: the lead vocal is the reference at -18, the kick and bass just under it, the snare
+    // with them, keys and guitars under the voices, cymbals and room low. A backing voice is set on
+    // its own here; the group rule below then holds all of them together behind the lead.
     float db;
     switch (family)
     {
-        case RoleFamily::LeadVocal:      db = -8.0f;  break;
-        case RoleFamily::Speech:         db = -8.0f;  break;
-        case RoleFamily::BackingVocal:   db = -14.0f; break;
-        case RoleFamily::Choir:          db = -13.0f; break;
-        case RoleFamily::Kick:           db = -9.0f;  break;
-        case RoleFamily::Snare:          db = -10.0f; break;
-        case RoleFamily::Tom:            db = -13.0f; break;
-        case RoleFamily::HiHat:          db = -22.0f; break;
-        case RoleFamily::Overhead:       db = -17.0f; break;
-        case RoleFamily::Room:           db = -22.0f; break;
+        case RoleFamily::LeadVocal:      db = -18.0f; break;
+        case RoleFamily::Speech:         db = -18.0f; break;
+        case RoleFamily::BackingVocal:   db = -26.0f; break;
+        case RoleFamily::Choir:          db = -25.0f; break;
+        case RoleFamily::Kick:           db = -20.0f; break;
+        case RoleFamily::Snare:          db = -21.0f; break;
+        case RoleFamily::Tom:            db = -24.0f; break;
+        case RoleFamily::HiHat:          db = -29.0f; break;
+        case RoleFamily::Overhead:       db = -27.0f; break;
+        case RoleFamily::Room:           db = -31.0f; break;
         case RoleFamily::ElectricBass:
-        case RoleFamily::SynthBass:      db = -10.0f; break;
+        case RoleFamily::SynthBass:      db = -20.0f; break;
         case RoleFamily::Piano:
-        case RoleFamily::ElectricPiano:  db = -13.0f; break;
-        case RoleFamily::Organ:          db = -14.0f; break;
-        case RoleFamily::Synth:          db = -16.0f; break;
+        case RoleFamily::ElectricPiano:  db = -25.0f; break;
+        case RoleFamily::Organ:          db = -26.0f; break;
+        case RoleFamily::Synth:          db = -28.0f; break;
         case RoleFamily::AcousticGuitar:
-        case RoleFamily::ElectricGuitar: db = -15.0f; break;
-        default:                         db = -12.0f; break;
+        case RoleFamily::ElectricGuitar: db = -27.0f; break;
+        default:                         db = -24.0f; break;
     }
     if (profile == StyleProfileId::ModernWorship)
     {
@@ -135,6 +154,11 @@ float mixLevelTargetDb (StyleProfileId profile, RoleFamily family)
         if (family == RoleFamily::Choir) db -= 1.0f;
     }
     return db;
+}
+
+float stripPeakCeilingDb (StyleProfileId)
+{
+    return -3.0f;
 }
 
 const Relationships& relationships (StyleProfileId profile)

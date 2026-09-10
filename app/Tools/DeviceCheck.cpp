@@ -1,6 +1,6 @@
-// Real-device soak check for the DINELIVE audio host: opens a device through AudioHost with a
+// Real-device soak check for the DLIVE audio host: opens a device through AudioHost with a
 // small session, runs the callback for a few seconds and reports what the engine saw.
-//   dinelive_device_check [seconds=5] [input device name] [output device name] [buffer=64]
+//   dlive_device_check [seconds=5] [input device name] [output device name] [buffer=64]
 // Without names the device with the most inputs is used for input and the default output for output.
 #include <juce_events/juce_events.h>
 #include "native/AudioHost.h"

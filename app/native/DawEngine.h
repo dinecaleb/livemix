@@ -42,7 +42,7 @@ public:
     void release();
 
     // The session decides which device channels a track owns; call after assignments change.
-    void setSession (const MixSession& s) { session = s; project.syncTracks (s); refresh(); }
+    void setSession (const MixSession& s) { project.syncTracks (session, s); session = s; refresh(); }
     const MixSession& getSession() const noexcept { return session; }
 
     // Clips, arming, monitoring or the loop changed: republish what the audio thread reads.

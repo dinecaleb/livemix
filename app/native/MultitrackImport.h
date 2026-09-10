@@ -5,7 +5,7 @@
 namespace livemix
 {
 
-// Turns a folder of recorded stems into a DINELIVE session: one track per file, each
+// Turns a folder of recorded stems into a DLIVE session: one track per file, each
 // file a clip at the start of the timeline, names and source roles guessed from the file
 // names. This is how a band, or anyone with a multitrack, walks through the whole app —
 // assign, TUNE MIX, BEFORE / AFTER, faders, export — without a console in the room.

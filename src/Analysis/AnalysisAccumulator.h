@@ -30,6 +30,7 @@ public:
 
 private:
     void processFftFrame() noexcept;
+    void recordEvent (float peakFrameDb) noexcept;   // bins the peak level a detected hit reached
 
     double sr = 48000.0;
     int channels = 1;
@@ -46,11 +47,16 @@ private:
     std::vector<int> levelHistogram;
     int totalAnalysisFrames = 0, silentFrames = 0;
     float prevFrameDb = -120.0f;
+    float prevFrameRms = 0.0f;
     std::vector<float> recentFrameDb;
     int recentPos = 0;
     int transientCount = 0;
     double transientRiseSum = 0.0;
     bool decayTracking = false;
+    std::vector<int> eventHistogram;   // peak frame level of each detected hit
+    std::vector<float> onsetEnvelope;  // per-frame onset strength, for the tempo estimate
+    int onsetCount = 0;
+    int eventFrames = 0;
     float decayPeakDb = -120.0f;
     int decayFrames = 0;
     double decaySumMs = 0.0;

@@ -15,6 +15,13 @@ namespace
     constexpr int kRecentFrames = 30;   // 300 ms floor tracking window
     constexpr float kSilenceThresholdDb = -60.0f;
     constexpr float kDigitalSilenceDb = -90.0f;
+    // A frame this far under the hit level is a gap between phrases or hits, not the source playing.
+    constexpr float kActiveRangeDb = 20.0f;
+    // How far a real peak can stand above the hit level before it is a click rather than the source.
+    constexpr float kSpikeMarginDb = 12.0f;
+    // Tempo search: the onset envelope runs at one frame per 10 ms, so a lag in frames is 10 ms.
+    constexpr float kTempoMinBpm = 50.0f, kTempoMaxBpm = 200.0f;
+    constexpr int kMaxOnsetFrames = 12000;   // 120 s of envelope; a listen is far shorter
     constexpr int kSibilanceBins = 71;      // -60 .. +10 dB
     constexpr float kSibilanceLoudDb = -40.0f; // frames below this say nothing about S sounds
     constexpr int kInterleaveFrames = 1024;
@@ -27,6 +34,7 @@ void AnalysisAccumulator::prepare (double sampleRate, int numChannels)
     if (channels < 1) channels = 1;
 
     analysisFrameSize = std::max (1, int (sr / 100.0));
+    onsetEnvelope.assign (size_t (kMaxOnsetFrames), 0.0f);
     levelHistogram.assign (kHistogramBins, 0);
     recentFrameDb.assign (kRecentFrames, -120.0f);
 
@@ -74,10 +82,14 @@ void AnalysisAccumulator::reset() noexcept
     std::fill (levelHistogram.begin(), levelHistogram.end(), 0);
     totalAnalysisFrames = silentFrames = 0;
     prevFrameDb = -120.0f;
+    prevFrameRms = 0.0f;
     std::fill (recentFrameDb.begin(), recentFrameDb.end(), -120.0f);
     recentPos = 0;
     transientCount = 0;
     transientRiseSum = 0.0;
+    eventHistogram.assign (size_t (kHistogramBins), 0);
+    eventFrames = 0;
+    onsetCount = 0;
     decayTracking = false;
     decayPeakDb = -120.0f;
     decayFrames = 0;
@@ -165,10 +177,16 @@ void AnalysisAccumulator::consume (const float* interleaved, int numFrames) noex
             frameHighSumSquares = 0.0;
 
             const float rise = frameDb - prevFrameDb;
+            // Onset strength for the tempo estimate is the rise in energy, not in dB: in dB a frame going
+            // from -80 to -60 between hits counts as much as a hit, and the periodicity disappears.
+            if (onsetCount < int (onsetEnvelope.size()))
+                onsetEnvelope[size_t (onsetCount++)] = std::max (frameRms - prevFrameRms, 0.0f);
+            prevFrameRms = frameRms;
             if (rise >= 8.0f && frameDb > kSilenceThresholdDb && frameDb > floorDb + 12.0f)
             {
                 ++transientCount;
                 transientRiseSum += rise;
+                if (decayTracking) recordEvent (decayPeakDb);   // the previous hit ended when this one began
                 decayTracking = true;   // a new hit: measure how long it takes to fall 20 dB
                 decayPeakDb = frameDb;
                 decayFrames = 0;
@@ -185,6 +203,7 @@ void AnalysisAccumulator::consume (const float* interleaved, int numFrames) noex
                     {
                         decaySumMs += double (decayFrames) * 1000.0 * double (analysisFrameSize) / sr;
                         ++decayCount;
+                        recordEvent (decayPeakDb);
                         decayTracking = false;
                     }
                 }
@@ -277,6 +296,137 @@ AnalysisResult AnalysisAccumulator::finalise (int droppedFrames)
     r.noiseFloorDb = percentile (0.10f);
     r.hitLevelDb = percentile (0.95f);
     r.dynamicRangeDb = r.hitLevelDb - r.noiseFloorDb;
+    r.musicalPeakDb = r.hitLevelDb > -119.0f ? std::min (r.peakDb, r.hitLevelDb + kSpikeMarginDb) : r.peakDb;
+
+    // Active RMS: the energy the source carries while it plays. Frames within kActiveRangeDb of the
+    // hit level count; everything under it is a gap, a decay tail or bleed and would only measure how
+    // often the source rests. Summed from the level histogram, so it costs nothing.
+    if (active > 0 && r.hitLevelDb > -119.0f)
+    {
+        const int firstBin = std::max (firstActiveBin, int (std::lround (r.hitLevelDb - kActiveRangeDb)) + 100);
+        double sum = 0.0; int count = 0;
+        for (int b = firstBin; b < kHistogramBins; ++b)
+        {
+            const int c = levelHistogram[size_t (b)];
+            if (c <= 0) continue;
+            sum += double (c) * std::pow (10.0, double (b - 100) / 10.0);
+            count += c;
+        }
+        if (count > 0) r.activeRmsDb = float (10.0 * std::log10 (std::max (sum / count, 1.0e-12)));
+    }
+
+    // The level a loud hit reaches: the 90th percentile of the peaks the detected events reached.
+    // A close drum microphone is mostly bleed - every kick and snare in the room registers as an event
+    // on a tom mic - so the middle of the event distribution is the bleed, not the source. The top of it
+    // is the instrument actually being played, and a high percentile finds that without riding on a
+    // single stray knock the way the raw peak does. Eight events is enough for the percentile to mean
+    // something; below that the level stays unknown and the callers fall back to hitLevelDb.
+    if (decayTracking) recordEvent (decayPeakDb);   // the listen ended while a hit was still ringing
+    r.eventCount = eventFrames;
+    if (eventFrames >= 8)
+    {
+        auto eventPercentile = [&] (float pct)
+        {
+            const int target = std::max (1, int (std::ceil (pct * float (eventFrames))));
+            int acc = 0;
+            for (int b = 0; b < kHistogramBins; ++b)
+            {
+                acc += eventHistogram[size_t (b)];
+                if (acc >= target) return float (b - 100);
+            }
+            return -120.0f;
+        };
+
+        // A close drum microphone hears every hit in the room, so its events fall into two groups: the
+        // bleed (every kick and snare, tens of dB down) and the instrument itself. The split that
+        // maximises the variance between the two groups separates them, and that boundary is both where
+        // the real hits start and where a gate belongs. Without a clean split - a DI, a voice, an
+        // isolated microphone - there is one group, and a high percentile is the loud-hit level.
+        double total = 0.0, sum = 0.0;
+        for (int b = 0; b < kHistogramBins; ++b)
+        {
+            total += eventHistogram[size_t (b)];
+            sum += double (eventHistogram[size_t (b)]) * double (b);
+        }
+        double wB = 0.0, sumB = 0.0, bestVar = 0.0;
+        int split = -1;
+        for (int b = 0; b < kHistogramBins - 1; ++b)
+        {
+            wB += eventHistogram[size_t (b)];
+            sumB += double (eventHistogram[size_t (b)]) * double (b);
+            const double wF = total - wB;
+            if (wB <= 0.0 || wF <= 0.0) continue;
+            const double mB = sumB / wB, mF = (sum - sumB) / wF;
+            const double var = wB * wF * (mB - mF) * (mB - mF);
+            if (var > bestVar) { bestVar = var; split = b; }
+        }
+
+        r.eventLevelDb = eventPercentile (0.90f);
+        if (split >= 0)
+        {
+            int loud = 0;
+            double loudSum = 0.0, quietSum = 0.0;
+            int quiet = 0;
+            for (int b = 0; b <= split; ++b) { quiet += eventHistogram[size_t (b)]; quietSum += double (eventHistogram[size_t (b)]) * double (b - 100); }
+            for (int b = split + 1; b < kHistogramBins; ++b) { loud += eventHistogram[size_t (b)]; loudSum += double (eventHistogram[size_t (b)]) * double (b - 100); }
+            const float quietMean = quiet > 0 ? float (quietSum / quiet) : -120.0f;
+            const float loudMean = loud > 0 ? float (loudSum / loud) : -120.0f;
+            // Only a wide, well-populated split is bleed rather than ordinary dynamics.
+            if (loud >= 3 && quiet >= 3 && loudMean - quietMean >= 12.0f)
+            {
+                const int target = std::max (1, quiet + int (std::ceil (0.5f * float (loud))));
+                int acc = 0;
+                for (int b = 0; b < kHistogramBins; ++b)
+                {
+                    acc += eventHistogram[size_t (b)];
+                    if (acc >= target) { r.eventLevelDb = float (b - 100); break; }
+                }
+                r.bleedLevelDb = quietMean;
+            }
+        }
+    }
+
+    // Tempo: the strongest periodicity in the onset envelope. A live console has no host play head, so
+    // without this every tempo-synced delay in the mix runs at the engine's default and sits out of time
+    // with the song. The envelope is one frame per 10 ms, so a lag of n frames is n * 10 ms.
+    if (onsetCount >= 200)
+    {
+        const int n = onsetCount;
+        double mean = 0.0;
+        for (int i = 0; i < n; ++i) mean += onsetEnvelope[size_t (i)];
+        mean /= double (n);
+
+        const double framesPerSecond = sr / double (analysisFrameSize);
+        const int minLag = std::max (2, int (framesPerSecond * 60.0 / double (kTempoMaxBpm)));
+        const int maxLag = std::min (n / 2, int (framesPerSecond * 60.0 / double (kTempoMinBpm)));
+        double best = 0.0, sum = 0.0, sumSq = 0.0;
+        int bestLag = 0, count = 0;
+        for (int lag = minLag; lag <= maxLag; ++lag)
+        {
+            double acc = 0.0;
+            for (int i = lag; i < n; ++i)
+                acc += (double (onsetEnvelope[size_t (i)]) - mean) * (double (onsetEnvelope[size_t (i - lag)]) - mean);
+            acc /= double (n - lag);
+            sum += acc;
+            sumSq += acc * acc;
+            ++count;
+            if (acc > best) { best = acc; bestLag = lag; }
+        }
+        if (bestLag > 0 && best > 0.0 && count > 1)
+        {
+            const double average = sum / double (count);
+            const double variance = std::max (sumSq / double (count) - average * average, 0.0);
+            const double sigma = std::sqrt (variance);
+            float bpm = float (60.0 * framesPerSecond / double (bestLag));
+            // Half or double time is the usual near-miss. Fold into the range a song is counted in, which
+            // keeps a synced delay musically related even when the beat is picked an octave out.
+            while (bpm < 70.0f)  bpm *= 2.0f;
+            while (bpm > 160.0f) bpm *= 0.5f;
+            r.tempoBpm = bpm;
+            // How far the winning periodicity stands above the rest of the search, in standard deviations.
+            r.tempoConfidence = sigma > 0.0 ? clamp (float ((best - average) / sigma / 6.0), 0.0f, 1.0f) : 0.0f;
+        }
+    }
 
     r.transientCount = transientCount;
     r.transientsPerSecond = r.durationSeconds > 0.0f ? float (transientCount) / r.durationSeconds : 0.0f;
@@ -379,6 +529,15 @@ AnalysisResult AnalysisAccumulator::finalise (int droppedFrames)
 
     r.valid = true;
     return r;
+}
+
+void AnalysisAccumulator::recordEvent (float peakFrameDb) noexcept
+{
+    if (peakFrameDb <= kDigitalSilenceDb || eventHistogram.empty()) return;
+    int bin = int (std::lround (peakFrameDb)) + 100;
+    bin = std::clamp (bin, 0, kHistogramBins - 1);
+    ++eventHistogram[size_t (bin)];
+    ++eventFrames;
 }
 
 } // namespace livemix

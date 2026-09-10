@@ -1,16 +1,16 @@
-# Milestone 7 — DINELIVE becomes a DAW
+# Milestone 7 — DLIVE becomes a DAW
 
 Date: 2026-09-08. This is the report the brief's §78 asks for (audit, gaps, refactor plan) followed by
 what the first DAW milestone (§73) actually delivered.
 
-> DINELIVE — the live recording and broadcast DAW.
+> DLIVE — the live recording and broadcast DAW.
 > Connect. Record. Mix. Tune. Broadcast.
 
 ---
 
 ## 1. Current state before this milestone
 
-The 2026-09-07 pivot (`docs/ARCHITECTURE-DINELIVE.md`) had already turned the plugin engine into a standalone
+The 2026-09-07 pivot (`docs/ARCHITECTURE-DLIVE.md`) had already turned the plugin engine into a standalone
 mixer. What existed and worked:
 
 | Area | Where | State |
@@ -19,7 +19,7 @@ mixer. What existed and worked:
 | Mix graph (strips -> buses -> FX returns -> master) | `src/Mix/MixEngine`, `RoutingGraph`, `MixParameters` | 64 strips inside 12 % of the callback budget |
 | Multi-input listen, planner, macros | `src/Mix/MixCapture`, `MixPlanner`, `MixMacros` | one TUNE MIX lands at -22.6 LUFS on the church multitrack; idempotent |
 | Standalone application | `app/` | Device -> Assign -> Purpose -> Mix -> Advanced, JSON session, CoreAudio host |
-| Offline verification | `app/Tools/MixStems.cpp`, `dinelive_ui_snapshots`, `dinelive_device_check` | real stems, headless PNGs, real device |
+| Offline verification | `app/Tools/MixStems.cpp`, `dlive_ui_snapshots`, `dlive_device_check` | real stems, headless PNGs, real device |
 
 ## 2. Missing DAW foundations (the audit)
 
@@ -64,7 +64,7 @@ CoreAudio device ─ AudioHost ─ DawEngine ─ MixController ─ stereo out
 **input matrix** (every device channel, with playback swapped in for the tracks that are not on their live
 input), and hand that matrix to the mix exactly as the device used to be handed to it. The mix engine, the
 planner, the profiles and the DSP were not touched: the same `MixEngine::process` runs, so TUNE MIX works
-against live inputs and recorded material alike, and `dinelive_mix_stems` still lands at -22.6 LUFS with
+against live inputs and recorded material alike, and `dlive_mix_stems` still lands at -22.6 LUFS with
 `NO CHANGE REQUIRED` on a re-tune.
 
 Removed on the way, because the timeline replaced it: `MultitrackSource` (a folder of stems is now *imported*
@@ -77,7 +77,7 @@ All twenty-four items of the first DAW milestone:
 
 | # | Item | Where |
 |---|---|---|
-| 1 | project creation | File > New Session, Save As (a folder under `~/Music/DINELIVE`) |
+| 1 | project creation | File > New Session, Save As (a folder under `~/Music/DLIVE`) |
 | 2 | audio device selection | `DevicePage`, plus output-only for playing a recorded session back |
 | 3 | 8-16+ tracks | 64 strips; the church multitrack imports as 14 |
 | 4 | mono / stereo inputs | `InputAssignment` pairs, stereo clips and waveforms |
@@ -118,10 +118,10 @@ transport alone.
 | Check | Result |
 |---|---|
 | `build/tests/livemix_tests` | 136 cases, 0 failed |
-| `build/app/dinelive_app_tests` | 19 cases, 0 failed (transport, monitoring, recorder, clip source, player, DAW, documents, import, bounce) |
-| `build/app/dinelive_mix_stems "<church stems>" 30` | after -22.6 LUFS, re-tune `NO CHANGE REQUIRED`, exit 0 |
-| `build/app/dinelive_device_check 8 "<church stems>"` | imported as 14 tracks, played through CoreAudio: 6021 blocks, 152 us peak, **0 dropouts, 0 playback underruns**, 12 of 14 strips carrying audio |
-| `build/app/dinelive_ui_snapshots` | 17 PNGs: every workspace and state, with real waveforms on the timeline |
+| `build/app/dlive_app_tests` | 19 cases, 0 failed (transport, monitoring, recorder, clip source, player, DAW, documents, import, bounce) |
+| `build/app/dlive_mix_stems "<church stems>" 30` | after -22.6 LUFS, re-tune `NO CHANGE REQUIRED`, exit 0 |
+| `build/app/dlive_device_check 8 "<church stems>"` | imported as 14 tracks, played through CoreAudio: 6021 blocks, 152 us peak, **0 dropouts, 0 playback underruns**, 12 of 14 strips carrying audio |
+| `build/app/dlive_ui_snapshots` | 17 PNGs: every workspace and state, with real waveforms on the timeline |
 | plugin suites, `auval` | unchanged |
 
 ## 8. Not in this milestone

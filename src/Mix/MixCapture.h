@@ -30,6 +30,7 @@ public:
         float triggerDb = -45.0f;       // any strip's 10 ms frame above this starts the window
         float maxWaitSeconds = 30.0f;   // then start anyway (strips that stayed quiet say so)
         float heardDb = -50.0f;         // a strip counts as heard above this
+        int triggerStrip = -1;          // wait for this strip alone (TUNE CHANNEL); -1 = anybody starting to play
     };
 
     struct Result

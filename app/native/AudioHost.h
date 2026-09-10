@@ -6,10 +6,11 @@
 namespace livemix
 {
 
-// The only place DINELIVE touches an audio device. Wraps juce::AudioDeviceManager
+// The only place DLIVE touches an audio device. Wraps juce::AudioDeviceManager
 // (CoreAudio on macOS: Dante Virtual Soundcard, USB consoles and interfaces all appear
 // here) and hands every block to DawEngine, which records the raw inputs, plays the
-// timeline back and mixes. The mix goes to the first output pair.
+// timeline back and mixes. Every output channel the device has (up to kMaxOutputs) is
+// opened, so the mix can leave by more than one pair at once - see OutputFeeds.
 class AudioHost : private juce::AudioIODeviceCallback
 {
 public:
@@ -39,6 +40,8 @@ public:
     juce::String getInputDeviceName() const;
     juce::String getOutputDeviceName() const;
     int getNumInputChannels() const;
+    int getNumOutputChannels() const;
+    juce::StringArray getOutputChannelNames() const;
     double getSampleRate() const;
     int getBufferSize() const;
     int getXRunCount() const { return deviceManager.getXRunCount(); }

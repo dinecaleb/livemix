@@ -30,6 +30,7 @@ RoutingGraph RoutingGraph::build (const MixSession& session)
         StripRoute r;
         r.input = i;
         r.name = in.name.empty() ? channelRoleName (in.role) : in.name;
+        r.icon = in.icon;
         r.role = in.role;
         r.inputA = in.inputA;
         r.inputB = in.inputB;

@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_core/juce_core.h>
+#include <algorithm>
 #include <vector>
 #include "Mix/MixSession.h"
 
@@ -7,7 +8,7 @@ namespace livemix
 {
 
 // ---------------------------------------------------------------------------
-// The DAW side of a DINELIVE session: what was recorded, where it sits on the
+// The DAW side of a DLIVE session: what was recorded, where it sits on the
 // timeline, and how each track behaves while recording.
 //
 // The *mix* side (input gain, fader, pan, mute, solo, sends, processing) lives in
@@ -29,7 +30,7 @@ struct AudioClip
     bool covers (juce::int64 pos) const noexcept { return pos >= start && pos < end(); }
 };
 
-// How a track listens to its live input. DINELIVE is a live console before it is a
+// How a track listens to its live input. DLIVE is a live console before it is a
 // tape machine, so the input is what you hear unless something says otherwise:
 //   Off   - the live input is never heard through this track (recording still captures it)
 //   Input - the live input is always heard
@@ -99,6 +100,45 @@ struct Project
 
     juce::File audioFolder() const { return folder.getChildFile ("Audio Files"); }
 
+    // The tracks run parallel to the session's inputs, so when the assignments are rebuilt -
+    // an input dropped on the ASSIGN page, a pair linked, a source added - every track has to
+    // follow *its own* input instead of staying at its index. Otherwise a track keeps its
+    // audio and takes the next input's name, which is how a timeline ends up showing "Keys"
+    // over a clip of the guitar. A track is matched to its input by the device channel it came
+    // in on, then by name; an input that is new to the session starts with an empty track, and
+    // a track whose input is gone goes with it.
+    void syncTracks (const MixSession& previous, const MixSession& next)
+    {
+        std::vector<TrackState> moved (next.inputs.size());
+        std::vector<bool> taken (tracks.size(), false);
+
+        auto find = [&] (auto match) -> int
+        {
+            const size_t n = std::min (previous.inputs.size(), tracks.size());
+            for (size_t i = 0; i < n; ++i)
+                if (! taken[i] && match (previous.inputs[i])) return int (i);
+            return -1;
+        };
+
+        auto claim = [&] (size_t to, int from)
+        {
+            if (from < 0) return false;
+            moved[to] = std::move (tracks[size_t (from)]);
+            taken[size_t (from)] = true;
+            return true;
+        };
+
+        for (size_t n = 0; n < next.inputs.size(); ++n)
+        {
+            const auto& in = next.inputs[n];
+            if (claim (n, find ([&] (const InputAssignment& was) { return was.inputA >= 0 && was.inputA == in.inputA; }))) continue;
+            claim (n, find ([&] (const InputAssignment& was) { return ! was.name.empty() && was.name == in.name; }));
+        }
+
+        tracks = std::move (moved);
+    }
+
+    // The session did not change shape (a load, a rebuild from a document): only the count matters.
     void syncTracks (const MixSession& session)
     {
         tracks.resize (session.inputs.size());

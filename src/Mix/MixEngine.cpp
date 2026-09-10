@@ -12,7 +12,7 @@ namespace
 {
     constexpr float kGainSmoothMs = 20.0f;
     constexpr int kMaxDeviceInputs = 128;
-    constexpr int kMaxDeviceOutputs = 8;
+    constexpr int kMaxDeviceOutputs = kMaxOutputs;
 
     inline void addScaled (float* dest, const float* src, float g, int n) noexcept
     {
@@ -199,9 +199,18 @@ void MixEngine::applyParameters (const MixParameters& p) noexcept
         params.mix = 1.0f;
         params.bypassAll = false;
         slot.chain.setParameters (params);
+        slot.chain.setTempo (double (p.tempoBpm));   // a synced delay is only in time if the tempo is
         slot.returnGain.setTarget (fp.enabled && ! p.bypassProcessing && graph.fxUsed[size_t (f)] ? dbToGain (fp.returnDb) : 0.0f);
         if (! haveApplied) slot.returnGain.snapToTarget();
     }
+}
+
+void MixEngine::setOutputFeeds (const OutputFeeds& f)
+{
+    auto& slot = feedMailbox.beginWrite();
+    slot = f;
+    slot.count = clamp (slot.count, 1, kMaxOutputFeeds);
+    feedMailbox.publish();
 }
 
 void MixEngine::process (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples) noexcept
@@ -214,6 +223,13 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
         applied = mailbox.acquire();
         applyParameters (applied);
     }
+    if (feedMailbox.hasNew())
+    {
+        appliedFeeds = feedMailbox.acquire();
+        // Resolve the levels once here, so the block itself is only multiplies.
+        for (int f = 0; f < kMaxOutputFeeds; ++f)
+            feedGain[size_t (f)] = dbToGain (clamp (appliedFeeds.feeds[size_t (f)].gainDb, -60.0f, 12.0f));
+    }
 
     if (numInputs > kMaxDeviceInputs) numInputs = kMaxDeviceInputs;
     if (numOutputs > kMaxDeviceOutputs) numOutputs = kMaxDeviceOutputs;
@@ -224,7 +240,8 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
     {
         const int n = std::min (maxBlock, numSamples - offset);
         for (int i = 0; i < numInputs; ++i) in[size_t (i)] = inputs[i] + offset;
-        for (int o = 0; o < numOutputs; ++o) out[size_t (o)] = outputs[o] + offset;
+        // A device can hand us a null pointer for a channel it is not really driving.
+        for (int o = 0; o < numOutputs; ++o) out[size_t (o)] = outputs[o] != nullptr ? outputs[o] + offset : nullptr;
 
         MixTap* t = tap.load (std::memory_order_acquire);
         const bool listening = t != nullptr && t->isActive();
@@ -378,15 +395,59 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
         master.processor.process (masterView);
         if (listening) t->pushMasterOutput (masterView);
 
-        if (numOutputs >= 2)
+        // ---- Outputs: every feed lands on its own pair of device channels ----
+        for (int o = 0; o < numOutputs; ++o)
+            if (out[size_t (o)] != nullptr) std::memset (out[size_t (o)], 0, sizeof (float) * size_t (n));
+
+        const int feeds = clamp (appliedFeeds.count, 1, kMaxOutputFeeds);
+        for (int f = 0; f < feeds; ++f)
         {
-            std::memcpy (out[0], master.ptrs[0], sizeof (float) * size_t (n));
-            std::memcpy (out[1], master.ptrs[1], sizeof (float) * size_t (n));
-            for (int o = 2; o < numOutputs; ++o) std::memset (out[size_t (o)], 0, sizeof (float) * size_t (n));
-        }
-        else if (numOutputs == 1)
-        {
-            for (int k = 0; k < n; ++k) out[0][k] = 0.5f * (master.ptrs[0][k] + master.ptrs[1][k]);
+            const auto& feed = appliedFeeds.feeds[size_t (f)];
+            if (feed.mute) continue;
+
+            // What this feed carries. A group bus is post-processing, so its own fader is
+            // applied here the way the master sum applies it.
+            const float* srcL = nullptr;
+            const float* srcR = nullptr;
+            float gain = feedGain[size_t (f)];
+            if (feed.source == MixBus::Master)
+            {
+                srcL = master.ptrs[0];
+                srcR = master.ptrs[1];
+            }
+            else if (feed.source >= MixBus::Drums && feed.source < MixBus::Master
+                     && graph.busUsed[size_t (feed.source)])
+            {
+                const Bus& bus = buses[size_t (feed.source)];
+                srcL = bus.ptrs[0];
+                srcR = bus.ptrs[1];
+                gain *= bus.gain.getCurrent();
+            }
+            if (srcL == nullptr) continue;
+
+            const int l = feed.left, r = feed.right;
+            const bool hasL = l >= 0 && l < numOutputs && out[size_t (l)] != nullptr;
+            const bool hasR = r >= 0 && r < numOutputs && out[size_t (r)] != nullptr;
+            if (! hasL && ! hasR) continue;
+
+            if (feed.mono || (hasL != hasR))
+            {
+                const float half = gain * 0.5f;
+                for (int k = 0; k < n; ++k)
+                {
+                    const float mono = (srcL[k] + srcR[k]) * half;
+                    if (hasL) out[size_t (l)][k] += mono;
+                    if (hasR && r != l) out[size_t (r)][k] += mono;
+                }
+            }
+            else
+            {
+                for (int k = 0; k < n; ++k)
+                {
+                    out[size_t (l)][k] += srcL[k] * gain;
+                    out[size_t (r)][k] += srcR[k] * gain;
+                }
+            }
         }
     }
 

@@ -13,7 +13,7 @@ namespace livemix
 {
 
 // The screen after setup: mix health and TUNE MIX, the five group strips with their
-// meters, the five macros, and every input on a rail down the right. While DINELIVE
+// meters, the five macros, and every input on a rail down the right. While DLIVE
 // listens, and again when the plan is ready, a sheet drops from under the toolbar.
 class MixPage : public juce::Component
 {
@@ -22,9 +22,15 @@ public:
     ~MixPage() override;
 
     std::function<void()> onOpenAdvanced;
+    std::function<void (int strip)> onTuneStrip;      // TUNE CHANNEL, from the input rail
     std::function<void (const juce::String&)> onToast;
 
     void refresh();                    // 30 Hz: meters, stage, health
+
+    // The input rail folds away when the mix, not the list, is what you are working on.
+    void setRailShown (bool);
+    bool isRailShown() const noexcept { return railShown; }
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -41,9 +47,10 @@ private:
 
     struct Layout
     {
-        juce::Rectangle<int> health, tune, groups, macros, rail;
+        juce::Rectangle<int> health, tune, groups, macros, rail, railTab;
     };
     Layout layout() const;
+    int railWidth() const noexcept { return railShown ? Dine::Metric::rail : Dine::Metric::panelTab; }
     void refreshTuneButton();
     void rebuildRail();
 
@@ -55,6 +62,8 @@ private:
     std::vector<std::unique_ptr<InputRow>> inputRows;
     juce::Viewport railView;
     juce::Component railHolder;
+    std::unique_ptr<DinePanelTab> railTab;
+    bool railShown = true;
     DineButton tuneButton { "TUNE MIX", DineButton::Style::Filled };
     DineButton advancedButton { "Open Advanced", DineButton::Style::Standard };
     DineButton resetMacrosButton { "Reset all", DineButton::Style::Ghost };

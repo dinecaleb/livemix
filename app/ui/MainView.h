@@ -7,6 +7,8 @@
 #include "SetupPages.h"
 #include "TracksPage.h"
 #include "MixerPage.h"
+#include "OutputsSheet.h"
+#include "ChannelTuneSheet.h"
 #include "MixPage.h"
 #include "LivePage.h"
 #include "AdvancedPage.h"
@@ -16,8 +18,8 @@ namespace livemix
 {
 
 // The window: a vibrancy sidebar (Library / Set up / Workspace and the device's state), a
-// unified toolbar (the session's name and its menu, the workspace tabs, the output), one
-// page under it and the transport along the foot.
+// unified toolbar (the session's name and its menu, the transport and its clock, the
+// workspace tabs, the output) and one page under it, which ends in its own chain strip.
 //
 // Setup runs Device -> Inputs -> Purpose once; after that the four workspaces —
 // TRACKS, MIXER, TUNE, LIVE — are four views of the same session, never four states.
@@ -37,7 +39,20 @@ public:
     // The macOS menu bar. The application attaches it; the headless snapshot tool does not.
     juce::MenuBarModel* getMenuModel();
 
+    // Space: the sidebar and a workspace's own side panels fold away, so the middle - the
+    // timeline, the console, the channel and its chain - can have the window when it needs it.
+    void setSidebarShown (bool);
+    bool isSidebarShown() const noexcept { return sidebarShown; }
+    void togglePanel (bool left);            // the panel on that side of whatever page you are on
+
     void openMixerWindow();
+    void showOutputs();                   // the Outputs sheet: where the sound leaves this Mac
+
+    // TUNE CHANNEL: one source listened to and tuned on its own, from wherever it was
+    // clicked. The sheet drops over the workspace you are on - the console keeps playing
+    // behind it - and KEEP / REVERT decide what happens to that channel.
+    void tuneChannel (int strip, const MixController::ListenSettings& listen = MixController::channelListen());
+    int selectedChannel() const;          // the channel the current workspace has picked out, or -1
     void setBypass (bool on);
 
     DevicePage& getDevicePage() { return *devicePage; }
@@ -59,6 +74,7 @@ private:
     class SessionButton;
     class Menu;
     class ToolbarToggle;
+    class SidebarButton;
     class MixerWindow;
 
     void timerCallback() override;
@@ -66,6 +82,7 @@ private:
     void handleCommand (int id);
     void enterSession();
     void updateChrome();
+    void paintSidebar (juce::Graphics&);
     void saveAs();
     void saveNow();
     void newSession();
@@ -77,7 +94,9 @@ private:
     void timelineChanged();
     bool liveSafeBlocks (const juce::String& what);
     juce::Rectangle<int> contentBounds() const;
-    juce::Rectangle<int> transportBounds() const;
+    int sidebarWidth() const noexcept { return sidebarShown ? Dine::Metric::sidebar : 0; }
+    juce::String panelName (bool left) const;   // what this page calls that panel ("" = it has none)
+    bool panelShown (bool left) const;
 
     MixController& controller;
     AppServices& services;
@@ -90,6 +109,8 @@ private:
     std::unique_ptr<PurposePage> purposePage;
     std::unique_ptr<TracksPage> tracksPage;
     std::unique_ptr<MixerPage> mixerPage;
+    std::unique_ptr<OutputsSheet> outputsSheet;
+    std::unique_ptr<ChannelTuneSheet> channelSheet;
     std::unique_ptr<MixPage> mixPage;
     std::unique_ptr<LivePage> livePage;
     std::unique_ptr<AdvancedPage> advancedPage;
@@ -98,6 +119,7 @@ private:
     std::unique_ptr<SessionButton> sessionButton;
     std::unique_ptr<Menu> menu;
     std::unique_ptr<ToolbarToggle> bypassButton;
+    std::unique_ptr<SidebarButton> sidebarButton;
     std::unique_ptr<MixerWindow> mixerWindow;
 
     // Sidebar: Sessions, then the three setup steps, then the workspaces.
@@ -112,6 +134,7 @@ private:
 
     int saveTicks = 0, toastTicks = 0;
     bool audioWasRunning = false;
+    bool sidebarShown = true;
 };
 
 } // namespace livemix

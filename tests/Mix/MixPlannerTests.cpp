@@ -4,6 +4,7 @@
 #include "Mix/OfflineCapture.h"
 #include "Mix/MixPlanner.h"
 #include "Profiles/MixProfileData.h"
+#include "FX/FxProfiles.h"
 #include <cstdio>
 #include <random>
 
@@ -136,6 +137,58 @@ namespace
     }
 }
 
+TEST_CASE ("MixPlanner: the listen finds the tempo, and the delays and reverb tails are fitted to it")
+{
+    // The synthetic band plays its kick and snare on a 0.5 s pulse: 120 BPM, known exactly. The engine
+    // starts from a deliberately wrong tempo so the planner has to measure it rather than agree by default.
+    Rig rig (band());
+    auto in = bandAudio();
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    auto ctx = rig.context (cap);
+    ctx.current.tempoBpm = 150.0f;
+    ctx.atCapture.tempoBpm = 150.0f;
+    const auto plan = MixPlanner::plan (ctx);
+    REQUIRE (plan.valid);
+
+    // A live console has no host play head, so without this every tempo-synced delay runs at whatever the
+    // engine was left at and sits out of time with the band.
+    CHECK_NEAR (plan.proposed.tempoBpm, 120.0f, 6.0f);
+    CHECK (hasRelationship (plan, "Delays timed to the song"));
+
+    // Reverb tails are fitted to the song: shortened toward the profile's beat count, never past the
+    // effect's own character, and never gutted.
+    const float secondsPerBeat = 60.0f / plan.proposed.tempoBpm;
+    bool fittedOne = false;
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+    {
+        if (! ctx.graph.fxUsed[size_t (f)]) continue;
+        const auto& fx = plan.proposed.fx[size_t (f)];
+        const float character = FxProfiles::baseline (StyleProfileId::ModernGospel, ctx.graph.fxType[size_t (f)]).reverbDecayS;
+        const float beats = MixProfile::reverbBeats (StyleProfileId::ModernGospel, FxSlot (f));
+        if (beats <= 0.0f || ! fx.fx.reverbEnabled) continue;
+        CHECK (fx.fx.reverbDecayS <= character + 0.01f);            // the profile's decay stays the ceiling
+        CHECK (fx.fx.reverbDecayS >= 0.5f * character - 0.01f);     // ... and it is never gutted
+        CHECK_NEAR (fx.fx.reverbDecayS, std::max (std::min (beats * secondsPerBeat, character), 0.5f * character), 0.05f);
+        fittedOne = true;
+    }
+    CHECK (fittedOne);
+
+    // A held note or an open room microphone has no rhythm to read: only sources that play one vote.
+    for (const auto& sp : plan.strips)
+        if (sp.heard && roleFamily (sp.role) == RoleFamily::Speech)
+            CHECK (cap.strips[size_t (sp.strip)].transientsPerSecond < 0.5f);   // the pastor's spill is not a voter
+
+    // Planning again on the same listen lands on the same tempo and the same tails.
+    MixPlanContext again = ctx;
+    again.current = plan.proposed;
+    const auto second = MixPlanner::plan (again);
+    REQUIRE (second.valid);
+    CHECK_NEAR (second.proposed.tempoBpm, plan.proposed.tempoBpm, 0.01f);
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+        CHECK_NEAR (second.proposed.fx[size_t (f)].fx.reverbDecayS, plan.proposed.fx[size_t (f)].fx.reverbDecayS, 0.01f);
+}
+
 TEST_CASE ("MixPlanner: one listen tunes every source, balances the faders and reasons about the mix as a whole")
 {
     Rig rig (band());
@@ -159,15 +212,28 @@ TEST_CASE ("MixPlanner: one listen tunes every source, balances the faders and r
     for (const auto& s : plan.strips)
         if (s.heard) CHECK (s.tune.valid);
 
-    // Balance: every heard source's fader is fitted from its processed peak to the profile's mix level, inside bounds.
+    // Balance: every heard source's fader is fitted from how loud it is while it plays to the profile's
+    // mix level, held under the peak ceiling, and inside bounds.
     const auto& R = MixProfile::relationships (StyleProfileId::ModernGospel);
     for (const auto& s : plan.strips)
     {
         CHECK (std::fabs (s.faderDb) <= R.maxFaderMoveDb + 0.01f);
         if (! s.balanced || roleFamily (s.role) == RoleFamily::BackingVocal) continue;
-        const float target = MixProfile::mixLevelTargetDb (StyleProfileId::ModernGospel, roleFamily (s.role));
-        const float effectivePeak = MixPlanner::predictedProcessedPeakDb (ctx, s.strip, plan.proposed.strips[size_t (s.strip)]);
-        const float expected = std::max (-R.maxFaderMoveDb, std::min (R.maxFaderMoveDb, std::round ((target - effectivePeak) * 2.0f) * 0.5f));
+        const RoleFamily f = roleFamily (s.role);
+        const auto& proposed = plan.proposed.strips[size_t (s.strip)];
+        const float target = MixProfile::mixLevelTargetDb (StyleProfileId::ModernGospel, f);
+        const float level = MixPlanner::predictedProcessedActiveRmsDb (ctx, s.strip, proposed);
+        const float peak = MixPlanner::predictedProcessedPeakDb (ctx, s.strip, proposed);
+        float expected = std::round ((target - level) * 2.0f) * 0.5f;
+        expected = std::min (expected, std::round ((MixProfile::stripPeakCeilingDb (StyleProfileId::ModernGospel) - peak) * 2.0f) * 0.5f);
+        // A drum close microphone hears the rest of the kit, so the balance only lifts one so far.
+        const bool closeMic = f == RoleFamily::Kick || f == RoleFamily::Snare || f == RoleFamily::Tom || f == RoleFamily::HiHat;
+        if (closeMic)
+        {
+            const float gainRaise = std::max (s.inputGainDb - ctx.atCapture.strips[size_t (s.strip)].inputGainDb, 0.0f);
+            expected = std::min (expected, std::max (std::round ((R.maxCloseMicRaiseDb - gainRaise) * 2.0f) * 0.5f, 0.0f));
+        }
+        expected = std::max (-R.maxFaderMoveDb, std::min (R.maxFaderMoveDb, expected));
         CHECK_NEAR (s.faderDb, expected, 0.01f);
     }
     CHECK (stripNamed (plan, "Bass").balanced);
@@ -200,8 +266,20 @@ TEST_CASE ("MixPlanner: one listen tunes every source, balances the faders and r
     CHECK_NEAR (plan.proposed.strips[size_t (stripIndex (plan, "Tom L"))].sendDb[size_t (FxSlot::DrumRoom)],
                 MixProfile::defaultSendDb (StyleProfileId::ModernGospel, RoleFamily::Tom, FxSlot::DrumRoom) - R.drumRoomSendCutWithRoomMicsDb, 0.01f);
 
-    // Lead <-> backing vocals: three voices add up, so the group is held behind the lead.
-    CHECK (hasRelationship (plan, "Backing vocals held"));
+    // Lead <-> backing vocals: several voices add up, and however they were fitted the group ends up
+    // behind the lead. Whether that needed a group move (the "held" relationship) or the per-voice level
+    // already put them there depends on how many are singing, so the invariant is what is checked.
+    {
+        const float leadLevel = MixProfile::mixLevelTargetDb (StyleProfileId::ModernGospel, RoleFamily::LeadVocal);
+        int voices = 0;
+        for (const auto& s : plan.strips)
+            if (s.balanced && roleFamily (s.role) == RoleFamily::BackingVocal) ++voices;
+        REQUIRE (voices >= 2);
+        const float group = MixProfile::mixLevelTargetDb (StyleProfileId::ModernGospel, RoleFamily::BackingVocal)
+                          + 10.0f * std::log10 (float (voices));
+        CHECK (group <= leadLevel - R.backingGroupBelowLeadDb + 0.01f);
+        CHECK (hasRelationship (plan, "Backing vocals held") || hasRelationship (plan, "Lead vocal stays in front"));
+    }
     CHECK (stripNamed (plan, "Vox 1").faderDb < stripNamed (plan, "Lead").faderDb);
 
     // Input gain: a hot kick (-3 dBFS) is brought down, quiet overheads (-26 dBFS) are brought up, both bounded.

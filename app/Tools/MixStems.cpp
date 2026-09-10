@@ -1,7 +1,7 @@
-// DINELIVE offline success test: a folder of recorded stems goes through the complete
+// DLIVE offline success test: a folder of recorded stems goes through the complete
 // standalone pipeline with no audio device and no UI.
 //
-//   dinelive_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dinelive-out] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording]
+//   dlive_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dlive-out] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording]
 //
 // 1. Files are assigned to sources by name (kick, snare, tom, drums/oh, room, bass, keys, lead, vox, pastor ...).
 // 2. RoutingGraph builds the buses and returns; the engine starts on the profile baselines.
@@ -94,12 +94,12 @@ int main (int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::printf ("usage: dinelive_mix_stems <stems folder> [seconds=30] [outdir] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording]\n");
+        std::printf ("usage: dlive_mix_stems <stems folder> [seconds=30] [outdir] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording]\n");
         return 2;
     }
     const juce::File folder { juce::String (argv[1]) };
     const float seconds = argc > 2 ? juce::String (argv[2]).getFloatValue() : 30.0f;
-    const juce::File outDir = argc > 3 ? juce::File (juce::String (argv[3])) : folder.getChildFile ("dinelive-out");
+    const juce::File outDir = argc > 3 ? juce::File (juce::String (argv[3])) : folder.getChildFile ("dlive-out");
     const StyleProfileId profile = argc > 4 && juce::String (argv[4]).containsIgnoreCase ("worship") ? StyleProfileId::ModernWorship : StyleProfileId::ModernGospel;
     const double offsetArg = argc > 5 ? juce::String (argv[5]).getDoubleValue() : -1.0;
     MixPurpose purpose = MixPurpose::ChurchBroadcast;
@@ -186,7 +186,7 @@ int main (int argc, char** argv)
         }
     }
     const int numSamples = int (std::min (juce::int64 (seconds * sr), length - start));
-    std::printf ("DINELIVE mix of %s\n%d stems, %.0f Hz, window %.1f s from %.1f s, %s, %s\n\n", folder.getFileName().toRawUTF8(), int (open.size()), sr,
+    std::printf ("DLIVE mix of %s\n%d stems, %.0f Hz, window %.1f s from %.1f s, %s, %s\n\n", folder.getFileName().toRawUTF8(), int (open.size()), sr,
                  double (numSamples) / sr, double (start) / sr, styleProfileName (profile), mixPurposeName (purpose));
 
     // ---- 3. Session: one input per mono stem, two per stereo stem ----
@@ -258,9 +258,9 @@ int main (int argc, char** argv)
     for (const auto& sp : plan.strips)
     {
         const auto& a = listened.strips[size_t (sp.strip)];
-        std::printf ("  %-14s %-16s %s  peak %5.1f  hits %5.1f  floor %6.1f  quiet %3.0f%%  fund %4.0f Hz  gain %+5.1f  fader %+5.1f dB\n", sp.name.c_str(), channelRoleName (sp.role),
-                     sp.heard ? "heard  " : sp.faint ? "FAINT  " : "SILENT ", double (a.peakDb), double (a.hitLevelDb), double (a.noiseFloorDb), double (a.silencePercent),
-                     double (a.fundamentalHz), double (sp.inputGainDb), double (sp.faderDb));
+        std::printf ("  %-14s %-16s %s  peak %5.1f  hits %5.1f  active %5.1f  event %5.1f (%d)  floor %6.1f  quiet %3.0f%%  fund %4.0f Hz  bpm %5.1f/%.2f  gain %+5.1f  fader %+5.1f dB\n", sp.name.c_str(), channelRoleName (sp.role),
+                     sp.heard ? "heard  " : sp.faint ? "FAINT  " : "SILENT ", double (a.peakDb), double (a.hitLevelDb), double (a.activeRmsDb), double (a.eventLevelDb), a.eventCount, double (a.noiseFloorDb), double (a.silencePercent),
+                     double (a.fundamentalHz), double (a.tempoBpm), double (a.tempoConfidence), double (sp.inputGainDb), double (sp.faderDb));
         if (! sp.heard) { for (const auto& item : sp.mixItems) std::printf ("      * %s\n", item.what.c_str()); continue; }
         std::printf ("      %s\n", sp.tune.headline.c_str());
         for (const auto& item : sp.tune.report.items)
