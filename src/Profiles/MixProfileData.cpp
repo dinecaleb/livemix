@@ -170,6 +170,9 @@ const Relationships& relationships (StyleProfileId profile)
         r.busBelowVocalsDb[size_t (MixBus::Bass)]   = -3.0f;
         r.busBelowVocalsDb[size_t (MixBus::Music)]  = -5.0f;
         r.busBelowVocalsDb[size_t (MixBus::Vocals)] = 0.0f;
+        // The spoken word is the reason the room is there: when the pastor is on, the speech
+        // group sits level with the singing group, never under it.
+        r.busBelowVocalsDb[size_t (MixBus::Speech)] = 0.0f;
         r.busBelowVocalsDb[size_t (MixBus::Master)] = 0.0f;
         return r;
     }();

@@ -21,7 +21,7 @@ namespace livemix
 // Version 1 documents (a single file, no timeline) still open.
 namespace SessionStore
 {
-    inline constexpr int kVersion = 2;
+    inline constexpr int kVersion = 3;   // 3 added the SPEECH group bus between VOCALS and MASTER
 
     struct Document
     {

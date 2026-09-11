@@ -368,6 +368,22 @@ void MixController::setBusMute (MixBus bus, bool mute)
     if (onMixChanged) onMixChanged();
 }
 
+void MixController::setFxReturn (float db)
+{
+    kept.fxReturnDb = clamp (db, -60.0f, 12.0f);
+    if (plan && stage == Stage::Preview) plan->proposed.fxReturnDb = kept.fxReturnDb;
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::setFxMute (bool mute)
+{
+    kept.fxMute = mute;
+    if (plan && stage == Stage::Preview) plan->proposed.fxMute = mute;
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
 void MixController::setBusSolo (MixBus bus, bool solo)
 {
     if (bus == MixBus::Master || bus == MixBus::Count) return;

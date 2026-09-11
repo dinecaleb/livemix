@@ -11,7 +11,7 @@ namespace livemix
 
 // LIVE: the view for the service itself. Once the mix is built, nobody should have to
 // watch forty processors — only what matters while it is happening: is it recording, is
-// the output going out, is anything clipping, and the five faders anyone might touch.
+// the output going out, is anything clipping, and the group faders anyone might touch.
 // LIVE SAFE locks away everything that could change the sound by accident.
 class LivePage : public juce::Component
 {
@@ -36,7 +36,9 @@ private:
 
     MixController& controller;
     AppServices& services;
-    std::array<std::unique_ptr<GroupFader>, int (MixBus::Count)> faders;
+    // One tile per group bus, then the effects returns as one more: DRUMS BASS MUSIC VOCALS
+    // SPEECH MASTER FX.
+    std::array<std::unique_ptr<GroupFader>, int (MixBus::Count) + 1> faders;
     DineButton liveSafeButton { "LIVE SAFE", DineButton::Style::Standard };
     std::unique_ptr<RecordKey> recordButton;
     int health = 0;

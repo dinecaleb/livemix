@@ -32,17 +32,11 @@ namespace
         return "in " + juce::String (s.inputA + 1);
     }
 
+    // The rail is read against a dark ground, so the master is drawn in full ink here; every
+    // group keeps the colour it has everywhere else.
     juce::Colour busTint (MixBus b) noexcept
     {
-        switch (b)
-        {
-            case MixBus::Drums:  return Dine::warn;
-            case MixBus::Bass:   return Dine::accent;
-            case MixBus::Music:  return juce::Colour (0xff8fa2d8);
-            case MixBus::Vocals: return Dine::ok;
-            case MixBus::Master: return Dine::ink;
-            default:             return Dine::ink2;
-        }
+        return b == MixBus::Master ? Dine::ink : Dine::busTint (b);
     }
 
     // "DRUMS" -> "Drums": capitals are kept for the product verbs and the small labels.
@@ -169,6 +163,7 @@ public:
         {
             s.setSliderStyle (juce::Slider::LinearHorizontal);
             s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+            Dine::dragOnly (s);
             s.setRange (lo, hi, 0.5);
             s.setDoubleClickReturnValue (true, def);
         };
@@ -487,6 +482,7 @@ public:
         addAndMakeVisible (revertAll);
 
         view.setViewedComponent (&list, false);
+        Dine::nativeScrolling (view);
         view.setScrollBarsShown (true, false);
         addAndMakeVisible (view);
     }
@@ -799,6 +795,7 @@ private:
 AdvancedPage::AdvancedPage (MixController& c) : controller (c)
 {
     viewport.setViewedComponent (&listHolder, false);
+    Dine::nativeScrolling (viewport);
     viewport.setScrollBarsShown (true, false);
     addAndMakeVisible (viewport);
 

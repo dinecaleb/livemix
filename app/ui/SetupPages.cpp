@@ -26,17 +26,7 @@ namespace
     using Dine::roleGroups;
     using Dine::friendlyRoleName;
 
-    juce::Colour busColour (MixBus b) noexcept
-    {
-        switch (b)
-        {
-            case MixBus::Drums:  return Dine::warn;
-            case MixBus::Bass:   return Dine::accent;
-            case MixBus::Music:  return juce::Colour (0xff8fa2d8);
-            case MixBus::Vocals: return Dine::ok;
-            default:             return Dine::ink2;
-        }
-    }
+    juce::Colour busColour (MixBus b) noexcept { return Dine::busTint (b); }
 }
 
 // ============================================================================ DevicePage
@@ -83,6 +73,7 @@ public:
 DevicePage::DevicePage (MixController& c, AppServices& s) : controller (c), services (s)
 {
     viewport.setViewedComponent (&listHolder, false);
+    Dine::nativeScrolling (viewport);
     viewport.setScrollBarsShown (true, false);
     addAndMakeVisible (viewport);
     addAndMakeVisible (outputButton);
@@ -452,6 +443,7 @@ private:
 AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), services (s)
 {
     viewport.setViewedComponent (&listHolder, false);
+    Dine::nativeScrolling (viewport);
     viewport.setScrollBarsShown (true, false);
     addAndMakeVisible (viewport);
     addAndMakeVisible (continueButton);

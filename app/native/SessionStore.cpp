@@ -97,7 +97,23 @@ namespace
             fx.add (juce::var (fo));
         }
         obj->setProperty ("fx", fx);
+        obj->setProperty ("fxReturnDb", m.fxReturnDb);
+        obj->setProperty ("fxMute", m.fxMute);
         return juce::var (obj);
+    }
+
+    // Version 3 gave speaking microphones their own group, inserted between VOCALS and MASTER,
+    // so every bus index above VOCALS moved up by one. The stored array says which layout it
+    // was written in - five group slots is the old one, where the last slot was the master -
+    // and a session written then opens with its master on the master and an empty speech group.
+    constexpr int kBusCountBeforeSpeech = int (MixBus::Count) - 1;
+
+    MixBus busFromStoredIndex (int stored, int storedBusCount) noexcept
+    {
+        if (stored < 0) return MixBus::Master;
+        if (storedBusCount == kBusCountBeforeSpeech && stored >= int (MixBus::Speech))
+            ++stored;                                    // the old master, and anything past it
+        return stored < int (MixBus::Count) ? MixBus (stored) : MixBus::Master;
     }
 
     void mixFromVar (const juce::var& v, MixParameters& m)
@@ -127,11 +143,16 @@ namespace
             {
                 auto* bo = buses->getReference (b).getDynamicObject();
                 if (bo == nullptr) continue;
-                channelFromVar (bo->getProperty ("channel"), m.buses[size_t (b)].channel);
-                m.buses[size_t (b)].faderDb = float (double (bo->getProperty ("faderDb")));
-                m.buses[size_t (b)].mute = bool (bo->getProperty ("mute"));
-                m.buses[size_t (b)].solo = bool (bo->getProperty ("solo"));
+                auto& bus = m.buses[size_t (busFromStoredIndex (b, buses->size()))];
+                channelFromVar (bo->getProperty ("channel"), bus.channel);
+                bus.faderDb = float (double (bo->getProperty ("faderDb")));
+                bus.mute = bool (bo->getProperty ("mute"));
+                bus.solo = bool (bo->getProperty ("solo"));
             }
+        // The FX group's own fader and mute: a session saved before it existed has neither, and
+        // 0 dB / not muted is exactly what it sounded like.
+        if (obj->hasProperty ("fxReturnDb")) m.fxReturnDb = juce::jlimit (-60.0f, 12.0f, float (double (obj->getProperty ("fxReturnDb"))));
+        m.fxMute = bool (obj->getProperty ("fxMute"));
         if (auto* fx = obj->getProperty ("fx").getArray())
             for (int f = 0; f < std::min (int (FxSlot::Count), fx->size()); ++f)
             {
@@ -289,6 +310,7 @@ bool fromVar (const juce::var& v, Document& d)
     // Sessions written before the app was renamed say DINELIVE; they are the same document.
     const juce::String app = obj == nullptr ? juce::String() : obj->getProperty ("app").toString();
     if (app != "DLIVE" && app != "DINELIVE") return false;
+    const int fileVersion = obj->hasProperty ("version") ? int (obj->getProperty ("version")) : 1;
     d = Document {};
     d.session.name = obj->getProperty ("name").toString().toStdString();
     d.session.profile = styleProfileFromIndex (int (obj->getProperty ("profile")));
@@ -328,8 +350,10 @@ bool fromVar (const juce::var& v, Document& d)
             auto& f = d.outputs.feeds[size_t (n)];
             f.left = int (fo->getProperty ("left"));
             f.right = int (fo->getProperty ("right"));
-            const int src = int (fo->getProperty ("source"));
-            f.source = src >= 0 && src < int (MixBus::Count) ? MixBus (src) : MixBus::Master;
+            // Before version 3 there was no speech group, so a feed's source index above
+            // VOCALS meant one bus lower than it does now.
+            f.source = busFromStoredIndex (int (fo->getProperty ("source")),
+                                           fileVersion < 3 ? kBusCountBeforeSpeech : int (MixBus::Count));
             f.gainDb = float (double (fo->getProperty ("gainDb")));
             f.mute = bool (fo->getProperty ("mute"));
             f.mono = bool (fo->getProperty ("mono"));

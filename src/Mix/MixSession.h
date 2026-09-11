@@ -13,9 +13,15 @@ inline constexpr int kMaxInputs = 64;   // device input channels DLIVE will look
 inline constexpr int kMaxStrips = 64;   // assigned inputs (a stereo pair is one strip)
 
 // The internal buses DLIVE builds on its own. The user never creates them.
-enum class MixBus : int { Drums = 0, Bass, Music, Vocals, Master, Count };
+// The group buses, in the order a console reads left to right, then the master. SPEECH is
+// its own group and never sits inside VOCALS: a preaching microphone is not a singer - it is
+// levelled, muted and sent somewhere else at different moments of a service, and an operator
+// has to be able to find it and move it without touching the singers. Everything that walks
+// the group buses uses `b < int (MixBus::Master)`, so the order here is what the mixer bands,
+// the TUNE meters, the LIVE tiles and the output feeds all follow.
+enum class MixBus : int { Drums = 0, Bass, Music, Vocals, Speech, Master, Count };
 
-inline constexpr std::array<const char*, int (MixBus::Count)> kMixBusNames { "DRUMS", "BASS", "MUSIC", "VOCALS", "MASTER" };
+inline constexpr std::array<const char*, int (MixBus::Count)> kMixBusNames { "DRUMS", "BASS", "MUSIC", "VOCALS", "SPEECH", "MASTER" };
 inline constexpr const char* mixBusName (MixBus b) noexcept
 {
     const int i = int (b);
@@ -107,8 +113,8 @@ inline constexpr MixBus mixBusForFamily (RoleFamily f) noexcept
         case RoleFamily::LeadVocal:
         case RoleFamily::BackingVocal:
         case RoleFamily::Choir:
-        case RoleFamily::Speech:
         case RoleFamily::VocalBus:       return MixBus::Vocals;
+        case RoleFamily::Speech:         return MixBus::Speech;
         case RoleFamily::Master:         return MixBus::Master;
         case RoleFamily::Piano:
         case RoleFamily::ElectricPiano:
@@ -133,6 +139,10 @@ inline constexpr ChannelRole busRole (MixBus b, MixPurpose purpose) noexcept
         case MixBus::Bass:   return ChannelRole::BassBus;
         case MixBus::Music:  return ChannelRole::KeysBus;
         case MixBus::Vocals: return ChannelRole::VocalBus;
+        // The speech group is still a bus of voices: it takes the vocal bus baseline (gentle
+        // glue, light tone), not the speech *channel* chain - the de-essing, the boom cut and
+        // the presence lift were already done on the microphone itself.
+        case MixBus::Speech: return ChannelRole::VocalBus;
         case MixBus::Master:
         default:             return masterRoleFor (purpose);
     }

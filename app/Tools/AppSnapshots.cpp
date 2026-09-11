@@ -357,6 +357,25 @@ int main (int argc, char** argv)
     rig.snap (dir, "15f-mixer-bypass");
     view.setBypass (false);
 
+    // ---- the console in its own window at its smallest (MixerWindow::setResizeLimits is
+    // 720 x 420): no sidebar, no "Open in a window", and the sub-toolbar has to give way -
+    // the hint first, then the count - rather than write the session's name under a button.
+    {
+        view.setSidebarShown (false);
+        view.getMixerPage().setWindowButtonVisible (false);
+        rig.view->setSize (720, 460);
+        rig.feed (0.3);
+        rig.snap (dir, "26-mixer-window-min");
+        view.getMixerPage().setView (MixerPage::View::List);
+        rig.feed (0.3);
+        rig.snap (dir, "26b-mixer-window-min-list");
+        view.getMixerPage().setView (MixerPage::View::Strips);
+        view.getMixerPage().setWindowButtonVisible (true);
+        rig.view->setSize (1520, 960);
+        view.setSidebarShown (true);
+        rig.feed (0.3);
+    }
+
     view.showPage (MainView::Page::Tune);
     view.getMixPage().setRailShown (false);
     rig.feed (0.3);

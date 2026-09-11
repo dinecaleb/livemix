@@ -23,18 +23,12 @@ namespace
     constexpr int kMaxUndo = 40;
     constexpr int kSnapPixels = 9;
 
-    // The same four group colours the mixer bands with, so one session reads the same way
-    // in both workspaces.
+    // The same group colours the mixer bands with, so one session reads the same way in both
+    // workspaces - a speaking microphone included.
     juce::Colour laneColourFor (ChannelRole role)
     {
-        switch (mixBusForRole (role))
-        {
-            case MixBus::Drums:  return Dine::warn;
-            case MixBus::Bass:   return Dine::accent;
-            case MixBus::Music:  return juce::Colour (0xff8fa2d8);
-            case MixBus::Vocals: return Dine::ok;
-            default:             return Dine::ink3;
-        }
+        const auto bus = mixBusForRole (role);
+        return bus == MixBus::Master ? Dine::ink3 : Dine::busTint (bus);
     }
 
     // The same throw as the mixer's faders (-60 .. +12 dB, the useful half given the room),

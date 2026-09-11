@@ -124,6 +124,11 @@ public:
     void setBusFader (MixBus bus, float db);
     void setBusMute (MixBus bus, bool mute);
     void setBusSolo (MixBus bus, bool solo);
+    // The effects returns as one group. There is nothing to solo a return against, so the
+    // group has a fader and a mute and no more: "take the reverb out for the sermon" is one
+    // press, and the level TUNE MIX chose for each return is left where it is.
+    void setFxReturn (float db);
+    void setFxMute (bool mute);
     // The chain itself (the Inspector's stage controls): the whole ChannelParameters at
     // once, the way the engine takes it. A hand edit lives on the kept mix beside the
     // faders, so it survives a macro move and is what gets saved; the next TUNE MIX

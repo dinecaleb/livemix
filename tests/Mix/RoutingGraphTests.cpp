@@ -39,7 +39,11 @@ TEST_CASE ("RoutingGraph: every source lands on its bus without the user buildin
     CHECK (g.stripsOnBus (MixBus::Drums) == 6);
     CHECK (g.stripsOnBus (MixBus::Bass) == 1);
     CHECK (g.stripsOnBus (MixBus::Music) == 1);
-    CHECK (g.stripsOnBus (MixBus::Vocals) == 5);
+    // The pastor is not one of the singers: the four voices are on VOCALS, the speaking
+    // microphone has the SPEECH group to itself.
+    CHECK (g.stripsOnBus (MixBus::Vocals) == 4);
+    CHECK (g.stripsOnBus (MixBus::Speech) == 1);
+    CHECK (g.strips[12].bus == MixBus::Speech);
     CHECK (g.stripsOnBus (MixBus::Master) == 0);
     for (int b = 0; b < int (MixBus::Count); ++b) CHECK (g.busUsed[size_t (b)]);
     CHECK (g.strips[4].numChannels() == 2);   // overhead pair
@@ -71,6 +75,7 @@ TEST_CASE ("RoutingGraph: FX returns exist only when something sends to them, an
     CHECK (! d.fxUsed[size_t (FxSlot::VocalPlate)]);
     CHECK (! d.fxUsed[size_t (FxSlot::BgvHall)]);
     CHECK (! d.busUsed[size_t (MixBus::Vocals)]);
+    CHECK (! d.busUsed[size_t (MixBus::Speech)]);   // nobody is speaking: no speech group
     CHECK (d.busUsed[size_t (MixBus::Master)]);
 }
 

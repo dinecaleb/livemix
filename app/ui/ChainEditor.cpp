@@ -794,6 +794,7 @@ public:
     {
         level.setSliderStyle (juce::Slider::LinearHorizontal);
         level.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        Dine::dragOnly (level);
         // The bottom stop is the off detent: the mix stores kSilenceDb, not -60.
         level.setRange (kOffDb, 6.0, 0.5);
         level.setDoubleClickReturnValue (true, kOffDb);
@@ -1396,6 +1397,7 @@ private:
 ChainEditor::ChainEditor (MixController& c) : controller (c)
 {
     controlsView.setViewedComponent (&controlsHolder, false);
+    Dine::nativeScrolling (controlsView);
     controlsView.setScrollBarsShown (true, false);
     addAndMakeVisible (controlsView);
 

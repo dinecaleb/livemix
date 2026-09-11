@@ -477,6 +477,102 @@ TEST_CASE ("Outputs: the routing survives a save and a reload, and an older sess
     folder.deleteRecursively();
 }
 
+TEST_CASE ("SessionStore: the FX group's fader and mute survive, and an older session has neither")
+{
+    const auto folder = scratchFolder().getChildFile ("fx-group-session");
+    folder.deleteRecursively();
+    folder.createDirectory();
+
+    SessionStore::Document d;
+    d.session = band();
+    d.project.syncTracks (d.session);
+    d.hasMix = true;
+    d.mix.numStrips = 4;
+    d.mix.fxReturnDb = -4.5f;
+    d.mix.fxMute = true;
+
+    const auto file = folder.getChildFile ("fx.dlive.json");
+    CHECK (SessionStore::save (d, file));
+
+    SessionStore::Document back;
+    CHECK (SessionStore::load (file, back));
+    CHECK (std::fabs (back.mix.fxReturnDb + 4.5f) < 0.001f);
+    CHECK (back.mix.fxMute);
+
+    // Before the effects had a group fader the document said nothing about one, and "nothing
+    // said" has to mean "exactly as TUNE MIX left it": 0 dB, not muted.
+    auto older = juce::JSON::parse (file.loadFileAsString());
+    if (auto* obj = older.getDynamicObject())
+        if (auto* mix = obj->getProperty ("mix").getDynamicObject())
+        {
+            mix->removeProperty ("fxReturnDb");
+            mix->removeProperty ("fxMute");
+        }
+    const auto olderFile = folder.getChildFile ("older.dlive.json");
+    olderFile.replaceWithText (juce::JSON::toString (older));
+
+    SessionStore::Document legacy;
+    CHECK (SessionStore::load (olderFile, legacy));
+    CHECK (std::fabs (legacy.mix.fxReturnDb) < 0.001f);
+    CHECK (! legacy.mix.fxMute);
+
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("SessionStore: a session written before the speech group keeps its master")
+{
+    const auto folder = scratchFolder().getChildFile ("speech-bus-session");
+    folder.deleteRecursively();
+    folder.createDirectory();
+
+    // Version 2 wrote five buses - DRUMS BASS MUSIC VOCALS MASTER - and named an output feed's
+    // source by that index. SPEECH was inserted before MASTER, so reading such a file straight
+    // through would put the master's fader, mutes and chain on the speech group and leave the
+    // master at its defaults, and send the broadcast feed to the pastor instead of the mix.
+    SessionStore::Document d;
+    d.session = band();
+    d.project.syncTracks (d.session);
+    d.hasMix = true;
+    d.mix.numStrips = 4;
+    d.mix.buses[size_t (MixBus::Vocals)].faderDb = -2.5f;
+    d.mix.buses[size_t (MixBus::Master)].faderDb = -7.5f;
+    d.mix.buses[size_t (MixBus::Master)].mute = true;
+    d.outputs.count = 2;
+    d.outputs.feeds[1].source = MixBus::Master;
+
+    const auto file = folder.getChildFile ("v2.dlive.json");
+    CHECK (SessionStore::save (d, file));
+
+    // Rewrite the document the way version 2 wrote it: five bus slots, master last.
+    auto v2 = juce::JSON::parse (file.loadFileAsString());
+    auto* obj = v2.getDynamicObject();
+    REQUIRE (obj != nullptr);
+    obj->setProperty ("version", 2);
+    if (auto* mix = obj->getProperty ("mix").getDynamicObject())
+        if (auto* buses = mix->getProperty ("buses").getArray())
+        {
+            buses->remove (int (MixBus::Speech));               // the slot that did not exist yet
+            CHECK (buses->size() == int (MixBus::Count) - 1);
+        }
+    if (auto* feeds = obj->getProperty ("outputs").getArray())
+        if (auto* feed = feeds->getReference (1).getDynamicObject())
+            feed->setProperty ("source", int (MixBus::Count) - 2);   // the old MASTER index
+
+    const auto v2File = folder.getChildFile ("written-as-v2.dlive.json");
+    v2File.replaceWithText (juce::JSON::toString (v2));
+
+    SessionStore::Document back;
+    CHECK (SessionStore::load (v2File, back));
+    CHECK (std::fabs (back.mix.buses[size_t (MixBus::Vocals)].faderDb + 2.5f) < 0.001f);
+    CHECK (std::fabs (back.mix.buses[size_t (MixBus::Master)].faderDb + 7.5f) < 0.001f);
+    CHECK (back.mix.buses[size_t (MixBus::Master)].mute);
+    CHECK (std::fabs (back.mix.buses[size_t (MixBus::Speech)].faderDb) < 0.001f);   // a fresh group
+    CHECK (! back.mix.buses[size_t (MixBus::Speech)].mute);
+    CHECK (back.outputs.feeds[1].source == MixBus::Master);
+
+    folder.deleteRecursively();
+}
+
 TEST_CASE ("DawEngine: recording an armed track adds it to the timeline as a clip")
 {
     const auto folder = scratchFolder().getChildFile ("record-session");

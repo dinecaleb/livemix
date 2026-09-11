@@ -656,6 +656,21 @@ MixPlan plan (const MixPlanContext& ctx)
     // The buses come first (Master is last in the enum): what each bus will put out once the faders have moved and its
     // own chain has been re-fitted is predicted, and the master is planned from the sum of those predictions.
     std::array<float, int (MixBus::Count)> busOutShiftDb {};   // change of each bus's output level, listen -> plan
+
+    // A bus is only fitted to what it actually carried. If nothing feeding it was heard playing -
+    // the speech group during a song, a horn section that sat out - the listen measured an empty
+    // bus, and a compressor fitted to silence sits its threshold down near the noise floor and
+    // crushes the group the moment it arrives. That chain is left exactly where it is, and the
+    // plan says to listen again while that group plays. This is the bus-level form of the rule
+    // that already leaves a speech microphone alone when it was only picking up the band.
+    std::array<bool, int (MixBus::Count)> busPlayed {};
+    for (int i = 0; i < n; ++i)
+    {
+        const auto& sp = plan.strips[size_t (i)];
+        if (sp.heard && ! sp.bleedOnly) busPlayed[size_t (ctx.graph.strips[size_t (i)].bus)] = true;
+    }
+    busPlayed[size_t (MixBus::Master)] = true;      // the master carries whatever the buses carried
+
     for (int b = 0; b < int (MixBus::Count); ++b)
     {
         auto& bp = plan.buses[size_t (b)];
@@ -663,6 +678,13 @@ MixPlan plan (const MixPlanContext& ctx)
         bp.used = ctx.graph.busUsed[size_t (b)];
         const auto& a = ctx.capture.buses[size_t (b)];
         if (! bp.used || ! a.valid) continue;
+        if (! busPlayed[size_t (b)])
+        {
+            plan.notes.push_back (std::string (mixBusName (MixBus (b)))
+                                  + ": nothing on this group played during the listen, so its chain was left alone."
+                                    " Tune Mix again while it does.");
+            continue;
+        }
         const bool isMaster = MixBus (b) == MixBus::Master;
         const ChannelRole role = busRole (MixBus (b), ctx.session.purpose);
         TuneContext tc;

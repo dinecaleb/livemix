@@ -52,6 +52,13 @@ struct MixParameters
     // listen finds a tempo.
     float tempoBpm = 120.0f;
 
+    // The effects returns taken as one group, the way a console gives the returns their own
+    // fader: an offset on every used return together, and a mute that takes the effects out of
+    // the mix without disturbing the level TUNE MIX chose for each one. 0 dB and not muted is
+    // "as tuned", so a session that never touched them behaves exactly as before.
+    float fxReturnDb = 0.0f;
+    bool fxMute = false;
+
     // BEFORE: pass every strip and bus through unprocessed (faders, pans and routing
     // stay), returns are silent. The master limiter keeps its delay so latency is constant.
     bool bypassProcessing = false;

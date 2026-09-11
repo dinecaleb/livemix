@@ -53,15 +53,26 @@
   device and the mix: it records the raw inputs, reads the timeline and builds the **input matrix** that
   `MixController::process` receives, so TUNE MIX works the same on live inputs and on recorded material.
   Monitoring has exactly one rule, `monitorUsesLiveInput` in `Project.h` - do not add a second. A session is a
-  folder (`~/Music/DLIVE/<name>/` with `Audio Files/` inside); `SessionStore` is version 2 and still opens
-  version 1. Import a folder of stems with `MultitrackImport` (it becomes tracks and clips - there is no
+  folder (`~/Music/DLIVE/<name>/` with `Audio Files/` inside); `SessionStore` is version 3 and still opens
+  versions 1 and 2. Import a folder of stems with `MultitrackImport` (it becomes tracks and clips - there is no
   separate "play a recording" audio path any more). Export is `MixBounce::renderProject`, streamed to disk.
   App tests for all of this: `build/app/dlive_app_tests` (`app/Tests/DawTests.cpp`).
 - DLIVE standalone (2026-09 pivot; see `docs/ARCHITECTURE-DLIVE.md`): the mix layer lives in `src/Mix`
   (`MixSession`/`RoutingGraph` build buses + returns from assignments; `MixEngine` is the real-time graph, parameters
   arrive whole via `Core/TripleBuffer`; `MixCapture`/`OfflineCapture` listen to every input at once; `MixPlanner` =
   per-strip Tune + input gain + relationships + balance + buses/master; `MixMacros` = the five overview controls, 50 =
-  the plan). Mix-level numbers only in `src/Profiles/MixProfileData.cpp`. The plan must stay idempotent on the same
+  the plan). Mix-level numbers only in `src/Profiles/MixProfileData.cpp`.
+  **The group buses are DRUMS, BASS, MUSIC, VOCALS, SPEECH, then MASTER** (`MixBus`, `src/Mix/MixSession.h`).
+  A speaking microphone is never mixed in with the singers: `RoleFamily::Speech` routes to its own
+  `MixBus::Speech`, which gets its own colour, band, meter, tile and rail section on every workspace
+  (`Dine::busTint` in `app/ui/AppTheme` is the one place that colour is decided - do not re-write the
+  switch per page) and its own row in the ASSIGN list. Everything that walks the group buses uses
+  `b < int (MixBus::Master)`, so a new bus goes in before MASTER. That insertion moved every stored bus
+  index above VOCALS, so `SessionStore` is version 3 and remaps a version <= 2 document's five bus slots
+  and its output-feed sources (`busFromStoredIndex`) - a session saved before the split opens with its
+  master on the master and an empty speech group. A bus chain is only fitted when something feeding it
+  was actually heard playing (`busPlayed` in `MixPlanner`): the speech group is silent through most
+  songs, and a compressor fitted to silence would crush the sermon the moment it arrives. The plan must stay idempotent on the same
   listen (`MixPlannerTests`); every level decision is absolute from the capture, never "current + delta". Faders and
   the master trim are fitted from levels *predicted under the proposed chain* (`MixPlanner::predictedProcessed{Peak,Rms,ActiveRms}Db`,
   compressor model numbers in `MixProfileData`), so one TUNE MIX lands. A fader is fitted from **loudness while the
@@ -97,7 +108,13 @@
   a short strip drops whole sections, in a fixed order, rather than squeezing the fader. There is no per-strip dB
   ruler: the one mark a bank is read against is the 0 dB unity line, drawn across the fader and the meter at the
   same height in every strip (the five group meters on TUNE carry the numbers instead). The console fader is
-  `dineFader` in `DineLookAndFeel::drawLinearSlider`: a dark milled slot and a moulded cap, never a lit track. The master is pinned to the
+  `dineFader` in `DineLookAndFeel::drawLinearSlider`: a dark milled slot and a moulded cap, never a lit track.
+  A fader moves when it is **dragged and at no other time** - a two-finger swipe across a bank of faders is a
+  scroll, not twenty-four small changes to the mix - so every `juce::Slider` in `app/ui` goes through
+  `Dine::dragOnly` (no wheel; the event passes to the surface underneath) and every scrolling surface through
+  `Dine::nativeScrolling`, which sets the step that makes a trackpad swipe travel as far as the fingers do.
+  A `Strip` is opaque, cached as an image and repaints only what moved (`Strip::Look` / `showLook`), so
+  scrolling a 24-input console is a blit rather than twenty-four columns of text redrawn per frame. The master is pinned to the
   right of the bank (it is a child of the page, not the scrolling `Bank`) and carries the LUFS-I / short-term /
   true-peak readout against the -23 target. A click picks a strip out, a double-click opens it in the Inspector.
   It also opens in its own window (View > Open Mixer in a New Window, or the button on the
@@ -206,7 +223,12 @@
   hand) the TRACKS headers, so a mute looks like a mute wherever it is pressed; a muted strip darkens, names itself
   in amber and its meter greys out (`DineMeter::setMuted` keeps reading the signal, so "nothing there" and "not
   heard" never look alike). On LIVE, a muted group tile goes amber and says NOT HEARD, a soloed one says SOLO, and
-  LIVE SAFE fills and reads "LIVE SAFE ON" with a sentence beside it saying what is locked.
+  LIVE SAFE fills and reads "LIVE SAFE ON" with a sentence beside it saying what is locked. LIVE carries a
+  tile per group bus **and one more for the effects returns**: `MixParameters::fxReturnDb` / `fxMute` are the
+  FX group's own fader and mute, folded into the return's gain in the one place `MixEngine` already decides
+  it (so BYPASS and an unused slot still win) and set through `MixController::setFxReturn` / `setFxMute`.
+  0 dB and not muted is "as tuned", which is also what a session saved before they existed reads as. The
+  returns have nothing to solo against, so that tile offers MUTE and no more.
   BYPASS (toolbar, Mix menu, `B`) is `MixController::setBypass`: `compose()` returns `startingPoint()` with
   `bypassProcessing`, carrying only mute and solo across, so you hear the console feed. It never touches the kept
   mix - switch it off and the mix is exactly as it was - and faders are disabled while it is on.

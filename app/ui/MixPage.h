@@ -55,7 +55,8 @@ private:
     void rebuildRail();
 
     MixController& controller;
-    std::array<std::unique_ptr<GroupTile>, 5> groups;      // DRUMS BASS MUSIC VOCALS FX
+    // One tile per group bus, then the FX returns: DRUMS BASS MUSIC VOCALS SPEECH FX.
+    std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 1> groups;
     std::array<std::unique_ptr<MacroSlider>, int (MixMacro::Count)> macros;
     std::unique_ptr<ListenSheet> listenSheet;
     std::unique_ptr<ResultSheet> resultSheet;

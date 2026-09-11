@@ -6,20 +6,21 @@ namespace livemix
 
 namespace
 {
-    const char* kGroupNames[5] = { "Drums", "Bass", "Music", "Vocals", "FX" };
-    const MixBus kGroupBus[5] = { MixBus::Drums, MixBus::Bass, MixBus::Music, MixBus::Vocals, MixBus::Master /* FX: returns */ };
-    const Dine::Icon kGroupIcons[5] = { Dine::Icon::Drum, Dine::Icon::Guitar, Dine::Icon::Piano, Dine::Icon::Mic, Dine::Icon::Fx };
+    // TUNE reads the mix as its groups: every group bus in console order, then the FX returns
+    // as one more tile. Both counts come from MixBus, so a new group bus - SPEECH, when
+    // speaking microphones were taken out of VOCALS - becomes a meter here without being
+    // wired in by hand.
+    constexpr int kGroupBuses = int (MixBus::Master);      // DRUMS BASS MUSIC VOCALS SPEECH
+    constexpr int kGroupTiles = kGroupBuses + 1;           // ... and the returns
+
+    const char* kGroupNames[kGroupTiles] = { "Drums", "Bass", "Music", "Vocals", "Speech", "FX" };
+    const MixBus kGroupBus[kGroupBuses] = { MixBus::Drums, MixBus::Bass, MixBus::Music, MixBus::Vocals, MixBus::Speech };
+    const Dine::Icon kGroupIcons[kGroupTiles] = { Dine::Icon::Drum, Dine::Icon::Guitar, Dine::Icon::Piano,
+                                                  Dine::Icon::Mic, Dine::Icon::Speech, Dine::Icon::Fx };
 
     juce::Colour groupColour (int i) noexcept
     {
-        switch (i)
-        {
-            case 0:  return Dine::warn;
-            case 1:  return Dine::accent;
-            case 2:  return juce::Colour (0xff8fa2d8);
-            case 3:  return Dine::ok;
-            default: return Dine::ink2;
-        }
+        return i >= 0 && i < kGroupBuses ? Dine::busTint (kGroupBus[i]) : Dine::ink2;
     }
 
     constexpr int kMacroRowH = 78;   // name, slider, the two end labels
@@ -73,8 +74,8 @@ public:
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (11.0f));
         g.drawText (! used ? "not in this mix"
-                           : group == 4 ? juce::String (strips) + (strips == 1 ? " return" : " returns")
-                                        : juce::String (strips) + (strips == 1 ? " input" : " inputs"),
+                           : group == kGroupBuses ? juce::String (strips) + (strips == 1 ? " return" : " returns")
+                                                  : juce::String (strips) + (strips == 1 ? " input" : " inputs"),
                     r.removeFromTop (15), juce::Justification::topLeft, true);
 
         if (used)
@@ -137,6 +138,7 @@ public:
     {
         slider.setSliderStyle (juce::Slider::LinearHorizontal);
         slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        Dine::dragOnly (slider);
         slider.setRange (0.0, 100.0, 1.0);
         slider.setValue (50.0, juce::dontSendNotification);
         slider.setDoubleClickReturnValue (true, 50.0);
@@ -278,10 +280,26 @@ public:
         setInterceptsMouseClicks (true, true);
     }
 
+    // The card is as tall as what it holds: the head, a line per group bus, then the foot. It is
+    // computed rather than typed, because the group buses decide it - when SPEECH was added, a
+    // hard-coded height put the fifth line on top of the foot and the Cancel button.
+    static constexpr int kPadX    = 26;
+    static constexpr int kPadY    = 24;
+    static constexpr int kHeadH   = 104;   // the capture ring, and the two lines beside it
+    static constexpr int kHeadGap = 18;
+    static constexpr int kRowH    = 32;
+    static constexpr int kFootGap = 12;
+    static constexpr int kFootH   = 26;
+
+    static constexpr int sheetHeight() noexcept
+    {
+        return kPadY + kHeadH + kHeadGap + kGroupBuses * kRowH + kFootGap + kFootH + kPadY;
+    }
+
     juce::Rectangle<int> sheetBounds() const
     {
         const int w = juce::jmin (480, getWidth() - 40);
-        return juce::Rectangle<int> ((getWidth() - w) / 2, 0, w, 330);
+        return juce::Rectangle<int> ((getWidth() - w) / 2, 0, w, sheetHeight());
     }
 
     void paint (juce::Graphics& g) override
@@ -300,13 +318,13 @@ public:
             g.strokePath (p, juce::PathStrokeType (0.5f));
         }
 
-        auto r = sheetBounds().reduced (26, 24);
+        auto r = sheetBounds().reduced (kPadX, kPadY);
         const bool waiting = controller.isWaitingForBand();
         const bool planning = controller.getStage() == MixController::Stage::Planning;
         const float progress = planning ? 1.0f : controller.getListenProgress();
 
         // ---- the capture ring
-        auto ring = r.removeFromLeft (104).removeFromTop (104).toFloat();
+        auto ring = r.removeFromLeft (kHeadH).removeFromTop (kHeadH).toFloat();   // the head is as tall as the ring
         {
             const float radius = 48.0f, thickness = 5.0f;
             auto centre = ring.getCentre();
@@ -334,7 +352,7 @@ public:
                         juce::Justification::centred);
         }
 
-        auto text = sheetBounds().reduced (26, 24).withTrimmedLeft (104 + 20).removeFromTop (104);
+        auto text = sheetBounds().reduced (kPadX, kPadY).withTrimmedLeft (kHeadH + 20).removeFromTop (kHeadH);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (17.0f, 600));
         g.drawText (planning ? "Building the mix" : waiting ? "Waiting for the band" : "Listening", text.removeFromTop (22), juce::Justification::topLeft);
@@ -346,12 +364,12 @@ public:
                           text, juce::Justification::topLeft, 4);
 
         // ---- one line per group, ticked the frame it is heard
-        auto lines = sheetBounds().reduced (26, 24).withTrimmedTop (104 + 18);
-        lines = lines.removeFromTop (4 * 32);
+        auto lines = sheetBounds().reduced (kPadX, kPadY).withTrimmedTop (kHeadH + kHeadGap);
+        lines = lines.removeFromTop (kGroupBuses * kRowH);
         Dine::fillRounded (g, lines.toFloat(), juce::Colours::black.withAlpha (0.24f), 8.0f);
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < kGroupBuses; ++i)
         {
-            auto row = lines.removeFromTop (32).reduced (12, 0);
+            auto row = lines.removeFromTop (kRowH).reduced (12, 0);
             if (i > 0) Dine::drawRule (g, row.withHeight (1).expanded (12, 0), Dine::hairSoft);
             const bool used = controller.getEngine().isBusUsed (kGroupBus[i]);
             const bool heard = used && controller.busHeard (kGroupBus[i]);
@@ -366,7 +384,7 @@ public:
             g.drawText (! used ? "not in this mix" : heard ? "Heard" : "waiting", row, juce::Justification::centredRight);
         }
 
-        auto foot = sheetBounds().reduced (26, 24).removeFromBottom (26);
+        auto foot = sheetBounds().reduced (kPadX, kPadY).removeFromBottom (kFootH);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (11.5f));
         g.drawText ("The mix keeps playing while DLIVE listens.", foot, juce::Justification::centredLeft, true);
@@ -374,7 +392,7 @@ public:
 
     void resized() override
     {
-        auto foot = sheetBounds().reduced (26, 24).removeFromBottom (26);
+        auto foot = sheetBounds().reduced (kPadX, kPadY).removeFromBottom (kFootH);
         cancel.setBounds (foot.removeFromRight (juce::jmax (80, cancel.idealWidth())).withHeight (Dine::Metric::button));
     }
 
@@ -541,7 +559,7 @@ private:
 // ------------------------------------------------------------------ MixPage
 MixPage::MixPage (MixController& c) : controller (c)
 {
-    for (int i = 0; i < 5; ++i) { groups[size_t (i)] = std::make_unique<GroupTile> (i); addAndMakeVisible (*groups[size_t (i)]); }
+    for (int i = 0; i < kGroupTiles; ++i) { groups[size_t (i)] = std::make_unique<GroupTile> (i); addAndMakeVisible (*groups[size_t (i)]); }
     for (int i = 0; i < int (MixMacro::Count); ++i)
     {
         const auto m = MixMacro (i);
@@ -549,6 +567,7 @@ MixPage::MixPage (MixController& c) : controller (c)
         addAndMakeVisible (*macros[size_t (i)]);
     }
     railView.setViewedComponent (&railHolder, false);
+    Dine::nativeScrolling (railView);
     railView.setScrollBarsShown (true, false);
     addAndMakeVisible (railView);
 
@@ -634,7 +653,7 @@ void MixPage::refresh()
     const auto& engine = controller.getEngine();
     const auto& graph = engine.getGraph();
     const bool listening = controller.isListening();
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < kGroupBuses; ++i)
     {
         const MixBus bus = kGroupBus[i];
         const bool used = controller.isPrepared() && engine.isBusUsed (bus);
@@ -651,7 +670,7 @@ void MixPage::refresh()
                 const auto& m = engine.getFx (FxSlot (f)).getOutputMeter();
                 peak = juce::jmax (peak, m.consumeMaxPeakDb()); rms = juce::jmax (rms, m.getMaxRmsDb()); clip = clip || m.hasClipped();
             }
-        groups[4]->set (returns > 0, returns, peak, rms, clip, 0);
+        groups[size_t (kGroupBuses)]->set (returns > 0, returns, peak, rms, clip, 0);
     }
 
     // ---- the input rail
@@ -834,7 +853,7 @@ void MixPage::resized()
     tuneButton.setBounds (l.tune);
     auto groupRow = l.groups;
     const int gap = 10;
-    const int w = (groupRow.getWidth() - gap * 4) / 5;
+    const int w = (groupRow.getWidth() - gap * (kGroupTiles - 1)) / kGroupTiles;
     for (auto& t : groups) { t->setBounds (groupRow.removeFromLeft (w)); groupRow.removeFromLeft (gap); }
 
     auto card = l.macros.reduced (16, 13);

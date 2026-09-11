@@ -25,17 +25,7 @@ namespace
         }
     }
 
-    juce::Colour sourceTint (MixBus b) noexcept
-    {
-        switch (b)
-        {
-            case MixBus::Drums:  return Dine::warn;
-            case MixBus::Bass:   return Dine::accent;
-            case MixBus::Music:  return juce::Colour (0xff8fa2d8);
-            case MixBus::Vocals: return Dine::ok;
-            default:             return Dine::ink2;
-        }
-    }
+    juce::Colour sourceTint (MixBus b) noexcept { return Dine::busTint (b); }
 }
 
 // ------------------------------------------------------------------ Row
@@ -60,6 +50,7 @@ public:
 
         levelSlider.setSliderStyle (juce::Slider::LinearHorizontal);
         levelSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        Dine::dragOnly (levelSlider);
         levelSlider.setRange (-60.0, 12.0, 0.1);
         levelSlider.setDoubleClickReturnValue (true, 0.0);
         levelSlider.getProperties().set ("dineFader", true);

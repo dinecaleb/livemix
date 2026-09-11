@@ -12,29 +12,47 @@ namespace livemix
 class LivePage::GroupFader : public juce::Component
 {
 public:
-    GroupFader (MixController& c, MixBus b) : controller (c), bus (b)
+    // A tile stands for a group bus, or for the effects returns taken together: a console gives
+    // the returns a fader too, and during a sermon "take the reverb out" has to be one press.
+    // There is nothing to solo a return against, so the FX tile offers MUTE and no more.
+    enum class Kind { Bus, Fx };
+
+    GroupFader (MixController& c, MixBus b, Kind k = Kind::Bus) : controller (c), bus (b), kind (k)
     {
         addAndMakeVisible (meter);
         addAndMakeVisible (fader);
         fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        Dine::dragOnly (fader);
         fader.setRange (-60.0, 12.0, 0.1);   // the same throw as the mixer's bus faders
         fader.setSkewFactorFromMidPoint (-12.0);
         fader.setDoubleClickReturnValue (true, 0.0);
         fader.getProperties().set ("dineFader", true);
-        fader.setTooltip ("Level for the whole group. Double-click for 0.0 dB.");
-        fader.onValueChange = [this] { controller.setBusFader (bus, float (fader.getValue())); };
+        fader.setTooltip (isFx() ? "Level for every effect return together. Double-click for 0.0 dB, which is what TUNE MIX set."
+                                 : "Level for the whole group. Double-click for 0.0 dB.");
+        fader.onValueChange = [this]
+        {
+            if (isFx()) controller.setFxReturn (float (fader.getValue()));
+            else        controller.setBusFader (bus, float (fader.getValue()));
+        };
 
         addAndMakeVisible (mute);
         addAndMakeVisible (solo);
-        mute.setTooltip ("Mute this group.");
+        mute.setTooltip (isFx() ? "Mute the effects: the reverbs and delays leave the mix, the sources stay."
+                                : "Mute this group.");
         solo.setTooltip ("Solo: hear this group alone.");
-        mute.onClick = [this] { controller.setBusMute (bus, ! controller.getBase().buses[size_t (bus)].mute); };
+        solo.setVisible (! isFx());
+        mute.onClick = [this]
+        {
+            if (isFx()) controller.setFxMute (! controller.getBase().fxMute);
+            else        controller.setBusMute (bus, ! controller.getBase().buses[size_t (bus)].mute);
+        };
         solo.onClick = [this] { controller.setBusSolo (bus, ! controller.getBase().buses[size_t (bus)].solo); };
     }
 
     void refresh()
     {
+        if (isFx()) { refreshFx(); return; }
         const auto& b = controller.getBase().buses[size_t (bus)];
         if (! fader.isMouseButtonDown()) fader.setValue (b.faderDb, juce::dontSendNotification);
         levelText = juce::String (b.faderDb >= 0.0f ? "+" : Glyph::minus()) + juce::String (std::fabs (b.faderDb), 1);
@@ -55,6 +73,44 @@ public:
             mute.setLetter (muted ? "MUTED" : "MUTE");
             solo.setOn (soloed);
         }
+        repaint();
+    }
+
+    // The returns have no bus of their own in the engine - they sum straight into the master -
+    // so the tile reads the loudest of the returns that are actually in use, the same way the
+    // TUNE workspace's FX meter does.
+    void refreshFx()
+    {
+        const auto& p = controller.getBase();
+        if (! fader.isMouseButtonDown()) fader.setValue (p.fxReturnDb, juce::dontSendNotification);
+        levelText = juce::String (p.fxReturnDb >= 0.0f ? "+" : Glyph::minus()) + juce::String (std::fabs (p.fxReturnDb), 1);
+
+        float peak = -120.0f;
+        int returns = 0;
+        if (controller.isPrepared())
+        {
+            const auto& engine = controller.getEngine();
+            for (int f = 0; f < int (FxSlot::Count); ++f)
+                if (engine.isFxUsed (FxSlot (f)))
+                {
+                    ++returns;
+                    peak = juce::jmax (peak, engine.getFx (FxSlot (f)).getOutputMeter().consumeMaxPeakDb());
+                }
+        }
+        used = returns > 0;
+        meter.setLevels (peak, peak, peak > -0.2f);
+        meter.setMuted (p.fxMute || ! used);
+        peakDb = meter.getPeakDb();
+        peakText = peakDb <= -60.0f ? Glyph::dash() : juce::String (peakDb, 1);
+
+        if (p.fxMute != muted)
+        {
+            muted = p.fxMute;
+            mute.setOn (muted);
+            mute.setLetter (muted ? "MUTED" : "MUTE");
+        }
+        fader.setEnabled (used);
+        mute.setEnabled (used);
         repaint();
     }
 
@@ -83,20 +139,31 @@ public:
         auto head = inner.removeFromTop (34).withTrimmedTop (10);
         g.setColour (muted ? Dine::keyMute : Dine::ink);
         g.setFont (Dine::text (13.0f, 700).withExtraKerningFactor (0.06f));
-        g.drawText (juce::String (mixBusName (bus)).toUpperCase(), head, juce::Justification::centred, true);
+        g.drawText (isFx() ? "FX" : juce::String (mixBusName (bus)).toUpperCase(), head, juce::Justification::centred, true);
         Dine::drawRule (g, inner.withHeight (1), Dine::hairSoft);
 
         // the readouts under the throw: what it is set to, and what is coming through
         auto feet = getLocalBounds().reduced (12, 0).withTrimmedBottom (kMuteH + 16);
         auto row = feet.removeFromBottom (16);
         g.setColour (muted ? Dine::ink4 : Dine::ink);
-        g.setFont (Dine::mono (12.0f, 600));
-        g.drawText (levelText + " dB", row.removeFromLeft (row.getWidth() / 2), juce::Justification::centredLeft);
+        const auto levelFont = Dine::mono (12.0f, 600);
+        g.setFont (levelFont);
+        // The unit gives way before the number does: a narrow tile still reads its level.
+        auto levelCell = row.removeFromLeft (row.getWidth() / 2);
+        const juce::String withUnit = levelText + " dB";
+        g.drawText (Dine::textWidth (levelFont, withUnit) <= levelCell.getWidth() ? withUnit : levelText,
+                    levelCell, juce::Justification::centredLeft);
         g.setColour (muted || peakText == Glyph::dash() ? Dine::ink4 : Dine::levelColour (peakDb));
         g.setFont (Dine::mono (11.0f));
         g.drawText (peakText, row, juce::Justification::centredRight);
 
-        if (muted)
+        if (isFx() && ! used)
+        {
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::text (10.0f, 700).withExtraKerningFactor (0.10f));
+            g.drawText ("NONE IN THIS MIX", feet.removeFromBottom (14), juce::Justification::centred, false);
+        }
+        else if (muted)
         {
             g.setColour (Dine::keyMute.withAlpha (0.85f));
             g.setFont (Dine::text (10.0f, 700).withExtraKerningFactor (0.10f));
@@ -115,10 +182,21 @@ public:
         auto r = getLocalBounds().reduced (12, 10);
         r.removeFromTop (26);
         auto keys = r.removeFromBottom (kMuteH);
-        const int w = (keys.getWidth() - 8) * 2 / 3;
-        mute.setBounds (keys.removeFromLeft (w));
-        keys.removeFromLeft (8);
-        solo.setBounds (keys);
+        if (isFx())
+        {
+            mute.setBounds (keys);          // nothing to solo a return against
+        }
+        else
+        {
+            // MUTE is the key that gets reached for, so it takes the room that is left - but
+            // SOLO is given the width its word actually needs first, because a key that reads
+            // "SOL" is a key nobody trusts at arm's length.
+            const int ideal = Dine::textWidth (Dine::text (11.5f, 600), "SOLO") + 16;
+            const int soloW = juce::jlimit (34, juce::jmax (34, (keys.getWidth() - 8) / 2), ideal);
+            solo.setBounds (keys.removeFromRight (soloW));
+            keys.removeFromRight (8);
+            mute.setBounds (keys);
+        }
         r.removeFromBottom (16 + 14 + 8);          // the readouts and the state word
 
         // The throw and its meter are one object, centred in the tile: a group fader is
@@ -130,24 +208,15 @@ public:
     }
 
 private:
-    juce::Colour tint() const
-    {
-        switch (bus)
-        {
-            case MixBus::Drums:  return Dine::warn;
-            case MixBus::Bass:   return Dine::accent;
-            case MixBus::Music:  return juce::Colour (0xff8fa2d8);
-            case MixBus::Vocals: return Dine::ok;
-            case MixBus::Master: return juce::Colour (0xffc8ccd4);
-            case MixBus::Count:  break;
-        }
-        return Dine::ink2;
-    }
+    bool isFx() const noexcept { return kind == Kind::Fx; }
+    juce::Colour tint() const { return isFx() ? Dine::ink2 : Dine::busTint (bus); }
 
     static constexpr int kMuteH = 30;
 
     MixController& controller;
     MixBus bus;
+    Kind kind = Kind::Bus;
+    bool used = true;                 // FX: whether this session has any returns at all
     DineMeter meter { DineMeter::Style::Segments };
     juce::Slider fader;
     DineKey mute { "MUTE", Dine::keyMute };
@@ -209,6 +278,9 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         faders[size_t (i)] = std::make_unique<GroupFader> (controller, MixBus (i));
         addAndMakeVisible (*faders[size_t (i)]);
     }
+    // ... and the effects returns as one more tile, after the master.
+    faders[size_t (MixBus::Count)] = std::make_unique<GroupFader> (controller, MixBus::Master, GroupFader::Kind::Fx);
+    addAndMakeVisible (*faders[size_t (MixBus::Count)]);
     recordButton = std::make_unique<RecordKey>();
     addAndMakeVisible (*recordButton);
     recordButton->onClick = [this] { if (onToggleRecord) onToggleRecord(); };
@@ -451,7 +523,7 @@ void LivePage::resized()
     liveSafeButton.setBounds (safeRow.removeFromLeft (juce::jmax (140, liveSafeButton.idealWidth()))
                                   .withSizeKeepingCentre (juce::jmax (140, liveSafeButton.idealWidth()), 30));
 
-    const int count = int (MixBus::Count);
+    const int count = int (faders.size());
     const int gap = 14;
     const int width = juce::jmax (60, (r.getWidth() - gap * (count - 1)) / count);
     // The tiles take the room that is left, down to the "what to watch" card: a fader with

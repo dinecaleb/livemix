@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include "Core/ChannelRole.h"
+#include "Mix/MixSession.h"
 #include "UI/LiveMixLookAndFeel.h"
 
 namespace livemix
@@ -134,6 +135,26 @@ namespace Dine
 
     // Level colour on the design's scale: green to -6, amber to -1, red above.
     juce::Colour levelColour (float db) noexcept;
+
+    // The colour a group bus is known by, in every view at once: the mixer's bands and strip
+    // edges, a TRACKS header and its clips, the TUNE meters, the LIVE tiles, the Inspector's
+    // rail and the output feeds. One place, because a group that reads as itself on four
+    // workspaces and as something else on the fifth is worse than no colour at all.
+    juce::Colour busTint (MixBus) noexcept;
+
+    // Gestures --------------------------------------------------------------
+    // A fader moves when it is dragged and at no other time. A two-finger swipe across a
+    // bank of faders is a scroll, never twenty-four small changes to the mix, so no slider
+    // in the app takes the wheel: the event passes through to the surface underneath.
+    // Every slider goes through here.
+    void dragOnly (juce::Slider&);
+
+    // How far a swipe carries a scrolling surface. macOS hands JUCE a trackpad swipe in
+    // points scaled by 0.5/256, and Viewport turns one unit into 14 x its single step, so
+    // at the default step of 16 a console creeps along at well under half the speed of the
+    // fingers. This makes a swipe move the view as far as it moves everything else on the
+    // machine.
+    void nativeScrolling (juce::Viewport&);
 }
 
 // A macOS push button in the three shapes the design uses.

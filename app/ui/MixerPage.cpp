@@ -81,19 +81,7 @@ namespace
         return (v >= 0.0f ? "+" : Glyph::minus()) + juce::String (std::fabs (v), 1);
     }
 
-    juce::Colour busTint (MixBus b) noexcept
-    {
-        switch (b)
-        {
-            case MixBus::Drums:  return Dine::warn;
-            case MixBus::Bass:   return Dine::accent;
-            case MixBus::Music:  return juce::Colour (0xff8fa2d8);
-            case MixBus::Vocals: return Dine::ok;
-            case MixBus::Master: return juce::Colour (0xffc8ccd4);
-            case MixBus::Count:  break;
-        }
-        return Dine::ink2;
-    }
+    juce::Colour busTint (MixBus b) noexcept { return Dine::busTint (b); }
 
     juce::String sentenceCase (const juce::String& s)
     {
@@ -132,6 +120,7 @@ public:
     {
         fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        Dine::dragOnly (fader);            // a swipe across the bank scrolls it, it never moves a fader
         fader.setRange (-60.0, 12.0, 0.1);
         fader.setSkewFactorFromMidPoint (-12.0);          // the useful half of the throw gets the room
         fader.setDoubleClickReturnValue (true, 0.0);
@@ -204,6 +193,13 @@ public:
         if (kind == Kind::Channel && stripIndex >= 0 && stripIndex < controller.getGraph().numStrips())
             stereo = controller.getGraph().strips[size_t (stripIndex)].inputB >= 0;
 
+        // A column is a flat, opaque surface, and a console is swiped sideways constantly:
+        // twenty-four columns of hand-drawn text cannot be redrawn on every frame of a
+        // scroll. Cached as an image, scrolling the bank is a blit, and the only thing ever
+        // redrawn is the part of a strip that actually moved.
+        setOpaque (true);
+        setBufferedToImage (true);
+
         addAndMakeVisible (meter);
         addAndMakeVisible (fader);
         addAndMakeVisible (pan);
@@ -227,6 +223,10 @@ public:
     {
         layout = l;
         size = s;
+        // A row is a rounded card on the page's ground, so it is not opaque; a column is.
+        setOpaque (l == Layout::Column);
+        setBufferedToImage (true);
+        shown = false;
         fader.setSliderStyle (l == Layout::Column ? juce::Slider::LinearVertical : juce::Slider::LinearHorizontal);
         pan.setVisible (kind == Kind::Channel && (l == Layout::Row || s != Size::Narrow));
         resized();
@@ -349,8 +349,81 @@ public:
         if (int (sendList.size()) != lastSendCount) { lastSendCount = int (sendList.size()); needsLayout = true; }
 
         updating = false;
-        if (needsLayout) { needsLayout = false; resized(); }
-        repaint();
+        if (needsLayout) { needsLayout = false; resized(); shown = false; }
+        showLook (currentLook());
+    }
+
+    // -------------------------------------------------------------- repainting
+    // The page refreshes every strip thirty times a second; a console of twenty-four
+    // columns cannot be *redrawn* thirty times a second. The meters, faders and keys are
+    // components and repaint themselves; everything the strip draws by hand is remembered
+    // here, so the live numbers repaint their own row and the column as a whole is only
+    // redrawn when the mix actually changes under it.
+    struct Look
+    {
+        juce::String level, peak, balance, integrated, shortTerm, truePeak, advice;
+        juce::Colour adviceTint { juce::Colours::transparentBlack };
+        std::vector<juce::String> inserts, sends;
+        float peakDb = -120.0f, shortTermLufs = -70.0f;
+        bool mute = false, solo = false, selected = false, bypassed = false;
+    };
+
+    Look currentLook() const
+    {
+        Look l;
+        l.level = levelText;
+        l.peak = peakText;
+        l.peakDb = peakDb;
+        l.balance = kind == Kind::Channel ? panText (pan.getValue()) : Glyph::dash();
+        l.integrated = integratedText;
+        l.shortTerm = shortTermText;
+        l.truePeak = truePeakText;
+        l.shortTermLufs = shortTermLufs;
+        if (advice.needsAttention())
+        {
+            l.advice = gainAdviceChip (advice, size == Size::Narrow);
+            l.adviceTint = gainAdviceColour (advice.level);
+        }
+        l.inserts.reserve (insertList.size());
+        for (const auto& i : insertList) l.inserts.push_back (i.label);
+        l.sends.reserve (sendList.size());
+        for (const auto& sv : sendList) l.sends.push_back (sv.label + db1 (sv.db));
+        l.mute = mute; l.solo = solo; l.selected = selected; l.bypassed = bypassed;
+        return l;
+    }
+
+    void showLook (Look next)
+    {
+        const bool body = next.mute != look.mute || next.solo != look.solo
+                       || next.selected != look.selected || next.bypassed != look.bypassed
+                       || next.advice != look.advice || next.adviceTint != look.adviceTint
+                       || next.inserts != look.inserts || next.sends != look.sends;
+        const bool levels = next.level != look.level || next.peak != look.peak
+                         || std::fabs (next.peakDb - look.peakDb) > 0.001f;
+        const bool balance = next.balance != look.balance;
+        const bool loudness = next.integrated != look.integrated || next.shortTerm != look.shortTerm
+                           || next.truePeak != look.truePeak
+                           || std::fabs (next.shortTermLufs - look.shortTermLufs) > 0.001f;
+        look = std::move (next);
+
+        if (body || ! shown) { shown = true; repaint(); return; }
+
+        if (layout == Layout::Column)
+        {
+            if (levels)                      repaint (col.level);
+            if (balance && col.hasPan)       repaint (col.panLabel);
+            if (loudness && col.hasLoudness) repaint (col.loudness);
+        }
+        else
+        {
+            if (levels)
+            {
+                repaint (valueRect);
+                repaint (meter.getBounds().withY (meter.getBottom() + 1).withHeight (12));
+            }
+            if (balance && pan.isVisible())
+                repaint (pan.getBounds().withY (pan.getBounds().getBottom() - 1).withHeight (11));
+        }
     }
 
     // -------------------------------------------------------------- painting
@@ -888,6 +961,8 @@ public:
     std::vector<ChainStage> insertList;
     std::vector<SendView> sendList;
     MixController::InputAdvice advice;      // what the last listen said about this input's level
+    Look look;                              // what is on screen, so only what moved is redrawn
+    bool shown = false;                     // has this strip been drawn at least once in this layout
     bool stereo = false, showSends = true, needsLayout = false;
     int lastSendCount = 0;
     bool mute = false, solo = false, armed = false, bypassed = false, updating = false, selected = false;
@@ -942,6 +1017,7 @@ MixerPage::MixerPage (MixController& c, AppServices& s) : controller (c), servic
     bank = std::make_unique<Bank>();
     viewport.setViewedComponent (bank.get(), false);
     viewport.setScrollBarsShown (false, true);
+    Dine::nativeScrolling (viewport);      // a swipe crosses the console at the speed of the fingers
     addAndMakeVisible (viewport);
 
     const char* viewNames[2] = { "Strips", "List" };
@@ -1247,10 +1323,21 @@ void MixerPage::paint (juce::Graphics& g)
     g.fillRect (head);
     Dine::drawRule (g, head.removeFromBottom (1), Dine::hairSoft);
 
+    // The controls own the right of the sub-toolbar. What is written to their left takes only
+    // the room they leave it and gives way in order - the hint first, then the count and the
+    // rule that closes it, then the name - so nothing is ever drawn under a button, at any
+    // width the console can be opened at (its own window goes down to 720).
     auto row = head.reduced (kPadX, 0);
-    g.setColour (Dine::ink3);
-    g.setFont (Dine::text (11.0f, 700).withExtraKerningFactor (0.08f));
-    g.drawText ("MIXER", row.removeFromLeft (48), juce::Justification::centredLeft);
+    if (viewTabs[0] != nullptr)
+        row = row.withRight (juce::jmin (row.getRight(), viewTabs[0]->getX() - 16));
+
+    const auto titleFont = Dine::text (11.0f, 700).withExtraKerningFactor (0.08f);
+    if (row.getWidth() >= 48)
+    {
+        g.setColour (Dine::ink3);
+        g.setFont (titleFont);
+        g.drawText ("MIXER", row.removeFromLeft (48), juce::Justification::centredLeft);
+    }
 
     if (controller.isPrepared())
     {
@@ -1261,18 +1348,19 @@ void MixerPage::paint (juce::Graphics& g)
         juce::String counts = juce::String (sources) + " CH  " + Glyph::dot() + "  " + juce::String (groups)
                               + " BUS  " + Glyph::dot() + "  1 MASTER";
         const auto countFont = Dine::mono (11.0f);
-        g.setColour (Dine::ink3);
-        g.setFont (countFont);
-        g.drawText (counts, row.removeFromLeft (juce::jmin (row.getWidth(), Dine::textWidth (countFont, counts))),
-                    juce::Justification::centredLeft);
-        row.removeFromLeft (10);
-        g.setColour (Dine::hair);
-        g.fillRect (float (row.getX()), float (row.getCentreY()) - 9.0f, 0.5f, 18.0f);
-        row.removeFromLeft (10);
+        const int countsW = Dine::textWidth (countFont, counts);
+        if (row.getWidth() >= countsW + 20)          // the count, then the rule that closes it
+        {
+            g.setColour (Dine::ink3);
+            g.setFont (countFont);
+            g.drawText (counts, row.removeFromLeft (countsW), juce::Justification::centredLeft);
+            row.removeFromLeft (10);
+            g.setColour (Dine::hair);
+            g.fillRect (float (row.getX()), float (row.getCentreY()) - 9.0f, 0.5f, 18.0f);
+            row.removeFromLeft (10);
+        }
     }
 
-    // The hint only appears in the room the controls leave it, so it can never run under them.
-    if (viewTabs[0] != nullptr) row = row.withRight (juce::jmin (row.getRight(), viewTabs[0]->getX() - 16));
     const juce::String hint = controller.isBypassed()
         ? "BYPASS is on " + Glyph::dash() + " you are hearing the inputs as they arrive, not the mix."
         : "Drag a fader or a balance to set it. Click a strip to read its chain, double-click to open it.";
@@ -1366,6 +1454,14 @@ void MixerPage::resized()
 
     if (view == View::Strips) layoutStrips();
     else                      layoutList();
+
+    // What this page paints itself - the sub-toolbar's name, count and hint, the quiet
+    // tracks under the segments, the shade beside the pinned master - is all positioned
+    // from where those controls ended up. Moving a child only invalidates the child's own
+    // old and new bounds, so switching LIST to STRIPS (which slides the segments 158 px to
+    // the left) would otherwise leave the hint drawn for the old layout standing, with the
+    // buttons landing on top of it. The page is laid out rarely; redraw it whole.
+    repaint();
 }
 
 // The master stands still while the bank scrolls: it is the one strip you always want in

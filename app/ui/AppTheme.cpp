@@ -128,6 +128,39 @@ juce::Colour Dine::levelColour (float db) noexcept
     return db >= -1.0f ? crit : db >= -6.0f ? warn : ok;
 }
 
+juce::Colour Dine::busTint (MixBus b) noexcept
+{
+    switch (b)
+    {
+        case MixBus::Drums:  return warn;
+        case MixBus::Bass:   return accent;
+        case MixBus::Music:  return juce::Colour (0xff8fa2d8);
+        case MixBus::Vocals: return ok;
+        // Speech is a voice but not a singer, so it takes a hue of its own - close enough to
+        // the vocal green to read as "someone on a microphone", far enough that a glance at a
+        // bank never confuses the pastor with the choir.
+        case MixBus::Speech: return juce::Colour (0xffcf8fb4);
+        case MixBus::Master: return juce::Colour (0xffc8ccd4);
+        case MixBus::Count:  break;
+    }
+    return ink2;
+}
+
+// ============================================================================ gestures
+void Dine::dragOnly (juce::Slider& s)
+{
+    s.setScrollWheelEnabled (false);
+}
+
+void Dine::nativeScrolling (juce::Viewport& v)
+{
+    // macOS scales a precise trackpad delta by 0.5/256 before JUCE sees it, and Viewport
+    // then moves 14 x its single step per unit: 14 * 37 * (0.5/256) = 1.0, so the surface
+    // travels exactly as far as the fingers do. At the default step of 16 it travels 0.44
+    // of that, which is why a long console felt like wading.
+    v.setSingleStepSizes (37, 37);
+}
+
 // ============================================================================ icons
 namespace
 {
@@ -300,7 +333,10 @@ const std::vector<Dine::RoleGroup>& Dine::roleGroups()
         { "Bass",  { ChannelRole::BassDI, ChannelRole::BassAmp, ChannelRole::SynthBass } },
         { "Music", { ChannelRole::Piano, ChannelRole::ElectricPiano, ChannelRole::Organ, ChannelRole::SynthPad, ChannelRole::SynthLead,
                      ChannelRole::AcousticGuitar, ChannelRole::ElectricGuitarClean, ChannelRole::ElectricGuitarDrive } },
-        { "Vocals", { ChannelRole::LeadVocal, ChannelRole::BackingVocal, ChannelRole::Choir, ChannelRole::Speech } },
+        { "Vocals", { ChannelRole::LeadVocal, ChannelRole::BackingVocal, ChannelRole::Choir } },
+        // Speaking microphones are their own group in the mix, so they are their own group here:
+        // whoever assigns the inputs picks the pastor out of a list of one, not out of the singers.
+        { "Speech", { ChannelRole::Speech } },
     };
     return groups;
 }
