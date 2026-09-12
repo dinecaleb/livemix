@@ -136,7 +136,7 @@ TransportBar::TransportBar (MixController& c, AppServices& s) : controller (c), 
     make (startButton, TransportButton::Glyph::Start, "Go to the start (Return)");
     make (stopButton, TransportButton::Glyph::Stop, "Stop (Space)");
     make (playButton, TransportButton::Glyph::Play, "Play (Space)");
-    make (recordButton, TransportButton::Glyph::Record, "Record every armed track (R)");
+    make (recordButton, TransportButton::Glyph::Record, "Record: captures every track with its R key on (R)");
     make (loopButton, TransportButton::Glyph::Loop, "Loop the marked range (L)");
 
     startButton->onClick = [this] { returnToStart(); };

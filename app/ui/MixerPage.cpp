@@ -152,7 +152,7 @@ public:
         monitorButton.setVisible (kind == Kind::Channel);
         muteButton.setTooltip ("Mute.");
         soloButton.setTooltip ("Solo: hear this alone.");
-        armButton.setTooltip ("Record arm: this track is captured, raw, when recording starts.");
+        armButton.setTooltip ("Set this source to record: when you press Record it is captured, raw, on its own track. Engineers call this arming.");
         monitorButton.setTooltip ("Monitoring. Auto: you hear the input unless the timeline is playing this track back. Input: always. Off: never.");
 
         armButton.onClick = [this]

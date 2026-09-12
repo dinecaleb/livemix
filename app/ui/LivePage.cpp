@@ -234,7 +234,7 @@ class LivePage::RecordKey : public juce::Button
 public:
     RecordKey() : juce::Button ("Record")
     {
-        setTooltip ("Record every armed track (R). LIVE SAFE never locks the transport.");
+        setTooltip ("Record: captures every track with its R key on (R). LIVE SAFE never locks the transport.");
         setClickingTogglesState (false);
     }
 
@@ -383,12 +383,12 @@ void LivePage::updateDiskNote()
     }
     else if (armed == 0)
     {
-        stateNote = "Nothing armed. Arm the tracks to record on the Tracks page.";
+        stateNote = "No tracks are set to record. Press the red R on the ones you want, on the Tracks page.";
         stateNoteColour = Dine::warn;
     }
     else
     {
-        stateNote = juce::String (armed) + (armed == 1 ? " track armed" : " tracks armed")
+        stateNote = juce::String (armed) + (armed == 1 ? " track set to record" : " tracks set to record")
                   + (room.isEmpty() ? juce::String() : "   " + Glyph::dot() + "   " + room);
     }
 }

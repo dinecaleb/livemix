@@ -245,3 +245,10 @@
   `Dine::` design tokens keep their name; only DINELIVE became DLIVE.
   In the app, Import a multitrack... on the device page (or File > Import Multitrack Folder...) turns a stems
   folder into tracks and clips, with names and sources guessed from the file names.
+  **"Arm" is not a word the app says.** A volunteer does not know it, and the message they meet when they press
+  Record is the worst place to teach it. The field stays `Track::armed`, the key stays the red **R** (a console
+  key, beside A/M/S), and every sentence around it is plain: "set to record", "N TO RECORD", "No tracks are set
+  to record yet - press the red R on each track you want". The engineer's word appears once, in the R key's
+  tooltip, as the thing it is called elsewhere. The TRACKS keys are drawn by hand, so `TracksPage::getTooltip`
+  is where R, A, M, S and the fader say what they are; the tool row's **All to record** button
+  (`setAllToRecord`) is the one click for a whole session, and it mirrors the Track menu.

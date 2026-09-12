@@ -156,7 +156,7 @@ juce::String DawEngine::startRecording()
         s.inputB = in.inputB;
         specs.push_back (s);
     }
-    if (specs.empty()) return "Arm the tracks you want to record first.";
+    if (specs.empty()) return "No tracks are set to record yet. On the Tracks page, press the red R on each track you want, then press Record.";
 
     const auto err = recorder.start (project.audioFolder(), specs, sampleRate, transport.getPosition());
     if (err.isNotEmpty()) return err;

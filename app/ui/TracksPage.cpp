@@ -115,6 +115,9 @@ TracksPage::TracksPage (MixController& c, AppServices& s) : controller (c), serv
     make (followButton, "Follow", "Keep the playhead on screen while it rolls.", [this] { setFollow (! follow); });
     make (markerButton, "Marker", "Drop a marker at the playhead (M). Click a marker to jump to it.",
           [this] { addMarkerAtPlayhead(); });
+    make (recordAllButton, "All to record",
+          "Set every track to record, and click again to set none. Nothing is captured until you press Record.",
+          [this] { setAllToRecord (! allSetToRecord()); });
 
     chainStrip.setEmpty ("Click a clip to read its chain here. Double-click a track header to open that channel in the Inspector.");
     chainStrip.onOpen = [this] { if (selection.track >= 0 && onOpenStrip) onOpenStrip (selection.track); };
@@ -373,6 +376,10 @@ void TracksPage::rebuild()
 void TracksPage::refresh()
 {
     if (builtForTracks != numTracks()) rebuild();
+
+    // The R keys can be changed from a header, from the Track menu or from the toolbar itself,
+    // so the button follows the session rather than its own last click.
+    if (const bool all = allSetToRecord(); all != recordAllOn) { recordAllOn = all; updateToolbar(); }
 
     // One meter reading per track per tick: consuming it twice would halve what is shown.
     const int tracks = numTracks();
@@ -834,6 +841,30 @@ void TracksPage::headerMenu (int track)
                      });
 }
 
+// Every track at once. A volunteer setting up before a service should not have to press R
+// twenty-four times, and the one thing this must never read as is "start recording": it is a
+// setting, it fills when it is on, and the transport is still the only thing that records.
+bool TracksPage::allSetToRecord() const
+{
+    const auto& tracks = services.daw().getProject().tracks;
+    if (tracks.empty()) return false;
+    for (const auto& t : tracks) if (! t.armed) return false;
+    return true;
+}
+
+void TracksPage::setAllToRecord (bool on)
+{
+    if (locked()) return;
+    auto& project = services.daw().getProject();
+    if (project.tracks.empty()) return;
+    for (auto& t : project.tracks) t.armed = on;
+    services.daw().refresh();
+    services.saveSession();
+    if (onToast) onToast (on ? "Every track will be recorded." : "No tracks will be recorded.");
+    updateToolbar();
+    repaint();
+}
+
 void TracksPage::cycleMonitor (int track)
 {
     auto& project = services.daw().getProject();
@@ -910,8 +941,8 @@ void TracksPage::paint (juce::Graphics& g)
         {
             g.setColour (Dine::ink4);
             g.setFont (Dine::text (13.0f));
-            g.drawFittedText ("Nothing recorded yet. Arm the tracks you want and press Record, "
-                              "or import a folder of stems from the File menu.",
+            g.drawFittedText ("Nothing recorded yet. Press the red R on each track you want to record, then press "
+                              "Record - or import a folder of stems from the File menu.",
                               lanes.reduced (40, 0).withHeight (46).withY (lanes.getY() + 30),
                               juce::Justification::centredTop, 2);
         }
@@ -1008,9 +1039,11 @@ void TracksPage::paintToolbar (juce::Graphics& g)
     const auto& project = services.daw().getProject();
 
     // ---- what is picked out, in the middle: the source, its clips and its level
-    if (markerButton != nullptr && zoomOutButton != nullptr)
+    if (recordAllButton != nullptr && zoomOutButton != nullptr)
     {
-        auto row = toolbarArea().withTrimmedLeft (markerButton->getRight() + 14)
+        // It starts where the last button on the left ends, so adding one to the row can never
+        // put the readout underneath it.
+        auto row = toolbarArea().withTrimmedLeft (recordAllButton->getRight() + 14)
                                 .withRight (zoomOutButton->getX() - 120);
         if (row.getWidth() > 60)
         {
@@ -1073,7 +1106,7 @@ void TracksPage::paintRuler (juce::Graphics& g)
         g.setColour (Dine::ink2);
         g.setFont (Dine::mono (11.0f));
         juce::String meta = juce::String (numTracks()) + (project.numArmed() > 0
-                                ? "  " + Glyph::dot() + "  " + juce::String (project.numArmed()) + " ARMED"
+                                ? "  " + Glyph::dot() + "  " + juce::String (project.numArmed()) + " TO RECORD"
                                 : juce::String());
         g.drawText (meta, line, juce::Justification::bottomLeft);
         g.setColour (Dine::ink4);
@@ -1426,7 +1459,7 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
     {
         g.setColour (Dine::crit.withAlpha (0.35f));
         g.setFont (Dine::text (10.0f, 700).withExtraKerningFactor (0.07f));
-        g.drawText ("ARMED", area.reduced (10, 0).withWidth (80), juce::Justification::centredLeft);
+        g.drawText ("TO RECORD", area.reduced (10, 0).withWidth (96), juce::Justification::centredLeft);
     }
 }
 
@@ -1437,6 +1470,7 @@ void TracksPage::updateToolbar()
         rowTabs[size_t (i)]->setToggleState (int (rowHeight) == i, juce::dontSendNotification);
     snapButton->setStyle (snap ? DineButton::Style::Filled : DineButton::Style::Standard);
     followButton->setStyle (follow ? DineButton::Style::Filled : DineButton::Style::Standard);
+    recordAllButton->setStyle (allSetToRecord() ? DineButton::Style::Filled : DineButton::Style::Standard);
     repaint (toolbarArea());
 }
 
@@ -1460,6 +1494,8 @@ void TracksPage::resized()
     row.removeFromLeft (5);
     fromLeft (*splitButton, 58);
     fromLeft (*markerButton, 70);
+    row.removeFromLeft (5);
+    fromLeft (*recordAllButton, 96);
 
     auto fromRight = [&row] (DineButton& b, int minWidth)
     {
@@ -1827,6 +1863,29 @@ void TracksPage::mouseMove (const juce::MouseEvent& e)
         }
     }
     setMouseCursor (cursor);
+}
+
+juce::String TracksPage::getTooltip()
+{
+    const auto p = getMouseXYRelative();
+    const int track = trackAtY (p.y);
+    if (p.x >= kHeaderWidth || track < 0 || track >= numTracks()) return {};
+
+    for (int k = 0; k < 4; ++k)
+    {
+        if (! keyCell (track, k).contains (p)) continue;
+        switch (k)
+        {
+            case 0:  return "R - record this track. Press Record and every track with its R on is captured, raw, "
+                            "to its own file. Engineers call this arming.";
+            case 1:  return "Monitoring. A: you hear the input unless the timeline is playing this track back. "
+                            "I: always the input. " + Glyph::dash() + ": never.";
+            case 2:  return "Mute: this source is not heard.";
+            default: return "Solo: hear this source alone.";
+        }
+    }
+    if (faderCell (track).contains (p)) return "Level for this track. Double-click for 0.0 dB.";
+    return {};
 }
 
 // Pinch on the trackpad: zoom the timeline, about the fingers.

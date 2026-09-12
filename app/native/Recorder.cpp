@@ -38,7 +38,7 @@ juce::String Recorder::start (const juce::File& audioFolder,
                               juce::int64 timelineStart)
 {
     stop();
-    if (specs.empty()) return "Arm at least one track before recording.";
+    if (specs.empty()) return "No tracks are set to record.";
 
     const auto result = audioFolder.createDirectory();
     if (result.failed()) return "Could not create " + audioFolder.getFullPathName() + ": " + result.getErrorMessage();

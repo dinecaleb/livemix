@@ -20,7 +20,7 @@ namespace livemix
 // The whole surface is drawn and hit-tested by hand rather than built from thousands of
 // child components, so 64 tracks scroll and zoom as smoothly as eight. Waveforms come
 // from juce::AudioThumbnail, which reads and caches peaks on its own thread.
-class TracksPage : public juce::Component
+class TracksPage : public juce::Component, public juce::TooltipClient
 {
 public:
     enum class RowHeight { Small = 0, Medium, Large };
@@ -67,6 +67,11 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void mouseMagnify (const juce::MouseEvent&, float scaleFactor) override;   // pinch on the trackpad
 
+    // The header's keys and its fader are drawn by hand, so nothing about them is a control
+    // that can carry its own tooltip. This is where they say what they are - R above all,
+    // which is the one key a volunteer meets first and the one nobody can guess.
+    juce::String getTooltip() override;
+
 private:
     enum class Drag { None, Playhead, ClipMove, ClipTrimStart, ClipTrimEnd, TrackHeight, Scroll,
                       LoopRange, Marker, Fader };
@@ -112,6 +117,10 @@ private:
     void commit();                     // the project changed: republish and save
     void clampScroll();
     void cycleMonitor (int track);
+    // One click for the whole session: every track set to record, or none. The same thing the
+    // Track menu offers, on the page where the R keys actually are.
+    bool allSetToRecord() const;
+    void setAllToRecord (bool on);
     void markerMenu (int index);
     // Putting a track right without leaving the timeline. A track and its input can drift
     // apart - an input dropped or added on the ASSIGN page used to leave the clips behind -
@@ -167,7 +176,8 @@ private:
     ChainStrip chainStrip;
     std::array<std::unique_ptr<DineButton>, 3> rowTabs;      // S / M / L row height
     std::unique_ptr<DineButton> zoomOutButton, zoomFitButton, zoomInButton;
-    std::unique_ptr<DineButton> snapButton, followButton, splitButton, markerButton;
+    std::unique_ptr<DineButton> snapButton, followButton, splitButton, markerButton, recordAllButton;
+    bool recordAllOn = false;          // what the All-to-record button is showing
 };
 
 } // namespace livemix

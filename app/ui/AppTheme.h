@@ -165,8 +165,8 @@ public:
 
     DineButton (const juce::String& text, Style s = Style::Standard);
 
-    void setStyle (Style s)                 { style = s; repaint(); }
-    void setIcon (Dine::Icon i)             { icon = i; repaint(); }
+    void setStyle (Style s)                 { if (s != style) { style = s; repaint(); } }
+    void setIcon (Dine::Icon i)             { if (i != icon) { icon = i; repaint(); } }
     void setFontPx (float px)               { fontPx = px; repaint(); }
     void setPadX (int px)                   { padX = px; }
     void setCaps (bool on)                  { caps = on; repaint(); }   // the product verbs only

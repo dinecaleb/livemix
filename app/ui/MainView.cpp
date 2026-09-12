@@ -216,8 +216,8 @@ public:
                 m.addItem (203, "Add Marker at Playhead   M");
                 break;
             case 2:
-                m.addItem (300, "Arm All Tracks");
-                m.addItem (301, "Disarm All Tracks");
+                m.addItem (300, "Set Every Track to Record");
+                m.addItem (301, "Set No Tracks to Record");
                 m.addSeparator();
                 m.addItem (302, "Monitoring: Input");
                 m.addItem (303, "Monitoring: Auto");
@@ -739,7 +739,7 @@ void MainView::handleCommand (int id)
             services.daw().refresh();
             services.saveSession();
             tracksPage->repaint();
-            showToast (id == 300 ? "Every track armed." : "Every track disarmed.");
+            showToast (id == 300 ? "Every track will be recorded." : "No tracks will be recorded.");
             break;
         }
         case 302:
