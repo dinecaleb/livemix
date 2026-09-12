@@ -3,6 +3,7 @@
 #include "State/ParameterSpecs.h"
 #include "State/ParameterIDs.h"
 #include "Core/ProductDefinition.h"
+#include "HttpJson.h"
 
 namespace livemix
 {
@@ -275,47 +276,10 @@ juce::String OpenAIProvider::buildRequestBody (const IntelligenceRequest& r, con
 juce::String OpenAIProvider::post (const juce::String& body, const AISettings& settings, int& statusOut, juce::String& errorOut,
                                    const std::atomic<bool>* shouldCancel)
 {
-    statusOut = 0;
-    const auto cancelled = [shouldCancel] { return shouldCancel != nullptr && shouldCancel->load(); };
-    juce::URL url (kEndpoint);
-    url = url.withPOSTData (body);
-    const juce::String headers = "Content-Type: application/json\r\n"
-                                 "Authorization: Bearer " + settings.apiKey.trim() + "\r\n";
-    // The progress callback is polled (about every 1 ms) until the response headers arrive,
-    // which is where a slow model spends its time; returning false aborts the connection.
-    auto stream = url.createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
-                                             .withExtraHeaders (headers)
-                                             .withConnectionTimeoutMs (juce::jmax (15, settings.timeoutSeconds) * 1000)
-                                             .withStatusCode (&statusOut)
-                                             .withHttpRequestCmd ("POST")
-                                             .withProgressCallback ([cancelled] (int, int) { return ! cancelled(); }));
-    if (cancelled())
-    {
-        errorOut = "cancelled";
-        return {};
-    }
-    if (stream == nullptr)
-    {
-        errorOut = "could not connect to api.openai.com";
-        return {};
-    }
-
-    // Read the body in chunks so a cancel during a slow transfer is honoured too.
-    juce::MemoryOutputStream out;
-    juce::HeapBlock<char> chunk (8192);
-    while (! stream->isExhausted())
-    {
-        if (cancelled())
-        {
-            if (auto* web = dynamic_cast<juce::WebInputStream*> (stream.get())) web->cancel();
-            errorOut = "cancelled";
-            return {};
-        }
-        const int n = stream->read (chunk, 8192);
-        if (n <= 0) break;
-        out.write (chunk, size_t (n));
-    }
-    return out.toString();
+    const auto r = http::postJson (kEndpoint, body, settings.apiKey, settings.timeoutSeconds, shouldCancel);
+    statusOut = r.status;
+    errorOut = r.error;
+    return r.body;
 }
 
 IntelligenceResponse OpenAIProvider::parseResponse (const juce::String& body, int status, const juce::String& model)

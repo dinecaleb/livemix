@@ -1,6 +1,7 @@
 # livemix_engine: framework-agnostic core. No JUCE, no allocation in process().
 add_library(livemix_engine STATIC
     Core/FFT.cpp
+    Core/Json.cpp
     DSP/Biquad.cpp
     DSP/FilterProcessor.cpp
     DSP/ParametricEQ.cpp
@@ -37,6 +38,15 @@ add_library(livemix_engine STATIC
     Mix/OfflineCapture.cpp
     Mix/MixPlanner.cpp
     Mix/MixMacros.cpp
+    MixAI/RelationshipEngine.cpp
+    MixAI/MixContext.cpp
+    MixAI/DspCapabilityRegistry.cpp
+    MixAI/MixIntent.cpp
+    MixAI/ProcessingPlan.cpp
+    MixAI/CapabilityResolver.cpp
+    MixAI/MixSafetyValidator.cpp
+    MixAI/MixReasoningProvider.cpp
+    MixAI/TuneLiveCoordinator.cpp
     Communication/InstanceRegistry.cpp
     Communication/KitController.cpp
     Intelligence/SafetyValidator.cpp

@@ -43,7 +43,8 @@ function(dine_add_channel_product TARGET)
         ${CMAKE_SOURCE_DIR}/src/UI/KitPanel.cpp
         ${CMAKE_SOURCE_DIR}/src/State/PresetManager.cpp
         ${CMAKE_SOURCE_DIR}/src/Intelligence/AISettings.cpp
-        ${CMAKE_SOURCE_DIR}/src/Intelligence/OpenAIProvider.cpp)
+        ${CMAKE_SOURCE_DIR}/src/Intelligence/OpenAIProvider.cpp
+        ${CMAKE_SOURCE_DIR}/src/Intelligence/HttpJson.cpp)
 
     target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/modules/Common ${CMAKE_SOURCE_DIR}/src)
 

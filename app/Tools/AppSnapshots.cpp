@@ -285,6 +285,23 @@ int main (int argc, char** argv)
     rig.feed (0.3);
     rig.snap (dir, "10-tune-preview-before");
     rig.controller.setCompare (MixController::Compare::After);
+    rig.controller.keepPlan();
+
+    // TUNE LIVE MIX: the same listen with the mix engineer's reasoning on top. The sheet shows
+    // the steps the state machine is really on, so these two shots are of actual states.
+    {
+        MixController::LiveTuneSettings live;
+        live.initial = { 7.0f, -45.0f, 5.0f };
+        live.verify = { 6.5f, -45.0f, 5.0f };
+        rig.controller.startTuneLiveMix (live);
+        rig.feed (1.2);
+        rig.snap (dir, "08b-tune-live-listening");
+        for (int i = 0; i < 600 && rig.controller.isTuningLive(); ++i) { rig.controller.poll(); rig.feed (0.05); }
+        rig.feed (0.5);
+        rig.snap (dir, "09b-tune-live-result");
+        rig.controller.revertPlan();
+        rig.feed (0.3);
+    }
 
     view.showPage (MainView::Page::Inspector);
     view.getAdvancedPage().select (0); // Kick — a channel, not a bus

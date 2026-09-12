@@ -44,6 +44,29 @@
   (`src/FX/FxParameters.h`); numbers only in `src/FX/FxProfiles.cpp`; macros in `FxMacroMapping` (50 = baseline, tested
   idempotent). Verify with `build/tests/livemix_tests Reverb|Delay|FxChain`, `build/modules/FX/livemix_fx_plugin_tests`,
   `auval -v aufx Lmfx Lvmx` and `build/modules/FX/livemix_fx_ui_snapshots <dir>`.
+- **TUNE LIVE MIX** (the AI Mix Engineer, 2026-09-12; see `docs/ARCHITECTURE-DLIVE-AI.md`) is a reasoning layer
+  **above** `MixPlanner`, never instead of it. The deterministic plan is built first and always, so a dead network,
+  a timeout or a malformed reply leaves the user with a professional mix and a sentence. Everything is JUCE-free in
+  `src/MixAI` (+ `src/Core/Json`): `RelationshipEngine` (measures, never decides - masking, hierarchy, low-end
+  ownership, kit balance, what reaches the master), `MixContext` (schema v1: the session as a versioned serialisable
+  document, with `MixCaptureAdequacy` refusing a listen that is not worth mixing from), `MixIntent` (schema v1:
+  sonic outcomes with a signed strength, never parameters), `DspCapabilityRegistry` (generated from the real
+  parameter tables and from how `MixEngine` configures each stage - the limiter is master-only because that is
+  where the stage is turned on; an unavailable processor is reported **with its reason**, never silently missing),
+  `CapabilityResolver` (intent -> `ProcessingPlan`, deterministic, as deltas on the deterministic plan; every action
+  carries EXACT / APPROXIMATED / SUBSTITUTED / UNSUPPORTED - a spring reverb is built from the plate and says what
+  it will not have, a gated reverb is refused), `MixSafetyValidator` (refuses rather than reinterprets: capture gain
+  is the console's, a gate never goes on a sustained source, the master keeps its headroom; a refused EQ gain takes
+  its band with it and every refusal keeps its reason for REVIEW CHANGES) and `TuneLiveCoordinator` (the whole
+  state machine, one worker, polled). Numbers live in `MixProfile::aiRanges` / `aiBounds` (`MixProfileData.cpp`),
+  versioned. `MixReasoningProvider` is the seam: `LocalMixReasoningProvider` is the default - deterministic,
+  offline, reasons from the measured relationships, and is what every test runs against; `OpenAiMixProvider`
+  (`app/native`) is opt-in, strict JSON schema, and sends the MixContext and the capability list and **never audio**.
+  The result is an ordinary `MixPlan`, so BEFORE / AFTER, KEEP, REVERT, the mixer, the chain strips and the
+  Inspector work on it unchanged - one source of truth. `MixController::startTuneLiveMix` drives it; the verify
+  listen keeps the applied mix audible (`liveVerifying`); LIVE SAFE blocks it like any re-tune. The session stores
+  the run's record under `tuneLive` next to the kept mix, so **reopening a session never contacts a provider**.
+  Verify with `build-engine/tests/livemix_tests`, `build/app/dlive_app_tests` and the `08b` / `09b` UI snapshots.
 - Read the PRD sections 6-8, 42, 48 and `docs/ARCHITECTURE-DINE-CORE.md` before touching the audio path or adding a product.
 - DLIVE is **the live recording and broadcast DAW** (2026-09 DAW milestone; see `docs/MILESTONE-7.md`).
   Four workspaces over one session: TRACKS (timeline, clips, waveforms), MIXER, TUNE, LIVE. The DAW layer is

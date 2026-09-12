@@ -136,6 +136,10 @@ private:
 
     int saveTicks = 0, toastTicks = 0;
     bool audioWasRunning = false;
+    // Who TUNE LIVE MIX asks what the mix should sound like. Off by default and only
+    // offered when a key is configured: DLIVE's own mix engineer needs no network and no
+    // account, so the cloud one is a choice the user makes, never a requirement.
+    bool usingCloudMixEngineer = false;
     bool sidebarShown = true;
 };
 

@@ -24,6 +24,9 @@ target_include_directories(dlive_mix_stems PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMA
 # recorder, timeline player), the session document, import and offline bounce.
 set(DLIVE_APP_SOURCES
     native/MixController.cpp
+    native/OpenAiMixProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/Intelligence/AISettings.cpp
+    ${CMAKE_SOURCE_DIR}/src/Intelligence/HttpJson.cpp
     native/SessionStore.cpp
     native/MixBounce.cpp
     native/ClipSource.cpp

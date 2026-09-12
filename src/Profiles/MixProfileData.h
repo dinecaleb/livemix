@@ -124,6 +124,88 @@ namespace MixProfile
     // The peak rise time (ms) of a source, from Relationships (see compPeakRise*Ms).
     float compPeakRiseMs (StyleProfileId profile, ChannelRole role);
 
+    // ---- TUNE LIVE MIX: how far one sonic objective moves one control ----
+    // The reasoning layer works in intent ("bring the lead forward", strength 0.65), never in
+    // dB. These are the numbers that turn a full-strength objective into a move, so an AI pass
+    // that asks for everything at once still lands inside a professional Tune. They are deltas
+    // on top of the deterministic plan, which is why they are small: the mix is already good
+    // when they are applied.
+    struct AiRanges
+    {
+        int version = 1;                     // stored with a session; a change to these numbers is a change to the mix
+
+        // Tone. Frequencies name the band each objective works in; the EQ writes the profile's
+        // own tone bands, so a hand edit afterwards lands on the same controls.
+        float bodyHz = 90.0f,       bodyDb = 3.0f;          // low shelf: weight
+        float warmthHz = 180.0f,    warmthDb = 2.5f;        // low shelf: body without boom
+        float clarityHz = 350.0f,   clarityDb = 3.0f, clarityQ = 1.1f;   // cut the mud
+        float presenceHz = 3000.0f, presenceDb = 2.5f, presenceQ = 1.0f; // forward
+        float brightnessHz = 8000.0f, brightnessDb = 2.5f;  // high shelf: air
+
+        // Making room for a named source, in that source's own pocket (vocalPocketHz / Q).
+        float separationCutDb = 2.5f;
+
+        // Dynamics.
+        float compThresholdDb = 5.0f;        // how far the threshold travels at full strength
+        float compRatioDelta = 1.0f;
+        float transientAttack = 0.35f;       // -1..1 control
+        float transientSustain = 0.25f;
+        float gateRangeDb = 12.0f;
+        float deEssRangeDb = 4.0f;
+
+        // Place in the mix. A fader move at full strength is deliberately small: the balance
+        // was already fitted from the listen, and this is a refinement of it, not a re-do.
+        float faderDb = 2.5f;
+        float sendDb = 5.0f;
+        float panDelta = 0.25f;
+        float widthDelta = 0.3f;
+
+        // Building a space out of the reverb DLIVE has, rather than asking for a preset.
+        float reverbDecayScale = 0.5f;       // +-50 % of the return's own character at full strength
+        float reverbPreDelayMs = 30.0f;
+        float reverbDampingDelta = 25.0f;    // %
+        float reverbHighCutOctaves = 1.0f;   // darker / brighter tail
+        float reverbLowCutHz = 120.0f;
+        float reverbSizeDelta = 20.0f;       // %
+        float reverbDiffusionDelta = 15.0f;  // %
+        float reverbModDepth = 35.0f;        // % added when a modulated, spring-like character is asked for
+        // A return that has to keep the words intelligible gets its pre-delay opened up
+        // instead of its level pulled down: the tail arrives after the consonant.
+        float articulationPreDelayMs = 25.0f;
+    };
+    const AiRanges& aiRanges (StyleProfileId profile);
+
+    // ---- TUNE LIVE MIX: what the reasoning layer is never allowed to do ----
+    // Bounds, not targets. Every action is checked against these after it is resolved and
+    // before it is applied, so a malformed or over-enthusiastic plan cannot reach the audio.
+    struct AiBounds
+    {
+        int version = 1;
+        float maxEqGainDb = 4.0f;            // absolute, on any one band
+        float minEqGainDb = -6.0f;
+        float maxEqDeltaDb = 3.5f;           // from the deterministic plan
+        float maxFaderMoveDb = 3.0f;         // from the deterministic plan
+        float maxSendMoveDb = 6.0f;
+        float maxPanMove = 0.35f;
+        float maxWidthDelta = 0.35f;
+        float maxCompThresholdMoveDb = 6.0f;
+        float maxCompRatio = 8.0f;
+        float maxGateRangeDb = 30.0f;
+        float maxSatDrive = 0.5f;
+        float maxDeEssRangeDb = 10.0f;
+        float masterCeilingMinDb = -6.0f;
+        float masterCeilingMaxDb = -0.3f;
+        // The master must keep this much room under its ceiling after the plan. A mix that
+        // arrives at the limiter with nothing left is not finished, it is squashed.
+        float minMasterHeadroomDb = 0.5f;
+        int maxActions = 160;
+        // Capture gain is the console's and the planner's. A reasoning pass that moves the
+        // digital preamp is moving the noise floor with the source and hiding a bad capture.
+        bool allowInputGain = false;
+        bool allowRoutingChanges = false;
+    };
+    const AiBounds& aiBounds();
+
     // ---- Mix macros (the five controls of the overview; 50 = the plan as Tune Mix left it) ----
     struct MacroRanges
     {

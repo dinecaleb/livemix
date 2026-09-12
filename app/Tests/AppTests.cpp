@@ -5,6 +5,8 @@
 #include "native/MixController.h"
 #include "native/SessionStore.h"
 #include "Mix/MixPlanner.h"
+#include "MixAI/MixReasoningProvider.h"
+#include "native/OpenAiMixProvider.h"
 #include <juce_core/juce_core.h>
 #include <chrono>
 #include <cmath>
@@ -73,7 +75,122 @@ namespace
             }
             return false;
         }
+
+        // A live run spends most of its time off a listen, so it is waited on by its own
+        // state machine rather than by the controller's stage. The band keeps playing
+        // throughout, exactly as it would at a soundcheck.
+        bool waitForLiveTune (int ms = 30000)
+        {
+            for (int i = 0; i < ms / 10; ++i)
+            {
+                c.poll();
+                if (! c.isTuningLive()) return true;
+                play (0.05, false);
+            }
+            return false;
+        }
     };
+}
+
+TEST_CASE ("MixController: TUNE LIVE MIX listens, builds, verifies and leaves a mix you can compare and revert")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    f.play (0.5);
+
+    const MixParameters beforeAnything = c.getKept();
+    std::vector<std::string> messages;
+    c.onMessage = [&] (const std::string& m) { messages.push_back (m); };
+
+    // No provider was configured, so this runs on the offline engineer: no network, no key,
+    // nothing leaves the machine. That is the default and it has to work on its own.
+    CHECK (c.getTuneLive().getProvider()->getName() == "DLIVE built-in (offline)");
+    CHECK (! c.getTuneLive().getProvider()->sendsDataExternally());
+
+    // Long enough to be worth mixing from: a listen that measured nothing is refused on
+    // purpose, so a test cannot ask for a confident mix off two seconds either.
+    MixController::LiveTuneSettings settings;
+    settings.initial = { 7.0f, -200.0f, 0.0f };
+    settings.verify = { 6.5f, -200.0f, 0.0f };
+    c.startTuneLiveMix (settings);
+    CHECK (c.isTuningLive());
+    CHECK (c.isListening());
+
+    // The professional mix arrives before the reasoning does: the deterministic plan is
+    // audible while DLIVE is still working out what else this band needs.
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    CHECK (c.isTuningLive());
+    REQUIRE (c.hasPlan());
+
+    REQUIRE (f.waitForLiveTune());
+    CHECK (c.getTuneLive().getState() == TuneLiveCoordinator::State::Ready);
+    CHECK (c.getStage() == MixController::Stage::Preview);
+    REQUIRE (c.hasPlan());
+    CHECK (c.getPlan()->headline == "LIVE MIX READY");
+    CHECK (! messages.empty());
+    CHECK (f.outputPeak() > 0.0001f);              // the audio never stopped for any of it
+
+    // BEFORE is the complete pre-Tune snapshot and AFTER is the mix that was built from it,
+    // so the ordinary comparison, KEEP and REVERT all work on a live run unchanged.
+    CHECK (MixPlanner::countParameterChanges (c.getPlan()->before, beforeAnything) == 0);
+    CHECK (MixPlanner::countParameterChanges (c.getPlan()->before, c.getPlan()->proposed) > 0);
+    c.setCompare (MixController::Compare::Before);
+    CHECK (c.getBase().strips[0].faderDb == c.getPlan()->before.strips[0].faderDb);
+    c.setCompare (MixController::Compare::After);
+
+    // What happened is readable, and the run is stored with the session without a provider.
+    CHECK (! c.getTuneLive().getReviewLines().empty());
+    const auto diag = c.getTuneLive().getDiagnostics();
+    CHECK (! diag.sentDataExternally);
+    CHECK (diag.refinementRan);
+
+    // REVERT puts the console back exactly where it started.
+    c.revertPlan();
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), beforeAnything) == 0);
+    CHECK (! c.isTuningLive());
+}
+
+TEST_CASE ("MixController: when the reasoning provider fails, the deterministic mix is what you are left with")
+{
+    struct DeadProvider final : MixReasoningProvider
+    {
+        std::string getName() const override { return "Unreachable"; }
+        bool isAvailable() const override { return false; }
+        bool sendsDataExternally() const override { return true; }
+        MixReasoningResponse reason (const MixReasoningRequest&, const std::atomic<bool>&) override
+        {
+            MixReasoningResponse r;
+            r.error = "Internet connection unavailable.";
+            return r;
+        }
+    };
+
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    c.setReasoningProvider (std::make_shared<DeadProvider>());
+
+    std::vector<std::string> messages;
+    c.onMessage = [&] (const std::string& m) { messages.push_back (m); };
+
+    MixController::LiveTuneSettings settings;
+    settings.initial = { 7.0f, -200.0f, 0.0f };
+    c.startTuneLiveMix (settings);
+    REQUIRE (f.waitForLiveTune (20000));
+
+    // The mix is still there, still professional, still comparable - and the app said what
+    // happened instead of pretending it had done something.
+    CHECK (c.getStage() == MixController::Stage::Preview);
+    REQUIRE (c.hasPlan());
+    CHECK (f.outputPeak() > 0.0001f);
+    bool saidSo = false;
+    for (const auto& m : messages) if (m.find ("Internet connection unavailable") != std::string::npos) saidSo = true;
+    CHECK (saidSo);
+    c.keepPlan();
+    CHECK (c.getStage() == MixController::Stage::Mixed);
 }
 
 TEST_CASE ("MixController: setup -> ready -> listening -> preview -> keep, with BEFORE / AFTER and macros on top")
@@ -442,4 +559,49 @@ TEST_CASE ("SessionStore: save, list, and load a named mix file")
     file.deleteFile();
 
     (void) SessionStore::listSessions();
+}
+
+
+TEST_CASE ("OpenAiMixProvider: asks for intent under a strict schema, sends no audio, and refuses prose")
+{
+    MixReasoningRequest request;
+    request.context.sessionName = "Test Sunday";
+    request.context.profile = "Modern Gospel";
+    request.context.purpose = "Church Broadcast";
+    request.instructions = mixEngineerInstructions (StyleProfileId::ModernGospel, MixPurpose::ChurchBroadcast);
+    request.capabilities = json::Value::object().set ("targets", json::Value::array());
+
+    AISettings settings;
+    settings.apiKey = "sk-not-a-real-key";
+    settings.model = "gpt-5";
+    const auto body = OpenAiMixProvider::buildRequestBody (request, settings);
+
+    // A strict schema, and an enum of the objectives the resolver can actually build: the model
+    // cannot ask for a kind of change DLIVE has no way to express.
+    CHECK (body.contains ("\"strict\": true"));
+    CHECK (body.contains ("dlive_mix_intent"));
+    CHECK (body.contains ("spatial_depth"));
+    CHECK (body.contains ("Test Sunday"));
+    // Nothing that is not a measurement or a capability leaves the machine - no audio, ever,
+    // and never the key in anything but the Authorization header.
+    CHECK (! body.contains ("samples"));
+    CHECK (! body.contains ("sk-not-a-real-key"));
+
+    // A refusal, a truncation and an HTTP error each come back as a sentence, not as a mix.
+    CHECK (! OpenAiMixProvider::parseResponse ("{\"error\":{\"message\":\"no quota\"}}", 429, "gpt-5").valid);
+    CHECK (OpenAiMixProvider::parseResponse ("{\"error\":{\"message\":\"no quota\"}}", 429, "gpt-5").error.find ("no quota") != std::string::npos);
+    CHECK (! OpenAiMixProvider::parseResponse (R"({"choices":[{"message":{"content":"I think the keys are loud."}}]})", 200, "gpt-5").valid);
+
+    // A well-formed answer becomes an intent, and nothing else in it is taken as read.
+    const auto good = OpenAiMixProvider::parseResponse (
+        R"({"choices":[{"finish_reason":"stop","message":{"content":"{\"schemaVersion\":1,\"summary\":\"ok\",)"
+        R"(\"noChangeRequired\":false,\"unsupportedRequests\":[],\"targets\":[{\"target\":\"strip:2\",\"name\":\"Keys\",)"
+        R"(\"reason\":\"Covering the voice.\",\"confidence\":\"HIGH\",\"objectives\":[{\"type\":\"separation\",)"
+        R"(\"strength\":0.6,\"against\":\"strip:4\",\"character\":\"\",\"preserveArticulation\":true,)"
+        R"(\"preserveTransients\":false}]}]}"}}]})", 200, "gpt-5");
+    REQUIRE (good.valid);
+    REQUIRE (good.intent.targets.size() == 1);
+    CHECK (good.intent.targets[0].target.index == 2);
+    CHECK (good.intent.targets[0].objectives[0].type == MixObjectiveType::Separation);
+    CHECK (good.intent.targets[0].objectives[0].against.index == 4);
 }

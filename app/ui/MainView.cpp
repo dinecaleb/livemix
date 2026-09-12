@@ -1,5 +1,6 @@
 #include "MainView.h"
 #include "native/MultitrackImport.h"
+#include "native/OpenAiMixProvider.h"
 
 namespace livemix
 {
@@ -224,6 +225,7 @@ public:
                 m.addItem (304, "Monitoring: Off");
                 break;
             case 3:
+                m.addItem (405, "TUNE LIVE MIX");
                 m.addItem (400, "TUNE MIX");
                 m.addItem (404, "TUNE CHANNEL   T", view.selectedChannel() >= 0);
                 m.addSeparator();
@@ -231,6 +233,11 @@ public:
                 m.addItem (402, "Clear Solos");
                 m.addSeparator();
                 m.addItem (403, "Bypass: Hear the Inputs   B", true, view.controller.isBypassed());
+                m.addSeparator();
+                // Off unless the user turns it on, and only offered when a key exists. The
+                // built-in engineer needs neither, so this is a choice and never a requirement.
+                m.addItem (406, "Mix Engineer: Use the Cloud Model",
+                           OpenAiMixProvider().isAvailable(), view.usingCloudMixEngineer);
                 break;
             case 4:
                 m.addItem (500, "Play / Stop");
@@ -761,6 +768,13 @@ void MainView::handleCommand (int id)
             showPage (Page::Tune);
             mixPage->pressTune();
             break;
+        case 405:
+            // LIVE SAFE locks re-tuning for the same reason it locks routing: nothing may
+            // change the sound by accident once the service has started.
+            if (liveSafeBlocks ("TUNE LIVE MIX")) break;
+            showPage (Page::Tune);
+            mixPage->pressLiveTune();
+            break;
         case 404:
             if (liveSafeBlocks ("TUNE CHANNEL")) break;
             if (selectedChannel() < 0) { showToast ("Pick a channel first: click a strip on the mixer or a track header."); break; }
@@ -769,6 +783,25 @@ void MainView::handleCommand (int id)
         case 401: controller.resetMacros(); showToast ("Macros back to the plan."); break;
         case 402: controller.clearSolos(); showToast ("Solos cleared."); break;
         case 403: setBypass (! controller.isBypassed()); break;
+        case 406:
+        {
+            // Nothing about the mix changes here: this only decides who is asked what the mix
+            // should sound like. The capability list, the resolver and the bounds are the same
+            // either way, so a cloud answer can do nothing a local one could not.
+            usingCloudMixEngineer = ! usingCloudMixEngineer;
+            if (usingCloudMixEngineer && ! OpenAiMixProvider().isAvailable())
+            {
+                usingCloudMixEngineer = false;
+                showToast ("No API key is configured, so DLIVE is using its own mix engineer.");
+                break;
+            }
+            if (usingCloudMixEngineer) controller.setReasoningProvider (std::make_shared<OpenAiMixProvider>());
+            else controller.setReasoningProvider (nullptr);
+            showToast (usingCloudMixEngineer
+                           ? "TUNE LIVE MIX will ask the cloud mix engineer. Measurements and source names are sent; no audio ever leaves this machine."
+                           : "TUNE LIVE MIX is back on DLIVE's own mix engineer. Nothing leaves this machine.");
+            break;
+        }
 
         case 500: transportBar->togglePlay(); break;
         // Recording is transport, and LIVE SAFE never locks the transport: the page that

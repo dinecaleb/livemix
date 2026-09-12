@@ -67,7 +67,10 @@ void MixController::prepare (double sr, int maxBlockSize)
 
 MixParameters MixController::compose() const
 {
-    const MixParameters& base = (plan && stage == Stage::Preview) ? (compare == Compare::Before ? plan->before : plan->proposed) : kept;
+    // The verify listen of a TUNE LIVE MIX run has to hear what was applied, so the proposal
+    // stays audible across it even though the stage says Listening.
+    const bool previewing = plan && (stage == Stage::Preview || liveVerifying);
+    const MixParameters& base = previewing ? (compare == Compare::Before ? plan->before : plan->proposed) : kept;
     if (bypassed)
     {
         // The console feed: no processing, no fader moves, no returns. Only the listening
@@ -130,7 +133,9 @@ void MixController::startTuneChannel (int strip, const ListenSettings& s)
 void MixController::startListening (const ListenSettings& s, int strip)
 {
     if (! prepared || stage == Stage::Listening || stage == Stage::Planning) return;
-    if (stage == Stage::Preview) keepPlan();   // a new listen starts from what is audible now
+    // A new listen starts from what is audible now - except the verify listen of a live run,
+    // which is deliberately listening to a proposal the user has not kept yet.
+    if (stage == Stage::Preview && ! liveVerifying) keepPlan();
     listen = s;
     tuningStrip = strip;
     atCapture = running;                        // the faders and gains the listen will run with
@@ -151,14 +156,155 @@ std::string MixController::getTuningName() const
 
 void MixController::abortTuneMix()
 {
+    if (liveRun)
+    {
+        // Cancelling a live run never leaves half a mix behind: nothing was ever applied to
+        // the kept mix, only previewed, so dropping the preview is the whole of the undo.
+        // Cancelling *after* the first pass was applied keeps the proposal in BEFORE / AFTER
+        // so the user can still decide between KEEP and REVERT.
+        capture.abort();
+        tuneLive.cancel();
+        endTuneLive ("TUNE LIVE MIX was stopped. " + std::string (tuneLive.hasProposal()
+                         ? "The mix it had built is still on BEFORE / AFTER - keep it or revert it."
+                         : "Your mix has not been changed."),
+                     tuneLive.hasProposal());
+        return;
+    }
     if (stage != Stage::Listening && stage != Stage::Planning) return;
     capture.abort();
     tuningStrip = -1;
     stage = restingStage();
 }
 
+// ---------------------------------------------------------------------------
+// TUNE LIVE MIX
+// ---------------------------------------------------------------------------
+void MixController::setReasoningProvider (std::shared_ptr<MixReasoningProvider> p)
+{
+    tuneLive.setProvider (std::move (p));
+}
+
+void MixController::startTuneLiveMix (const LiveTuneSettings& s)
+{
+    if (! prepared || stage == Stage::Listening || stage == Stage::Planning || liveRun) return;
+    if (stage == Stage::Preview) keepPlan();     // a new run starts from what is audible now
+
+    liveSettings = s;
+    liveBefore = kept;                            // the complete pre-Tune snapshot: what REVERT goes back to
+    liveRun = true;
+    liveVerifying = false;
+
+    TuneLiveCoordinator::Settings ts;
+    ts.refinementPass = s.refinementPass;
+    ts.userRequest = s.userRequest;
+    tuneLive.setSettings (ts);
+    tuneLive.beginListening (session.name);
+    startListening (s.initial, -1);
+}
+
+// The proposal becomes the AFTER of an ordinary plan, so BEFORE / AFTER, KEEP, REVERT, the
+// mixer, the Inspector's "what DINE set" and the chain strips all work on it without knowing
+// that a reasoning layer was involved. One source of truth, as for every other Tune.
+void MixController::applyLiveProposal()
+{
+    if (! plan) return;
+    plan->before = liveBefore;
+    plan->proposed = tuneLive.getProposed();
+    plan->parametersChanged = MixPlanner::countParameterChanges (plan->before, plan->proposed);
+    plan->fadersChanged = 0;
+    plan->gainsChanged = 0;
+    plan->sendsChanged = 0;
+    for (int i = 0; i < plan->proposed.numStrips && i < plan->before.numStrips; ++i)
+    {
+        const auto& a = plan->before.strips[size_t (i)];
+        const auto& b = plan->proposed.strips[size_t (i)];
+        if (std::fabs (a.faderDb - b.faderDb) >= 0.1f) ++plan->fadersChanged;
+        if (std::fabs (a.inputGainDb - b.inputGainDb) >= 0.1f) ++plan->gainsChanged;
+        for (int f = 0; f < int (FxSlot::Count); ++f)
+            if (std::fabs (a.sendDb[size_t (f)] - b.sendDb[size_t (f)]) >= 0.1f) { ++plan->sendsChanged; break; }
+    }
+    plan->noChangeRequired = plan->parametersChanged == 0 && plan->fadersChanged == 0 && plan->sendsChanged == 0;
+    stage = Stage::Preview;
+    compare = Compare::After;
+    liveVerifying = false;
+    publish();
+    tuneLive.onApplied();
+}
+
+void MixController::endTuneLive (const std::string& message, bool keepProposal)
+{
+    liveRun = false;
+    liveVerifying = false;
+    if (! keepProposal)
+    {
+        plan.reset();
+        stage = restingStage();
+    }
+    else stage = Stage::Preview;
+    tuningStrip = -1;
+    publish();
+    if (onMessage && ! message.empty()) onMessage (message);
+}
+
+void MixController::pollTuneLive()
+{
+    tuneLive.poll();
+    using State = TuneLiveCoordinator::State;
+    switch (tuneLive.getState())
+    {
+        case State::Applying:
+        case State::ApplyingRefinement:
+            applyLiveProposal();
+            break;
+
+        case State::CapturingVerify:
+            // Listen again to what was applied. `liveVerifying` keeps the proposal audible
+            // through the listen, which is the whole point of a verify pass.
+            if (stage != Stage::Listening)
+            {
+                liveVerifying = true;
+                atCapture = running;
+                startListening (liveSettings.verify, -1);
+            }
+            break;
+
+        case State::Ready:
+        {
+            const auto& p = tuneLive.getPlan();
+            std::string headline = "LIVE MIX READY";
+            if (plan)
+            {
+                plan->headline = headline;
+                const auto lines = tuneLive.getReviewLines();
+                for (const auto& l : lines) plan->notes.push_back (l);
+            }
+            endTuneLive (p.countApplied() > 0 || tuneLive.hasProposal()
+                             ? headline
+                             : "LIVE MIX READY - the mix was already right; nothing was changed.",
+                         tuneLive.hasProposal());
+            break;
+        }
+
+        case State::Failed:
+            // The reasoning layer failed. The deterministic mix from the same listen is
+            // already sitting in `plan`, so the user is left with a professional mix and a
+            // sentence saying what happened - never with a stopped mix and never with nothing.
+            endTuneLive (tuneLive.getFailure(), plan.has_value());
+            break;
+
+        case State::Cancelled:
+            endTuneLive ("TUNE LIVE MIX was stopped. Your mix has not been changed.", tuneLive.hasProposal());
+            break;
+
+        default: break;
+    }
+}
+
 void MixController::poll()
 {
+    // A live run spends most of its time somewhere other than a listen - reasoning, resolving,
+    // checking, applying - so its state machine is advanced whatever the stage says.
+    if (liveRun && stage != Stage::Listening) { pollTuneLive(); return; }
     if (stage != Stage::Listening) return;
     const auto s = capture.getState();
     if (s == MixCapture::State::Complete)
@@ -167,12 +313,50 @@ void MixController::poll()
         MixPlanContext ctx;
         ctx.session = session;
         ctx.graph = engine.getGraph();
-        ctx.current = kept;
+        // A verify listen measured the applied proposal, so that - not the kept mix - is what
+        // it has to be read against.
+        ctx.current = (liveVerifying && plan) ? plan->proposed : kept;
         ctx.atCapture = atCapture;
         ctx.capture = capture.getResult();
+
+        if (liveRun && liveVerifying)
+        {
+            // The second listen of a live run. The deterministic plan made from it is only
+            // context for the refinement - the proposal already on BEFORE / AFTER is untouched.
+            const auto verifyBaseline = MixPlanner::plan (ctx);
+            liveVerifying = false;
+            stage = Stage::Preview;
+            tuneLive.onVerifyComplete (ctx, verifyBaseline);
+            pollTuneLive();
+            publish();
+            return;
+        }
+
         // The listen ran with the macros applied; the plan is built on the macro-free mix, and the macros
         // stay where the user left them (50 = the plan).
         plan = MixPlanner::plan (ctx);
+
+        if (liveRun)
+        {
+            // The professional mix is built first and always: whatever happens to the reasoning
+            // pass from here, this is what the user is left with.
+            if (! plan->valid || plan->stripsHeard == 0)
+            {
+                const std::string headline = plan ? plan->headline : std::string ("MIX: NO SIGNAL");
+                plan.reset();
+                tuneLive.cancel();
+                endTuneLive (headline + " Nothing was changed.", false);
+                return;
+            }
+            ++tuneCount;
+            stage = Stage::Preview;
+            compare = Compare::After;
+            publish();
+            tuneLive.onListenComplete (ctx, *plan);
+            pollTuneLive();
+            return;
+        }
+
         // TUNE CHANNEL keeps only this channel's part of it; everything else is left exactly
         // where it is, so what is proposed is what the mix becomes when it is kept.
         const int channel = tuningStrip;
@@ -205,6 +389,13 @@ void MixController::poll()
     }
     else if (s == MixCapture::State::Failed)
     {
+        if (liveRun)
+        {
+            tuneLive.cancel();
+            endTuneLive ("The listen was too short to measure. TUNE LIVE MIX again while the band plays. "
+                         "Your mix has not been changed.", liveVerifying && plan.has_value());
+            return;
+        }
         if (onMessage) onMessage ("The listen was too short to measure. Tune Mix again while the band plays.");
         stage = restingStage();
     }
@@ -224,7 +415,7 @@ std::string MixController::getStatusText() const
     switch (stage)
     {
         case Stage::Setup:     return "Assign your inputs to begin.";
-        case Stage::Ready:     return "Press TUNE MIX and have the band play normally.";
+        case Stage::Ready:     return "Press TUNE LIVE MIX and have the band play normally.";
         case Stage::Listening:
             if (isWaitingForBand()) return isTuningChannel() ? "Waiting for " + getTuningName() + "..." : "Waiting for the band...";
             return "LISTENING... " + std::to_string (int (std::round (getListenProgress() * listen.seconds))) + " of " + std::to_string (int (listen.seconds)) + " s";

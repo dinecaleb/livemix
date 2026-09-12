@@ -257,6 +257,18 @@ namespace
             d.tuneCount = controller.getTuneCount();
             d.hasMix = controller.isPrepared() && controller.hasKeptMix();
             if (d.hasMix) d.mix = controller.getKept();
+            if (controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready)
+            {
+                auto record = juce::JSON::parse (juce::String (controller.getTuneLive().toJson().write()));
+                if (auto* o = record.getDynamicObject())
+                {
+                    juce::Array<juce::var> review;
+                    for (const auto& line : controller.getTuneLive().getReviewLines()) review.add (juce::String (line));
+                    o->setProperty ("review", review);
+                }
+                d.tuneLive = record;
+            }
+            else if (pending.has_value()) d.tuneLive = pending->tuneLive;
             else if (pending.has_value() && pending->hasMix) { d.hasMix = true; d.mix = pending->mix; d.tuneCount = pending->tuneCount; }
             if (! SessionStore::save (d, file)) return false;
             dawEngine.getProject().folder = file.getParentDirectory();

@@ -202,6 +202,31 @@ float compPeakRiseMs (StyleProfileId profile, ChannelRole role)
     }
 }
 
+const AiRanges& aiRanges (StyleProfileId profile)
+{
+    static const AiRanges gospel;
+    static const AiRanges worship = []
+    {
+        AiRanges a;
+        // Modern Worship asks for less of everything at the extremes: the band sits closer
+        // together, so a full-strength objective is a smaller move than it is in gospel.
+        a.presenceDb = 2.0f;
+        a.brightnessDb = 2.0f;
+        a.bodyDb = 2.5f;
+        a.faderDb = 2.0f;
+        a.sendDb = 4.0f;
+        return a;
+    }();
+    return profile == StyleProfileId::ModernWorship ? worship : gospel;
+}
+
+const AiBounds& aiBounds()
+{
+    // One set of bounds for every profile: a bound is a safety limit, not a sound.
+    static const AiBounds bounds;
+    return bounds;
+}
+
 const MacroRanges& macroRanges (StyleProfileId profile)
 {
     static const MacroRanges gospel;

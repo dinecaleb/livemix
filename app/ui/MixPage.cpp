@@ -268,6 +268,49 @@ public:
     DineMeter meter;
 };
 
+// The steps of a TUNE LIVE MIX run, as the user sees them. One entry per piece of real
+// work the state machine actually does - nothing here is a progress bar with no state behind
+// it, and a step is only ticked once the machine has genuinely passed it.
+namespace
+{
+    struct LiveStep { const char* label; TuneLiveCoordinator::State from; };
+
+    constexpr LiveStep kLiveSteps[] = {
+        { "Listening to the band",              TuneLiveCoordinator::State::CapturingInitial },
+        { "Measuring every input",              TuneLiveCoordinator::State::AnalyzingInitial },
+        { "Deciding what this mix needs",       TuneLiveCoordinator::State::WaitingForReasoning },
+        { "Working out how, with what DLIVE has", TuneLiveCoordinator::State::Resolving },
+        { "Checking every change is safe",      TuneLiveCoordinator::State::Validating },
+        { "Applying the mix",                   TuneLiveCoordinator::State::Applying },
+        { "Listening again to what it did",     TuneLiveCoordinator::State::CapturingVerify },
+        { "Making the last corrections",        TuneLiveCoordinator::State::WaitingForRefinement },
+    };
+    constexpr int kNumLiveSteps = int (sizeof (kLiveSteps) / sizeof (kLiveSteps[0]));
+
+    // Which step the run is on. States that are a continuation of a step (analysing the verify
+    // listen, validating a refinement) report the step they belong to, so nothing flickers.
+    int liveStepFor (TuneLiveCoordinator::State s)
+    {
+        using State = TuneLiveCoordinator::State;
+        switch (s)
+        {
+            case State::CapturingInitial:     return 0;
+            case State::AnalyzingInitial:     return 1;
+            case State::WaitingForReasoning:  return 2;
+            case State::Resolving:            return 3;
+            case State::Validating:           return 4;
+            case State::Applying:             return 5;
+            case State::CapturingVerify:
+            case State::AnalyzingVerify:      return 6;
+            case State::WaitingForRefinement:
+            case State::ValidatingRefinement:
+            case State::ApplyingRefinement:   return 7;
+            case State::Ready:                return kNumLiveSteps;
+            default:                          return -1;
+        }
+    }
+}
+
 // ------------------------------------------------------------------ ListenSheet
 // A macOS sheet: it drops from under the toolbar while DLIVE listens.
 class MixPage::ListenSheet : public juce::Component
@@ -291,15 +334,20 @@ public:
     static constexpr int kFootGap = 12;
     static constexpr int kFootH   = 26;
 
-    static constexpr int sheetHeight() noexcept
+    // A live run lists the steps of its workflow instead of the group buses, and there are
+    // more of them, so the card is sized from whichever list it is showing. Computed rather
+    // than typed for the same reason as before: a hard-coded height puts the last row on top
+    // of the foot and the Cancel button the moment a row is added.
+    static constexpr int sheetHeight (int rows) noexcept
     {
-        return kPadY + kHeadH + kHeadGap + kGroupBuses * kRowH + kFootGap + kFootH + kPadY;
+        return kPadY + kHeadH + kHeadGap + rows * kRowH + kFootGap + kFootH + kPadY;
     }
+    int rowCount() const noexcept { return controller.isTuningLive() ? kNumLiveSteps : kGroupBuses; }
 
     juce::Rectangle<int> sheetBounds() const
     {
         const int w = juce::jmin (480, getWidth() - 40);
-        return juce::Rectangle<int> ((getWidth() - w) / 2, 0, w, sheetHeight());
+        return juce::Rectangle<int> ((getWidth() - w) / 2, 0, w, sheetHeight (rowCount()));
     }
 
     void paint (juce::Graphics& g) override
@@ -352,16 +400,52 @@ public:
                         juce::Justification::centred);
         }
 
+        const bool live = controller.isTuningLive();
         auto text = sheetBounds().reduced (kPadX, kPadY).withTrimmedLeft (kHeadH + 20).removeFromTop (kHeadH);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (17.0f, 600));
-        g.drawText (planning ? "Building the mix" : waiting ? "Waiting for the band" : "Listening", text.removeFromTop (22), juce::Justification::topLeft);
+        g.drawText (live ? "Tuning the live mix"
+                         : planning ? "Building the mix" : waiting ? "Waiting for the band" : "Listening",
+                    text.removeFromTop (22), juce::Justification::topLeft);
         text.removeFromTop (5);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText (waiting ? "Have the band play a song the way they normally would. DLIVE starts as soon as it hears them."
-                                  : "Keep playing. Every input is measured at once, then the mix is built around the lead vocal.",
+        g.drawFittedText (live ? juce::String (controller.getTuneLiveStatus()) + " Keep the full band playing."
+                               : waiting ? "Have the band play a song the way they normally would. DLIVE starts as soon as it hears them."
+                                         : "Keep playing. Every input is measured at once, then the mix is built around the lead vocal.",
                           text, juce::Justification::topLeft, 4);
+
+        // ---- what the run is actually doing, one line per real step
+        if (live)
+        {
+            const int at = liveStepFor (controller.getTuneLive().getState());
+            auto rows = sheetBounds().reduced (kPadX, kPadY).withTrimmedTop (kHeadH + kHeadGap);
+            rows = rows.removeFromTop (kNumLiveSteps * kRowH);
+            Dine::fillRounded (g, rows.toFloat(), juce::Colours::black.withAlpha (0.24f), 8.0f);
+            for (int i = 0; i < kNumLiveSteps; ++i)
+            {
+                auto row = rows.removeFromTop (kRowH).reduced (12, 0);
+                if (i > 0) Dine::drawRule (g, row.withHeight (1).expanded (12, 0), Dine::hairSoft);
+                const bool done = at > i;
+                const bool now = at == i;
+                Dine::drawIcon (g, done ? Dine::Icon::Check : now ? Dine::Icon::Waveform : Dine::Icon::Target,
+                                row.removeFromLeft (14).toFloat().withSizeKeepingCentre (14.0f, 14.0f),
+                                done ? Dine::ok : now ? Dine::accent : Dine::ink4);
+                row.removeFromLeft (9);
+                g.setColour (done ? Dine::ink2 : now ? Dine::ink : Dine::ink4);
+                g.setFont (Dine::text (12.5f, now ? 600 : 500));
+                g.drawText (kLiveSteps[i].label, row, juce::Justification::centredLeft);
+            }
+            auto liveFoot = sheetBounds().reduced (kPadX, kPadY).removeFromBottom (kFootH);
+            liveFoot.removeFromRight (cancel.getWidth() + 12);      // the sentence never runs under the button
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (11.5f));
+            g.drawText (controller.getTuneLive().getProvider()->sendsDataExternally()
+                            ? "Measurements are sent out. No audio ever leaves this machine."
+                            : "All of this happens on this machine.",
+                        liveFoot, juce::Justification::centredLeft, true);
+            return;
+        }
 
         // ---- one line per group, ticked the frame it is heard
         auto lines = sheetBounds().reduced (kPadX, kPadY).withTrimmedTop (kHeadH + kHeadGap);
@@ -385,6 +469,7 @@ public:
         }
 
         auto foot = sheetBounds().reduced (kPadX, kPadY).removeFromBottom (kFootH);
+        foot.removeFromRight (cancel.getWidth() + 12);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (11.5f));
         g.drawText ("The mix keeps playing while DLIVE listens.", foot, juce::Justification::centredLeft, true);
@@ -435,20 +520,41 @@ public:
 
     // The lines the sheet shows: the plan's own notes, then what it decided about
     // how the sources work together.
-    std::vector<std::pair<juce::String, juce::String>> bullets() const
+    // A line, its explanation, and whether it is something DLIVE did. A refusal or a
+    // "cannot do this" drawn with a tick would read as a change that was made.
+    struct Bullet { juce::String what, why; bool done = true; };
+
+    std::vector<Bullet> bullets() const
     {
-        std::vector<std::pair<juce::String, juce::String>> out;
+        std::vector<Bullet> out;
         const auto* plan = controller.getPlan();
         if (plan == nullptr) return out;
+        // A live run explains itself in its own words: what it decided, what it could only
+        // approximate and what it refused to do. That reads better than the plan's notes,
+        // and it is the only place the refusals appear.
+        if (controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready)
+        {
+            using Kind = TuneLiveCoordinator::ReviewLine::Kind;
+            for (const auto& line : controller.getTuneLive().getReview())
+            {
+                juce::String why (line.why);
+                if (line.kind == Kind::NotPossible) why = why.isEmpty() ? "DLIVE cannot do this, so it did not." : why;
+                if (line.kind == Kind::Refused && why.isEmpty()) why = "DLIVE declined this change.";
+                out.push_back ({ juce::String (line.what), why,
+                                 line.kind != Kind::NotPossible && line.kind != Kind::Refused });
+                if (out.size() >= 5) return out;
+            }
+            if (! out.empty()) return out;
+        }
         for (const auto& n : plan->notes)
         {
-            out.push_back ({ juce::String (n), {} });
+            out.push_back ({ juce::String (n), {}, true });
             if (out.size() >= 2) break;
         }
         for (const auto& rel : plan->relationships)
         {
             if (rel.changes.empty() && rel.kind != Recommendation::Kind::MixGain) continue;
-            out.push_back ({ juce::String (rel.what), juce::String (rel.why) });
+            out.push_back ({ juce::String (rel.what), juce::String (rel.why), true });
             if (out.size() >= 5) break;
         }
         return out;
@@ -498,22 +604,24 @@ public:
         bool first = true;
         for (const auto& b : bullets())
         {
-            const int h = b.second.isEmpty() ? 30 : 56;
+            const int h = b.why.isEmpty() ? 30 : 56;
             if (inner.getHeight() < h) break;
             auto row = inner.removeFromTop (h);
             if (! first) Dine::drawRule (g, row.withHeight (1), Dine::hairSoft);
             first = false;
             row = row.reduced (0, 7);
-            Dine::drawIcon (g, Dine::Icon::Check, row.removeFromLeft (14).toFloat().withSizeKeepingCentre (13.0f, 13.0f).withY (float (row.getY()) + 1.0f), Dine::accent);
+            Dine::drawIcon (g, b.done ? Dine::Icon::Check : Dine::Icon::Target,
+                            row.removeFromLeft (14).toFloat().withSizeKeepingCentre (13.0f, 13.0f).withY (float (row.getY()) + 1.0f),
+                            b.done ? Dine::accent : Dine::ink3);
             row.removeFromLeft (10);
-            g.setColour (Dine::ink);
             g.setFont (Dine::text (13.0f, 600));
-            g.drawText (b.first, row.removeFromTop (16), juce::Justification::topLeft, true);
-            if (b.second.isNotEmpty())
+            g.setColour (b.done ? Dine::ink : Dine::ink2);
+            g.drawText (b.what, row.removeFromTop (16), juce::Justification::topLeft, true);
+            if (b.why.isNotEmpty())
             {
                 g.setColour (Dine::ink2);
                 g.setFont (Dine::text (12.5f));
-                g.drawFittedText (b.second, row, juce::Justification::topLeft, 2);
+                g.drawFittedText (b.why, row, juce::Justification::topLeft, 2);
             }
         }
 
@@ -578,6 +686,7 @@ MixPage::MixPage (MixController& c) : controller (c)
     listenSheet = std::make_unique<ListenSheet> (controller);
     resultSheet = std::make_unique<ResultSheet> (controller, *this);
     addAndMakeVisible (tuneButton);
+    addAndMakeVisible (liveTuneButton);
     addAndMakeVisible (advancedButton);
     addAndMakeVisible (resetMacrosButton);
     // The sheets are added last: sibling order is z-order.
@@ -588,6 +697,15 @@ MixPage::MixPage (MixController& c) : controller (c)
     tuneButton.setFontPx (19.0f);
     tuneButton.setIcon (Dine::Icon::Waveform);
     tuneButton.onClick = [this] { pressTune(); };
+    tuneButton.setTooltip ("Listen to the band and build DLIVE's mix from what it measures. Deterministic: the same "
+                           "listen always gives the same mix, and nothing leaves this machine.");
+    liveTuneButton.setCaps (true);
+    liveTuneButton.setFontPx (19.0f);
+    liveTuneButton.setIcon (Dine::Icon::Waveform);
+    liveTuneButton.onClick = [this] { pressLiveTune(); };
+    liveTuneButton.setTooltip ("The same listen, with a mix engineer's reasoning on top: DLIVE builds its mix, works out "
+                               "what this band still needs, applies only what it can do safely, then listens again to "
+                               "check. You can compare, review every change and revert.");
     advancedButton.setIcon (Dine::Icon::List);
     advancedButton.setFontPx (12.5f);
     advancedButton.onClick = [this] { if (onOpenAdvanced) onOpenAdvanced(); };
@@ -610,8 +728,15 @@ void MixPage::setRailShown (bool shown)
 
 void MixPage::pressTune()
 {
-    if (controller.isListening()) { controller.abortTuneMix(); refreshTuneButton(); return; }
+    if (controller.isListening() || controller.isTuningLive()) { controller.abortTuneMix(); refreshTuneButton(); return; }
     controller.startTuneMix();
+    refreshTuneButton();
+}
+
+void MixPage::pressLiveTune()
+{
+    if (controller.isTuningLive() || controller.isListening()) { controller.abortTuneMix(); refreshTuneButton(); return; }
+    controller.startTuneLiveMix();
     refreshTuneButton();
 }
 
@@ -624,10 +749,17 @@ void MixPage::setMacroValue (MixMacro m, float v)
 void MixPage::refreshTuneButton()
 {
     const auto stage = controller.getStage();
-    const bool busy = stage == MixController::Stage::Listening || stage == MixController::Stage::Planning;
-    tuneButton.setButtonText (busy ? "Cancel" : controller.getTuneCount() > 0 ? "Re-tune" : "Tune mix");
-    tuneButton.setStyle (busy ? DineButton::Style::Standard : DineButton::Style::Filled);
-    tuneButton.setEnabled (controller.isPrepared() && controller.getEngine().getNumStrips() > 0 && stage != MixController::Stage::Planning);
+    const bool live = controller.isTuningLive();
+    const bool busy = live || stage == MixController::Stage::Listening || stage == MixController::Stage::Planning;
+    const bool ready = controller.isPrepared() && controller.getEngine().getNumStrips() > 0;
+
+    tuneButton.setButtonText (busy && ! live ? "Cancel" : controller.getTuneCount() > 0 ? "Re-tune" : "Tune mix");
+    tuneButton.setEnabled (ready && (! busy || ! live) && stage != MixController::Stage::Planning);
+    tuneButton.setVisible (! live);
+
+    liveTuneButton.setButtonText (live ? "Stop" : controller.getTuneCount() > 0 ? "Tune live mix again" : "Tune live mix");
+    liveTuneButton.setStyle (live ? DineButton::Style::Standard : DineButton::Style::Filled);
+    liveTuneButton.setEnabled (ready && (live || stage != MixController::Stage::Listening) && stage != MixController::Stage::Planning);
 }
 
 void MixPage::rebuildRail()
@@ -694,11 +826,16 @@ void MixPage::refresh()
     // TUNE CHANNEL has its own sheet over whatever workspace it was started from, so these
     // two - which are about the whole mix - stay out of its way.
     const bool mixTune = ! controller.isTuningChannel();
-    const bool listenOn = mixTune && (stage == MixController::Stage::Listening || stage == MixController::Stage::Planning);
-    const bool preview = mixTune && stage == MixController::Stage::Preview && controller.hasPlan();
+    // A live run keeps the progress sheet up for the whole workflow: the deterministic mix is
+    // audible underneath it, but KEEP and REVERT are not offered until the run has finished.
+    const bool live = controller.isTuningLive();
+    const bool listenOn = mixTune && (live || stage == MixController::Stage::Listening || stage == MixController::Stage::Planning);
+    const bool preview = mixTune && ! live && stage == MixController::Stage::Preview && controller.hasPlan();
     if (listenSheet->isVisible() != listenOn) { listenSheet->setVisible (listenOn); if (listenOn) listenSheet->toFront (false); }
     if (resultSheet->isVisible() != preview) { resultSheet->setVisible (preview); if (preview) { resultSheet->toFront (false); resized(); } }
-    if (listenOn) listenSheet->repaint();
+    // The sheet changes height when it swaps the group list for the live workflow's steps,
+    // and that happens without a resize, so the foot is placed again each refresh.
+    if (listenOn) { listenSheet->resized(); listenSheet->repaint(); }
     if (preview) resultSheet->refresh();
     if (stage != lastStage) { refreshTuneButton(); lastStage = stage; }
     for (int i = 0; i < int (MixMacro::Count); ++i) macros[size_t (i)]->setValue (controller.getMacros().get (MixMacro (i)));
@@ -713,7 +850,12 @@ MixPage::Layout MixPage::layout() const
     l.railTab = l.rail.removeFromLeft (Dine::Metric::panelTab);   // the gutter the handle sits in
     auto left = b.reduced (0, 20).withTrimmedLeft (24).withTrimmedRight (22);
     auto top = left.removeFromTop (76);
-    l.tune = top.removeFromRight (268);
+    // TUNE LIVE MIX is the primary action and takes the right-hand half; the deterministic
+    // TUNE MIX keeps its place beside it.
+    auto tuneArea = top.removeFromRight (398);
+    l.liveTune = tuneArea.removeFromRight (236);
+    tuneArea.removeFromRight (10);
+    l.tune = tuneArea;
     top.removeFromRight (14);
     l.health = top;
     left.removeFromTop (14);
@@ -851,6 +993,7 @@ void MixPage::resized()
     const auto l = layout();
 
     tuneButton.setBounds (l.tune);
+    liveTuneButton.setBounds (l.liveTune);
     auto groupRow = l.groups;
     const int gap = 10;
     const int w = (groupRow.getWidth() - gap * (kGroupTiles - 1)) / kGroupTiles;

@@ -287,6 +287,9 @@ juce::var toVar (const Document& d)
     obj->setProperty ("hasMix", d.hasMix);
     if (d.hasMix) obj->setProperty ("mix", mixToVar (d.mix));
     obj->setProperty ("project", projectToVar (d.project));
+    // Stored for REVIEW CHANGES and for the record. Nothing reads it back into the mix: the
+    // parameters that actually run are in "mix", which is the only thing the engine is given.
+    if (! d.tuneLive.isVoid()) obj->setProperty ("tuneLive", d.tuneLive);
     juce::Array<juce::var> feeds;
     for (int i = 0; i < d.outputs.count && i < kMaxOutputFeeds; ++i)
     {
@@ -338,6 +341,7 @@ bool fromVar (const juce::var& v, Document& d)
     d.hasMix = bool (obj->getProperty ("hasMix"));
     if (d.hasMix) mixFromVar (obj->getProperty ("mix"), d.mix);
     projectFromVar (obj->getProperty ("project"), d.project);      // absent in version 1: no timeline yet
+    d.tuneLive = obj->getProperty ("tuneLive");                     // absent until a live run has been made
     d.outputs = OutputFeeds::mainOnly();                            // absent before the outputs feature: the main pair
     if (auto* feeds = obj->getProperty ("outputs").getArray())
     {

@@ -33,6 +33,11 @@ namespace SessionStore
         MixParameters mix;          // the kept mix (without macros); valid when hasMix
         OutputFeeds outputs;        // where the sound leaves the device (monitoring, not mix)
         int tuneCount = 0;
+        // The last TUNE LIVE MIX run, as a record: what it intended, what it built and what
+        // it refused. Reading only - the mix itself is in `mix`, so opening yesterday's
+        // session sounds exactly as it did without contacting any provider, ever. Null when
+        // no live run has been made.
+        juce::var tuneLive;
     };
 
     struct Listing

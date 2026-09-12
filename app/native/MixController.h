@@ -9,6 +9,7 @@
 #include "Mix/MixPlanner.h"
 #include "Mix/MixMacros.h"
 #include "Mix/OutputFeeds.h"
+#include "MixAI/TuneLiveCoordinator.h"
 
 namespace livemix
 {
@@ -75,6 +76,33 @@ public:
     bool isTuningChannel() const noexcept { return tuningStrip >= 0; }
     std::string getTuningName() const;                               // that channel's name, empty for a mix
 
+    // ---- TUNE LIVE MIX: the AI mix engineer ----
+    // The same listen, the same deterministic plan and the same BEFORE / AFTER as TUNE MIX,
+    // with a reasoning pass on top: DLIVE listens, builds the professional mix it always
+    // builds, asks a mix engineer what this band still needs, resolves that into changes it
+    // can actually make, checks every one of them, applies them, listens again and makes one
+    // conservative correction. The audio path is untouched by any of it - the reasoning runs
+    // on a worker inside TuneLiveCoordinator, and a plan only ever reaches the engine as one
+    // whole MixParameters snapshot through the same publish() every fader move uses. If the
+    // provider is unreachable, slow, or answers with nonsense, the deterministic mix is what
+    // you are left with and the audio never stops.
+    struct LiveTuneSettings
+    {
+        ListenSettings initial { 30.0f, -45.0f, 30.0f };   // listen to the band
+        ListenSettings verify { 15.0f, -45.0f, 20.0f };    // listen again to what was applied
+        bool refinementPass = true;                        // one correction, never an open loop
+        std::string userRequest;                           // "make the drums bigger" - usually empty
+    };
+    void startTuneLiveMix (const LiveTuneSettings& s);
+    void startTuneLiveMix() { startTuneLiveMix (LiveTuneSettings {}); }
+    // Off by default is the offline engineer, which needs no network and no configuration.
+    // Passing nullptr goes back to it.
+    void setReasoningProvider (std::shared_ptr<MixReasoningProvider>);
+    const TuneLiveCoordinator& getTuneLive() const noexcept { return tuneLive; }
+    bool isTuningLive() const noexcept { return liveRun; }
+    // What the sheet reads while a run is going: the state machine's own words.
+    std::string getTuneLiveStatus() const { return tuneLive.getStatusText(); }
+
     void abortTuneMix();                  // cancels whichever listen is running - the mix's or a channel's
     void poll();                                        // message thread, ~30 Hz: advances Listening -> Planning -> Preview
     Stage getStage() const noexcept { return stage; }
@@ -137,7 +165,14 @@ public:
     void setBusChannel (MixBus bus, const ChannelParameters&);
     void clearSolos();
     const MixParameters& getKept() const noexcept { return kept; }          // without macros
-    const MixParameters& getBase() const noexcept { return (plan && stage == Stage::Preview) ? (compare == Compare::Before ? plan->before : plan->proposed) : kept; } // what is audible, without macros
+    // What is audible, without macros. During a TUNE LIVE MIX verify listen the applied
+    // proposal has to stay audible even though the stage says Listening: the second listen is
+    // measuring what was applied, and a listen to the old mix would verify nothing.
+    const MixParameters& getBase() const noexcept
+    {
+        const bool previewing = plan && (stage == Stage::Preview || liveVerifying);
+        return previewing ? (compare == Compare::Before ? plan->before : plan->proposed) : kept;
+    }
     const MixParameters& getRunning() const noexcept { return running; }    // what the engine was last given
     void setKept (const MixParameters& p);                                  // session restore
     void restoreKept (const MixParameters& p, int tuneCount);               // session restore with its history
@@ -201,6 +236,18 @@ private:
     int tuningStrip = -1;               // TUNE CHANNEL: the one strip being listened to / previewed
     bool mixed = false;                 // a plan was kept (or a saved mix restored): the mix is more than the baselines
     ListenSettings listen;
+
+    // TUNE LIVE MIX. `liveRun` is on for the whole workflow, across both listens; `liveVerifying`
+    // is on only while the second listen runs, and is what keeps the applied mix audible during
+    // it (a verify listen has to hear what was applied, not what it replaced).
+    TuneLiveCoordinator tuneLive;
+    LiveTuneSettings liveSettings;
+    MixParameters liveBefore;           // the complete pre-Tune snapshot: what REVERT goes back to
+    bool liveRun = false;
+    bool liveVerifying = false;
+    void pollTuneLive();
+    void applyLiveProposal();
+    void endTuneLive (const std::string& message, bool keepProposal);
     Stage restingStage() const noexcept { return mixed ? Stage::Mixed : Stage::Ready; }
 };
 
