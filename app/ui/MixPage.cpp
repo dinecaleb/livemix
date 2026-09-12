@@ -323,6 +323,23 @@ public:
         setInterceptsMouseClicks (true, true);
     }
 
+    // Called with the page's 30 Hz refresh. The sheet has to be able to say how long the
+    // step it is on has been going: once the listen is finished the ring has no percentage
+    // left to fill, and "working" that never changes is indistinguishable from "hung".
+    void tick()
+    {
+        const auto state = controller.getTuneLive().getState();
+        if (state == lastLiveState) return;
+        lastLiveState = state;
+        stepStartedMs = juce::Time::getMillisecondCounter();
+    }
+
+    int stepSeconds() const
+    {
+        if (stepStartedMs == 0) return 0;
+        return int ((juce::Time::getMillisecondCounter() - stepStartedMs) / 1000);
+    }
+
     // The card is as tall as what it holds: the head, a line per group bus, then the foot. It is
     // computed rather than typed, because the group buses decide it - when SPEECH was added, a
     // hard-coded height put the fifth line on top of the foot and the Cancel button.
@@ -370,6 +387,17 @@ public:
         const bool waiting = controller.isWaitingForBand();
         const bool planning = controller.getStage() == MixController::Stage::Planning;
         const float progress = planning ? 1.0f : controller.getListenProgress();
+        const bool live = controller.isTuningLive();
+        const auto liveState = controller.getTuneLive().getState();
+        const bool capturing = liveState == TuneLiveCoordinator::State::CapturingInitial
+                            || liveState == TuneLiveCoordinator::State::CapturingVerify;
+        // A live run spends most of its time off a listen - measuring, reasoning, resolving,
+        // checking - and there is no percentage to fill during any of it. A ring frozen at
+        // 100 is indistinguishable from a ring that has stopped, so once the listening is
+        // done the ring sweeps instead of filling and the number becomes the one thing the
+        // user actually wants: how long this step has been going.
+        const bool working = live && ! capturing;
+        const float phase = float (juce::Time::getMillisecondCounter() % 1400u) / 1400.0f;
 
         // ---- the capture ring
         auto ring = r.removeFromLeft (kHeadH).removeFromTop (kHeadH).toFloat();   // the head is as tall as the ring
@@ -380,27 +408,33 @@ public:
             track.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, 0.0f, juce::MathConstants<float>::twoPi, true);
             g.setColour (juce::Colours::white.withAlpha (0.12f));
             g.strokePath (track, juce::PathStrokeType (thickness));
-            if (progress > 0.0f)
+
+            const float sweepFrom = working ? juce::MathConstants<float>::twoPi * phase : 0.0f;
+            const float sweepTo = working ? sweepFrom + juce::MathConstants<float>::twoPi * 0.22f
+                                          : juce::MathConstants<float>::twoPi * juce::jlimit (0.02f, 1.0f, progress);
+            if (working || progress > 0.0f)
             {
                 juce::Path arc;
-                arc.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, 0.0f,
-                                   juce::MathConstants<float>::twoPi * juce::jlimit (0.02f, 1.0f, progress), true);
+                arc.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, sweepFrom, sweepTo, true);
                 g.setColour (Dine::accent);
                 g.strokePath (arc, juce::PathStrokeType (thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
+
             // The number and its caption both live inside the ring, never over the arc.
+            const int seconds = stepSeconds();
             g.setColour (Dine::ink);
             g.setFont (Dine::mono (25.0f, 500));
-            g.drawText (waiting ? Glyph::dash() : juce::String (int (std::round (progress * 100.0f))),
+            g.drawText (working ? juce::String (seconds)
+                                : waiting ? Glyph::dash() : juce::String (int (std::round (progress * 100.0f))),
                         ring.withTrimmedBottom (24.0f).toNearestInt(), juce::Justification::centred);
             g.setColour (Dine::ink2);
             g.setFont (Dine::text (10.0f));
-            g.drawText (waiting ? "waiting" : "% listened",
+            g.drawText (working ? (seconds == 1 ? "second" : "seconds")
+                                : waiting ? "waiting" : "% listened",
                         ring.withTrimmedTop (ring.getHeight() * 0.5f + 8.0f).withHeight (17.0f).toNearestInt(),
                         juce::Justification::centred);
         }
 
-        const bool live = controller.isTuningLive();
         auto text = sheetBounds().reduced (kPadX, kPadY).withTrimmedLeft (kHeadH + 20).removeFromTop (kHeadH);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (17.0f, 600));
@@ -410,7 +444,16 @@ public:
         text.removeFromTop (5);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText (live ? juce::String (controller.getTuneLiveStatus()) + " Keep the full band playing."
+        // What the band is being asked for changes through the run: they play for the two
+        // listens, and between them they only have to stay ready. Telling them to keep
+        // playing while DLIVE is thinking is asking for something it does not need.
+        juce::String liveAsk;
+        if (capturing) liveAsk = " Keep the full band playing.";
+        else if (liveState != TuneLiveCoordinator::State::WaitingForRefinement
+                 && liveState != TuneLiveCoordinator::State::ValidatingRefinement
+                 && liveState != TuneLiveCoordinator::State::ApplyingRefinement)
+            liveAsk = " Stay ready - DLIVE listens again in a moment.";
+        g.drawFittedText (live ? juce::String (controller.getTuneLiveStatus()) + liveAsk
                                : waiting ? "Have the band play a song the way they normally would. DLIVE starts as soon as it hears them."
                                          : "Keep playing. Every input is measured at once, then the mix is built around the lead vocal.",
                           text, juce::Justification::topLeft, 4);
@@ -428,13 +471,25 @@ public:
                 if (i > 0) Dine::drawRule (g, row.withHeight (1).expanded (12, 0), Dine::hairSoft);
                 const bool done = at > i;
                 const bool now = at == i;
+                // The running step breathes. A cloud model can take twenty seconds to answer,
+                // and a row that never changes in that time reads as a run that has stopped.
+                const float pulse = now ? 0.55f + 0.45f * (0.5f + 0.5f * std::sin (phase * juce::MathConstants<float>::twoPi))
+                                        : 1.0f;
                 Dine::drawIcon (g, done ? Dine::Icon::Check : now ? Dine::Icon::Waveform : Dine::Icon::Target,
                                 row.removeFromLeft (14).toFloat().withSizeKeepingCentre (14.0f, 14.0f),
-                                done ? Dine::ok : now ? Dine::accent : Dine::ink4);
+                                done ? Dine::ok : now ? Dine::accent.withMultipliedAlpha (pulse) : Dine::ink4);
                 row.removeFromLeft (9);
                 g.setColour (done ? Dine::ink2 : now ? Dine::ink : Dine::ink4);
                 g.setFont (Dine::text (12.5f, now ? 600 : 500));
-                g.drawText (kLiveSteps[i].label, row, juce::Justification::centredLeft);
+                g.drawText (kLiveSteps[i].label, row.removeFromLeft (row.getWidth() - 52), juce::Justification::centredLeft);
+                // How long it has been on this step, on the step itself: the one number that
+                // separates "still working" from "stuck".
+                if (now && stepSeconds() > 0)
+                {
+                    g.setColour (Dine::ink3);
+                    g.setFont (Dine::mono (11.0f));
+                    g.drawText (juce::String (stepSeconds()) + " s", row, juce::Justification::centredRight);
+                }
             }
             auto liveFoot = sheetBounds().reduced (kPadX, kPadY).removeFromBottom (kFootH);
             liveFoot.removeFromRight (cancel.getWidth() + 12);      // the sentence never runs under the button
@@ -484,6 +539,8 @@ public:
 private:
     MixController& controller;
     DineButton cancel { "Cancel", DineButton::Style::Standard };
+    TuneLiveCoordinator::State lastLiveState = TuneLiveCoordinator::State::Idle;
+    juce::uint32 stepStartedMs = 0;
 };
 
 // ------------------------------------------------------------------ ResultSheet
@@ -509,21 +566,65 @@ public:
         const bool showingAfter = controller.getCompare() == MixController::Compare::After;
         before.setToggleState (! showingAfter, juce::dontSendNotification);
         after.setToggleState (showingAfter, juce::dontSendNotification);
+        resized();      // the card is sized from its bullets, so the buttons follow the content
         repaint();
+    }
+
+    // A line, its explanation, and whether it is something DLIVE did. A refusal or a
+    // "cannot do this" drawn with a tick would read as a change that was made.
+    struct Bullet { juce::String what, why; bool done = true; };
+
+    // A line that explains an engineering decision is a sentence, not a label, so a bullet
+    // wraps rather than ending in an ellipsis - and the card is then sized from what it is
+    // actually holding, instead of a typed height that leaves a void under three short lines.
+    static constexpr int kSideX = 26, kSideY = 22;
+    static constexpr int kIconGutter = 24;     // the tick and the gap after it
+    static constexpr int kControlsH = 84;      // the A/B row, the rule and the buttons
+
+    int bulletWidth() const { return juce::jmin (600, getWidth() - 40) - kSideX * 2 - 14 * 2 - kIconGutter; }
+
+    // How many lines a string really takes at this width. Measured, not estimated from the
+    // unwrapped width: an estimate that is one line short makes drawFittedText squash the
+    // text horizontally to fit, which is why a sentence could come out visibly narrower
+    // than the one under it.
+    static int linesNeeded (const juce::Font& font, const juce::String& text, int width)
+    {
+        if (text.isEmpty() || width < 40) return 1;
+        juce::AttributedString attributed;
+        attributed.setText (text);
+        attributed.setFont (font);
+        attributed.setJustification (juce::Justification::topLeft);
+        juce::TextLayout layout;
+        layout.createLayout (attributed, float (width));
+        return juce::jlimit (1, 4, int (std::ceil (layout.getHeight() / juce::jmax (1.0f, font.getHeight()) - 0.05f)));
+    }
+
+    // How tall one bullet needs to be, from how many lines its two strings really take.
+    int bulletHeight (const Bullet& b) const
+    {
+        const int avail = juce::jmax (80, bulletWidth());
+        const int whatLines = linesNeeded (Dine::text (13.0f, 600), b.what, avail);
+        const int whyLines = b.why.isEmpty() ? 0 : linesNeeded (Dine::text (12.5f), b.why, avail);
+        return 14 + whatLines * 17 + (whyLines > 0 ? 3 + whyLines * 16 : 0);
+    }
+
+    int listHeight() const
+    {
+        int h = 4;
+        for (const auto& b : bullets()) h += bulletHeight (b);
+        return h;
     }
 
     juce::Rectangle<int> sheetBounds() const
     {
         const int w = juce::jmin (600, getWidth() - 40);
-        return juce::Rectangle<int> ((getWidth() - w) / 2, 0, w, juce::jmin (getHeight() - 20, 372));
+        const int content = kSideY + 17 + 8 + 24 + 10 + listHeight() + kControlsH + kSideY;
+        const int h = juce::jlimit (280, juce::jmax (280, getHeight() - 20), content);
+        return juce::Rectangle<int> ((getWidth() - w) / 2, 0, w, h);
     }
 
     // The lines the sheet shows: the plan's own notes, then what it decided about
     // how the sources work together.
-    // A line, its explanation, and whether it is something DLIVE did. A refusal or a
-    // "cannot do this" drawn with a tick would read as a change that was made.
-    struct Bullet { juce::String what, why; bool done = true; };
-
     std::vector<Bullet> bullets() const
     {
         std::vector<Bullet> out;
@@ -598,13 +699,13 @@ public:
         g.drawText (juce::String (plan->headline), r.removeFromTop (24), juce::Justification::centredLeft, true);
 
         r.removeFromTop (10);
-        auto list = r.removeFromTop (juce::jmax (0, r.getHeight() - 84));
+        auto list = r.removeFromTop (juce::jmin (juce::jmax (0, r.getHeight() - kControlsH), listHeight()));
         Dine::fillRounded (g, list.toFloat(), juce::Colours::black.withAlpha (0.20f), 8.0f);
         auto inner = list.reduced (14, 2);
         bool first = true;
         for (const auto& b : bullets())
         {
-            const int h = b.why.isEmpty() ? 30 : 56;
+            const int h = bulletHeight (b);
             if (inner.getHeight() < h) break;
             auto row = inner.removeFromTop (h);
             if (! first) Dine::drawRule (g, row.withHeight (1), Dine::hairSoft);
@@ -614,14 +715,21 @@ public:
                             row.removeFromLeft (14).toFloat().withSizeKeepingCentre (13.0f, 13.0f).withY (float (row.getY()) + 1.0f),
                             b.done ? Dine::accent : Dine::ink3);
             row.removeFromLeft (10);
+            // Drawn at full width - the last argument keeps JUCE from squeezing the glyphs
+            // to avoid a wrap. A sentence that wraps reads; a sentence that is squashed to
+            // fit one line does not, and it no longer matches the one under it.
+            const int avail = juce::jmax (80, row.getWidth());
+            const int whatLines = linesNeeded (Dine::text (13.0f, 600), b.what, avail);
             g.setFont (Dine::text (13.0f, 600));
             g.setColour (b.done ? Dine::ink : Dine::ink2);
-            g.drawText (b.what, row.removeFromTop (16), juce::Justification::topLeft, true);
+            g.drawFittedText (b.what, row.removeFromTop (whatLines * 17), juce::Justification::topLeft, whatLines, 1.0f);
             if (b.why.isNotEmpty())
             {
+                row.removeFromTop (3);
                 g.setColour (Dine::ink2);
                 g.setFont (Dine::text (12.5f));
-                g.drawFittedText (b.why, row, juce::Justification::topLeft, 2);
+                g.drawFittedText (b.why, row, juce::Justification::topLeft,
+                                  linesNeeded (Dine::text (12.5f), b.why, avail), 1.0f);
             }
         }
 
@@ -839,7 +947,7 @@ void MixPage::refresh()
     if (resultSheet->isVisible() != preview) { resultSheet->setVisible (preview); if (preview) { resultSheet->toFront (false); resized(); } }
     // The sheet changes height when it swaps the group list for the live workflow's steps,
     // and that happens without a resize, so the foot is placed again each refresh.
-    if (listenOn) { listenSheet->resized(); listenSheet->repaint(); }
+    if (listenOn) { listenSheet->tick(); listenSheet->resized(); listenSheet->repaint(); }
     if (preview) resultSheet->refresh();
     // A live run starts and ends without the stage necessarily moving (it finishes in
     // Preview, where it already was), so the buttons follow the run as well as the stage -

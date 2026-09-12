@@ -533,7 +533,10 @@ void MainView::updateChrome()
     }
     workspaceItems[0]->setMeta (hasInputs ? juce::String (int (session.inputs.size())) : juce::String());
     workspaceItems[1]->setMeta (hasInputs ? juce::String (int (session.inputs.size())) : juce::String());
-    workspaceItems[2]->setMeta (controller.getTuneCount() > 0 ? "tuned" : juce::String());
+    // A live run carries on whichever workspace you are looking at, so the sidebar says so:
+    // leaving the Tune page should not be the same as losing sight of the run.
+    workspaceItems[2]->setMeta (controller.isTuningLive() ? "working"
+                                : controller.getTuneCount() > 0 ? "tuned" : juce::String());
     workspaceItems[3]->setMeta (project.liveSafe ? "safe" : juce::String());
 
     sessionsItem.setMeta (juce::String (services.listSessions().size()));
@@ -1087,6 +1090,8 @@ void MainView::timerCallback()
 
     if (toastTicks > 0 && --toastTicks == 0) toast->setVisible (false);
     if (saveTicks > 0 && --saveTicks == 0) services.saveSession();
+
+    if (tuningLiveWasOn != controller.isTuningLive()) { tuningLiveWasOn = controller.isTuningLive(); updateChrome(); }
 
     const bool running = services.isAudioRunning();
     if (audioWasRunning != running) updateChrome();

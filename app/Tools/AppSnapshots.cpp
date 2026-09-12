@@ -350,13 +350,38 @@ int main (int argc, char** argv)
     // TUNE LIVE MIX: the same listen with the mix engineer's reasoning on top. The sheet shows
     // the steps the state machine is really on, so these two shots are of actual states.
     {
+        // A deliberately slow engineer, so the tool can photograph the state the app spends
+        // most of a cloud run in: listening finished, nothing left to fill, still working.
+        // The built-in one answers instantly, which is exactly why that state was easy to
+        // ship without a visual cue.
+        struct SlowProvider final : MixReasoningProvider
+        {
+            LocalMixReasoningProvider inner;
+            std::string getName() const override { return "DLIVE built-in (offline)"; }
+            bool isAvailable() const override { return true; }
+            bool sendsDataExternally() const override { return false; }
+            MixReasoningResponse reason (const MixReasoningRequest& r, const std::atomic<bool>& cancel) override
+            {
+                for (int i = 0; i < 40 && ! cancel.load(); ++i) std::this_thread::sleep_for (std::chrono::milliseconds (50));
+                return inner.reason (r, cancel);
+            }
+        };
+        rig.controller.setReasoningProvider (std::make_shared<SlowProvider>());
+
         MixController::LiveTuneSettings live;
         live.initial = { 7.0f, -45.0f, 5.0f };
         live.verify = { 6.5f, -45.0f, 5.0f };
         rig.controller.startTuneLiveMix (live);
         rig.feed (1.2);
         rig.snap (dir, "08b-tune-live-listening");
-        for (int i = 0; i < 600 && rig.controller.isTuningLive(); ++i) { rig.controller.poll(); rig.feed (0.05); }
+
+        // Wait for the run to leave the listen, then photograph it mid-thought.
+        for (int i = 0; i < 600 && rig.controller.getTuneLive().getState() != TuneLiveCoordinator::State::WaitingForReasoning; ++i)
+            { rig.controller.poll(); rig.feed (0.05); }
+        rig.feed (0.6);
+        rig.snap (dir, "08c-tune-live-working");
+
+        for (int i = 0; i < 900 && rig.controller.isTuningLive(); ++i) { rig.controller.poll(); rig.feed (0.05); }
         rig.feed (0.5);
         rig.snap (dir, "09b-tune-live-result");
         rig.controller.revertPlan();
