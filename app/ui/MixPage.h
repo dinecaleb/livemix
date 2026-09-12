@@ -76,6 +76,7 @@ private:
     int builtRailFor = -1;
     juce::String status;
     MixController::Stage lastStage = MixController::Stage::Setup;
+    bool lastLiveRun = false;
 };
 
 } // namespace livemix

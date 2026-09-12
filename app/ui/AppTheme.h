@@ -79,6 +79,7 @@ namespace Dine
         inline constexpr int toolbar   = 56;
         inline constexpr int footer    = 52;
         inline constexpr int rail      = 274;   // the mix inspector
+        inline constexpr int setupRail = 252;   // the column of small cards beside a setup page
         inline constexpr int padX      = 30;    // page gutter
         inline constexpr int padY      = 26;
         inline constexpr int control   = 24;    // popups, rows, segments
@@ -108,7 +109,7 @@ namespace Dine
     enum class Icon
     {
         None, Drum, Cymbal, Mic, Guitar, Piano, Speech, Room, Fx, Waveform, Sliders,
-        Device, List, Target, Check, Warn, Gear, Play, Refresh, Chevron, UpDown, Dash, Bus, Sidebar
+        Device, List, Target, Check, Warn, Gear, Play, Refresh, Chevron, UpDown, Dash, Bus, Sidebar, Search
     };
     void drawIcon (juce::Graphics&, Icon, juce::Rectangle<float>, juce::Colour, float thickness = 1.4f);
     Icon iconForRole (ChannelRole) noexcept;
@@ -128,6 +129,21 @@ namespace Dine
     struct RoleGroup { const char* name; std::vector<ChannelRole> roles; };
     const std::vector<RoleGroup>& roleGroups();
     juce::String friendlyRoleName (ChannelRole);
+
+    // A section caption over a card or a list: 11 px, 600, quiet. Every setup page's
+    // right-hand column and every grouped box is introduced by one of these.
+    void drawCaption (juce::Graphics&, juce::Rectangle<int>, const juce::String&);
+
+    // The macOS radio a picker row or a picker card carries, filled with the accent when it
+    // is the one that is chosen. Used by the device list, the output list and the purpose
+    // and sound cards, so "this is the one" reads the same in all three.
+    void drawRadio (juce::Graphics&, juce::Rectangle<float>, bool on);
+
+    // One bar, divided by group: how the inputs, or a saved session's inputs, fall across
+    // DRUMS / BASS / MUSIC / VOCALS / SPEECH. The segments keep their bus colours, so the
+    // bar says the same thing the mixer's bands say.
+    struct BarSlice { float share; juce::Colour colour; };   // share 0..1 of the whole bar
+    void drawStackedBar (juce::Graphics&, juce::Rectangle<int>, const std::vector<BarSlice>&);
 
     // Status pill: "Heard", "Faint", "Muted", "Ready".
     float pillWidth (const juce::String& text, bool withIcon);
@@ -257,6 +273,24 @@ private:
     juce::String letter;
     juce::Colour tint;
     bool on = false;
+};
+
+// A filter chip: a segmented control's segment, with an optional colour dot in front of
+// its label. The chips sit in one rounded track (drawChipTrack behind them), the way the
+// bus filter on Inputs and the library filter on Sessions do.
+class DineChip : public juce::Button
+{
+public:
+    explicit DineChip (const juce::String& label, juce::Colour dot = juce::Colours::transparentBlack);
+    int idealWidth() const;
+    void paintButton (juce::Graphics&, bool over, bool down) override;
+
+    // The track a row of chips sits in. Draw it before the chips themselves.
+    static void drawTrack (juce::Graphics&, juce::Rectangle<int>);
+
+private:
+    juce::String label;
+    juce::Colour dot;
 };
 
 // The 28x16 switch used for stereo pairs.

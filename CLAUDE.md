@@ -266,6 +266,25 @@
   written back under the new extension when they are next saved. The app icon is `app/resources/AppIcon.png`
   (1024 px, generated art: the D with a fader cap), handed to JUCE as `ICON_BIG`. The DINE plug-in family and the
   `Dine::` design tokens keep their name; only DINELIVE became DLIVE.
+  **Setting a session up is four screens of one layout** (`app/ui/SetupPages`, 2026-09-12): SESSIONS (the
+  library), AUDIO DEVICE, INPUTS and PURPOSE AND SOUND. `SetupLayout::of` is the one place the bands are
+  measured - title and a readout, a toolbar, the table beside a 252 px rail of small cards, then a footer
+  with a note and Back / Continue - so all four line up and a change to the shape is a change in one
+  function; `drawSetupHead` / `drawSetupFooter` draw the ends. The shared parts live in `AppTheme`:
+  `DineChip` (a filter chip with its group's dot, in one rounded track), `Dine::drawRadio`,
+  `Dine::drawCaption` and `Dine::drawStackedBar` (one bar divided by group, in the bus colours).
+  SESSIONS lists every saved session with what it sounds like, what it was for and how its inputs fall
+  across the groups - read by `SessionStore::summarise`, which parses the document's header only and never
+  walks the audio beside it - and is where the app opens when there is a library to open into.
+  INPUTS groups the desk by the bus each input will feed (a clickable group header picks the whole group
+  out), and a selection turns the toolbar into the bulk one: set what they are, fill a kit down them in
+  order, name them from their role, link them as pairs, drop them. The numbers on PURPOSE AND SOUND are
+  `Profiles::targets (profile, masterRoleFor (purpose))`, so what the card promises is what TUNE MIX aims
+  at. AUDIO DEVICE and INPUTS draw what is arriving on each device channel from
+  `DawEngine::inputPeakDb` / `numInputsCarryingSignal` - a peak per block with a slow release, stored from
+  the audio thread with relaxed atomics before anything in the mix touches the signal - so "the console is
+  plugged in but channel 9 is dead", and "this unnamed input is carrying signal", are visible before a
+  single input has been named.
   In the app, Import a multitrack... on the device page (or File > Import Multitrack Folder...) turns a stems
   folder into tracks and clips, with names and sources guessed from the file names.
   **"Arm" is not a word the app says.** A volunteer does not know it, and the message they meet when they press

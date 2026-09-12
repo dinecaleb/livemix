@@ -228,6 +228,9 @@ namespace
         static const std::vector<IconStroke> updown { { "M6.8 8.4L10 5.2l3.2 3.2M6.8 11.6L10 14.8l3.2-3.2", 1.5f, false } };
         static const std::vector<IconStroke> bus {
             { "M3.4 5.2h13.2M3.4 10h13.2M3.4 14.8h13.2", 1.4f, false } };
+        static const std::vector<IconStroke> search {
+            { "M9 3.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0 -10.8", 1.5f, false },
+            { "M12.9 12.9l3.6 3.6", 1.5f, false } };
         static const std::vector<IconStroke> sidebar {
             { "M3.4 4.2h13.2a1.8 1.8 0 0 1 1.8 1.8v8a1.8 1.8 0 0 1 -1.8 1.8h-13.2a1.8 1.8 0 0 1 -1.8 -1.8v-8a1.8 1.8 0 0 1 1.8 -1.8z", 1.4f, false },
             { "M7.8 4.2v11.6", 1.4f, false } };
@@ -257,6 +260,7 @@ namespace
             case Dine::Icon::Dash:     return dash;
             case Dine::Icon::Bus:      return bus;
             case Dine::Icon::Sidebar:  return sidebar;
+            case Dine::Icon::Search:   return search;
             case Dine::Icon::None:
             default:                   return empty;
         }
@@ -385,6 +389,96 @@ Dine::Icon Dine::iconForRole (ChannelRole r) noexcept
         default:
             return Icon::Waveform;
     }
+}
+
+// ============================================================================ captions, radios, bars
+void Dine::drawCaption (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& label)
+{
+    g.setColour (ink3);
+    g.setFont (text (11.0f, 600));
+    g.drawText (label, r, juce::Justification::centredLeft, true);
+}
+
+void Dine::drawRadio (juce::Graphics& g, juce::Rectangle<float> r, bool on)
+{
+    auto dot = r.withSizeKeepingCentre (15.0f, 15.0f);
+    if (on)
+    {
+        drawFilled (g, dot, dot.getWidth() * 0.5f, false, false);
+        g.setColour (onAccent);
+        g.fillEllipse (dot.withSizeKeepingCentre (5.0f, 5.0f));
+    }
+    else
+    {
+        g.setColour (well);
+        g.fillEllipse (dot);
+        g.setColour (hairStrong);
+        g.drawEllipse (dot.reduced (0.5f), 1.0f);
+    }
+}
+
+void Dine::drawStackedBar (juce::Graphics& g, juce::Rectangle<int> r, const std::vector<BarSlice>& slices)
+{
+    const float radius = juce::jmin (3.0f, r.getHeight() * 0.5f);
+    auto bar = r.toFloat();
+    fillRounded (g, bar, juce::Colours::white.withAlpha (0.10f), radius);
+    juce::Path clip;
+    clip.addRoundedRectangle (bar, radius);
+    g.saveState();
+    g.reduceClipRegion (clip);
+    float x = bar.getX();
+    for (const auto& s : slices)
+    {
+        const float w = juce::jmax (0.0f, s.share) * bar.getWidth();
+        if (w <= 0.0f) continue;
+        g.setColour (s.colour);
+        g.fillRect (x, bar.getY(), w, bar.getHeight());
+        x += w;
+    }
+    g.restoreState();
+}
+
+// ============================================================================ DineChip
+DineChip::DineChip (const juce::String& t, juce::Colour d) : juce::Button (t), label (t), dot (d)
+{
+    setClickingTogglesState (false);
+}
+
+int DineChip::idealWidth() const
+{
+    return Dine::textWidth (Dine::text (12.0f, 500), label) + (dot.isTransparent() ? 20 : 32);
+}
+
+void DineChip::drawTrack (juce::Graphics& g, juce::Rectangle<int> r)
+{
+    Dine::fillRounded (g, r.toFloat(), juce::Colours::white.withAlpha (0.07f), 7.0f);
+}
+
+void DineChip::paintButton (juce::Graphics& g, bool over, bool)
+{
+    const bool on = getToggleState();
+    auto r = getLocalBounds().toFloat().reduced (1.5f);
+    if (on)
+    {
+        Dine::fillRounded (g, r, juce::Colour (0xff5b5b5f), Dine::Radius::chip);
+        Dine::hairlineRounded (g, r, juce::Colours::black.withAlpha (0.35f), Dine::Radius::chip);
+    }
+    else if (over)
+    {
+        Dine::fillRounded (g, r, juce::Colours::white.withAlpha (0.06f), Dine::Radius::chip);
+    }
+
+    auto inner = getLocalBounds().reduced (dot.isTransparent() ? 10 : 8, 0);
+    if (! dot.isTransparent())
+    {
+        auto d = inner.removeFromLeft (6).toFloat().withSizeKeepingCentre (6.0f, 6.0f);
+        g.setColour (on ? dot : dot.withMultipliedAlpha (0.8f));
+        g.fillEllipse (d);
+        inner.removeFromLeft (6);
+    }
+    g.setColour (on ? Dine::ink : Dine::ink2);
+    g.setFont (Dine::text (12.0f, on ? 500 : 400));
+    g.drawText (label, inner, juce::Justification::centredLeft, true);
 }
 
 // ============================================================================ pills

@@ -956,6 +956,77 @@ TEST_CASE ("SessionStore: sessions are listed from their folders without reading
     folder.deleteRecursively();
 }
 
+TEST_CASE ("SessionStore: the library reads what a session was for without opening it")
+{
+    const auto folder = SessionStore::folderFor ("DliveSummaryTest");
+    folder.deleteRecursively();
+
+    SessionStore::Document d;
+    d.session = band();
+    d.session.name = "DliveSummaryTest";
+    d.session.profile = StyleProfileId::ModernWorship;
+    d.session.purpose = MixPurpose::Livestream;
+    d.inputDevice = "Dante Virtual Soundcard";
+    d.tuneCount = 3;
+    d.hasMix = true;
+    // One track with a take on it, so the library can say the session has been recorded.
+    d.project.tracks.resize (d.session.inputs.size());
+    d.project.tracks[0].clips.push_back ({ "Kick", "Kick_001.wav", 0, 0, 4800, kSr });
+    const auto file = SessionStore::fileFor ("DliveSummaryTest");
+    REQUIRE (SessionStore::save (d, file));
+
+    const auto s = SessionStore::summarise (file);
+    CHECK (s.valid);
+    CHECK (s.profile == StyleProfileId::ModernWorship);
+    CHECK (s.purpose == MixPurpose::Livestream);
+    CHECK (s.inputs == int (d.session.inputs.size()));
+    CHECK (s.tuneCount == 3);
+    CHECK (s.hasMix);
+    CHECK (s.tracks == 1);
+    CHECK (s.inputDevice == "Dante Virtual Soundcard");
+
+    // Every assigned input lands in exactly one group bus, and never in the master.
+    int total = 0;
+    for (int b = 0; b < int (MixBus::Master); ++b) total += s.perBus[size_t (b)];
+    CHECK (total == s.inputs);
+
+    // Anything that is not a DLIVE document says so rather than guessing.
+    const auto stray = folder.getChildFile ("notes.json");
+    stray.replaceWithText ("{ \"app\": \"Something Else\" }");
+    CHECK (! SessionStore::summarise (stray).valid);
+    CHECK (! SessionStore::summarise (folder.getChildFile ("nothing here.json")).valid);
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("DawEngine: every device input is measured before the mix touches it")
+{
+    MixController controller;
+    DawEngine engine (controller);
+    controller.setSession (band());
+    controller.prepare (kSr, kBlock);
+    engine.setSession (controller.getSession());
+    engine.prepare (kSr, kBlock);
+
+    // Nothing has arrived yet: no channel is carrying signal.
+    CHECK (engine.numInputsCarryingSignal() == 0);
+
+    // Channel 0 loud, channel 1 silent - the page must be able to tell them apart even
+    // though neither has been named yet.
+    std::vector<std::vector<float>> in (4, std::vector<float> (kBlock, 0.0f));
+    for (int i = 0; i < kBlock; ++i) in[0][size_t (i)] = 0.5f;
+    std::vector<const float*> ip;
+    for (auto& c : in) ip.push_back (c.data());
+    std::vector<float> outL (kBlock), outR (kBlock);
+    float* op[2] = { outL.data(), outR.data() };
+    engine.processBlock (ip.data(), 4, op, 2, kBlock);
+
+    CHECK (engine.inputPeakDb (0) > -8.0f);
+    CHECK (engine.inputPeakDb (1) <= -119.0f);
+    CHECK (engine.numInputsCarryingSignal() == 1);
+    CHECK (engine.inputPeakDb (-1) <= -119.0f);
+    CHECK (engine.inputPeakDb (kMaxInputs) <= -119.0f);
+}
+
 TEST_CASE ("Project: length, arming and clip file resolution")
 {
     Project p;

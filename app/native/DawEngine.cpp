@@ -1,5 +1,6 @@
 #include "DawEngine.h"
 #include <algorithm>
+#include <cmath>
 
 namespace livemix
 {
@@ -233,6 +234,22 @@ void DawEngine::processBlock (const float* const* deviceInputs, int numInputChan
     // 1. The raw inputs are captured exactly as they arrived, before anything touches them.
     if (recorder.isRecording()) recorder.write (deviceInputs, numInputChannels, numSamples);
 
+    // ...and measured, so the AUDIO DEVICE page can say which channels are alive. A peak
+    // per block with a slow release: two atomic reads and one store per channel, nothing
+    // allocated and nothing locked.
+    if (deviceInputs != nullptr)
+    {
+        const float release = numSamples > 0 ? std::pow (0.5f, float (numSamples) / float (sampleRate * 0.35)) : 1.0f;
+        for (int c = 0; c < juce::jmin (numInputChannels, kMaxInputs); ++c)
+        {
+            float peak = 0.0f;
+            if (const float* in = deviceInputs[c])
+                for (int i = 0; i < numSamples; ++i) peak = juce::jmax (peak, std::fabs (in[i]));
+            const float was = inputPeak[size_t (c)].load (std::memory_order_relaxed) * release;
+            inputPeak[size_t (c)].store (juce::jmax (peak, was), std::memory_order_relaxed);
+        }
+    }
+
     const bool playing = transport.isPlaying() && ! rebuilding.load (std::memory_order_seq_cst);
     const bool recording = recorder.isRecording();
     if (playing) player.read (numSamples);
@@ -263,6 +280,20 @@ void DawEngine::processBlock (const float* const* deviceInputs, int numInputChan
 
     if (playing) transport.advance (numSamples);
     inBlock.store (false, std::memory_order_seq_cst);
+}
+
+float DawEngine::inputPeakDb (int channel) const noexcept
+{
+    if (channel < 0 || channel >= kMaxInputs) return -120.0f;
+    const float peak = inputPeak[size_t (channel)].load (std::memory_order_relaxed);
+    return peak > 0.0f ? juce::Decibels::gainToDecibels (peak, -120.0f) : -120.0f;
+}
+
+int DawEngine::numInputsCarryingSignal (float thresholdDb) const noexcept
+{
+    int n = 0;
+    for (int c = 0; c < kMaxInputs; ++c) if (inputPeakDb (c) > thresholdDb) ++n;
+    return n;
 }
 
 } // namespace livemix

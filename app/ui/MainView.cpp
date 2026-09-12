@@ -284,6 +284,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
     setLookAndFeel (&lookAndFeel);
 
+    sessionsPage = std::make_unique<SessionsPage> (controller, services);
     devicePage = std::make_unique<DevicePage> (controller, services);
     assignPage = std::make_unique<AssignPage> (controller, services);
     purposePage = std::make_unique<PurposePage> (controller);
@@ -297,7 +298,8 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     sessionButton = std::make_unique<SessionButton>();
     menu = std::make_unique<Menu> (*this);
 
-    for (juce::Component* p : { (juce::Component*) devicePage.get(), (juce::Component*) assignPage.get(),
+    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) devicePage.get(),
+                                (juce::Component*) assignPage.get(),
                                 (juce::Component*) purposePage.get(), (juce::Component*) tracksPage.get(),
                                 (juce::Component*) mixerPage.get(), (juce::Component*) mixPage.get(),
                                 (juce::Component*) livePage.get(), (juce::Component*) advancedPage.get() })
@@ -306,8 +308,8 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
 
     // ---- sidebar
     addAndMakeVisible (sessionsItem);
-    sessionsItem.onClick = [this] { openSession(); };
-    sessionsItem.setTooltip ("Open a saved session.");
+    sessionsItem.onClick = [this] { showPage (Page::Sessions); };
+    sessionsItem.setTooltip ("The library: every saved session, and what each one was for.");
 
     const char* setupLabels[3] = { "Audio device", "Inputs", "Purpose and sound" };
     const Dine::Icon setupIcons[3] = { Dine::Icon::Device, Dine::Icon::Sliders, Dine::Icon::Target };
@@ -363,6 +365,20 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
 
     addChildComponent (*toast);
 
+    sessionsPage->onNew = [this] { newSession(); };
+    sessionsPage->onOpen = [this] (const juce::File& file)
+    {
+        const auto err = services.loadSession (file);
+        if (err.isNotEmpty()) { showToast (err); return; }
+        advancedPage->rebuild();
+        mixerPage->rebuild();
+        if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+        tracksPage->rebuild();
+        showPage (controller.getSession().inputs.empty() ? Page::Assign : Page::Tracks);
+        showToast ("Opened \"" + services.currentSessionName() + "\".");
+        updateChrome();
+    };
+    devicePage->onBack = [this] { showPage (Page::Sessions); };
     devicePage->onContinue = [this]
     {
         if (! controller.getSession().inputs.empty()) enterSession();
@@ -419,7 +435,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     controller.onMixChanged = [this] { requestSave(); };
 
     setWantsKeyboardFocus (true);
-    showPage (Page::Device);
+    showPage (! services.listSessions().isEmpty() ? Page::Sessions : Page::Device);
     startTimerHz (30);
 }
 
@@ -465,6 +481,7 @@ bool MainView::liveSafeBlocks (const juce::String& what)
 void MainView::showPage (Page p)
 {
     page = p;
+    sessionsPage->setVisible (p == Page::Sessions);
     devicePage->setVisible (p == Page::Device);
     assignPage->setVisible (p == Page::Assign);
     purposePage->setVisible (p == Page::Purpose);
@@ -474,6 +491,7 @@ void MainView::showPage (Page p)
     livePage->setVisible (p == Page::Live);
     advancedPage->setVisible (p == Page::Inspector);
 
+    if (p == Page::Sessions) sessionsPage->refresh();
     if (p == Page::Device) devicePage->refresh();
     if (p == Page::Assign) assignPage->refresh();
     if (p == Page::Purpose) purposePage->refresh();
@@ -519,6 +537,7 @@ void MainView::updateChrome()
     workspaceItems[3]->setMeta (project.liveSafe ? "safe" : juce::String());
 
     sessionsItem.setMeta (juce::String (services.listSessions().size()));
+    sessionsItem.setSelected (page == Page::Sessions);
 
     const Page tabPages[kWorkspaceTabs] = { Page::Tracks, Page::Mixer, Page::Tune, Page::Live };
     for (int i = 0; i < kWorkspaceTabs; ++i)
@@ -1249,7 +1268,8 @@ void MainView::resized()
                                                               TransportBar::height));
 
     auto content = contentBounds();
-    for (juce::Component* p : { (juce::Component*) devicePage.get(), (juce::Component*) assignPage.get(),
+    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) devicePage.get(),
+                                (juce::Component*) assignPage.get(),
                                 (juce::Component*) purposePage.get(), (juce::Component*) tracksPage.get(),
                                 (juce::Component*) mixerPage.get(), (juce::Component*) mixPage.get(),
                                 (juce::Component*) livePage.get(), (juce::Component*) advancedPage.get() })

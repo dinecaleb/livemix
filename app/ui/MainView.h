@@ -26,7 +26,7 @@ namespace livemix
 class MainView : public juce::Component, private juce::Timer
 {
 public:
-    enum class Page { Device = 0, Assign, Purpose, Tracks, Mixer, Tune, Live, Inspector };
+    enum class Page { Sessions = 0, Device, Assign, Purpose, Tracks, Mixer, Tune, Live, Inspector };
 
     MainView (MixController&, AppServices&);
     ~MainView() override;
@@ -56,6 +56,7 @@ public:
     int selectedChannel() const;          // the channel the current workspace has picked out, or -1
     void setBypass (bool on);
 
+    SessionsPage& getSessionsPage() { return *sessionsPage; }
     DevicePage& getDevicePage() { return *devicePage; }
     AssignPage& getAssignPage() { return *assignPage; }
     PurposePage& getPurposePage() { return *purposePage; }
@@ -104,8 +105,9 @@ private:
     AppServices& services;
     DineLookAndFeel lookAndFeel;
     juce::TooltipWindow tooltips { this, 700 };
-    Page page = Page::Device;
+    Page page = Page::Sessions;
 
+    std::unique_ptr<SessionsPage> sessionsPage;
     std::unique_ptr<DevicePage> devicePage;
     std::unique_ptr<AssignPage> assignPage;
     std::unique_ptr<PurposePage> purposePage;

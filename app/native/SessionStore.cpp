@@ -414,6 +414,44 @@ bool load (const juce::File& file, Document& d)
     return true;
 }
 
+// Reads only the header of the document: the assignments tell us how the inputs fall
+// across the groups, and everything else is one property. The clips and the kept mix are
+// parsed by JSON::parse along with the rest, but nothing on disk beside the file is read.
+Summary summarise (const juce::File& file)
+{
+    Summary out;
+    if (! file.existsAsFile()) return out;
+    const auto v = juce::JSON::parse (file);
+    auto* obj = v.getDynamicObject();
+    if (obj == nullptr) return out;
+    const juce::String app = obj->getProperty ("app").toString();
+    if (app != "DLIVE" && app != "DINELIVE") return out;
+    out.valid = true;
+    out.profile = styleProfileFromIndex (int (obj->getProperty ("profile")));
+    const int purpose = int (obj->getProperty ("purpose"));
+    out.purpose = purpose >= 0 && purpose < int (MixPurpose::Count) ? MixPurpose (purpose) : MixPurpose::ChurchBroadcast;
+    out.inputDevice = obj->getProperty ("inputDevice").toString();
+    out.tuneCount = int (obj->getProperty ("tuneCount"));
+    out.hasMix = bool (obj->getProperty ("hasMix"));
+    if (auto* inputs = obj->getProperty ("inputs").getArray())
+        for (const auto& iv : *inputs)
+        {
+            auto* io = iv.getDynamicObject();
+            if (io == nullptr) continue;
+            if (io->hasProperty ("enabled") && ! bool (io->getProperty ("enabled"))) continue;
+            ++out.inputs;
+            const auto bus = mixBusForRole (channelRoleFromIndex (int (io->getProperty ("role"))));
+            if (int (bus) < int (MixBus::Master)) ++out.perBus[size_t (bus)];
+        }
+    if (auto* project = obj->getProperty ("project").getDynamicObject())
+        if (auto* tracks = project->getProperty ("tracks").getArray())
+            for (const auto& tv : *tracks)
+                if (auto* to = tv.getDynamicObject())
+                    if (auto* clips = to->getProperty ("clips").getArray())
+                        if (! clips->isEmpty()) ++out.tracks;
+    return out;
+}
+
 juce::Array<Listing> listSessions()
 {
     // Names come from the file, not from its contents: a session folder can hold hours of

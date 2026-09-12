@@ -753,13 +753,17 @@ void MixPage::refreshTuneButton()
     const bool busy = live || stage == MixController::Stage::Listening || stage == MixController::Stage::Planning;
     const bool ready = controller.isPrepared() && controller.getEngine().getNumStrips() > 0;
 
+    // Both buttons keep their place while a run is going - the one that is not running is
+    // disabled, never hidden, so the row does not jump under the pointer mid-press.
     tuneButton.setButtonText (busy && ! live ? "Cancel" : controller.getTuneCount() > 0 ? "Re-tune" : "Tune mix");
-    tuneButton.setEnabled (ready && (! busy || ! live) && stage != MixController::Stage::Planning);
-    tuneButton.setVisible (! live);
+    tuneButton.setEnabled (ready && ! live && stage != MixController::Stage::Planning);
 
-    liveTuneButton.setButtonText (live ? "Stop" : controller.getTuneCount() > 0 ? "Tune live mix again" : "Tune live mix");
+    // "RE-TUNE LIVE", not "TUNE LIVE MIX AGAIN": a product verb that does not fit its button
+    // is not a product verb, and the row is sized from these labels below.
+    liveTuneButton.setButtonText (live ? "Stop" : controller.getTuneCount() > 0 ? "Re-tune live" : "Tune live mix");
     liveTuneButton.setStyle (live ? DineButton::Style::Standard : DineButton::Style::Filled);
     liveTuneButton.setEnabled (ready && (live || stage != MixController::Stage::Listening) && stage != MixController::Stage::Planning);
+    resized();
 }
 
 void MixPage::rebuildRail()
@@ -837,7 +841,10 @@ void MixPage::refresh()
     // and that happens without a resize, so the foot is placed again each refresh.
     if (listenOn) { listenSheet->resized(); listenSheet->repaint(); }
     if (preview) resultSheet->refresh();
-    if (stage != lastStage) { refreshTuneButton(); lastStage = stage; }
+    // A live run starts and ends without the stage necessarily moving (it finishes in
+    // Preview, where it already was), so the buttons follow the run as well as the stage -
+    // otherwise the primary action is still offering "Stop" after the mix is ready.
+    if (stage != lastStage || live != lastLiveRun) { refreshTuneButton(); lastStage = stage; lastLiveRun = live; }
     for (int i = 0; i < int (MixMacro::Count); ++i) macros[size_t (i)]->setValue (controller.getMacros().get (MixMacro (i)));
     repaint();
 }
@@ -850,10 +857,14 @@ MixPage::Layout MixPage::layout() const
     l.railTab = l.rail.removeFromLeft (Dine::Metric::panelTab);   // the gutter the handle sits in
     auto left = b.reduced (0, 20).withTrimmedLeft (24).withTrimmedRight (22);
     auto top = left.removeFromTop (76);
-    // TUNE LIVE MIX is the primary action and takes the right-hand half; the deterministic
-    // TUNE MIX keeps its place beside it.
-    auto tuneArea = top.removeFromRight (398);
-    l.liveTune = tuneArea.removeFromRight (236);
+    // TUNE LIVE MIX is the primary action and sits on the right; the deterministic TUNE MIX
+    // keeps its place beside it. Both are sized from their own labels rather than from a
+    // typed width, because the label changes with the stage ("Tune live mix" / "Re-tune live"
+    // / "Stop") and a truncated product verb reads as a bug.
+    const int liveW = juce::jmax (168, liveTuneButton.idealWidth());
+    const int tuneW = juce::jmax (124, tuneButton.idealWidth());
+    auto tuneArea = top.removeFromRight (liveW + 10 + tuneW);
+    l.liveTune = tuneArea.removeFromRight (liveW);
     tuneArea.removeFromRight (10);
     l.tune = tuneArea;
     top.removeFromRight (14);

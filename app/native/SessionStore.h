@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <juce_core/juce_core.h>
 #include "Mix/MixSession.h"
 #include "Mix/MixParameters.h"
@@ -46,6 +47,24 @@ namespace SessionStore
         juce::File file;
         juce::Time modified;
     };
+
+    // What the Sessions library shows about a saved session without opening it: the header
+    // fields only. The audio lives beside the document in its own folder and is never
+    // walked; the document itself is small, so a library of a hundred services still lists
+    // instantly. `valid` is false for a file that is not a DLIVE session.
+    struct Summary
+    {
+        bool valid = false;
+        StyleProfileId profile = StyleProfileId::ModernGospel;
+        MixPurpose purpose = MixPurpose::ChurchBroadcast;
+        int inputs = 0;          // assigned inputs
+        int tracks = 0;          // timeline tracks that carry a take
+        int tuneCount = 0;
+        bool hasMix = false;
+        juce::String inputDevice;
+        std::array<int, int (MixBus::Master)> perBus {};   // how the inputs fall across the group buses
+    };
+    Summary summarise (const juce::File&);
 
     juce::var toVar (const Document& d);
     bool fromVar (const juce::var& v, Document& d);   // false when the file is not a DLIVE session

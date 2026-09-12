@@ -25,8 +25,8 @@ namespace
         FakeServices (MixController& c, DawEngine& d) : controller (c), dawEngine (d) {}
 
         DawEngine& daw() override { return dawEngine; }
-        juce::Array<Device> inputDevices() override { juce::Array<Device> a; a.add ({ "Dante Virtual Soundcard", 32 }); a.add ({ "SQ-6 USB", 32 }); a.add ({ "MacBook Pro Microphone", 1 }); return a; }
-        juce::Array<Device> outputDevices() override { juce::Array<Device> a; a.add ({ "Dante Virtual Soundcard", 32 }); a.add ({ "MacBook Pro Speakers", 2 }); return a; }
+        juce::Array<Device> inputDevices() override { juce::Array<Device> a; a.add ({ "Dante Virtual Soundcard", 32, 32 }); a.add ({ "SQ-6 USB", 32, 12 }); a.add ({ "MacBook Pro Microphone", 1, 0 }); return a; }
+        juce::Array<Device> outputDevices() override { juce::Array<Device> a; a.add ({ "Dante Virtual Soundcard", 32, 32 }); a.add ({ "MacBook Pro Speakers", 0, 2 }); return a; }
         juce::String openDevices (const juce::String& in, const juce::String& out) override { input = in; output = out; running = true; return {}; }
         juce::String openOutputOnly (const juce::String& out) override { output = out; running = true; return {}; }
         juce::String changeOutput (const juce::String& out) override { output = out; return {}; }
@@ -47,7 +47,11 @@ namespace
         void newSession() override {}
         juce::String saveSessionAs (const juce::String& name) override { sessionName = name; return {}; }
         juce::String loadSession (const juce::File&) override { return {}; }
-        juce::Array<SessionStore::Listing> listSessions() override { return {}; }
+        // A small library, so the SESSIONS page renders with something in it. The files do
+        // not exist, so `summarise` reports them as unreadable - which is itself a state the
+        // page has to draw - except the ones written below by the snapshot tool.
+        juce::Array<SessionStore::Listing> listSessions() override { return sessions; }
+        void addSession (const juce::String& name, const juce::File& file, juce::Time when) { sessions.add ({ name, file, when }); }
         juce::String currentInputDevice() override { return input; }
         juce::String currentOutputDevice() override { return output; }
         juce::String currentSessionName() override { return sessionName; }
@@ -64,6 +68,7 @@ namespace
         DawEngine& dawEngine;
         bool running = false;
         juce::String input, output, sessionName { "Sunday" };
+        juce::Array<SessionStore::Listing> sessions;
     };
 
     struct Rig
@@ -197,6 +202,55 @@ int main (int argc, char** argv)
 
     Rig rig;
     auto& view = *rig.view;
+
+    // ---- SESSIONS: the library. Real documents on disk, so the table shows what each
+    // session sounds like, what it was for and how its inputs fall across the groups.
+    {
+        const auto library = dir.getChildFile ("sessions");
+        library.createDirectory();
+        struct Seed { const char* name; StyleProfileId profile; MixPurpose purpose; int drums, bass, music, vocals, speech; double hoursAgo; };
+        const Seed seeds[] = {
+            { "Sunday 09:30 - Broadcast", StyleProfileId::ModernGospel, MixPurpose::ChurchBroadcast, 9, 1, 6, 5, 2, 2.0 },
+            { "Sunday 11:15 - Room",      StyleProfileId::ModernGospel, MixPurpose::WorshipSession,  9, 1, 6, 5, 2, 26.0 },
+            { "Midweek rehearsal",        StyleProfileId::ModernWorship, MixPurpose::WorshipSession, 6, 1, 5, 4, 0, 72.0 },
+            { "Youth night",              StyleProfileId::ModernWorship, MixPurpose::Livestream,     8, 1, 6, 4, 1, 170.0 },
+            { "Carols - stems import",    StyleProfileId::ModernGospel, MixPurpose::LiveRecording,   7, 1, 8, 6, 2, 400.0 },
+            { "Sermon only",              StyleProfileId::ModernWorship, MixPurpose::ChurchBroadcast, 0, 0, 0, 0, 4, 900.0 },
+            { "Template - 16 in",         StyleProfileId::ModernGospel, MixPurpose::Livestream,      6, 1, 4, 4, 1, 2400.0 }
+        };
+        const ChannelRole byBus[5] = { ChannelRole::SnareTop, ChannelRole::BassDI, ChannelRole::Piano,
+                                       ChannelRole::BackingVocal, ChannelRole::Speech };
+        for (const auto& seed : seeds)
+        {
+            SessionStore::Document d;
+            d.session.name = seed.name;
+            d.session.profile = seed.profile;
+            d.session.purpose = seed.purpose;
+            d.inputDevice = "Dante Virtual Soundcard";
+            d.tuneCount = 2;
+            d.hasMix = true;
+            const int counts[5] = { seed.drums, seed.bass, seed.music, seed.vocals, seed.speech };
+            int channel = 0;
+            for (int b = 0; b < 5; ++b)
+                for (int n = 0; n < counts[b]; ++n)
+                {
+                    InputAssignment a;
+                    a.name = juce::String (channelRoleName (byBus[b])).toStdString();
+                    a.role = byBus[b];
+                    a.inputA = channel++;
+                    d.session.inputs.push_back (a);
+                }
+            const auto file = library.getChildFile (juce::File::createLegalFileName (juce::String (seed.name)) + ".dlive.json");
+            SessionStore::save (d, file);
+            file.setLastModificationTime (juce::Time::getCurrentTime() - juce::RelativeTime::hours (seed.hoursAgo));
+            rig.services.addSession (seed.name, file, file.getLastModificationTime());
+        }
+        view.showPage (MainView::Page::Sessions);
+        view.getSessionsPage().refresh();
+        rig.snap (dir, "00-sessions");
+    }
+
+    view.showPage (MainView::Page::Device);
     rig.snap (dir, "01-device");
 
     rig.services.openDevices ("Dante Virtual Soundcard", "Dante Virtual Soundcard");
@@ -217,6 +271,12 @@ int main (int argc, char** argv)
     assign.assign (13, ChannelRole::BackingVocal, "BGV 3");
     assign.assign (14, ChannelRole::Speech, "Pastor");
     rig.snap (dir, "03-assign");
+
+    // Inputs picked out: the toolbar becomes the bulk one - set what they are, fill a kit
+    // down them in order, name them from their role, link them as pairs, or drop them.
+    assign.selectInputs ({ 11, 12, 13 });
+    rig.snap (dir, "03b-assign-selection");
+    assign.selectInputs ({});
 
     view.showPage (MainView::Page::Purpose);
     rig.snap (dir, "04-purpose");

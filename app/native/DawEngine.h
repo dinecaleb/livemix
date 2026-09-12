@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <atomic>
 #include <vector>
 #include "Core/TripleBuffer.h"
@@ -64,6 +65,14 @@ public:
     double getRecordingSeconds() const noexcept;
     double getRecordingSecondsFree() const;
 
+    // What every device input is doing, before anything in the mix touches it. The
+    // AUDIO DEVICE page reads this to say how many channels are carrying signal and to
+    // draw the activity across the desk, so "the console is plugged in but channel 9 is
+    // dead" is visible before a single input has been named. Message thread; the audio
+    // thread only stores. -120 dB = nothing there.
+    float inputPeakDb (int channel) const noexcept;
+    int numInputsCarryingSignal (float thresholdDb = -54.0f) const noexcept;
+
     // ---- audio thread ----
     void processBlock (const float* const* deviceInputs, int numInputChannels,
                        float* const* outputs, int numOutputs, int numSamples) noexcept;
@@ -100,6 +109,11 @@ private:
     std::vector<const float*> matrix;
     std::vector<float> silence;
     std::atomic<bool> rebuilding { false }, inBlock { false };
+    // Per device channel, the peak of the last blocks with a slow release, so a page
+    // painting at 20 Hz sees a level that falls back rather than flickering. Written by
+    // the audio thread with relaxed stores - no allocation, no lock, no branch worth
+    // the name - and read by the UI whenever it likes.
+    std::array<std::atomic<float>, kMaxInputs> inputPeak {};
     double sampleRate = 48000.0;
     int blockSize = 512;
     bool prepared = false;
