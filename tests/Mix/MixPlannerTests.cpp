@@ -341,6 +341,42 @@ TEST_CASE ("MixPlanner: planning again on the same listen changes nothing (idemp
     CHECK (MixPlanner::countParameterChanges (first.proposed, second.proposed) == 0);
 }
 
+TEST_CASE ("MixPlanner: a close drum microphone is not lifted again by the next Tune Mix")
+{
+    // The budget for a close microphone - it hears the rest of the kit, so what lifts the drum lifts the
+    // bleed - was measured against the gain that ran at the listen. After a mix is kept, the next listen
+    // runs with that gain, so the raise it was meant to count reads as zero and the whole budget is handed
+    // out again: a tom climbs another 6 dB a pass and brings the kit up inside its own microphone.
+    Rig rig (band());
+    auto in = bandAudio();
+    // Under-gained tom microphones, the way a desk with the preamps left low sends them: quiet enough that
+    // the whole close-mic budget is spent on digital gain before the fader is even asked for.
+    for (int c : { 2, 3 }) for (auto& x : in.data[size_t (c)]) x *= 0.08f;
+    const auto first = MixPlanner::plan (rig.context (rig.listen (in)));
+    REQUIRE (first.valid);
+    // The situation the rule is for has to actually arise, or this test guards nothing.
+    REQUIRE (stripNamed (first, "Tom L").inputGainDb >= MixProfile::relationships (StyleProfileId::ModernGospel).maxCloseMicRaiseDb);
+
+    rig.engine.setParameters (first.proposed);        // the user kept it; now DLIVE listens again through it
+    auto ctx = rig.context (rig.listen (in));
+    ctx.current = ctx.atCapture = first.proposed;
+    const auto second = MixPlanner::plan (ctx);
+    REQUIRE (second.valid);
+
+    for (const auto& sp : first.strips)
+    {
+        const RoleFamily f = roleFamily (sp.role);
+        if (! (f == RoleFamily::Kick || f == RoleFamily::Snare || f == RoleFamily::Tom || f == RoleFamily::HiHat)) continue;
+        if (! sp.balanced) continue;
+        const auto& again = stripNamed (second, sp.name.c_str());
+        if (! again.balanced) continue;
+        // Its total lift is gain plus fader; a second pass may trim it, but it must never add another budget.
+        const float firstLift = std::max (sp.inputGainDb, 0.0f) + sp.faderDb;
+        const float secondLift = std::max (again.inputGainDb, 0.0f) + again.faderDb;
+        CHECK (secondLift <= firstLift + 0.75f);
+    }
+}
+
 TEST_CASE ("MixPlanner: silence everywhere is reported as no signal, not as a mix")
 {
     Rig rig (band());

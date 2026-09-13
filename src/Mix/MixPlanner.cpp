@@ -561,10 +561,13 @@ MixPlan plan (const MixPlanContext& ctx)
         // up with the instrument and the console preamp is the thing that is actually wrong.
         if (isDrumCloseMic (f))
         {
-            // Measured from the gain that ran at the listen, never from the current value, so re-planning
-            // the same listen lands on the same cap.
-            const float gainRaise = std::max (sp.inputGainDb - ctx.atCapture.strips[size_t (i)].inputGainDb, 0.0f);
-            const float allowed = R.maxCloseMicRaiseDb - gainRaise;
+            // How far DLIVE is lifting this microphone digitally in total - an absolute amount, not what this
+            // pass added on top of the last one. Measuring the raise against the gain that ran at the listen
+            // handed the whole budget out again on every Tune Mix, because by then the gain it was meant to
+            // count had become the listen's own: a close mic climbed another maxCloseMicRaiseDb each pass and
+            // brought the rest of the kit up with it.
+            const float digitalRaise = std::max (sp.inputGainDb, 0.0f);
+            const float allowed = R.maxCloseMicRaiseDb - digitalRaise;
             if (fader > allowed)
             {
                 fader = roundHalf (std::max (allowed, 0.0f));

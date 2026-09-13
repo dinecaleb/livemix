@@ -318,8 +318,11 @@ int main (int argc, char** argv)
         const float in = listenedAgain.strips[size_t (i)].peakDb;
         const float staticReduction = p.channel.compEnabled ? in - Compressor::computeGain (in, p.channel.compThresholdDb, p.channel.compRatio, p.channel.compKneeDb) : 0.0f;
         const float actualReduction = in - measured;
-        std::printf ("  %-14s in %6.1f  predicted %6.1f  measured %6.1f  error %+5.1f | comp %s%.1f:1 thr %5.1f att %4.1f ms  static GR %4.1f  actual GR %4.1f  share %.2f\n",
-                     sp.name.c_str(), double (in), double (predicted), double (measured), double (predicted - measured),
+        // What the listen itself saw through the chain that ran then: the prediction starts from this number,
+        // so when an error is large this says whether the model moved wrongly or started from the wrong place.
+        std::printf ("  %-14s listen raw %6.1f -> chain %6.1f | in %6.1f  predicted %6.1f  measured %6.1f  error %+5.1f | comp %s%.1f:1 thr %5.1f att %4.1f ms  static GR %4.1f  actual GR %4.1f  share %.2f\n",
+                     sp.name.c_str(), double (listened.strips[size_t (i)].peakDb), double (listened.processed[size_t (i)].peakDb),
+                     double (in), double (predicted), double (measured), double (predicted - measured),
                      p.channel.compEnabled ? "" : "(off) ", double (p.channel.compRatio), double (p.channel.compThresholdDb), double (p.channel.compAttackMs),
                      double (staticReduction), double (actualReduction), staticReduction > 1.0f ? double (actualReduction / staticReduction) : 0.0);
     }

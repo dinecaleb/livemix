@@ -4,7 +4,9 @@
 #include "FX/FxProfiles.h"
 #include "Core/DbUtils.h"
 #include <cstdio>
+#include <algorithm>
 #include <map>
+#include <vector>
 
 namespace livemix
 {
@@ -16,10 +18,33 @@ RoutingGraph RoutingGraph::build (const MixSession& session)
     for (int s = 0; s < int (FxSlot::Count); ++s)
         g.fxType[size_t (s)] = MixProfile::fxTypeForSlot (FxSlot (s));
 
-    // Count how many inputs share a role so they can be spread across the image.
-    std::map<ChannelRole, int> roleCount, roleSeen;
-    for (const auto& in : session.inputs)
-        if (in.enabled && in.inputA >= 0) ++roleCount[in.role];
+    // Spread is a family's business, not a role's: three toms walk left to right across the kit whether
+    // they are called rack or floor, and two overheads are a pair. Counting per role instead put the
+    // second floor tom at the far wall, because the spread was added to a home position that was already
+    // off centre. The order is the family's own (a rack tom sits left of a floor tom), then the patch
+    // order, so the same session always builds the same image.
+    std::map<RoleFamily, std::vector<int>> familyMembers;
+    for (int i = 0; i < int (session.inputs.size()); ++i)
+    {
+        const auto& in = session.inputs[size_t (i)];
+        if (! in.enabled || in.inputA < 0 || in.isStereo()) continue;
+        if (MixProfile::spreadForRole (in.role) > 0.0f) familyMembers[roleFamily (in.role)].push_back (i);
+    }
+    std::map<int, float> panForInput;
+    for (auto& f : familyMembers)
+    {
+        auto& members = f.second;
+        std::stable_sort (members.begin(), members.end(), [&session] (int a, int b)
+                          { return int (session.inputs[size_t (a)].role) < int (session.inputs[size_t (b)].role); });
+        const int count = int (members.size());
+        if (count < 2) continue;   // one of a kind keeps its role's home position
+        const float spread = MixProfile::spreadForRole (session.inputs[size_t (members[0])].role);
+        for (int k = 0; k < count; ++k)
+        {
+            const float t = float (k) / float (count - 1);           // 0..1 across the family
+            panForInput[members[size_t (k)]] = clamp (spread * (2.0f * t - 1.0f), -1.0f, 1.0f);
+        }
+    }
 
     for (int i = 0; i < int (session.inputs.size()) && int (g.strips.size()) < kMaxStrips; ++i)
     {
@@ -37,17 +62,10 @@ RoutingGraph RoutingGraph::build (const MixSession& session)
         r.bus = mixBusForRole (in.role);
         g.busUsed[size_t (r.bus)] = true;
 
-        // Pan: the role's home position, spread when several inputs share the role.
-        const int count = roleCount[in.role];
-        const int index = roleSeen[in.role]++;
-        float pan = MixProfile::defaultPan (in.role);
-        if (count > 1 && ! in.isStereo())
-        {
-            const float spread = MixProfile::spreadForRole (in.role);
-            const float t = count > 1 ? float (index) / float (count - 1) : 0.5f; // 0..1
-            pan = clamp (pan + spread * (2.0f * t - 1.0f), -1.0f, 1.0f);
-        }
-        r.pan = in.isStereo() ? 0.0f : pan;
+        // Pan: the role's home position, or the place the family's spread gave it.
+        const auto placed = panForInput.find (i);
+        r.pan = in.isStereo() ? 0.0f
+                             : (placed != panForInput.end() ? placed->second : MixProfile::defaultPan (in.role));
 
         for (int s = 0; s < int (FxSlot::Count); ++s)
         {

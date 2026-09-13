@@ -101,7 +101,7 @@ float spreadForRole (ChannelRole role)
         case RoleFamily::BackingVocal:   return 0.7f;   // BGVs fan out behind the lead
         case RoleFamily::Choir:          return 0.6f;
         case RoleFamily::Tom:            return 0.7f;   // several toms walk left to right
-        case RoleFamily::Overhead:       return 1.0f;   // two mono overheads = a pair
+        case RoleFamily::Overhead:       return 0.9f;   // two mono overheads = a pair, wide but off the wall
         case RoleFamily::Room:           return 0.8f;
         case RoleFamily::AcousticGuitar:
         case RoleFamily::ElectricGuitar: return 0.5f;
@@ -194,7 +194,7 @@ float compPeakRiseMs (StyleProfileId profile, ChannelRole role)
     {
         case RoleFamily::Kick:
         case RoleFamily::Snare:
-        case RoleFamily::Tom:
+        case RoleFamily::Tom:      return r.compPeakRiseCloseDrumMs;
         case RoleFamily::HiHat:
         case RoleFamily::Overhead: return r.compPeakRisePercussiveMs;
         case RoleFamily::Room:     return r.compPeakRiseRoomMs;

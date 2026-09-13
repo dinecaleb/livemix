@@ -3,6 +3,7 @@
 #include "Profiles/MixProfileData.h"
 #include "Profiles/StyleProfile.h"
 #include "Core/Constants.h"
+#include <cmath>
 
 using namespace livemix;
 
@@ -127,4 +128,35 @@ TEST_CASE ("RoutingGraph: the starting point is the profile baseline for every s
     CHECK (p.fx[size_t (FxSlot::VocalDelay)].fx.delayEnabled);
     CHECK (p.fx[size_t (FxSlot::VocalPlate)].fx.reverbEnabled);
     CHECK (! p.bypassProcessing);
+}
+
+TEST_CASE ("RoutingGraph: a kit of toms walks across the image and nothing is thrown at the wall")
+{
+    // Three toms and a pair of mono overheads, the way a desk exports them: two of the toms share a role.
+    // Spreading per role added the spread to a home position that was already off centre, so the second
+    // floor tom landed hard right - a drum nobody pans there, and in mono it comes back changed.
+    MixSession s;
+    s.profile = StyleProfileId::ModernGospel;
+    s.inputs = {
+        { "Kick",  ChannelRole::KickIn,         0, -1 },
+        { "Floor", ChannelRole::FloorTom,       1, -1 },
+        { "Tom 1", ChannelRole::RackTom,        2, -1 },
+        { "Tom 2", ChannelRole::FloorTom,       3, -1 },
+        { "OV L",  ChannelRole::OverheadLeft,   4, -1 },
+        { "OV R",  ChannelRole::OverheadRight,  5, -1 },
+    };
+    const auto g = RoutingGraph::build (s);
+    REQUIRE (g.numStrips() == 6);
+    auto pan = [&g] (const char* name)
+    {
+        for (const auto& st : g.strips) if (st.name == name) return st.pan;
+        return 99.0f;
+    };
+    CHECK (pan ("Kick") == 0.0f);
+    for (const char* t : { "Floor", "Tom 1", "Tom 2" }) CHECK (std::fabs (pan (t)) <= 0.75f);
+    CHECK (pan ("Tom 1") < pan ("Floor"));      // the rack tom sits left of the floor toms
+    CHECK (pan ("Floor") < pan ("Tom 2"));      // and the kit walks left to right
+    CHECK_NEAR (pan ("OV L"), -0.9f, 1e-5);     // a pair of overheads is wide, not against the wall
+    CHECK_NEAR (pan ("OV R"),  0.9f, 1e-5);
+    CHECK (RoutingGraph::build (s).describe() == g.describe());
 }

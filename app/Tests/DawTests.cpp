@@ -5,6 +5,7 @@
 #include "native/DawEngine.h"
 #include "native/MixBounce.h"
 #include "native/MultitrackImport.h"
+#include "native/StemNames.h"
 #include "native/SessionStore.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <array>
@@ -718,6 +719,41 @@ TEST_CASE ("MultitrackImport: a folder of stems becomes tracks, clips and guesse
     CHECK (result.project.hasAudio());
     CHECK (result.project.folder == juce::File());     // imported audio stays where it is
     folder.deleteRecursively();
+}
+
+TEST_CASE ("StemNames: the labels a live desk actually writes, and no accidents inside longer words")
+{
+    auto guess = [] (const char* name)
+    {
+        ChannelRole r = ChannelRole::Count;
+        return StemNames::guessRole (name, r) ? r : ChannelRole::Count;
+    };
+
+    // Overheads are the kit's cymbals and most of what it puts above 8 kHz. A desk writes them "OV" as often
+    // as "OH"; without both the drums arrive with no top at all and nothing carries the toms between hits.
+    CHECK (guess ("OV L #03") == ChannelRole::OverheadLeft);
+    CHECK (guess ("OV R #03") == ChannelRole::OverheadRight);
+    CHECK (guess ("OH L") == ChannelRole::OverheadLeft);
+    CHECK (guess ("Overhead R") == ChannelRole::OverheadRight);
+    CHECK (guess ("OV 1") == ChannelRole::Overhead);        // numbered, not sided
+    CHECK (guess ("Ride") == ChannelRole::Overhead);
+
+    // A two-letter abbreviation matched anywhere inside a name is a trap: "ld" lives inside "handheld", which
+    // put the preacher's microphone on the vocal bus with the singers - and with their plate and delay on it.
+    CHECK (guess ("Pastor Handheld #02") == ChannelRole::Speech);
+    CHECK (guess ("Pastor Lapel") == ChannelRole::Speech);
+    CHECK (guess ("HOST") == ChannelRole::Speech);
+    CHECK (guess ("Holy Ghost") == ChannelRole::Count);     // not a host microphone
+    CHECK (guess ("Lead mic 2") == ChannelRole::LeadVocal); // the real lead still reads as one
+    CHECK (guess ("LD Vox") == ChannelRole::LeadVocal);
+
+    // Playback from the booth is music, and "Computer Audio" is what the desk calls it.
+    CHECK (guess ("Computer Audio #01") == ChannelRole::SynthPad);
+    CHECK (guess ("LOOP 1") == ChannelRole::SynthPad);
+
+    // A channel named after the person singing on it cannot be guessed, and must not be guessed at:
+    // the import lists it for the user to assign.
+    CHECK (guess ("angelica") == ChannelRole::Count);
 }
 
 // The shape of the bug these guard: the ASSIGN page rebuilds MixSession::inputs from

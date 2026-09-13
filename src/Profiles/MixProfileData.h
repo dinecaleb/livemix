@@ -106,7 +106,12 @@ namespace MixProfile
         // 1 - exp(-rise / a) of its static reduction by then, so the processed peak lands higher than the static curve says.
         // Used to predict where a strip will peak under the proposed chain when fitting faders (measured on the church stems:
         // close drum mics let nearly the whole hit through, vocals and keys see about 60 % of the static reduction).
-        float compPeakRisePercussiveMs = 3.0f;   // kick, snare, toms, hi-hat, overheads, drum mix
+        // A microphone at the impact and one a metre away are not the same onset: a stick on a head reaches its
+        // peak within a millisecond, so however far the static curve says the reduction should go, almost none
+        // of it has happened yet. Sharing one number with the overheads had the model expect 11 dB off a snare
+        // peak where the compressor delivers 1, and the fitted fader landed the drum bus with no room left.
+        float compPeakRiseCloseDrumMs = 1.0f;    // kick, snare, toms: the stick is on the head
+        float compPeakRisePercussiveMs = 3.0f;   // hi-hat, overheads, drum mix: the kit swells into the microphone
         float compPeakRiseRoomMs = 5.0f;         // room mics: the onset arrives smeared
         float compPeakRiseSustainedMs = 10.0f;   // voices, bass, keys, guitars
         // Over a whole listen a compressor's average reduction (what moves loudness, and what the buses and master
