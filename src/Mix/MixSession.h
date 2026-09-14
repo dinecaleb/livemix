@@ -95,6 +95,37 @@ struct MixSession
     int numStrips() const noexcept { return int (inputs.size()) < kMaxStrips ? int (inputs.size()) : kMaxStrips; }
 };
 
+// Which input in `previous` each input in `next` used to be, or -1 for one that is new to
+// the session. An input's identity is the device channel it arrives on, then its name - not
+// its position in the list - so the same answer serves everything that has to follow an
+// input when the assignments are rebuilt: the timeline's clips (Project::syncTracks), the
+// kept mix (carryMix), and anything added later. Two lists that decide this separately are
+// two lists that will one day disagree about which input is which.
+inline std::vector<int> matchInputs (const MixSession& previous, const MixSession& next)
+{
+    std::vector<int> out (next.inputs.size(), -1);
+    std::vector<bool> taken (previous.inputs.size(), false);
+
+    auto find = [&] (auto match) -> int
+    {
+        for (size_t i = 0; i < previous.inputs.size(); ++i)
+            if (! taken[i] && match (previous.inputs[i])) return int (i);
+        return -1;
+    };
+
+    for (size_t n = 0; n < next.inputs.size(); ++n)
+    {
+        const auto& in = next.inputs[n];
+        int was = find ([&] (const InputAssignment& then) { return then.inputA >= 0 && then.inputA == in.inputA; });
+        if (was < 0)
+            was = find ([&] (const InputAssignment& then) { return ! then.name.empty() && then.name == in.name; });
+        if (was < 0) continue;
+        out[n] = was;
+        taken[size_t (was)] = true;
+    }
+    return out;
+}
+
 // Which internal bus a source belongs to. Bass runs to the master on its own bus, as the brief asks.
 inline constexpr MixBus mixBusForFamily (RoleFamily f) noexcept
 {

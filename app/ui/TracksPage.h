@@ -52,6 +52,13 @@ public:
     void zoomToFit();
     void setRowHeight (RowHeight);
     void addMarkerAtPlayhead();
+    // Rearranging the channels. A track and its input are the same thing seen twice, so moving
+    // a row moves the input: the timeline, the mixer's bank, TUNE's rail and the Inspector all
+    // read the new order, and every channel keeps its chain, its level and its clips.
+    // `to` is the final index, so "move up" is `from - 1`.
+    void moveTrack (int from, int to);
+    void moveSelectedTrack (int delta);           // the Track menu's Move Up / Move Down
+    bool canMoveSelectedTrack (int delta) const;
     void setSnap (bool on);
     bool snapEnabled() const noexcept { return snap; }
     void setFollow (bool on);
@@ -74,7 +81,7 @@ public:
 
 private:
     enum class Drag { None, Playhead, ClipMove, ClipTrimStart, ClipTrimEnd, TrackHeight, Scroll,
-                      LoopRange, Marker, Fader };
+                      LoopRange, Marker, Fader, TrackOrder };
     struct ClipRef { int track = -1; int index = -1; bool valid() const noexcept { return track >= 0 && index >= 0; } };
 
     // Geometry
@@ -101,6 +108,8 @@ private:
     juce::Rectangle<int> faderCell (int track) const;
     void dragFader (int track, int x, bool fine);
     bool compactHeader (int track) const;
+    // Where a row being dragged would land: a slot between tracks, 0 .. numTracks().
+    int dropSlotAtY (int y) const;
     int markerAt (juce::Point<int> p) const;
     juce::Rectangle<int> markerFlag (int index) const;
     juce::int64 snapSample (juce::int64 sample, int ignoreTrack, int ignoreClip) const;
@@ -159,6 +168,10 @@ private:
     int dragTrack = -1, dragStartHeight = 0, dragStartY = 0, dragStartX = 0;
     float dragFaderNorm = 0.0f;         // where the fader was when it was grabbed, 0..1 of the throw
     int dragMarker = -1;
+    // Rearranging: the row that was grabbed, the slot it would drop into, and whether the
+    // pointer has moved far enough for this to be a reorder rather than a click that wandered.
+    int dragOrderFrom = -1, dragOrderSlot = -1;
+    bool dragOrderLifted = false;
     juce::int64 loopAnchor = 0;
     double dragStartScrollX = 0.0;
 

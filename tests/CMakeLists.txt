@@ -39,6 +39,7 @@ add_executable(livemix_tests
     Mix/MixEngineTests.cpp
     Mix/MixCaptureTests.cpp
     Mix/MixPlannerTests.cpp
+    Mix/ReferenceMixTests.cpp
     Mix/MixMacrosTests.cpp
     Mix/MixEngineMatrixTests.cpp
     MixAI/TuneLiveTests.cpp

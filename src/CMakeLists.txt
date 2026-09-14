@@ -37,6 +37,7 @@ add_library(livemix_engine STATIC
     Mix/MixCapture.cpp
     Mix/OfflineCapture.cpp
     Mix/MixPlanner.cpp
+    Mix/ReferenceMix.cpp
     Mix/MixMacros.cpp
     MixAI/RelationshipEngine.cpp
     MixAI/MixContext.cpp

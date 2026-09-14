@@ -67,4 +67,41 @@ struct MixParameters
     const BusParameters& master() const noexcept { return buses[size_t (MixBus::Master)]; }
 };
 
+// The kept mix, carried across a change to the assignments - an input reordered, dropped,
+// added or re-linked. Every strip that survived keeps its chain, its input gain, its fader,
+// its pan, its keys and its sends, found by the same identity the timeline uses to keep its
+// clips under the right track (matchInputs). `baseline` is what the rebuilt session starts
+// from, so an input that is new to it gets its role's proper starting chain rather than an
+// empty one, and the buses, the master, the returns and the tempo - none of which belong to
+// a single input - come across from `from` whole.
+//
+// Without this, moving one input on the timeline threw away a tuned mix, because a mix that
+// is remembered by position cannot survive the positions changing.
+inline MixParameters carryMix (const MixParameters& from, const MixSession& previous,
+                               const MixParameters& baseline, const MixSession& next)
+{
+    MixParameters out = baseline;
+    out.numStrips = next.numStrips();
+    const auto match = matchInputs (previous, next);
+    for (size_t n = 0; n < match.size() && int (n) < out.numStrips; ++n)
+    {
+        const int was = match[n];
+        if (was < 0 || was >= from.numStrips) continue;
+        // An input that became a different source does *not* keep its chain: a kick's gate and
+        // its 60 Hz shelf are wrong on a voice, and silently carrying them across would be the
+        // one case where following the input is worse than starting again. Everything else
+        // about that input - and every other strip - survives.
+        if (previous.inputs[size_t (was)].role != next.inputs[n].role) continue;
+        out.strips[n] = from.strips[size_t (was)];
+    }
+
+    out.buses = from.buses;
+    out.fx = from.fx;
+    out.tempoBpm = from.tempoBpm;
+    out.fxReturnDb = from.fxReturnDb;
+    out.fxMute = from.fxMute;
+    out.bypassProcessing = from.bypassProcessing;
+    return out;
+}
+
 } // namespace livemix

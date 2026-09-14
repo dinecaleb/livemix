@@ -7,6 +7,7 @@
 #include "Core/ChannelRole.h"
 #include "Core/StyleId.h"
 #include "DSP/ChannelParameters.h"
+#include "Profiles/Profile.h"
 
 namespace livemix
 {
@@ -20,6 +21,12 @@ struct TuneContext
     ChannelParameters current;   // what the plugin is doing right now (baseline or the user's edits)
     OutputStats output;          // processed-output level during the capture
     bool hasOutput = false;
+    // Aim somewhere other than the profile's own targets for this role. There is exactly one
+    // caller: REFERENCE MIX, which measures a finished recording and hands the master the tonal
+    // balance, width and density of it (Mix/ReferenceMix.h). The strategies, the safety
+    // validator and the explanations are untouched - only the aim moves - so a reference can
+    // never reach a parameter by a path a profile could not. Null = the profile's own targets.
+    const SourceTargets* targetsOverride = nullptr;
 };
 
 struct TuneSectionSummary

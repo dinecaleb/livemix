@@ -1,4 +1,5 @@
 #include "MixPage.h"
+#include "ReferenceSheet.h"
 #include "Core/DbUtils.h"
 
 namespace livemix
@@ -793,13 +794,19 @@ MixPage::MixPage (MixController& c) : controller (c)
 
     listenSheet = std::make_unique<ListenSheet> (controller);
     resultSheet = std::make_unique<ResultSheet> (controller, *this);
+    referenceSheet = std::make_unique<ReferenceSheet> (controller);
     addAndMakeVisible (tuneButton);
     addAndMakeVisible (liveTuneButton);
+    addAndMakeVisible (referenceButton);
     addAndMakeVisible (advancedButton);
     addAndMakeVisible (resetMacrosButton);
     // The sheets are added last: sibling order is z-order.
+    addChildComponent (*referenceSheet);
     addChildComponent (*resultSheet);
     addChildComponent (*listenSheet);
+
+    referenceSheet->onClose = [this] { referenceSheet->setVisible (false); refreshTuneButton(); repaint(); };
+    referenceSheet->onToast = [this] (const juce::String& t) { if (onToast) onToast (t); };
 
     tuneButton.setCaps (true);
     tuneButton.setFontPx (19.0f);
@@ -814,6 +821,10 @@ MixPage::MixPage (MixController& c) : controller (c)
     liveTuneButton.setTooltip ("The same listen, with a mix engineer's reasoning on top: DLIVE builds its mix, works out "
                                "what this band still needs, applies only what it can do safely, then listens again to "
                                "check. You can compare, review every change and revert.");
+    referenceButton.setFontPx (12.5f);
+    referenceButton.onClick = [this] { openReference(); };
+    referenceButton.setTooltip ("Aim the mix at a finished recording: DLIVE matches the master's tone, image and density "
+                                "to it. How loud the stream is delivered, and who is loud in the mix, are not copied.");
     advancedButton.setIcon (Dine::Icon::List);
     advancedButton.setFontPx (12.5f);
     advancedButton.onClick = [this] { if (onOpenAdvanced) onOpenAdvanced(); };
@@ -832,6 +843,19 @@ void MixPage::setRailShown (bool shown)
     railView.setVisible (shown);
     resized();
     repaint();
+}
+
+void MixPage::openReference()
+{
+    // A listen or a proposal owns the screen while it is happening: a second sheet over the
+    // first is two things asking for the same decision.
+    if (listenSheet->isVisible() || resultSheet->isVisible()) return;
+    // The button is a toggle: pressing it again puts the sheet away, the way every panel does.
+    if (referenceSheet->isVisible() && ! referenceSheet->isMeasuring()) { referenceSheet->setVisible (false); repaint(); return; }
+    referenceSheet->setVisible (true);
+    referenceSheet->toFront (false);
+    referenceSheet->refresh();
+    resized();
 }
 
 void MixPage::pressTune()
@@ -871,6 +895,10 @@ void MixPage::refreshTuneButton()
     liveTuneButton.setButtonText (live ? "Stop" : controller.getTuneCount() > 0 ? "Re-tune live" : "Tune live mix");
     liveTuneButton.setStyle (live ? DineButton::Style::Standard : DineButton::Style::Filled);
     liveTuneButton.setEnabled (ready && (live || stage != MixController::Stage::Listening) && stage != MixController::Stage::Planning);
+    // The reference is a target rather than a run, so the button only says whether there is
+    // one; pressing it is safe at any time except while a listen owns the screen.
+    referenceButton.setIcon (controller.hasReference() ? Dine::Icon::Check : Dine::Icon::Waveform);
+    referenceButton.setEnabled (ready && ! busy);
     resized();
 }
 
@@ -943,6 +971,8 @@ void MixPage::refresh()
     const bool live = controller.isTuningLive();
     const bool listenOn = mixTune && (live || stage == MixController::Stage::Listening || stage == MixController::Stage::Planning);
     const bool preview = mixTune && ! live && stage == MixController::Stage::Preview && controller.hasPlan();
+    if ((listenOn || preview) && referenceSheet->isVisible() && ! referenceSheet->isMeasuring()) referenceSheet->setVisible (false);
+    if (referenceSheet->isVisible() || referenceSheet->isMeasuring()) referenceSheet->refresh();
     if (listenSheet->isVisible() != listenOn) { listenSheet->setVisible (listenOn); if (listenOn) listenSheet->toFront (false); }
     if (resultSheet->isVisible() != preview) { resultSheet->setVisible (preview); if (preview) { resultSheet->toFront (false); resized(); } }
     // The sheet changes height when it swaps the group list for the live workflow's steps,
@@ -971,10 +1001,15 @@ MixPage::Layout MixPage::layout() const
     // / "Stop") and a truncated product verb reads as a bug.
     const int liveW = juce::jmax (168, liveTuneButton.idealWidth());
     const int tuneW = juce::jmax (124, tuneButton.idealWidth());
-    auto tuneArea = top.removeFromRight (liveW + 10 + tuneW);
+    // The reference is a target, not a run, so it sits beside the two verbs as a quiet
+    // control rather than as a third thing of the same weight.
+    const int refW = juce::jmax (112, referenceButton.idealWidth());
+    auto tuneArea = top.removeFromRight (refW + 12 + liveW + 10 + tuneW);
     l.liveTune = tuneArea.removeFromRight (liveW);
     tuneArea.removeFromRight (10);
-    l.tune = tuneArea;
+    l.tune = tuneArea.removeFromRight (tuneW);
+    tuneArea.removeFromRight (12);
+    l.reference = tuneArea.withSizeKeepingCentre (refW, Dine::Metric::button + 8);
     top.removeFromRight (14);
     l.health = top;
     left.removeFromTop (14);
@@ -1013,6 +1048,20 @@ void MixPage::paint (juce::Graphics& g)
             auto chip = r.removeFromRight (int (w)).withSizeKeepingCentre (int (w), 22).toFloat();
             Dine::drawPill (g, chip, label, tuned ? Dine::ok : Dine::ink2, tuned ? Dine::Icon::Check : Dine::Icon::Target);
             r.removeFromRight (14);
+        }
+
+        // What the mix is aimed at, when it is aimed at a record rather than at the profile.
+        // It sits beside the state chip because it is the same kind of fact about the mix.
+        if (controller.hasReference())
+        {
+            const juce::String name (controller.getReference().name);
+            const float w = juce::jmin (Dine::pillWidth (name, true), float (r.getWidth()) * 0.42f);
+            if (w > 60.0f)
+            {
+                auto chip = r.removeFromRight (int (w)).withSizeKeepingCentre (int (w), 22).toFloat();
+                Dine::drawPill (g, chip, name, Dine::accent, Dine::Icon::Waveform);
+                r.removeFromRight (10);
+            }
         }
 
         auto bar = r.removeFromTop (r.getHeight() / 2 + 2).removeFromBottom (5);
@@ -1113,6 +1162,7 @@ void MixPage::resized()
 
     tuneButton.setBounds (l.tune);
     liveTuneButton.setBounds (l.liveTune);
+    referenceButton.setBounds (l.reference);
     auto groupRow = l.groups;
     const int gap = 10;
     const int w = (groupRow.getWidth() - gap * (kGroupTiles - 1)) / kGroupTiles;
@@ -1146,6 +1196,7 @@ void MixPage::resized()
 
     listenSheet->setBounds (getLocalBounds());
     resultSheet->setBounds (getLocalBounds());
+    referenceSheet->setBounds (getLocalBounds());
 }
 
 } // namespace livemix

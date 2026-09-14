@@ -22,6 +22,11 @@ namespace
     constexpr int kTrimGrip = 7;
     constexpr int kMaxUndo = 40;
     constexpr int kSnapPixels = 9;
+    // Rearranging the channels: how far the pointer travels before a press on a header becomes
+    // a reorder rather than a selection, and how the view follows a drag past its own edge.
+    constexpr int kOrderGrip = 5;
+    constexpr int kOrderEdge = 26;
+    constexpr int kOrderScroll = 9;
 
     // The same group colours the mixer bands with, so one session reads the same way in both
     // workspaces - a speaking microphone included.
@@ -190,6 +195,17 @@ int TracksPage::trackAtY (int y) const
         if (y >= top && y < top + trackHeight (i)) return i;
     }
     return -1;
+}
+
+// The slot a dragged row would drop into: 0 is above the first track, numTracks() is below
+// the last. A row belongs to the slot above it until the pointer passes its middle, which is
+// what makes a short drag feel like "swap with the one next door".
+int TracksPage::dropSlotAtY (int y) const
+{
+    const int n = numTracks();
+    for (int i = 0; i < n; ++i)
+        if (y < trackTop (i) + trackHeight (i) / 2) return i;
+    return n;
 }
 
 juce::Rectangle<int> TracksPage::toolbarArea() const
@@ -760,8 +776,52 @@ void TracksPage::setTrackSource (int track, ChannelRole role)
     updateChainStrip();
     if (onSessionChanged) onSessionChanged();
     if (onToast) onToast (name + " is now " + Dine::friendlyRoleName (role)
-                          + ". It feeds a different bus, so the mix went back to the baseline: "
-                            "RE-TUNE while the band plays.");
+                          + ". It feeds a different bus, so this channel went back to its baseline chain - "
+                            "the rest of the mix is where you left it. RE-TUNE while the band plays.");
+}
+
+// Rearranging the channels. A track and its input are one thing seen twice, so this moves the
+// *input*: the mixer's bank, TUNE's rail, the Inspector's list and the ASSIGN page all read the
+// new order too. Nothing about the sound changes - the clips follow their track (syncTracks)
+// and every channel's chain, gain, fader and sends follow their input (carryMix) - but the
+// graph is rebuilt, which is why LIVE SAFE locks it like any other re-route.
+void TracksPage::moveTrack (int from, int to)
+{
+    const int n = numTracks();
+    if (from < 0 || from >= n) return;
+    to = juce::jlimit (0, n - 1, to);
+    if (to == from) return;
+    if (locked()) return;
+
+    auto session = controller.getSession();
+    const juce::String name (session.inputs[size_t (from)].name);
+    auto moved = session.inputs[size_t (from)];
+    session.inputs.erase (session.inputs.begin() + from);
+    session.inputs.insert (session.inputs.begin() + to, moved);
+
+    controller.setSession (session);
+    services.daw().setSession (session);      // the clips move with their track
+    services.reconfigure();                   // rebuilds the graph; the mix follows its input
+    services.saveSession();
+
+    selection = { to, -1 };
+    rebuild();
+    updateChainStrip();
+    if (onSessionChanged) onSessionChanged();
+    if (onToast) onToast (name + " is now channel " + juce::String (to + 1)
+                          + ". The mixer, the Inspector and the assignments read the same order.");
+}
+
+void TracksPage::moveSelectedTrack (int delta)
+{
+    if (! canMoveSelectedTrack (delta)) return;
+    moveTrack (selection.track, selection.track + delta);
+}
+
+bool TracksPage::canMoveSelectedTrack (int delta) const
+{
+    const int to = selection.track + delta;
+    return selection.track >= 0 && selection.track < numTracks() && to >= 0 && to < numTracks();
 }
 
 void TracksPage::headerMenu (int track)
@@ -812,6 +872,10 @@ void TracksPage::headerMenu (int track)
     }
     m.addSubMenu ("Icon", icons, true);
 
+    m.addSeparator();
+    m.addItem (7, "Move up", track > 0);
+    m.addItem (8, "Move down", track < numTracks() - 1);
+    m.addSeparator();
     m.addItem (4, "Fix the assignments" + Glyph::ellip(), onOpenAssign != nullptr);
     m.addSeparator();
     m.addItem (6, "TUNE CHANNEL", onTuneStrip != nullptr);
@@ -836,6 +900,8 @@ void TracksPage::headerMenu (int track)
                                      if (onOpenStrip) onOpenStrip (track); break;
                              case 6: selection = { track, -1 }; updateChainStrip(); repaint();
                                      if (onTuneStrip) onTuneStrip (track); break;
+                             case 7: moveTrack (track, track - 1); break;
+                             case 8: moveTrack (track, track + 1); break;
                              default: break;
                          }
                      });
@@ -963,6 +1029,16 @@ void TracksPage::paint (juce::Graphics& g)
             const int height = trackHeight (i);
             if (top + height < headers.getY() || top > headers.getBottom()) continue;
             paintHeader (g, i, { 0, top, kHeaderWidth, height });
+            // The row being rearranged is lifted off the page: it stays where it is, dimmed,
+            // while the line below shows where letting go would put it.
+            if (dragOrderLifted && i == dragOrderFrom)
+            {
+                auto row = juce::Rectangle<int> (0, top, kHeaderWidth, height).toFloat();
+                g.setColour (Dine::window.withAlpha (0.55f));
+                g.fillRect (row);
+                g.setColour (Dine::accent.withAlpha (0.55f));
+                g.drawRect (row.reduced (1.0f), 1.0f);
+            }
         }
         if (tracks == 0)
         {
@@ -970,6 +1046,20 @@ void TracksPage::paint (juce::Graphics& g)
             g.setFont (Dine::text (12.5f));
             g.drawText ("No tracks yet", headers.reduced (16, 20), juce::Justification::topLeft);
         }
+    }
+
+    // ---- where a dragged channel would land, across the header and the lane alike: the row
+    // moves through the whole timeline, not only through the list of names.
+    if (dragOrderLifted && dragOrderSlot >= 0 && tracks > 0)
+    {
+        juce::Graphics::ScopedSaveState save (g);
+        g.reduceClipRegion (getLocalBounds().withTrimmedTop (lanesTop()).withTrimmedBottom (ChainStrip::height));
+        const int slot = juce::jlimit (0, tracks, dragOrderSlot);
+        const float y = float (slot < tracks ? trackTop (slot)
+                                             : trackTop (tracks - 1) + trackHeight (tracks - 1));
+        g.setColour (Dine::accent);
+        g.fillRect (0.0f, y - 1.0f, float (getWidth()), 2.0f);
+        g.fillEllipse (2.0f, y - 4.0f, 8.0f, 8.0f);
     }
 
     paintRuler (g);
@@ -1609,7 +1699,16 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
         // A click on the header picks that channel out - the chain strip along the foot reads
         // it, and the fader, the keys and the menu are all right there. Leaving the timeline
         // is a bigger move than a single click, so the Inspector waits for a double-click.
+        //
+        // The same press, dragged up or down, rearranges the channels. Nothing happens until
+        // the pointer has actually travelled (kOrderGrip), so a click that wanders by a pixel
+        // still just selects.
         selection = { track, -1 };
+        drag = Drag::TrackOrder;
+        dragOrderFrom = track;
+        dragOrderSlot = -1;
+        dragOrderLifted = false;
+        dragStartY = p.y;
         updateChainStrip();
         repaint();
         return;
@@ -1680,6 +1779,22 @@ void TracksPage::mouseDrag (const juce::MouseEvent& e)
         case Drag::Fader:
             dragFader (dragTrack, p.x, e.mods.isShiftDown());
             break;
+
+        case Drag::TrackOrder:
+        {
+            if (! dragOrderLifted && std::abs (p.y - dragStartY) < kOrderGrip) break;
+            if (! dragOrderLifted && project.liveSafe) { drag = Drag::None; locked(); break; }
+            dragOrderLifted = true;
+            // Dragging past the top or the bottom of the lanes brings the rest of the session
+            // into view, so a channel can travel further than one screenful.
+            const auto lanes = lanesArea();
+            if (p.y < lanes.getY() + kOrderEdge)          scrollY -= kOrderScroll;
+            else if (p.y > lanes.getBottom() - kOrderEdge) scrollY += kOrderScroll;
+            clampScroll();
+            dragOrderSlot = dropSlotAtY (p.y);
+            repaint();
+            break;
+        }
 
         case Drag::Scroll:
             scrollX = juce::jmax (0.0, dragStartScrollX - (p.x - dragStartX));
@@ -1773,6 +1888,20 @@ void TracksPage::mouseUp (const juce::MouseEvent&)
                           [] (const Marker& a, const Marker& b) { return a.position < b.position; });
         services.saveSession();
         if (onTimelineChanged) onTimelineChanged();
+    }
+
+    if (drag == Drag::TrackOrder)
+    {
+        // The slot counts the list as it stands, so dropping below the row it came from lands
+        // one place higher once that row has been lifted out.
+        const int from = dragOrderFrom, slot = dragOrderSlot;
+        const bool lifted = dragOrderLifted;
+        drag = Drag::None;
+        dragOrderFrom = dragOrderSlot = -1;
+        dragOrderLifted = false;
+        if (lifted && slot >= 0 && from >= 0) moveTrack (from, slot > from ? slot - 1 : slot);
+        repaint();
+        return;
     }
 
     const bool movedClip = undoPushed && (drag == Drag::ClipMove || drag == Drag::ClipTrimStart || drag == Drag::ClipTrimEnd);
@@ -1885,6 +2014,10 @@ juce::String TracksPage::getTooltip()
         }
     }
     if (faderCell (track).contains (p)) return "Level for this track. Double-click for 0.0 dB.";
+    // The reorder is a gesture with nothing drawn to advertise it, so the header itself says so.
+    if (numTracks() > 1)
+        return juce::String (controller.getSession().inputs[size_t (track)].name)
+             + " - drag up or down to move this channel. The mixer and the Inspector follow.";
     return {};
 }
 

@@ -4,6 +4,7 @@
 #include "Mix/MixSession.h"
 #include "Mix/MixParameters.h"
 #include "Mix/MixMacros.h"
+#include "Mix/ReferenceMix.h"
 #include "Mix/OutputFeeds.h"
 #include "Project.h"
 
@@ -39,6 +40,10 @@ namespace SessionStore
         // session sounds exactly as it did without contacting any provider, ever. Null when
         // no live run has been made.
         juce::var tuneLive;
+        // REFERENCE MIX: the finished recording this session is aimed at, already measured.
+        // The measurement is what is stored, not the file, so reopening a service a year later
+        // still knows what it was aimed at even if the song has been moved off the machine.
+        ReferenceProfile reference;
     };
 
     struct Listing

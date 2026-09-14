@@ -204,6 +204,7 @@ public:
                 m.addItem (103, "Save As...");
                 m.addSeparator();
                 m.addItem (104, "Import Multitrack Folder...");
+                m.addItem (107, "Add a Reference Mix...");
                 m.addSeparator();
                 m.addItem (105, "Export Stereo Mix (WAV)...");
                 m.addItem (106, "Export Stereo Mix (MP3)...");
@@ -220,6 +221,10 @@ public:
                 m.addItem (300, "Set Every Track to Record");
                 m.addItem (301, "Set No Tracks to Record");
                 m.addSeparator();
+                // Rearranging the channels, for the times a drag is not the way to do it.
+                m.addItem (305, "Move Track Up", view.tracksPage != nullptr && view.tracksPage->canMoveSelectedTrack (-1));
+                m.addItem (306, "Move Track Down", view.tracksPage != nullptr && view.tracksPage->canMoveSelectedTrack (1));
+                m.addSeparator();
                 m.addItem (302, "Monitoring: Input");
                 m.addItem (303, "Monitoring: Auto");
                 m.addItem (304, "Monitoring: Off");
@@ -228,6 +233,13 @@ public:
                 m.addItem (405, "TUNE LIVE MIX");
                 m.addItem (400, "TUNE MIX");
                 m.addItem (404, "TUNE CHANNEL   T", view.selectedChannel() >= 0);
+                m.addSeparator();
+                // A reference is a target, so it sits with the verbs that aim at one.
+                m.addItem (407, view.controller.hasReference() ? "MATCH TO REFERENCE" : "MATCH TO REFERENCE...",
+                           view.controller.hasReference());
+                m.addItem (408, view.controller.hasReference()
+                                    ? "Reference: " + juce::String (view.controller.getReference().name) + juce::String (Glyph::ellip())
+                                    : "Add a Reference Mix...");
                 m.addSeparator();
                 m.addItem (401, "Reset Macros");
                 m.addItem (402, "Clear Solos");
@@ -748,6 +760,11 @@ void MainView::handleCommand (int id)
         case 102: saveNow(); break;
         case 103: saveAs(); break;
         case 104: importMultitrack(); break;
+        case 107:
+        case 408:
+            showPage (Page::Tune);
+            mixPage->openReference();
+            break;
         case 105: exportMix (AppServices::ExportFormat::Wav); break;
         case 106: exportMix (AppServices::ExportFormat::Mp3); break;
 
@@ -801,6 +818,24 @@ void MainView::handleCommand (int id)
             if (liveSafeBlocks ("TUNE CHANNEL")) break;
             if (selectedChannel() < 0) { showToast ("Pick a channel first: click a strip on the mixer or a track header."); break; }
             tuneChannel (selectedChannel());
+            break;
+        case 407:
+            // The same rule as a re-tune: once the service is on, nothing changes the sound
+            // by accident. Aiming at a reference is a re-tune of the master.
+            if (liveSafeBlocks ("MATCH TO REFERENCE")) break;
+            if (! controller.hasReference()) { showPage (Page::Tune); mixPage->openReference(); break; }
+            showPage (Page::Tune);
+            controller.startReferenceMatch();
+            showToast (controller.hasListened()
+                           ? "Aimed at " + juce::String (controller.getReference().name) + ". Compare it with BEFORE, then KEEP or REVERT."
+                           : "DLIVE has not heard the band yet, so it is listening first.");
+            break;
+        case 305:
+        case 306:
+            if (tracksPage == nullptr) break;
+            if (tracksPage->selectedTrack() < 0) { showToast ("Pick a track first: click its header on TRACKS."); break; }
+            showPage (Page::Tracks);
+            tracksPage->moveSelectedTrack (id == 305 ? -1 : 1);
             break;
         case 401: controller.resetMacros(); showToast ("Macros back to the plan."); break;
         case 402: controller.clearSolos(); showToast ("Solos cleared."); break;

@@ -1,7 +1,11 @@
 // DLIVE offline success test: a folder of recorded stems goes through the complete
 // standalone pipeline with no audio device and no UI.
 //
-//   dlive_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dlive-out] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording]
+//   dlive_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dlive-out] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording] [reference.wav]
+//
+// The last argument is optional: a finished recording to aim the mix at (REFERENCE MIX). The
+// master is then tuned toward that record's tonal balance, image and density instead of toward
+// the profile's own, and what it refused to copy is printed with the plan.
 //
 // 1. Files are assigned to sources by name (kick, snare, tom, drums/oh, room, bass, keys, lead, vox, pastor ...).
 // 2. RoutingGraph builds the buses and returns; the engine starts on the profile baselines.
@@ -19,6 +23,7 @@
 #include "Mix/MixPlanner.h"
 #include "DSP/Compressor.h"
 #include "Analysis/AnalysisAccumulator.h"
+#include "native/ReferenceAudio.h"
 #include "Profiles/MixProfileData.h"
 #include "Core/DbUtils.h"
 #include <cstdio>
@@ -94,7 +99,7 @@ int main (int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::printf ("usage: dlive_mix_stems <stems folder> [seconds=30] [outdir] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording]\n");
+        std::printf ("usage: dlive_mix_stems <stems folder> [seconds=30] [outdir] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording] [reference.wav]\n");
         return 2;
     }
     const juce::File folder { juce::String (argv[1]) };
@@ -108,6 +113,24 @@ int main (int argc, char** argv)
         const juce::String p (argv[6]);
         if (p.containsIgnoreCase ("stream")) purpose = MixPurpose::Livestream;
         else if (p.containsIgnoreCase ("record")) purpose = MixPurpose::LiveRecording;
+    }
+
+    // REFERENCE MIX: the record the mix is aimed at, measured the same way the band is.
+    ReferenceProfile reference;
+    if (argc > 7)
+    {
+        const juce::File refFile { juce::String (argv[7]) };
+        const auto measured = ReferenceAudio::measure (refFile, profile);
+        if (measured.error.isNotEmpty()) { std::printf ("reference: %s\n", measured.error.toRawUTF8()); return 1; }
+        if (! measured.adequacy.usable)
+        {
+            std::printf ("reference refused: %s  %s\n", measured.adequacy.reason.c_str(), measured.adequacy.guidance.c_str());
+            return 1;
+        }
+        reference = measured.profile;
+        std::printf ("REFERENCE  %s  %.0f s  %.1f LUFS  crest %.1f dB  correlation %.2f\n",
+                     reference.name.c_str(), double (reference.seconds), double (reference.loudnessLufs),
+                     double (reference.crestFactorDb), double (reference.stereoCorrelation));
     }
 
     juce::AudioFormatManager formats;
@@ -249,6 +272,7 @@ int main (int argc, char** argv)
     ctx.current = before;
     ctx.atCapture = before;
     ctx.capture = listened;
+    ctx.reference = reference;
     const MixPlan plan = MixPlanner::plan (ctx);
 
     std::printf ("%s\n", plan.headline.c_str());
@@ -266,6 +290,17 @@ int main (int argc, char** argv)
         for (const auto& item : sp.tune.report.items)
             if (! item.changes.empty() || item.kind == Recommendation::Kind::CaptureGain) std::printf ("      - %s\n", item.what.c_str());
         for (const auto& item : sp.mixItems) std::printf ("      * %s\n", item.what.c_str());
+    }
+
+    if (plan.reference.used)
+    {
+        std::printf ("\nREFERENCE MIX  (aimed at %s)\n", plan.reference.name.c_str());
+        std::printf ("  %-11s %8s %8s %8s\n", "band", "record", "mix", "aim");
+        for (const auto& b : plan.reference.bands)
+            std::printf ("  %-11s %8.1f %8.1f %8.1f %s\n", Reference::bandWord (b.band),
+                         double (b.referenceDb), double (b.mixDb), double (b.aimDb), b.bounded ? "(bounded)" : "");
+        for (const auto& a : plan.reference.aims) std::printf ("  - %s\n", a.c_str());
+        for (const auto& l : plan.reference.limits) std::printf ("  x %s\n", l.c_str());
     }
 
     std::printf ("\nMIX RELATIONSHIPS\n");
@@ -298,6 +333,7 @@ int main (int argc, char** argv)
     ctx2.current = plan.proposed;
     ctx2.atCapture = plan.proposed;
     ctx2.capture = listenedAgain;
+    ctx2.reference = reference;
     const MixPlan retune = MixPlanner::plan (ctx2);
     std::printf ("\nRE-TUNE (new listen with the plan running): %s\n", retune.headline.c_str());
     for (const auto& n : retune.notes) std::printf ("  %s\n", n.c_str());

@@ -109,32 +109,14 @@ struct Project
     // a track whose input is gone goes with it.
     void syncTracks (const MixSession& previous, const MixSession& next)
     {
+        // Which input each new input used to be is decided in one place (matchInputs), which
+        // is also where the kept mix reads it: the clips and the console can never end up
+        // disagreeing about which input is which.
+        const auto match = matchInputs (previous, next);
         std::vector<TrackState> moved (next.inputs.size());
-        std::vector<bool> taken (tracks.size(), false);
-
-        auto find = [&] (auto match) -> int
-        {
-            const size_t n = std::min (previous.inputs.size(), tracks.size());
-            for (size_t i = 0; i < n; ++i)
-                if (! taken[i] && match (previous.inputs[i])) return int (i);
-            return -1;
-        };
-
-        auto claim = [&] (size_t to, int from)
-        {
-            if (from < 0) return false;
-            moved[to] = std::move (tracks[size_t (from)]);
-            taken[size_t (from)] = true;
-            return true;
-        };
-
-        for (size_t n = 0; n < next.inputs.size(); ++n)
-        {
-            const auto& in = next.inputs[n];
-            if (claim (n, find ([&] (const InputAssignment& was) { return was.inputA >= 0 && was.inputA == in.inputA; }))) continue;
-            claim (n, find ([&] (const InputAssignment& was) { return ! was.name.empty() && was.name == in.name; }));
-        }
-
+        for (size_t n = 0; n < match.size(); ++n)
+            if (match[n] >= 0 && match[n] < int (tracks.size()))
+                moved[n] = std::move (tracks[size_t (match[n])]);
         tracks = std::move (moved);
     }
 

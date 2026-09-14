@@ -12,6 +12,8 @@
 namespace livemix
 {
 
+class ReferenceSheet;
+
 // The screen after setup: mix health and TUNE MIX, the five group strips with their
 // meters, the five macros, and every input on a rail down the right. While DLIVE
 // listens, and again when the plan is ready, a sheet drops from under the toolbar.
@@ -34,6 +36,10 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    // REFERENCE MIX: the sheet that adds a finished recording for the mix to be aimed at.
+    // Also opened from the File and Mix menus, which is why it is not private.
+    void openReference();
+
     // Programmatic equivalents of the user's actions (also used by the snapshot tool).
     void pressTune();
     // TUNE LIVE MIX: the same listen with a mix engineer's reasoning on top, then a second
@@ -50,7 +56,7 @@ private:
 
     struct Layout
     {
-        juce::Rectangle<int> health, tune, liveTune, groups, macros, rail, railTab;
+        juce::Rectangle<int> health, reference, tune, liveTune, groups, macros, rail, railTab;
     };
     Layout layout() const;
     int railWidth() const noexcept { return railShown ? Dine::Metric::rail : Dine::Metric::panelTab; }
@@ -63,6 +69,7 @@ private:
     std::array<std::unique_ptr<MacroSlider>, int (MixMacro::Count)> macros;
     std::unique_ptr<ListenSheet> listenSheet;
     std::unique_ptr<ResultSheet> resultSheet;
+    std::unique_ptr<ReferenceSheet> referenceSheet;
     std::vector<std::unique_ptr<InputRow>> inputRows;
     juce::Viewport railView;
     juce::Component railHolder;
@@ -70,6 +77,7 @@ private:
     bool railShown = true;
     DineButton tuneButton { "TUNE MIX", DineButton::Style::Standard };
     DineButton liveTuneButton { "TUNE LIVE MIX", DineButton::Style::Filled };
+    DineButton referenceButton { "Reference", DineButton::Style::Standard };
     DineButton advancedButton { "Open Advanced", DineButton::Style::Standard };
     DineButton resetMacrosButton { "Reset all", DineButton::Style::Ghost };
     int health = 0;

@@ -48,6 +48,7 @@ void MixController::prepare (double sr, int maxBlockSize)
     sampleRate = sr;
     blockSize = maxBlockSize;
     engine.prepare (sr, maxBlockSize, session);
+    preparedSession = session;          // the graph and the mix below now belong to this session
     capture.prepare (sr, engine.getGraph());
     engine.setTap (&capture);
     kept = startingPoint (session, engine.getGraph());
@@ -59,6 +60,10 @@ void MixController::prepare (double sr, int maxBlockSize)
     tuneCount = 0;
     tuningStrip = -1;
     mixed = false;
+    // The listen described the graph that has just been replaced, so it cannot be re-planned
+    // from. The reference is a target rather than a measurement of this session, and survives.
+    lastCapture = MixCapture::Result {};
+    listened = false;
     stage = engine.getNumStrips() > 0 ? Stage::Ready : Stage::Setup;
     prepared = true;
     engine.setOutputFeeds (outputs);        // routing survives a rebuild; it belongs to the device, not the mix
@@ -152,6 +157,61 @@ std::string MixController::getTuningName() const
 {
     if (tuningStrip < 0 || tuningStrip >= int (session.inputs.size())) return {};
     return session.inputs[size_t (tuningStrip)].name;
+}
+
+// ---------------------------------------------------------------------------
+// REFERENCE MIX: "make it sound like this"
+// ---------------------------------------------------------------------------
+void MixController::setReference (const ReferenceProfile& p)
+{
+    reference = p;
+    if (onMixChanged) onMixChanged();      // the session remembers what it is aimed at
+}
+
+void MixController::clearReference()
+{
+    if (! reference.valid) return;
+    reference = ReferenceProfile {};
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::startReferenceMatch()
+{
+    if (! prepared || stage == Stage::Listening || stage == Stage::Planning || liveRun) return;
+    if (! listened || ! lastCapture.valid)
+    {
+        // Nothing heard yet. The listen is the same listen; the reference simply comes with
+        // it when the plan is made, so this is TUNE MIX and not a mode of its own.
+        startTuneMix();
+        return;
+    }
+    if (stage == Stage::Preview) keepPlan();   // a new proposal starts from what is audible now
+
+    MixPlanContext ctx;
+    ctx.session = session;
+    ctx.graph = engine.getGraph();
+    ctx.current = kept;
+    ctx.atCapture = lastCaptureAt;
+    ctx.capture = lastCapture;
+    ctx.reference = reference;
+    tuningStrip = -1;
+    stage = Stage::Planning;
+    plan = MixPlanner::plan (ctx);
+
+    if (plan->valid && plan->stripsHeard > 0)
+    {
+        ++tuneCount;
+        stage = Stage::Preview;
+        compare = Compare::After;
+        if (onMessage) onMessage (plan->headline);
+    }
+    else
+    {
+        if (onMessage) onMessage (plan ? plan->headline : "MIX: NO SIGNAL");
+        plan.reset();
+        stage = restingStage();
+    }
+    publish();
 }
 
 void MixController::abortTuneMix()
@@ -318,6 +378,12 @@ void MixController::poll()
         ctx.current = (liveVerifying && plan) ? plan->proposed : kept;
         ctx.atCapture = atCapture;
         ctx.capture = capture.getResult();
+        ctx.reference = reference;
+        // Keep the listen. A reference added afterwards, and any re-plan, work from what the
+        // band already played rather than asking them to play it again.
+        lastCapture = ctx.capture;
+        lastCaptureAt = ctx.atCapture;
+        listened = lastCapture.valid;
 
         if (liveRun && liveVerifying)
         {
@@ -632,6 +698,14 @@ void MixController::restoreKept (const MixParameters& p, int tunes)
 {
     setKept (p);
     tuneCount = std::max (tuneCount, tunes);
+}
+
+void MixController::carryKept (const MixParameters& previousMix, const MixSession& previousSession, int tunes)
+{
+    // `kept` is the rebuilt session's baselines at this point, so an input that is new to the
+    // session - or one that became a different source - starts from its own rather than from
+    // whatever happened to be at that index before.
+    restoreKept (carryMix (previousMix, previousSession, kept, session), tunes);
 }
 
 // ---- Gain staging ----

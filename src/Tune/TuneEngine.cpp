@@ -27,7 +27,8 @@ TuneResult tune (const TuneContext& ctx)
     if (! ctx.analysis.valid) return result;
 
     const RoleFamily family = roleFamily (ctx.role);
-    const SourceTargets targets = Profiles::targets (ctx.profile, ctx.role);
+    const SourceTargets targets = ctx.targetsOverride != nullptr ? *ctx.targetsOverride
+                                                                  : Profiles::targets (ctx.profile, ctx.role);
     const SourceStrategy& strategy = strategyFor (family);
     const std::string sourceName = upper (channelRoleName (ctx.role));
 

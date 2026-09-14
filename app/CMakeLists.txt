@@ -4,7 +4,7 @@
 # dlive_mix_stems: the vertical-slice success test. Loads a folder of recorded stems,
 # assigns them by file name, builds the automatic routing, listens (Tune Mix) and renders
 # RAW / BEFORE / AFTER stereo mixes so the result can be heard. See app/Tools/MixStems.cpp.
-add_executable(dlive_mix_stems Tools/MixStems.cpp)
+add_executable(dlive_mix_stems Tools/MixStems.cpp native/ReferenceAudio.cpp)
 target_link_libraries(dlive_mix_stems PRIVATE
     livemix_engine
     juce::juce_audio_formats
@@ -33,7 +33,8 @@ set(DLIVE_APP_SOURCES
     native/DawEngine.cpp
     native/Recorder.cpp
     native/TimelinePlayer.cpp
-    native/MultitrackImport.cpp)
+    native/MultitrackImport.cpp
+    native/ReferenceAudio.cpp)
 
 set(DLIVE_UI_SOURCES
     ${DLIVE_APP_SOURCES}
@@ -44,6 +45,7 @@ set(DLIVE_UI_SOURCES
     ui/MixerPage.cpp
     ui/OutputsSheet.cpp
     ui/ChannelTuneSheet.cpp
+    ui/ReferenceSheet.cpp
     ui/LivePage.cpp
     ui/AdvancedPage.cpp
     ui/ChainEditor.cpp

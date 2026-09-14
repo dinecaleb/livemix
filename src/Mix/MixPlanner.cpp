@@ -692,6 +692,18 @@ MixPlan plan (const MixPlanContext& ctx)
         const ChannelRole role = busRole (MixBus (b), ctx.session.purpose);
         TuneContext tc;
         tc.analysis = a;
+        // REFERENCE MIX. A reference is a finished stereo record, so the only thing in this
+        // plan it can honestly be compared with is the master: it says what the whole mix
+        // should sound like, not what one group or one microphone should. The aim moves, the
+        // strategy does not - every bound, sentence and the idempotency rule come along
+        // unchanged, and the match is computed from the reference and the profile, never from
+        // where the master happens to sit, so re-tuning the same listen lands in the same place.
+        SourceTargets refTargets;
+        if (isMaster && ctx.reference.valid)
+        {
+            refTargets = Reference::targets (Profiles::targets (profile, role), ctx.reference, a, profile, plan.reference);
+            tc.targetsOverride = &refTargets;
+        }
         // What the bus will receive once the faders have moved (the master: once the buses have moved), from the
         // processed levels. A bus chain that then works harder (its compressor sees more level) puts out less than
         // the shift alone says; that part is predicted from the compressor curve, like the strips.
@@ -807,6 +819,12 @@ MixPlan plan (const MixPlanContext& ctx)
         for (const auto& item : master.tune.report.items)
             if (item.kind == Recommendation::Kind::MixGain) { plan.notes.push_back ("Master: " + item.what + "."); break; }
     }
+    if (plan.reference.used)
+    {
+        plan.notes.push_back ("Aimed at " + plan.reference.name + ": the master's tone, image and density follow it. "
+                              "Who is loud in the mix, and how loud the mix is delivered, do not.");
+        for (const auto& aim : plan.reference.aims) plan.notes.push_back (aim);
+    }
     return plan;
 }
 
@@ -825,6 +843,10 @@ MixPlan channelOnly (const MixPlan& full, int strip, StyleProfileId profile)
     out.proposed = full.before;
     out.relationships.clear();
     out.notes.clear();
+    // A channel tune leaves the master where it is, so whatever a reference aimed the master
+    // at is not part of what this plan proposes. Saying otherwise would put a claim in REVIEW
+    // CHANGES that the applied mix does not contain.
+    out.reference = ReferenceMatch {};
     out.parametersChanged = out.fadersChanged = out.sendsChanged = out.gainsChanged = 0;
     out.stripsWantPreamp = 0;
     out.noChangeRequired = true;

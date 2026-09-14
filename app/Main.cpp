@@ -143,6 +143,7 @@ namespace
             MixSession fresh;
             fresh.name = "Untitled";
             controller.setSession (fresh);
+            controller.clearReference();
             dawEngine.setSession (fresh);
             dawEngine.setProject (Project {});
             dawEngine.locate (0);
@@ -206,17 +207,16 @@ namespace
         void applyPendingMix()
         {
             if (! pending.has_value() || ! controller.isPrepared()) return;
-            const auto& now = controller.getSession().inputs;
-            const auto& then = pending->session.inputs;
-            // The graph, not the labels: a source renamed still routes and sounds the same, so
-            // a rename never costs the mix. A different source, channel or count does rebuild it.
-            bool same = now.size() == then.size();
-            for (size_t i = 0; same && i < now.size(); ++i)
-                same = now[i].role == then[i].role && now[i].inputA == then[i].inputA && now[i].inputB == then[i].inputB;
             controller.setOutputFeeds (pending->outputs);   // routing belongs to the device, not the mix
-            if (same && pending->hasMix)
+            controller.setReference (pending->reference);   // always, so one session's reference never follows another
+            if (pending->hasMix)
             {
-                controller.restoreKept (pending->mix, pending->tuneCount);
+                // The mix follows its input across a rebuild, the way the timeline's clips
+                // already do: a channel moved, dropped or added on ASSIGN or on TRACKS leaves
+                // every other channel's chain, gain, fader and sends exactly where they were.
+                // getKept() here is the rebuilt session's baselines, so an input that is new to
+                // the session - or one that became a different source - starts from its own.
+                controller.carryKept (pending->mix, pending->session, pending->tuneCount);
                 for (int i = 0; i < int (MixMacro::Count); ++i) controller.setMacro (MixMacro (i), pending->macros.get (MixMacro (i)));
             }
             pending.reset();
@@ -226,7 +226,10 @@ namespace
         void hold()
         {
             SessionStore::Document snap;
-            snap.session = controller.getSession();
+            // The session the snapshotted mix belongs to - the one the graph still runs - not
+            // the document, which may already have been replaced by the change we are holding
+            // the mix across.
+            snap.session = controller.getPreparedSession();
             snap.macros = controller.getMacros();
             snap.outputs = controller.getOutputFeeds();
             snap.tuneCount = controller.getTuneCount();
@@ -257,6 +260,7 @@ namespace
             d.tuneCount = controller.getTuneCount();
             d.hasMix = controller.isPrepared() && controller.hasKeptMix();
             if (d.hasMix) d.mix = controller.getKept();
+            d.reference = controller.getReference();      // what the mix is aimed at, already measured
             if (controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready)
             {
                 auto record = juce::JSON::parse (juce::String (controller.getTuneLive().toJson().write()));

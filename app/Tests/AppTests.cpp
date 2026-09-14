@@ -7,6 +7,8 @@
 #include "Mix/MixPlanner.h"
 #include "MixAI/MixReasoningProvider.h"
 #include "native/OpenAiMixProvider.h"
+#include "native/ReferenceAudio.h"
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_core/juce_core.h>
 #include <chrono>
 #include <cmath>
@@ -561,6 +563,213 @@ TEST_CASE ("SessionStore: save, list, and load a named mix file")
     (void) SessionStore::listSessions();
 }
 
+
+// ---------------------------------------------------------------------------
+// REFERENCE MIX: "make it sound like this."
+// ---------------------------------------------------------------------------
+namespace
+{
+    // A minute of pink-ish stereo music written to disk, so the file half of the feature is
+    // tested through a real decoder rather than around it.
+    juce::File writeReferenceWav (const juce::File& file, float seconds, int channels, float tilt)
+    {
+        file.deleteFile();
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::FileOutputStream> stream (file.createOutputStream());
+        if (stream == nullptr) return {};
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (stream.release(), kSr, unsigned (channels), 24, {}, 0));
+        if (writer == nullptr) return {};
+        const int n = int (kSr * double (seconds));
+        juce::AudioBuffer<float> buffer (channels, n);
+        juce::Random rng (7);
+        float lp = 0.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            const float t = float (i) / float (kSr);
+            const float white = rng.nextFloat() * 2.0f - 1.0f;
+            lp = 0.96f * lp + 0.04f * white;                       // a low-heavy bed
+            const float body = 0.35f * lp + 0.10f * std::sin (2.0f * float (M_PI) * 110.0f * t);
+            const float top = tilt * 0.25f * white;                 // ... with the top end dialled by `tilt`
+            const float beat = std::fmod (t, 0.5f) < 0.06f ? 0.35f : 0.0f;
+            for (int c = 0; c < channels; ++c)
+                buffer.setSample (c, i, body + top + beat * std::sin (2.0f * float (M_PI) * 60.0f * t) + (c == 1 ? 0.08f * white : 0.0f));
+        }
+        writer->writeFromAudioSampleBuffer (buffer, 0, n);
+        writer.reset();
+        return file;
+    }
+
+    juce::File scratch (const juce::String& name)
+    {
+        return juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile (name);
+    }
+}
+
+TEST_CASE ("ReferenceAudio: a finished recording is measured; a four-second clip is refused with a reason")
+{
+    const auto song = writeReferenceWav (scratch ("dlive-reference-song.wav"), 12.0f, 2, 1.0f);
+    REQUIRE (song.existsAsFile());
+    const auto measured = ReferenceAudio::measure (song, StyleProfileId::ModernGospel);
+    CHECK (measured.error.isEmpty());
+    REQUIRE (measured.adequacy.usable);
+    REQUIRE (measured.profile.valid);
+    CHECK (measured.profile.name == "dlive-reference-song");
+    CHECK (measured.profile.channels == 2);
+    CHECK_NEAR (measured.profile.seconds, 12.0f, 0.5f);
+    CHECK (measured.profile.loudnessLufs > -45.0f);
+
+    const auto clip = writeReferenceWav (scratch ("dlive-reference-clip.wav"), 4.0f, 2, 1.0f);
+    const auto tooShort = ReferenceAudio::measure (clip, StyleProfileId::ModernGospel);
+    CHECK (! tooShort.adequacy.usable);
+    CHECK (! tooShort.adequacy.reason.empty());
+    CHECK (! tooShort.profile.valid);
+
+    // A file that is not audio at all is an error, not a refusal: there is nothing to judge.
+    const auto text = scratch ("dlive-reference-not-audio.wav");
+    text.replaceWithText ("this is not a song");
+    const auto broken = ReferenceAudio::measure (text, StyleProfileId::ModernGospel);
+    CHECK (broken.error.isNotEmpty());
+    CHECK (! broken.profile.valid);
+
+    song.deleteFile();
+    clip.deleteFile();
+    text.deleteFile();
+}
+
+TEST_CASE ("MixController: a reference aims the mix from the listen it already has, and only the master moves")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+
+    CHECK (! c.hasReference());
+    CHECK (! c.hasListened());
+
+    c.startTuneMix ({ 3.0f, -45.0f, 2.0f });
+    f.play (0.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    c.keepPlan();
+    CHECK (c.hasListened());
+    const MixParameters tuned = c.getKept();
+
+    // What the mix proposes with no reference at all: the profile's own aim, from this listen.
+    c.startReferenceMatch();
+    REQUIRE (c.getStage() == MixController::Stage::Preview);
+    REQUIRE (c.hasPlan());
+    CHECK (! c.getPlan()->reference.used);
+    const MixParameters profileAimed = c.getPlan()->proposed;
+    c.revertPlan();
+
+    // A reference measured from this mix's own master, but leaner at the bottom and brighter
+    // on top: a record this band is not currently making.
+    auto measurement = c.getLastListen().buses[size_t (MixBus::Master)];
+    REQUIRE (measurement.valid);
+    measurement.durationSeconds = 200.0f;
+    measurement.loudnessLufs = -9.0f;
+    measurement.silencePercent = 0.0f;
+    measurement.bandEnergyDb[size_t (Band::Low)] -= 12.0f;
+    measurement.bandEnergyDb[size_t (Band::Brilliance)] += 8.0f;
+    measurement.bandEnergyDb[size_t (Band::Air)] += 8.0f;
+    c.setReference (Reference::profileFrom (measurement, "Sunday Record", "/tmp/sunday.wav"));
+    REQUIRE (c.hasReference());
+    CHECK (c.getReference().name == "Sunday Record");
+
+    // Setting one changes nothing that can be heard: it is a target, not a move.
+    CHECK (MixPlanner::countParameterChanges (tuned, c.getKept()) == 0);
+    CHECK (c.getStage() == MixController::Stage::Mixed);
+
+    // Matching works from the listen DLIVE already has - the band is not asked to play again.
+    c.startReferenceMatch();
+    REQUIRE (c.getStage() == MixController::Stage::Preview);
+    REQUIRE (c.hasPlan());
+    REQUIRE (c.getPlan()->reference.used);
+    CHECK (c.getPlan()->reference.name == "Sunday Record");
+    CHECK (! c.getPlan()->reference.aims.empty());
+    CHECK (! c.getPlan()->reference.limits.empty());
+
+    // The master is aimed somewhere else than the profile alone would have aimed it...
+    const MixParameters referenceAimed = c.getPlan()->proposed;
+    CHECK (! diffParameters (profileAimed.master().channel, referenceAimed.master().channel).empty());
+
+    // ... and nothing else in the mix moved because of it.
+    for (int i = 0; i < referenceAimed.numStrips; ++i)
+    {
+        CHECK (diffParameters (profileAimed.strips[size_t (i)].channel, referenceAimed.strips[size_t (i)].channel).empty());
+        CHECK_NEAR (profileAimed.strips[size_t (i)].faderDb, referenceAimed.strips[size_t (i)].faderDb, 0.001f);
+    }
+    for (int b = 0; b < int (MixBus::Master); ++b)
+        CHECK (diffParameters (profileAimed.buses[size_t (b)].channel, referenceAimed.buses[size_t (b)].channel).empty());
+
+    // BEFORE / AFTER is the same preview every other verb produces.
+    c.setCompare (MixController::Compare::Before);
+    CHECK (MixPlanner::countParameterChanges (c.getBase(), c.getPlan()->before) == 0);
+    c.setCompare (MixController::Compare::After);
+    c.keepPlan();
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), referenceAimed) == 0);
+
+    // Removing it stops the mix being aimed at it: the next plan is the profile's own again.
+    // What the reference already set is not rolled back here - that is what REVERT is for -
+    // because the master keeps whatever is on it until a decision moves it.
+    c.clearReference();
+    CHECK (! c.hasReference());
+    c.startReferenceMatch();
+    REQUIRE (c.getStage() == MixController::Stage::Preview);
+    CHECK (! c.getPlan()->reference.used);
+    CHECK (c.getPlan()->notes.size() > 0);
+}
+
+TEST_CASE ("SessionStore: the reference a session is aimed at survives the round trip, and an unknown schema is ignored")
+{
+    AnalysisResult measured;
+    measured.valid = true;
+    measured.numChannels = 2;
+    measured.durationSeconds = 214.0f;
+    measured.loudnessLufs = -8.5f;
+    measured.crestFactorDb = 9.25f;
+    measured.stereoCorrelation = 0.42f;
+    measured.tempoBpm = 96.0f;
+    measured.tempoConfidence = 0.8f;
+    for (int i = 0; i < int (Band::Count); ++i) measured.bandEnergyDb[size_t (i)] = -8.0f - float (i);
+    for (int i = 0; i < kNumThirdOctaveBands; ++i) measured.thirdOctaveDb[size_t (i)] = -20.0f - 0.5f * float (i);
+
+    SessionStore::Document d;
+    d.session = band();
+    d.reference = Reference::profileFrom (measured, "Take Me To The King", "/Users/x/Music/king.wav");
+    REQUIRE (d.reference.valid);
+
+    SessionStore::Document back;
+    REQUIRE (SessionStore::fromVar (juce::JSON::parse (juce::JSON::toString (SessionStore::toVar (d))), back));
+    REQUIRE (back.reference.valid);
+    CHECK (back.reference.name == "Take Me To The King");
+    CHECK (back.reference.path == "/Users/x/Music/king.wav");
+    CHECK_NEAR (back.reference.seconds, 214.0f, 0.01f);
+    CHECK (back.reference.channels == 2);
+    CHECK_NEAR (back.reference.loudnessLufs, -8.5f, 0.01f);
+    CHECK_NEAR (back.reference.crestFactorDb, 9.25f, 0.01f);
+    CHECK_NEAR (back.reference.stereoCorrelation, 0.42f, 0.001f);
+    CHECK_NEAR (back.reference.tempoBpm, 96.0f, 0.01f);
+    for (int i = 0; i < int (Band::Count); ++i)
+        CHECK_NEAR (back.reference.bandEnergyDb[size_t (i)], measured.bandEnergyDb[size_t (i)], 0.01f);
+    CHECK_NEAR (back.reference.thirdOctaveDb[3], measured.thirdOctaveDb[3], 0.01f);
+
+    // A session that was never aimed at anything comes back with nothing to aim at.
+    SessionStore::Document plain;
+    plain.session = band();
+    SessionStore::Document plainBack;
+    REQUIRE (SessionStore::fromVar (juce::JSON::parse (juce::JSON::toString (SessionStore::toVar (plain))), plainBack));
+    CHECK (! plainBack.reference.valid);
+
+    // A reference written by a schema this build does not know is not guessed at: the mix
+    // goes back to the profile's own target rather than being aimed at half a document.
+    auto doc = SessionStore::toVar (d);
+    if (auto* obj = doc.getDynamicObject())
+        if (auto* ref = obj->getProperty ("reference").getDynamicObject())
+            ref->setProperty ("schema", kReferenceSchemaVersion + 1);
+    SessionStore::Document future;
+    REQUIRE (SessionStore::fromVar (juce::JSON::parse (juce::JSON::toString (doc)), future));
+    CHECK (! future.reference.valid);
+}
 
 TEST_CASE ("OpenAiMixProvider: asks for intent under a strict schema, sends no audio, and refuses prose")
 {

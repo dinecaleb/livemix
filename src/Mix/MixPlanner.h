@@ -5,6 +5,7 @@
 #include "MixParameters.h"
 #include "RoutingGraph.h"
 #include "MixCapture.h"
+#include "ReferenceMix.h"
 #include "Tune/TuneTypes.h"
 
 namespace livemix
@@ -18,6 +19,9 @@ struct MixPlanContext
     MixParameters current;       // what the engine runs now (the plan starts from here)
     MixParameters atCapture;     // what the engine ran while listening (its faders shaped what the buses received)
     MixCapture::Result capture;
+    // REFERENCE MIX: a finished recording the master is aimed at instead of at the profile's
+    // own tonal target. Invalid (the default) means the profile decides, as it always has.
+    ReferenceProfile reference;
 };
 
 // One strip's part of the plan.
@@ -58,6 +62,7 @@ struct MixPlan
     std::vector<StripPlan> strips;
     std::array<BusPlan, int (MixBus::Count)> buses {};
     std::vector<Recommendation> relationships;   // what the mix decided about how sources work together
+    ReferenceMatch reference;                    // what "sound like this" aimed at, and what it refused to copy
     std::vector<std::string> notes;              // plain-language summary lines
     int stripsHeard = 0;
     int stripsFaint = 0;                         // inputs with a signal too faint to be a playing source (check the mic)

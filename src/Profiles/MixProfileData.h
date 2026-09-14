@@ -211,6 +211,24 @@ namespace MixProfile
     };
     const AiBounds& aiBounds();
 
+    // ---- REFERENCE MIX: how far "make it sound like this" is allowed to go ----
+    // Bounds, not a sound. A reference is somebody else's finished record: it is worth
+    // aiming at, and it is not worth handing the mix over to. Every number here is the
+    // distance between "aimed at the reference" and "no longer a professional mix".
+    struct ReferenceBounds
+    {
+        int version = 1;
+        float maxTargetShiftDb = 3.0f;     // how far a reference may move one band target off the profile's
+        float toleranceDb = 1.5f;          // matching aims closer than the profile's own "that will do"
+        float maxWidthDelta = 0.25f;       // the master image may follow the reference this far, no further
+        float maxCompTargetShiftDb = 1.5f; // how much harder (or softer) the master glue may be asked to work
+        float minSeconds = 8.0f;           // shorter than this is a clip, not a mix
+        float minLoudnessLufs = -45.0f;    // quieter than this measured a silence
+        float maxSilencePercent = 70.0f;   // mostly silence: the measurement is of the gaps
+        float noteDb = 1.0f;               // a difference smaller than this is not worth a sentence
+    };
+    const ReferenceBounds& referenceBounds (StyleProfileId profile);
+
     // ---- Mix macros (the five controls of the overview; 50 = the plan as Tune Mix left it) ----
     struct MacroRanges
     {

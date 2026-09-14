@@ -67,6 +67,33 @@
   listen keeps the applied mix audible (`liveVerifying`); LIVE SAFE blocks it like any re-tune. The session stores
   the run's record under `tuneLive` next to the kept mix, so **reopening a session never contacts a provider**.
   Verify with `build-engine/tests/livemix_tests`, `build/app/dlive_app_tests` and the `08b` / `09b` UI snapshots.
+- **REFERENCE MIX** ("make it sound like this") aims the mix at a finished recording. The engine half is
+  JUCE-free in `src/Mix/ReferenceMix.{h,cpp}`: `ReferenceProfile` (schema v1 - the tonal balance, crest,
+  loudness, correlation and tempo of a record, stored with the session so reopening never re-reads the file),
+  `Reference::adequacy` (a four-second clip, a silence or an unreadable file is refused **with its reason**)
+  and `Reference::targets`, which is the whole decision: it returns the master's `SourceTargets` aimed at the
+  reference instead of at the profile's own. Nothing there writes a parameter - `MasterStrategy` does the work
+  it always did - so every bound, every sentence and the idempotency rule come along unchanged. The seam is
+  `TuneContext::targetsOverride` (null = the profile), set only by `MixPlanner` and only for the master:
+  a reference is a finished stereo record, so the master is the only thing in a plan it can honestly be
+  compared with. Band energy is measured relative to the whole, which is why a -9 LUFS master and a -23 LUFS
+  live mix are directly comparable and why the plan's fader moves do not disturb the comparison.
+  What a reference is **not** allowed to do is the other half of the feature and is reported, never silent:
+  it never sets the delivery loudness (that belongs to the broadcast), never moves a source, a fader or a
+  group (`MixPlanner` proves this in `ReferenceMixTests`), and never pulls one band target further than
+  `MixProfile::referenceBounds` allows (3 dB), nor the master image or glue past their own bounds. Each
+  refusal keeps its sentence in `MixPlan::reference` (`ReferenceMatch`), which is what the sheet and the plan
+  notes read. The app half: `app/native/ReferenceAudio` decodes and measures the file (up to 4 minutes, on a
+  thread of its own), `MixController::setReference` / `clearReference` / `startReferenceMatch` own it, and the
+  listen is kept (`getLastListen`) so MATCH TO REFERENCE re-plans from what the band already played instead of
+  asking them to play again - the result is an ordinary `MixPlan`, so BEFORE / AFTER, KEEP and REVERT are
+  unchanged. The UI is `app/ui/ReferenceSheet` (the Reference button on TUNE, File > Add a Reference Mix...,
+  Mix > MATCH TO REFERENCE), which draws the two balances against each other and prints what matching will aim
+  for and what it refuses to copy *before* the button is pressed. `SessionStore` stores the measurement under
+  `reference`; a document from a schema this build does not know is ignored rather than half-read. Verify with
+  `build-engine/tests/livemix_tests` (`Reference*`), `build/app/dlive_app_tests`, the `07c` / `07d` snapshots
+  and `build/app/dlive_mix_stems "<stems>" 30 <outdir> gospel -1 broadcast <reference.wav>` (the REFERENCE MIX
+  block, and RE-TUNE still saying NO CHANGE REQUIRED).
 - Read the PRD sections 6-8, 42, 48 and `docs/ARCHITECTURE-DINE-CORE.md` before touching the audio path or adding a product.
 - DLIVE is **the live recording and broadcast DAW** (2026-09 DAW milestone; see `docs/MILESTONE-7.md`).
   Four workspaces over one session: TRACKS (timeline, clips, waveforms), MIXER, TUNE, LIVE. The DAW layer is
@@ -165,6 +192,24 @@
   rebuilt - each track follows its own input by device channel, then by name - and
   `HostServices::reconfigure` hands the DAW engine the new session; without that an input
   dropped on the ASSIGN page left the clips behind and every name below it slid by one.
+  **Which input a new input used to be is decided in exactly one place**, `matchInputs`
+  (`src/Mix/MixSession.h`): the clips read it (`syncTracks`) and so does the kept mix
+  (`carryMix`, `src/Mix/MixParameters.h`), so the timeline and the console can never end up
+  disagreeing about which input is which. `carryMix` is what makes rearranging free - every
+  channel that survived a rebuild keeps its chain, gain, fader, pan, keys and sends, and only
+  an input that became a *different source* goes back to its baseline (a kick's gate is wrong
+  on a voice); the buses, the master, the returns and the tempo are not per-input and come
+  across whole. One helper, `MixController::carryKept (previousMix, previousSession, tunes)`,
+  is what a host calls straight after `prepare()`, and `getPreparedSession()` is the session
+  the running mix belongs to (`setSession` replaces the document before the graph is rebuilt,
+  so `getSession()` is the wrong thing to read it against).
+  **Rearranging the channels is a drag on the TRACKS header** (`TracksPage::moveTrack`, also
+  Move up / Move down on the header's menu and in the Track menu): press a header and drag it
+  up or down, a line shows where it would land, and letting go moves the *input* - the mixer's
+  bank, TUNE's rail, the Inspector's list and the ASSIGN page all read the new order. The row
+  only lifts after the pointer has actually travelled (`kOrderGrip`), so a click that wandered
+  still just selects; dragging past the edge of the lanes scrolls. Nothing about the sound
+  changes, but the graph is rebuilt, so LIVE SAFE locks it like any other re-route.
   A header whose name no longer describes the audio under it is drawn amber with a warning
   glyph (`nameMismatch`: a take suffix is not a mismatch, a different word is), and
   right-clicking a header is the one place to put it right - Rename, Use the clip's name,

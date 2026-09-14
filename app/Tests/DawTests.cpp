@@ -830,6 +830,58 @@ TEST_CASE ("Project: reordering the inputs reorders the clips with them")
     CHECK (project.tracks[3].clips[0].name == "Bass");
 }
 
+TEST_CASE ("Moving a channel carries its clips, its chain and its level with it")
+{
+    // The whole of what a host does when a row is dragged on the timeline: the session is
+    // reordered, the timeline follows its tracks, the graph is rebuilt and the mix is carried
+    // across. If any one of those three disagrees about which input is which, a volunteer ends
+    // up with the kick's gate on the pastor.
+    const MixSession before = band();
+    auto project = bandProject (before);
+
+    MixController controller;
+    controller.setSession (before);
+    controller.prepare (kSr, kBlock);
+    controller.setStripFader (0, -3.0f);          // Kick
+    controller.setStripFader (3, 2.5f);           // Lead
+    controller.setStripMute (1, true);            // Bass
+    auto lead = controller.getKept().strips[3].channel;
+    lead.compThresholdDb = -19.5f;
+    controller.setStripChannel (3, lead);
+    const MixParameters mix = controller.getKept();
+    const MixSession prepared = controller.getPreparedSession();
+
+    // Move the lead vocal (3) to the top.
+    MixSession after = before;
+    auto moved = after.inputs[3];
+    after.inputs.erase (after.inputs.begin() + 3);
+    after.inputs.insert (after.inputs.begin(), moved);
+
+    project.syncTracks (before, after);
+    controller.setSession (after);
+    controller.prepare (kSr, kBlock);
+    controller.restoreKept (carryMix (mix, prepared, controller.getKept(), after), 1);
+
+    // The timeline
+    REQUIRE (project.tracks.size() == 4);
+    CHECK (project.tracks[0].clips[0].name == "Lead");
+    CHECK (project.tracks[1].clips[0].name == "Kick");
+
+    // The console
+    const auto& now = controller.getKept();
+    CHECK (now.numStrips == 4);
+    CHECK_NEAR (now.strips[0].faderDb, 2.5f, 0.001f);
+    CHECK_NEAR (now.strips[0].channel.compThresholdDb, -19.5f, 0.001f);
+    CHECK_NEAR (now.strips[1].faderDb, -3.0f, 0.001f);
+    CHECK (now.strips[2].mute);                                  // the bass, one place down
+    CHECK (! now.strips[0].mute);
+
+    // And the graph, so the mixer and the Inspector read the new order too.
+    CHECK (controller.getGraph().strips[0].name == "Lead");
+    CHECK (controller.getGraph().strips[1].name == "Kick");
+    CHECK (controller.getPreparedSession().inputs[0].name == "Lead");
+}
+
 TEST_CASE ("Project: a renamed input keeps its track - the device channel is the identity")
 {
     const MixSession before = band();

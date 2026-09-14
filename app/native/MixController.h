@@ -46,6 +46,11 @@ public:
     // ---- Engine lifecycle (AudioHost calls these with the device stopped) ----
     void prepare (double sampleRate, int maxBlockSize);   // builds the graph for the session, clears any plan
     bool isPrepared() const noexcept { return prepared; }
+    // The session the running graph was built for. setSession() replaces the document before
+    // the device has been stopped and the graph rebuilt, so this - not getSession() - is what
+    // the mix that is currently loaded belongs to, and what carrying it across a rebuild has
+    // to be read against.
+    const MixSession& getPreparedSession() const noexcept { return preparedSession; }
     double getSampleRate() const noexcept { return sampleRate; }
     int getBlockSize() const noexcept { return blockSize; }
     const MixEngine& getEngine() const noexcept { return engine; }
@@ -102,6 +107,22 @@ public:
     bool isTuningLive() const noexcept { return liveRun; }
     // What the sheet reads while a run is going: the state machine's own words.
     std::string getTuneLiveStatus() const { return tuneLive.getStatusText(); }
+
+    // ---- REFERENCE MIX: "make it sound like this" ----
+    // A finished recording the mix is aimed at. It is a target, not a move: setting one
+    // changes nothing you can hear until the next TUNE MIX, RE-TUNE or MATCH TO REFERENCE.
+    // It is stored with the session, already measured, so reopening a service never has to
+    // find the file again - and never depends on it still being there.
+    void setReference (const ReferenceProfile&);
+    void clearReference();
+    const ReferenceProfile& getReference() const noexcept { return reference; }
+    bool hasReference() const noexcept { return reference.valid; }
+    // Aim the mix at the reference using the listen DLIVE already has, so "sound like this"
+    // does not cost another 30 seconds of the band's time. With no listen to work from it
+    // starts one, and the reference is used when that listen lands.
+    bool hasListened() const noexcept { return listened; }
+    const MixCapture::Result& getLastListen() const noexcept { return lastCapture; }
+    void startReferenceMatch();
 
     void abortTuneMix();                  // cancels whichever listen is running - the mix's or a channel's
     void poll();                                        // message thread, ~30 Hz: advances Listening -> Planning -> Preview
@@ -176,6 +197,13 @@ public:
     const MixParameters& getRunning() const noexcept { return running; }    // what the engine was last given
     void setKept (const MixParameters& p);                                  // session restore
     void restoreKept (const MixParameters& p, int tuneCount);               // session restore with its history
+    // The mix, carried onto the session the graph has just been rebuilt for: every channel
+    // that survived the change keeps its chain, its gain, its fader, its pan, its keys and its
+    // sends, found by which input it *is* rather than where it sits (Mix/MixParameters.h).
+    // A host calls this straight after prepare() when the assignments changed - a channel
+    // moved on the timeline, an input dropped on ASSIGN - so that reordering the console costs
+    // nothing. `previousMix` is what was running under `previousSession`.
+    void carryKept (const MixParameters& previousMix, const MixSession& previousSession, int tuneCount);
     bool hasKeptMix() const noexcept { return mixed; }
 
     // ---- Gain staging: the first move in any mix, in plain words ----
@@ -217,8 +245,15 @@ private:
     void startListening (const ListenSettings&, int strip);   // -1 = the whole mix
 
     MixSession session;
+    MixSession preparedSession;         // what the running graph was built for
     MixEngine engine;
     MixCapture capture;
+    // The last complete listen, kept so a reference (or a re-plan) can work from what DLIVE
+    // already heard instead of asking the band to play again.
+    MixCapture::Result lastCapture;
+    MixParameters lastCaptureAt;
+    bool listened = false;
+    ReferenceProfile reference;
     bool prepared = false;
     double sampleRate = 48000.0;
     int blockSize = 64;

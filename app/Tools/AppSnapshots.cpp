@@ -42,7 +42,20 @@ namespace
         double sampleRate() override { return kSr; }
         int bufferSize() override { return kBlock; }
         int xrunCount() override { return 0; }
-        void reconfigure() override { controller.prepare (kSr, kBlock); dawEngine.setSession (controller.getSession()); dawEngine.prepare (kSr, kBlock); }
+        void reconfigure() override
+        {
+            // The same three steps the application takes: the graph is rebuilt for the new
+            // assignments and the mix is carried onto it, so the tool photographs what a
+            // reordered console actually looks like rather than one back at its baselines.
+            const auto previous = controller.getPreparedSession();
+            const auto mix = controller.getKept();
+            const bool hadMix = controller.hasKeptMix();
+            const int tunes = controller.getTuneCount();
+            controller.prepare (kSr, kBlock);
+            if (hadMix) controller.carryKept (mix, previous, tunes);
+            dawEngine.setSession (controller.getSession());
+            dawEngine.prepare (kSr, kBlock);
+        }
         void saveSession() override {}
         void newSession() override {}
         juce::String saveSessionAs (const juce::String& name) override { sessionName = name; return {}; }
@@ -310,6 +323,19 @@ int main (int argc, char** argv)
     view.getTracksPage().setRowHeight (TracksPage::RowHeight::Medium);
     rig.feed (0.3);
 
+    // Rearranging the channels: the pastor is dragged to the top of the session. The clips go
+    // with the track, the mix goes with the input, and the mixer reads the same order - so the
+    // shot is of the whole thing having moved, not of a list of names having been shuffled.
+    {
+        const int pastor = int (rig.controller.getSession().inputs.size()) - 1;
+        view.getTracksPage().moveTrack (pastor, 0);
+        view.getTracksPage().zoomToFit();
+        rig.feed (0.6);
+        rig.snap (dir, "06e-tracks-reordered");
+        view.getTracksPage().moveTrack (0, pastor);      // back, so every later shot is of the session as assigned
+        rig.feed (0.4);
+    }
+
     // A track whose name no longer describes the audio under it: the header flags it in amber
     // and its right-click menu is where a name, a source or the assignments are put right.
     {
@@ -346,6 +372,37 @@ int main (int argc, char** argv)
     rig.snap (dir, "10-tune-preview-before");
     rig.controller.setCompare (MixController::Compare::After);
     rig.controller.keepPlan();
+    rig.feed (0.4);
+
+    // REFERENCE MIX: "make it sound like this." The empty sheet says what matching does and
+    // what it refuses to copy; with a record chosen it draws the two balances against each
+    // other. The reference here is measured from the listen the tool just made and then
+    // tilted, so the shot is of real numbers rather than of a drawing of some.
+    {
+        view.getMixPage().openReference();
+        rig.snap (dir, "07c-tune-reference-empty");
+
+        auto measured = rig.controller.getLastListen().buses[size_t (MixBus::Master)];
+        measured.durationSeconds = 254.0f;
+        measured.loudnessLufs = -9.2f;
+        measured.silencePercent = 0.0f;
+        measured.numChannels = 2;
+        measured.stereoCorrelation = 0.45f;
+        measured.crestFactorDb = 10.0f;
+        measured.tempoBpm = 76.0f;
+        measured.tempoConfidence = 0.7f;
+        measured.bandEnergyDb[size_t (Band::Low)] += 4.0f;
+        measured.bandEnergyDb[size_t (Band::LowMid)] -= 3.0f;
+        measured.bandEnergyDb[size_t (Band::Brilliance)] += 5.0f;
+        measured.bandEnergyDb[size_t (Band::Air)] += 6.0f;
+        rig.controller.setReference (Reference::profileFrom (measured, "Take Me To The King", "~/Music/king.wav"));
+        rig.feed (0.3);
+        rig.snap (dir, "07d-tune-reference");
+        view.getMixPage().openReference();     // the button is a toggle: this puts the sheet away
+        rig.feed (0.2);
+    }
+    rig.controller.clearReference();
+    rig.feed (0.2);
 
     // TUNE LIVE MIX: the same listen with the mix engineer's reasoning on top. The sheet shows
     // the steps the state machine is really on, so these two shots are of actual states.

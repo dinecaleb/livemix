@@ -1,5 +1,6 @@
 #include "TestFramework.h"
 #include "Mix/RoutingGraph.h"
+#include "Mix/MixPlanner.h"
 #include "Profiles/MixProfileData.h"
 #include "Profiles/StyleProfile.h"
 #include "Core/Constants.h"
@@ -159,4 +160,117 @@ TEST_CASE ("RoutingGraph: a kit of toms walks across the image and nothing is th
     CHECK_NEAR (pan ("OV L"), -0.9f, 1e-5);     // a pair of overheads is wide, not against the wall
     CHECK_NEAR (pan ("OV R"),  0.9f, 1e-5);
     CHECK (RoutingGraph::build (s).describe() == g.describe());
+}
+
+// ---------------------------------------------------------------------------
+// Rearranging the channels. A track, a mixer strip and an input are one thing seen three
+// ways, so moving one has to move all of them - and cost nothing. These are the tests for
+// the rule that decides which input is which after the list has changed shape.
+// ---------------------------------------------------------------------------
+TEST_CASE ("MixSession: an input is identified by the channel it arrives on, not by its place in the list")
+{
+    const auto before = churchSession();
+
+    // Reordered: the pastor moved to the top, the lead vocal to second.
+    MixSession after = before;
+    auto pastor = after.inputs[12];
+    auto lead = after.inputs[8];
+    after.inputs.erase (after.inputs.begin() + 12);
+    after.inputs.erase (after.inputs.begin() + 8);
+    after.inputs.insert (after.inputs.begin(), lead);
+    after.inputs.insert (after.inputs.begin(), pastor);
+
+    const auto match = matchInputs (before, after);
+    REQUIRE (match.size() == after.inputs.size());
+    CHECK (match[0] == 12);         // Pastor
+    CHECK (match[1] == 8);          // Lead
+    CHECK (match[2] == 0);          // Kick, where it always was
+    for (size_t i = 0; i < match.size(); ++i)
+        CHECK (before.inputs[size_t (match[i])].inputA == after.inputs[i].inputA);
+
+    // An input that is new to the session has nothing to have been.
+    MixSession added = before;
+    added.inputs.push_back ({ "Horn", ChannelRole::SynthPad, 20, -1 });
+    const auto grew = matchInputs (before, added);
+    CHECK (grew.back() == -1);
+    for (size_t i = 0; i + 1 < grew.size(); ++i) CHECK (grew[i] == int (i));
+
+    // A rename does not lose an input: the device channel is the identity.
+    MixSession renamed = before;
+    renamed.inputs[8].name = "Pastor Mike";
+    const auto still = matchInputs (before, renamed);
+    CHECK (still[8] == 8);
+
+    // A re-patched input with the same name is found by the name.
+    MixSession repatched = before;
+    repatched.inputs[8].inputA = 31;
+    const auto byName = matchInputs (before, repatched);
+    CHECK (byName[8] == 8);
+}
+
+TEST_CASE ("carryMix: moving a channel keeps every chain, level and send with its own input")
+{
+    const auto before = churchSession();
+    const auto graph = RoutingGraph::build (before);
+    MixParameters mix = startingPoint (before, graph);
+
+    // A mix worth losing: the lead vocal tuned and up, the kick down, a send opened.
+    mix.strips[8].faderDb = 3.5f;
+    mix.strips[8].channel.compThresholdDb = -21.5f;
+    mix.strips[8].sendDb[size_t (FxSlot::VocalPlate)] = -6.0f;
+    mix.strips[0].faderDb = -2.5f;
+    mix.strips[0].inputGainDb = 6.0f;
+    mix.strips[12].mute = true;
+    mix.buses[size_t (MixBus::Drums)].channel.compRatio = 3.3f;
+    mix.master().channel.outputTrimDb = -4.0f;
+    mix.tempoBpm = 96.0f;
+
+    // The pastor is moved to the top of the list.
+    MixSession after = before;
+    auto pastor = after.inputs[12];
+    after.inputs.erase (after.inputs.begin() + 12);
+    after.inputs.insert (after.inputs.begin(), pastor);
+
+    const auto baseline = startingPoint (after, RoutingGraph::build (after));
+    const auto carried = carryMix (mix, before, baseline, after);
+
+    REQUIRE (carried.numStrips == mix.numStrips);
+    CHECK (carried.strips[0].mute);                                   // the pastor, now channel 1
+    CHECK_NEAR (carried.strips[9].faderDb, 3.5f, 0.001f);             // the lead, pushed down one
+    CHECK_NEAR (carried.strips[9].channel.compThresholdDb, -21.5f, 0.001f);
+    CHECK_NEAR (carried.strips[9].sendDb[size_t (FxSlot::VocalPlate)], -6.0f, 0.001f);
+    CHECK_NEAR (carried.strips[1].faderDb, -2.5f, 0.001f);            // the kick
+    CHECK_NEAR (carried.strips[1].inputGainDb, 6.0f, 0.001f);
+    CHECK (! carried.strips[1].mute);
+
+    // Nothing that belongs to the mix as a whole is disturbed by a channel moving.
+    CHECK_NEAR (carried.buses[size_t (MixBus::Drums)].channel.compRatio, 3.3f, 0.001f);
+    CHECK_NEAR (carried.master().channel.outputTrimDb, -4.0f, 0.001f);
+    CHECK_NEAR (carried.tempoBpm, 96.0f, 0.001f);
+
+    // An input that is new to the session starts from its own baseline, not from silence or
+    // from whatever happened to be at that index.
+    MixSession added = after;
+    added.inputs.push_back ({ "Horn", ChannelRole::SynthPad, 20, -1 });
+    const auto grown = startingPoint (added, RoutingGraph::build (added));
+    const auto withHorn = carryMix (mix, before, grown, added);
+    REQUIRE (withHorn.numStrips == added.numStrips());
+    CHECK (diffParameters (withHorn.strips[size_t (added.inputs.size() - 1)].channel,
+                           grown.strips[size_t (added.inputs.size() - 1)].channel).empty());
+    CHECK (withHorn.strips[0].mute);                                  // and the rest still followed
+
+    // An input that became a different source does not keep a chain built for the old one.
+    MixSession recast = before;
+    recast.inputs[0].role = ChannelRole::LeadVocal;
+    const auto recastBase = startingPoint (recast, RoutingGraph::build (recast));
+    const auto afterRecast = carryMix (mix, before, recastBase, recast);
+    CHECK_NEAR (afterRecast.strips[0].faderDb, recastBase.strips[0].faderDb, 0.001f);
+    CHECK (diffParameters (afterRecast.strips[0].channel, recastBase.strips[0].channel).empty());
+    CHECK_NEAR (afterRecast.strips[8].faderDb, 3.5f, 0.001f);         // everyone else is untouched
+
+    // Carrying a mix onto the session it already belongs to changes nothing at all.
+    const auto same = carryMix (mix, before, startingPoint (before, graph), before);
+    CHECK (MixPlanner::countParameterChanges (same, mix) == 0);
+    for (int i = 0; i < mix.numStrips; ++i)
+        CHECK_NEAR (same.strips[size_t (i)].faderDb, mix.strips[size_t (i)].faderDb, 0.001f);
 }

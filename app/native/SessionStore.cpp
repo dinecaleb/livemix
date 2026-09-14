@@ -251,6 +251,61 @@ namespace
                 if (auto* mo = mv.getDynamicObject())
                     p.markers.push_back ({ mo->getProperty ("name").toString(), juce::int64 (double (mo->getProperty ("position"))) });
     }
+
+    // ---- REFERENCE MIX: the measurement of a finished recording (schema v1) ----
+    juce::var referenceToVar (const ReferenceProfile& r)
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty ("schema", r.version);
+        obj->setProperty ("name", juce::String (r.name));
+        obj->setProperty ("path", juce::String (r.path));   // where it was; a note for the user, never re-read on its own
+        obj->setProperty ("seconds", r.seconds);
+        obj->setProperty ("channels", r.channels);
+        juce::Array<juce::var> bands, thirds;
+        for (float v : r.bandEnergyDb) bands.add (v);
+        for (float v : r.thirdOctaveDb) thirds.add (v);
+        obj->setProperty ("bandEnergyDb", bands);
+        obj->setProperty ("thirdOctaveDb", thirds);
+        obj->setProperty ("crestFactorDb", r.crestFactorDb);
+        obj->setProperty ("loudnessLufs", r.loudnessLufs);
+        obj->setProperty ("truePeakDb", r.truePeakDb);
+        obj->setProperty ("stereoCorrelation", r.stereoCorrelation);
+        obj->setProperty ("spectralCentroidHz", r.spectralCentroidHz);
+        obj->setProperty ("highFrequencyRatioDb", r.highFrequencyRatioDb);
+        obj->setProperty ("tempoBpm", r.tempoBpm);
+        obj->setProperty ("tempoConfidence", r.tempoConfidence);
+        return juce::var (obj);
+    }
+
+    void referenceFromVar (const juce::var& v, ReferenceProfile& r)
+    {
+        auto* obj = v.getDynamicObject();
+        if (obj == nullptr) return;
+        // A document written by a later schema is not guessed at: an unknown reference is no
+        // reference, and the mix simply goes back to the profile's own target.
+        const int schema = obj->hasProperty ("schema") ? int (obj->getProperty ("schema")) : 1;
+        if (schema != kReferenceSchemaVersion) return;
+        r.version = schema;
+        r.name = obj->getProperty ("name").toString().toStdString();
+        r.path = obj->getProperty ("path").toString().toStdString();
+        r.seconds = float (double (obj->getProperty ("seconds")));
+        r.channels = obj->hasProperty ("channels") ? int (obj->getProperty ("channels")) : 2;
+        if (auto* bands = obj->getProperty ("bandEnergyDb").getArray())
+            for (int i = 0; i < std::min (int (Band::Count), bands->size()); ++i)
+                r.bandEnergyDb[size_t (i)] = float (double (bands->getReference (i)));
+        if (auto* thirds = obj->getProperty ("thirdOctaveDb").getArray())
+            for (int i = 0; i < std::min (kNumThirdOctaveBands, thirds->size()); ++i)
+                r.thirdOctaveDb[size_t (i)] = float (double (thirds->getReference (i)));
+        r.crestFactorDb = float (double (obj->getProperty ("crestFactorDb")));
+        r.loudnessLufs = float (double (obj->getProperty ("loudnessLufs")));
+        r.truePeakDb = float (double (obj->getProperty ("truePeakDb")));
+        r.stereoCorrelation = float (double (obj->getProperty ("stereoCorrelation")));
+        r.spectralCentroidHz = float (double (obj->getProperty ("spectralCentroidHz")));
+        r.highFrequencyRatioDb = float (double (obj->getProperty ("highFrequencyRatioDb")));
+        r.tempoBpm = float (double (obj->getProperty ("tempoBpm")));
+        r.tempoConfidence = float (double (obj->getProperty ("tempoConfidence")));
+        r.valid = ! r.name.empty() && r.seconds > 0.0f;
+    }
 }
 
 namespace SessionStore
@@ -290,6 +345,7 @@ juce::var toVar (const Document& d)
     // Stored for REVIEW CHANGES and for the record. Nothing reads it back into the mix: the
     // parameters that actually run are in "mix", which is the only thing the engine is given.
     if (! d.tuneLive.isVoid()) obj->setProperty ("tuneLive", d.tuneLive);
+    if (d.reference.valid) obj->setProperty ("reference", referenceToVar (d.reference));
     juce::Array<juce::var> feeds;
     for (int i = 0; i < d.outputs.count && i < kMaxOutputFeeds; ++i)
     {
@@ -342,6 +398,7 @@ bool fromVar (const juce::var& v, Document& d)
     if (d.hasMix) mixFromVar (obj->getProperty ("mix"), d.mix);
     projectFromVar (obj->getProperty ("project"), d.project);      // absent in version 1: no timeline yet
     d.tuneLive = obj->getProperty ("tuneLive");                     // absent until a live run has been made
+    referenceFromVar (obj->getProperty ("reference"), d.reference);  // absent unless the mix is aimed at a recording
     d.outputs = OutputFeeds::mainOnly();                            // absent before the outputs feature: the main pair
     if (auto* feeds = obj->getProperty ("outputs").getArray())
     {

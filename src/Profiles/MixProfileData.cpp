@@ -227,6 +227,15 @@ const AiBounds& aiBounds()
     return bounds;
 }
 
+const ReferenceBounds& referenceBounds (StyleProfileId profile)
+{
+    // One set of bounds for both profiles: how far a reference may pull a mix is a safety
+    // limit, not a style. What differs between gospel and worship is where the mix starts.
+    static const ReferenceBounds bounds;
+    (void) profile;
+    return bounds;
+}
+
 const MacroRanges& macroRanges (StyleProfileId profile)
 {
     static const MacroRanges gospel;
