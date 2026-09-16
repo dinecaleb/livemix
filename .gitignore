@@ -1,6 +1,8 @@
 # Build output
 build/
 build-*/
+# packaged test builds (scripts/package.sh)
+dist/
 cmake-build-*/
 *.xcodeproj/
 DerivedData/
