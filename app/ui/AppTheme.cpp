@@ -94,9 +94,16 @@ void Dine::drawWell (juce::Graphics& g, juce::Rectangle<float> r, float radius)
 
 void Dine::drawFilled (juce::Graphics& g, juce::Rectangle<float> r, float radius, bool hover, bool down)
 {
-    // Flat. The site's primary action is one plane of colour with near-black type on it -
-    // no gradient, no sheen, no glow. Pressed goes down a step rather than lighting up.
-    fillRounded (g, r, down ? accentDeep : hover ? accent.brighter (0.08f) : accent, radius);
+    // The one action on a surface, lit from above: a short lime ramp, a ring of its own
+    // colour and a soft throw under it. It is the only lit object in the window, which is
+    // why the rest of the console can stay flat and still have somewhere to look.
+    const float lift = down ? -0.10f : hover ? 0.06f : 0.0f;
+    juce::ColourGradient grad (accentTopLit.brighter (lift), 0.0f, r.getY(),
+                               accentBotLit.brighter (lift), 0.0f, r.getBottom(), false);
+    g.setGradientFill (grad);
+    g.fillRoundedRectangle (r, radius);
+    g.setColour (accent.withAlpha (0.45f));
+    g.drawRoundedRectangle (r.reduced (0.25f), radius, 0.5f);
 }
 
 void Dine::drawStandard (juce::Graphics& g, juce::Rectangle<float> r, float radius, bool hover, bool down)
@@ -119,6 +126,94 @@ void Dine::drawRule (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour c)
 {
     g.setColour (c);
     g.fillRect (float (r.getX()), float (r.getY()), float (r.getWidth()), 0.5f);
+}
+
+// ---------------------------------------------------------------- the milled bands
+// One helper per band, because the alternative is the same four calls copied into six
+// files and one of them drifting. Each is a short vertical gradient (never over ~120 px:
+// a gradient across a whole console is milliseconds per frame and buys nothing), one
+// inset highlight along the top edge, and the hairline that closes it.
+static void band (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour top, juce::Colour bottom,
+                  float rampEnd, juce::Colour closing, bool closeAtBottom, float highlight)
+{
+    juce::ColourGradient grad (top, 0.0f, float (r.getY()), bottom, 0.0f, float (r.getY()) + float (r.getHeight()) * rampEnd, false);
+    g.setGradientFill (grad);
+    g.fillRect (r);
+    if (highlight > 0.0f)
+    {
+        g.setColour (juce::Colours::white.withAlpha (highlight));
+        g.fillRect (float (r.getX()), float (r.getY()), float (r.getWidth()), 1.0f);
+    }
+    g.setColour (closing);
+    g.fillRect (float (r.getX()), closeAtBottom ? float (r.getBottom()) - 0.5f : float (r.getY()),
+                float (r.getWidth()), 0.5f);
+}
+
+void Dine::drawChrome (juce::Graphics& g, juce::Rectangle<int> r)
+{
+    band (g, r, chromeTop, toolbar, 0.78f, hair, true, 0.06f);
+}
+
+void Dine::drawHeaderBand (juce::Graphics& g, juce::Rectangle<int> r)
+{
+    band (g, r, headerTop, toolbar, 1.0f, hair, true, 0.04f);
+}
+
+void Dine::drawStatusBand (juce::Graphics& g, juce::Rectangle<int> r)
+{
+    band (g, r, footTop, footBottom, 1.0f, hair, false, 0.0f);
+    g.setColour (juce::Colours::white.withAlpha (0.04f));
+    g.fillRect (float (r.getX()), float (r.getY()) + 0.5f, float (r.getWidth()), 1.0f);
+}
+
+void Dine::drawPanelGround (juce::Graphics& g, juce::Rectangle<int> r)
+{
+    // Taller than a band, so the ramp is spent in the first 240 px and the rest is flat:
+    // a rail is usually the height of the window and a full-height gradient is wasted.
+    const float ramp = float (juce::jmin (r.getHeight(), 240));
+    juce::ColourGradient grad (railTop, 0.0f, float (r.getY()), toolbar, 0.0f, float (r.getY()) + ramp, false);
+    g.setGradientFill (grad);
+    g.fillRect (r.withHeight (juce::jmin (r.getHeight(), int (ramp))));
+    if (r.getHeight() > int (ramp))
+    {
+        g.setColour (toolbar);
+        g.fillRect (r.withTrimmedTop (int (ramp)));
+    }
+}
+
+void Dine::drawRaisedCard (juce::Graphics& g, juce::Rectangle<float> r, bool shadow, juce::Colour edgeColour)
+{
+    if (shadow)
+        juce::DropShadow (juce::Colours::black.withAlpha (0.34f), 22, { 0, 10 }).drawForRectangle (g, r.toNearestInt());
+    juce::ColourGradient grad (cardTop, 0.0f, r.getY(), cardBottom, 0.0f, r.getBottom(), false);
+    g.setGradientFill (grad);
+    g.fillRoundedRectangle (r, Radius::window);
+    hairlineRounded (g, r, edgeColour, Radius::window);
+    // The light above: one bright pixel inside the top edge, clipped to the corner radius.
+    juce::Graphics::ScopedSaveState save (g);
+    juce::Path rounded;
+    rounded.addRoundedRectangle (r, Radius::window);
+    g.reduceClipRegion (rounded);
+    g.setColour (juce::Colours::white.withAlpha (0.04f));
+    g.fillRect (r.getX(), r.getY() + 0.5f, r.getWidth(), 1.0f);
+}
+
+void Dine::drawInsetWell (juce::Graphics& g, juce::Rectangle<float> r, float radius)
+{
+    fillRounded (g, r, desk, radius);
+    g.setColour (juce::Colours::white.withAlpha (0.06f));
+    g.drawRoundedRectangle (r.reduced (0.25f), radius, 0.5f);
+    g.setColour (juce::Colours::black.withAlpha (0.55f));
+    g.fillRect (r.getX() + radius, r.getY() + 0.5f, juce::jmax (0.0f, r.getWidth() - radius * 2.0f), 1.0f);
+}
+
+void Dine::drawSegmentTrack (juce::Graphics& g, juce::Rectangle<int> r)
+{
+    auto rf = r.toFloat();
+    fillRounded (g, rf, juce::Colours::black.withAlpha (0.42f), 8.0f);
+    hairlineRounded (g, rf, hairSoft, 8.0f);
+    g.setColour (juce::Colours::black.withAlpha (0.45f));
+    g.fillRect (rf.getX() + 8.0f, rf.getY() + 1.0f, juce::jmax (0.0f, rf.getWidth() - 16.0f), 1.0f);
 }
 
 juce::Colour Dine::levelColour (float db) noexcept
@@ -237,6 +332,13 @@ namespace
         static const std::vector<IconStroke> search {
             { "M9 3.6a5.4 5.4 0 1 0 0 10.8a5.4 5.4 0 1 0 0 -10.8", 1.5f, false },
             { "M12.9 12.9l3.6 3.6", 1.5f, false } };
+        // The revamp's two new glyphs: the chat the toolbar opens, and the shield LIVE SAFE
+        // is known by wherever it appears (the toolbar key, the LIVE panel, a refusal).
+        static const std::vector<IconStroke> chat {
+            { "M3.2 5.4a2 2 0 0 1 2-2h9.6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H8.4L4.6 16.4V13.4h-.6v-8z", 1.4f, false },
+            { "M6.6 7.4h6.8M6.6 10.2h4.4", 1.4f, false } };
+        static const std::vector<IconStroke> shield {
+            { "M10 2.8l6 2.4v5.2c0 3.4-2.5 5.6-6 6.8-3.5-1.2-6-3.4-6-6.8V5.2z", 1.6f, false } };
         static const std::vector<IconStroke> sidebar {
             { "M3.4 4.2h13.2a1.8 1.8 0 0 1 1.8 1.8v8a1.8 1.8 0 0 1 -1.8 1.8h-13.2a1.8 1.8 0 0 1 -1.8 -1.8v-8a1.8 1.8 0 0 1 1.8 -1.8z", 1.4f, false },
             { "M7.8 4.2v11.6", 1.4f, false } };
@@ -267,6 +369,8 @@ namespace
             case Dine::Icon::Bus:      return bus;
             case Dine::Icon::Sidebar:  return sidebar;
             case Dine::Icon::Search:   return search;
+            case Dine::Icon::Chat:     return chat;
+            case Dine::Icon::Shield:   return shield;
             case Dine::Icon::None:
             default:                   return empty;
         }
@@ -666,8 +770,15 @@ void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
                 Dine::fillRounded (g, r, tint.withAlpha (0.16f), Dine::Radius::control);
                 Dine::hairlineRounded (g, r, tint.withAlpha (0.22f), Dine::Radius::control);
             }
-            else Dine::fillRounded (g, r, down ? tint.darker (0.18f) : over ? tint.brighter (0.08f) : tint,
-                                    Dine::Radius::control);
+            else if (tint == Dine::accent) Dine::drawFilled (g, r, Dine::Radius::control, over, down);
+            else
+            {
+                // A filled button that means a console state takes that state's colour (a
+                // mute is amber wherever it is pressed), and stays flat: the lit ramp is
+                // the primary action's alone.
+                Dine::fillRounded (g, r, down ? tint.darker (0.18f) : over ? tint.brighter (0.08f) : tint,
+                                   Dine::Radius::control);
+            }
             break;
         case Style::Toggle:
             if (on)

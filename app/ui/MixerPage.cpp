@@ -1356,9 +1356,8 @@ void MixerPage::paint (juce::Graphics& g)
 {
     // The sub-toolbar: what this is and how much of it there is, then the controls.
     auto head = getLocalBounds().removeFromTop (kHeaderH);
-    g.setColour (Dine::toolbar);
-    g.fillRect (head);
-    Dine::drawRule (g, head.removeFromBottom (1), Dine::hairSoft);
+    Dine::drawHeaderBand (g, head);
+    head.removeFromBottom (1);
 
     // The controls own the right of the sub-toolbar. What is written to their left takes only
     // the room they leave it and gives way in order - the hint first, then the count and the

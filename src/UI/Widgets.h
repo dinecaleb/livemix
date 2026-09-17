@@ -16,6 +16,7 @@ namespace Glyph
     inline juce::String dash()   { return juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94")); }   // —
     inline juce::String approx() { return juce::String (juce::CharPointer_UTF8 ("\xe2\x89\x88")); }   // ≈
     inline juce::String ellip()  { return juce::String (juce::CharPointer_UTF8 ("\xe2\x80\xa6")); }   // …
+    inline juce::String check()  { return juce::String (juce::CharPointer_UTF8 ("\xe2\x9c\x93")); }   // ✓
 }
 
 // Soft-corner, hairline-bordered button in the design's styles.

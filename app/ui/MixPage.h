@@ -32,6 +32,11 @@ public:
     // The input rail folds away when the mix, not the list, is what you are working on.
     void setRailShown (bool);
     bool isRailShown() const noexcept { return railShown; }
+    // The window carries a channel list beside every workspace now, so TUNE's own list of
+    // inputs is switched off entirely rather than folded to a handle - two lists of the same
+    // channels on one screen is worse than one. TUNE CHANNEL is on the shared list's menu.
+    void setRailAvailable (bool);
+    bool isRailAvailable() const noexcept { return railAvailable; }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -59,7 +64,10 @@ private:
         juce::Rectangle<int> health, reference, tune, liveTune, groups, macros, rail, railTab;
     };
     Layout layout() const;
-    int railWidth() const noexcept { return railShown ? Dine::Metric::rail : Dine::Metric::panelTab; }
+    int railWidth() const noexcept
+    {
+        return ! railAvailable ? 0 : railShown ? Dine::Metric::rail : Dine::Metric::panelTab;
+    }
     void refreshTuneButton();
     void rebuildRail();
 
@@ -74,7 +82,7 @@ private:
     juce::Viewport railView;
     juce::Component railHolder;
     std::unique_ptr<DinePanelTab> railTab;
-    bool railShown = true;
+    bool railShown = true, railAvailable = true;
     DineButton tuneButton { "TUNE MIX", DineButton::Style::Standard };
     DineButton liveTuneButton { "TUNE LIVE MIX", DineButton::Style::Filled };
     DineButton referenceButton { "Reference", DineButton::Style::Standard };

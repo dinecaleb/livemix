@@ -202,6 +202,42 @@
   (`Look` / `PageLook` / `InspectorLook`) and repaints only when that changed; TRACKS repaints the meter strips it
   has to (`meterCell`) and the lanes only when the playhead moved. When adding anything to a page's `paint`, add it
   to that page's `Look` too, or it will draw stale.
+- **THE 2026-09 DESKTOP REVAMP** (the Claude Design file `DLIVE Desktop.dc.html`). The window used to carry two
+  navigations for one thing - a 224 px sidebar of setup steps that was permanently in the way once setup was
+  done, and a row of workspace tabs in the toolbar. **The tabs won.** There is now exactly one navigation:
+  `SETUP TRACKS MIXER CHANNEL TUNE LIVE` in the middle of the toolbar (`MainView::kWorkspaceTabs` = 6, Cmd-1..6
+  left to right). What takes the sidebar's place is not navigation at all but the session: `app/ui/ChannelRail`,
+  **the channel list beside every workspace** - every channel under its group, searchable, filtered All / Inputs /
+  Groups, with a live meter and the gain-staging flag, folding to a named 17 px handle (`Ctrl-Cmd-S`, `[`,
+  View > Channels). It is the *only* channel list: `AdvancedPage::setRailAvailable (false)` and
+  `MixPage::setRailAvailable (false)` switch the Inspector's and TUNE's own rails off for good rather than
+  leaving two lists of the same channels on one screen, and TUNE CHANNEL moved onto the shared list's menu.
+  Setup is a workspace rather than a mode: `MainView::isSetupPage` plus a 212 px `SetupNav` (Sessions / Audio
+  device / Inputs / Purpose and sound, ticked as they are done), and the session button's popover is the same
+  four steps with their current values. **A 28 px status foot** (`MainView::StatusBar`) is always on screen -
+  engine, drops, disk, what is recording, the broadcast's LUFS against its target, what the engineer's own ears
+  are on, LIVE SAFE - painted, compared before repainting (`Look`), and the disk asked once a second because it
+  is a syscall. LIVE SAFE moved out of the LIVE page into the toolbar beside BYPASS, because it is a policy about
+  the whole desk. A 2 px strip along the very top lights while the mix is going out.
+  **The materials are milled now**: `Dine::drawChrome` / `drawHeaderBand` / `drawStatusBand` / `drawPanelGround` /
+  `drawRaisedCard` / `drawInsetWell` / `drawSegmentTrack` are the one place a band's gradient, its inset top
+  highlight and its closing hairline are decided. Keep every gradient short - never taller than ~120 px, and
+  never over a whole console: `drawPanelGround` spends its ramp in the first 240 px and goes flat after it,
+  because a full-height gradient is milliseconds a frame and buys nothing. The single exception to "buttons are
+  flat" is the one primary action on a surface, which is lit from above (`Dine::drawFilled`, `accentTopLit` to
+  `accentBotLit` with a ring of its own colour); a `Filled` button carrying a console state (`setTint`) stays flat.
+  Performance rules are unchanged and the revamp obeys them: the rail is one painted component rather than
+  forty-eight children, its 30 Hz tick repaints only the meter cells that moved, and `getInputAdvice` (which
+  builds sentences) is re-read twice a second and immediately when a tune lands - never per frame. Check with
+  `dlive_ui_snapshots --frames 48 120` (a tick is ~1.25 ms per workspace) and `--sizes`.
+- **GETTING STARTED** (`app/ui/Tutorial`) is what DLIVE says to somebody who has never opened it: seven sentences
+  in the order a Sunday happens - name the inputs, press record, let DLIVE listen, keep or undo what it did, lock
+  the desk - each one putting the workspace it is talking about on screen and ringing the control it means
+  (`MainView::spotlight`, read from the live components so the tour can never ring empty space). It is a coach,
+  not a wizard: nothing is blocked behind it, Esc or "Skip the tour" ends it, and it never touches the session.
+  It opens by itself only on a genuine first run (no library **and** no assigned inputs) and is remembered in
+  `~/Music/DLIVE/.getting-started-seen`; after that it is Help > Getting started and the session popover.
+  `MainView::setAutoTutorial (false)` is how the snapshot tool keeps it out of every other state.
 - Read the PRD sections 6-8, 42, 48 and `docs/ARCHITECTURE-DINE-CORE.md` before touching the audio path or adding a product.
 - DLIVE is **the live recording and broadcast DAW** (2026-09 DAW milestone; see `docs/MILESTONE-7.md`).
   Four workspaces over one session: TRACKS (timeline, clips, waveforms), MIXER, TUNE, LIVE. The DAW layer is
@@ -251,7 +287,8 @@
   The app is `app/` (`MixController` no JUCE, `DawEngine` the timeline, `AudioHost` the device, `ui/` pages).
   **The app's look is the marketing site, translated** (`dlive-audio.dinecaleb.chatgpt.site`, source
   `dist/index.html`): tokens, icons, widgets and look-and-feel in `app/ui/AppTheme.{h,cpp}` (`Dine::`), a
-  sidebar + unified toolbar shell in `MainView`, sheets for TUNE MIX and its result. The site's own values
+  **one** toolbar shell in `MainView` (the sidebar is gone - see the revamp note below), sheets for TUNE MIX
+  and its result. The site's own values
   are the tokens - the ground is the brand black `#080909` (`window`), the chrome `#0b0d0b`, a panel
   `#101310`, a tile inside one `#151815`, what is chosen `#20231f`, hairlines at 0.08 / 0.12 / 0.20 / 0.30
   of white, ink that is faintly green rather than blue (`#f3f4ef` down to `#5c625b`) and the electric lime

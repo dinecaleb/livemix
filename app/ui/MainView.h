@@ -14,16 +14,30 @@
 #include "LivePage.h"
 #include "AdvancedPage.h"
 #include "TransportBar.h"
+#include "ChannelRail.h"
+#include "Tutorial.h"
 
 namespace livemix
 {
 
-// The window: a vibrancy sidebar (Library / Set up / Workspace and the device's state), a
-// unified toolbar (the session's name and its menu, the transport and its clock, the
-// workspace tabs, the output) and one page under it, which ends in its own chain strip.
+// The window, after the 2026-09 revamp.
 //
-// Setup runs Device -> Inputs -> Purpose once; after that the four workspaces —
-// TRACKS, MIXER, TUNE, LIVE — are four views of the same session, never four states.
+// It used to carry two navigations for one thing: a 224 px sidebar of setup steps that was
+// permanently in the way once setup was done, and a row of workspace tabs in the toolbar.
+// Now there is one - a six-tab bar in the middle of the toolbar (SETUP TRACKS MIXER CHANNEL
+// TUNE LIVE) - and what takes the sidebar's place is the session itself: ChannelRail, the
+// list of every channel under its group, which reads the same on every workspace and folds
+// to a named 17 px handle.
+//
+// Top to bottom: a 2 px strip that lights when the mix is going out, the 56 px toolbar (the
+// rail switch, the session and its setup popover, the transport and its clock, the tabs,
+// BYPASS / LIVE SAFE / the outputs / the chat), the workspace with the channel rail beside
+// it, and a 28 px status foot that always says what the engine, the disk, the broadcast and
+// the engineer's own ears are doing.
+//
+// Setup is a workspace now rather than a mode: SETUP holds Sessions / Audio device / Inputs /
+// Purpose and sound behind a 212 px list of steps, and the session button's popover is the
+// same four steps with their current values.
 class MainView : public juce::Component, private juce::Timer
 {
 public:
@@ -34,6 +48,10 @@ public:
 
     void showPage (Page p);
     Page getPage() const noexcept { return page; }
+    static bool isSetupPage (Page p) noexcept
+    {
+        return p == Page::Sessions || p == Page::Device || p == Page::Assign || p == Page::Purpose;
+    }
     void showToast (const juce::String& text);
     void requestSave() { saveTicks = 30; }   // saved a second after the last change
 
@@ -47,6 +65,11 @@ public:
     void togglePanel (bool left);            // the panel on that side of whatever page you are on
 
     void openMixerWindow();
+    // The first-run coach. Also Help > Getting started, so it can be asked for again.
+    void showTutorial();
+    void closeTutorial();
+    // The snapshot tool renders every state deliberately, so nothing may open by itself.
+    static void setAutoTutorial (bool);
     void showOutputs();                   // the Outputs sheet: where the sound leaves this Mac
     void showChat();                      // MIX CHAT: ask for a change in words (Mix > AI Mix Chat...)
     void closeSheets();                   // dismiss whatever sheet is over the workspace
@@ -80,13 +103,17 @@ private:
     class ToolbarToggle;
     class SidebarButton;
     class MixerWindow;
+    class StatusBar;
+    class SetupNav;
+    class IconButton;
 
     void timerCallback() override;
     void closeMixerWindow();
     void handleCommand (int id);
     void enterSession();
     void updateChrome();
-    void paintSidebar (juce::Graphics&);
+    void setupPopover();
+    juce::Rectangle<int> spotlight (const juce::String& what) const;
     void saveAs();
     void saveNow();
     void newSession();
@@ -99,7 +126,6 @@ private:
     void timelineChanged();
     bool liveSafeBlocks (const juce::String& what);
     juce::Rectangle<int> contentBounds() const;
-    int sidebarWidth() const noexcept { return sidebarShown ? Dine::Metric::sidebar : 0; }
     juce::String panelName (bool left) const;   // what this page calls that panel ("" = it has none)
     bool panelShown (bool left) const;
 
@@ -137,20 +163,22 @@ private:
     std::unique_ptr<SessionButton> sessionButton;
     std::unique_ptr<Menu> menu;
     std::unique_ptr<ToolbarToggle> bypassButton;
+    std::unique_ptr<ToolbarToggle> liveSafeButton;
+    std::unique_ptr<IconButton> chatButton;
     std::unique_ptr<SidebarButton> sidebarButton;
     std::unique_ptr<MixerWindow> mixerWindow;
+    std::unique_ptr<ChannelRail> channelRail;
+    std::unique_ptr<StatusBar> statusBar;
+    std::unique_ptr<SetupNav> setupNav;
+    std::unique_ptr<Tutorial> tutorial;
 
-    // Sidebar: Sessions, then the three setup steps, then the workspaces.
-    DineNavItem sessionsItem { "Sessions", Dine::Icon::List };
-    std::array<std::unique_ptr<DineNavItem>, 3> setupItems;
-    std::array<std::unique_ptr<DineNavItem>, 5> workspaceItems;
-
-    static constexpr int kWorkspaceTabs = 4;
+    // One navigation: SETUP TRACKS MIXER CHANNEL TUNE LIVE, in the middle of the toolbar.
+    static constexpr int kWorkspaceTabs = 6;
     std::array<std::unique_ptr<DineButton>, kWorkspaceTabs> tabs;
     DinePopup outputButton;
     std::unique_ptr<juce::FileChooser> chooser;
 
-    int saveTicks = 0, toastTicks = 0;
+    int saveTicks = 0, toastTicks = 0, slowTicks = 0;
     bool audioWasRunning = false;
     bool tuningLiveWasOn = false;
     // Who TUNE LIVE MIX asks what the mix should sound like. Off by default and only
@@ -158,6 +186,8 @@ private:
     // account, so the cloud one is a choice the user makes, never a requirement.
     bool usingCloudMixEngineer = false;
     bool sidebarShown = true;
+    // The strip along the very top: lit while what this Mac is doing reaches somebody else.
+    float onAir = 0.0f;
 };
 
 } // namespace livemix

@@ -100,6 +100,9 @@ namespace
 
         Rig()
         {
+            // Nothing may open by itself here: every state in this tool is a state somebody
+            // asked for, and a first-run coach over the console would be in all of them.
+            MainView::setAutoTutorial (false);
             view = std::make_unique<MainView> (controller, services);
             view->setSize (1520, 960);
             view->setVisible (true);
@@ -660,11 +663,10 @@ int main (int argc, char** argv)
     // columns, so the channel and its chain have the whole window.
     view.getAdvancedPage().select (0);
     view.setSidebarShown (false);
-    view.getAdvancedPage().setRailShown (false);
     view.getAdvancedPage().setTrailShown (false);
     rig.feed (0.3);
     rig.snap (dir, "14b-inspector-panels-folded");
-    view.getAdvancedPage().setRailShown (true);
+    view.setSidebarShown (true);
     view.getAdvancedPage().setTrailShown (true);
 
     view.showPage (MainView::Page::Mixer);
@@ -721,11 +723,13 @@ int main (int argc, char** argv)
         rig.feed (0.3);
     }
 
+    // TUNE with the shared channel list folded away: the mix, its meters and its macros
+    // with the whole window.
     view.showPage (MainView::Page::Tune);
-    view.getMixPage().setRailShown (false);
+    view.setSidebarShown (false);
     rig.feed (0.3);
     rig.snap (dir, "16b-tune-rail-folded");
-    view.getMixPage().setRailShown (true);
+    view.setSidebarShown (true);
     rig.controller.keepPlan();
     view.getMixPage().setMacroValue (MixMacro::Space, 72.0f);
     view.getMixPage().setMacroValue (MixMacro::Drums, 30.0f);
@@ -813,6 +817,14 @@ int main (int argc, char** argv)
         rig.feed (0.4);
         rig.snap (dir, small.second);
     }
+
+    // ---- FIRST SUNDAY: what a volunteer meets the first time they open DLIVE.
+    view.closeSheets();
+    rig.view->setSize (1520, 960);
+    view.showTutorial();
+    rig.feed (0.3);
+    rig.snap (dir, "28-getting-started");
+    view.closeTutorial();
 
     std::printf ("stage %d, health %d%%\n", int (rig.controller.getStage()), rig.controller.getMixHealthPercent());
     rig.view.reset();

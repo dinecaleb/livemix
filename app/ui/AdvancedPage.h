@@ -37,6 +37,11 @@ public:
     // The two side panels fold away, so the channel and its chain can have the whole
     // width when that is what you are working on. Nothing about the mix changes.
     void setRailShown (bool);                 // left: every channel under its bus
+    // The window carries a channel list of its own beside every workspace now, so the
+    // Inspector's is switched off entirely rather than folded to a handle: two lists of the
+    // same channels, side by side, is worse than one.
+    void setRailAvailable (bool);
+    bool isRailAvailable() const noexcept { return railAvailable; }
     void setTrailShown (bool);                // right: what TUNE MIX did
     bool isRailShown() const noexcept  { return railShown; }
     bool isTrailShown() const noexcept { return trailShown; }
@@ -56,7 +61,7 @@ private:
 
     void showSelection();
     void paintWorkspaceBands (juce::Graphics&, juce::Rectangle<int>) const;
-    int railWidth() const noexcept  { return railShown  ? kRailW  : Dine::Metric::panelTab; }
+    int railWidth() const noexcept  { return ! railAvailable ? 0 : railShown ? kRailW : Dine::Metric::panelTab; }
     int trailWidth() const noexcept { return trailShown ? kTrailW : Dine::Metric::panelTab; }
 
     static constexpr int kRailW  = 206;       // the channel rail
@@ -73,7 +78,7 @@ private:
     std::unique_ptr<SignalPath> path;
     std::unique_ptr<Trail> trail;
     std::unique_ptr<DinePanelTab> railTab, trailTab;
-    bool railShown = true, trailShown = true;
+    bool railShown = true, trailShown = true, railAvailable = true;
     int builtForStrips = -1;
     // What this page's own paint last drew. A full repaint of the Inspector on a large
     // console costs more than a 30 Hz frame has, so a frame that would draw the same thing is

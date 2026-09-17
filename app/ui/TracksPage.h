@@ -42,6 +42,11 @@ public:
     // along the foot reads it), or -1. This is what the Mix menu's TUNE CHANNEL tunes.
     int selectedTrack() const noexcept { return selection.track; }
 
+    // Pick a channel out from somewhere else (the channel rail beside the workspace).
+    // The header lights, the chain strip along the foot follows it; nothing about the
+    // clip selection or the transport changes.
+    void selectTrack (int track);
+
     // Editing, also reachable from the menu and the keyboard.
     void splitAtPlayhead();
     void deleteSelection();

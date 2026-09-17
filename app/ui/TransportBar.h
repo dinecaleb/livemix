@@ -30,7 +30,11 @@ public:
     void toggleLoop();
 
     int idealWidth() const;               // keys + clock with both cells
-    int minimumWidth() const;             // keys + the timecode alone
+    int minimumWidth() const;
+    // The keys on their own, with no clock beside them. The toolbar needs this to decide
+    // what gives way when the window is narrow: the transport's keys are never dropped,
+    // but the clock is, and the document title is entitled to its 96 px before that.
+    int keysOnlyWidth() const;             // keys + the timecode alone
     static constexpr int height = 38;   // the clock well; the keys well is 32, centred in it
 
     void paint (juce::Graphics&) override;

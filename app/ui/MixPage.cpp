@@ -835,6 +835,16 @@ MixPage::MixPage (MixController& c) : controller (c)
 
 MixPage::~MixPage() = default;
 
+void MixPage::setRailAvailable (bool available)
+{
+    if (available == railAvailable) return;
+    railAvailable = available;
+    railTab->setVisible (available);
+    railView.setVisible (available && railShown);
+    resized();
+    repaint();
+}
+
 void MixPage::setRailShown (bool shown)
 {
     if (shown == railShown) return;
@@ -1112,6 +1122,7 @@ void MixPage::paint (juce::Graphics& g)
     }
 
     // ---- the input rail
+    if (! railAvailable) return;
     g.setColour (Dine::rail);
     g.fillRect (l.rail.getUnion (l.railTab));
     g.setColour (Dine::hair);

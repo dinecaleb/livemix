@@ -889,6 +889,15 @@ void TracksPage::moveTrack (int from, int to)
                           + ". The mixer, the Inspector and the assignments read the same order.");
 }
 
+void TracksPage::selectTrack (int track)
+{
+    if (track == selection.track) return;
+    selection.track = track;
+    selection.index = -1;
+    refresh();
+    repaint();
+}
+
 void TracksPage::moveSelectedTrack (int delta)
 {
     if (! canMoveSelectedTrack (delta)) return;
@@ -1206,15 +1215,14 @@ void TracksPage::paint (juce::Graphics& g)
 void TracksPage::paintToolbar (juce::Graphics& g)
 {
     auto area = toolbarArea();
-    g.setColour (Dine::toolbar);
-    g.fillRect (area);
-    Dine::drawRule (g, area.removeFromBottom (1), Dine::hairSoft);
+    Dine::drawHeaderBand (g, area);
+    area.removeFromBottom (1);
 
     // the segmented row-height control sits on its own quiet track
     if (rowTabs[0] != nullptr && rowTabs[0]->isVisible())
     {
         auto r = rowTabs[0]->getBounds().getUnion (rowTabs[2]->getBounds());
-        Dine::fillRounded (g, r.expanded (2, 2).toFloat(), juce::Colours::white.withAlpha (0.07f), 7.0f);
+        Dine::drawSegmentTrack (g, r.expanded (3, 3));
     }
 
     const auto& project = services.daw().getProject();

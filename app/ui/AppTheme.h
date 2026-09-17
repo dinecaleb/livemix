@@ -47,6 +47,24 @@ namespace Dine
     inline const juce::Colour sheet       { 0xff121512 };   // sheet material
     inline const juce::Colour popover     { 0xff171916 };   // menus, HUD
 
+    // The revamp's chrome is milled rather than flat: every band the hand rests on (the
+    // toolbar, a workspace header, the status foot) is a short vertical gradient with one
+    // inset highlight along its top, which is what makes the black read as a surface with
+    // a light above it instead of as an empty rectangle. The gradients are deliberately
+    // short - never taller than ~120 px - because a gradient over a whole console costs
+    // real milliseconds at 30 Hz and buys nothing.
+    inline const juce::Colour chromeTop   { 0xff121511 };   // toolbar, top of the ramp
+    inline const juce::Colour headerTop   { 0xff101310 };   // a 34 px workspace header
+    inline const juce::Colour footTop     { 0xff0c0f0c };   // the status foot
+    inline const juce::Colour footBottom  { 0xff080a08 };
+    inline const juce::Colour cardTop     { 0xff141712 };   // a raised card (LIVE tiles, stage devices)
+    inline const juce::Colour cardBottom  { 0xff0e110e };
+    inline const juce::Colour sheetTop    { 0xff181b17 };   // a sheet over the workspace
+    inline const juce::Colour sheetBottom { 0xff111411 };
+    inline const juce::Colour railTop     { 0xff0f120f };   // the channel rail, a pinned bus column
+    inline const juce::Colour accentTopLit{ 0xffd8ff70 };   // the primary action, lit from above
+    inline const juce::Colour accentBotLit{ 0xffb6f024 };
+
     // Edges and fills. Translucent white, so one hairline reads the same over every
     // material above: 0.08 / 0.12 / 0.20 / 0.30 of white is the site's #1b1e1b,
     // #252925, #3b3f3a and #50554f over the brand black.
@@ -85,6 +103,7 @@ namespace Dine
     inline const juce::Colour keySolo     { 0xffc8ff3d };
     inline const juce::Colour keyRec      { 0xfff0655d };
     inline const juce::Colour keyMon      { 0xff6eafff };
+    inline const juce::Colour monitor     { 0xff6eafff };   // the engineer's own ears: solo, PFL/AFL, the headphone feed
 
     // Focus and disablement, named once so every control agrees.
     inline const juce::Colour focusRing   { 0xffc8ff3d };
@@ -105,6 +124,12 @@ namespace Dine
     {
         inline constexpr int sidebar   = 224;
         inline constexpr int toolbar   = 56;
+        inline constexpr int header    = 34;    // a workspace's own title band
+        inline constexpr int status    = 28;    // the status foot: engine, disk, loudness, monitor
+        inline constexpr int onAir     = 2;     // the strip along the very top when it is going out
+        inline constexpr int chanRail  = 236;   // the channel list, beside every workspace
+        inline constexpr int railHandle= 17;    // what a closed panel leaves behind
+        inline constexpr int setupNav  = 212;   // the five setup steps, inside the SETUP workspace
         inline constexpr int footer    = 52;
         inline constexpr int rail      = 274;   // the mix inspector
         inline constexpr int setupRail = 252;   // the column of small cards beside a setup page
@@ -133,11 +158,29 @@ namespace Dine
     void drawSheet (juce::Graphics&, juce::Rectangle<float>, float radius);
     void drawRule (juce::Graphics&, juce::Rectangle<int>, juce::Colour = hair);   // .5 px separator
 
+    // The milled bands. Each draws its own gradient, its own inset top highlight and its
+    // own closing hairline, so a band is one call and no two of them can drift apart.
+    void drawChrome (juce::Graphics&, juce::Rectangle<int>);          // the 56 px toolbar
+    void drawHeaderBand (juce::Graphics&, juce::Rectangle<int>);      // a 34 px workspace header
+    void drawStatusBand (juce::Graphics&, juce::Rectangle<int>);      // the 28 px status foot
+    void drawPanelGround (juce::Graphics&, juce::Rectangle<int>);     // a side rail / pinned column
+
+    // A raised card: the gradient plane the LIVE tiles, the stage device and the grouped
+    // boxes are all made of. `shadow` is off in anything that repaints at 30 Hz - a JUCE
+    // drop shadow is a blur per frame and the console cannot afford one per tile.
+    void drawRaisedCard (juce::Graphics&, juce::Rectangle<float>, bool shadow = false, juce::Colour edge = hair);
+
+    // A cut recess on the desk material: a meter well, a fader slot, the loudness ruler.
+    void drawInsetWell (juce::Graphics&, juce::Rectangle<float>, float radius);
+
+    // The track a row of segments sits in: black, an inset lip and a hairline.
+    void drawSegmentTrack (juce::Graphics&, juce::Rectangle<int>);
+
     // Icons ----------------------------------------------------------------
     enum class Icon
     {
         None, Drum, Cymbal, Mic, Guitar, Piano, Speech, Room, Fx, Waveform, Sliders,
-        Device, List, Target, Check, Warn, Gear, Play, Refresh, Chevron, UpDown, Dash, Bus, Sidebar, Search
+        Device, List, Target, Check, Warn, Gear, Play, Refresh, Chevron, UpDown, Dash, Bus, Sidebar, Search, Chat, Shield
     };
     void drawIcon (juce::Graphics&, Icon, juce::Rectangle<float>, juce::Colour, float thickness = 1.4f);
     Icon iconForRole (ChannelRole) noexcept;

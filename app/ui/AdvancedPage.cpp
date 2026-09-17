@@ -853,6 +853,15 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
 
 // A folded panel keeps only its gutter: the handle stays where it was, so the width
 // comes back with one click and the channel never moves out from under the pointer.
+void AdvancedPage::setRailAvailable (bool available)
+{
+    if (available == railAvailable) return;
+    railAvailable = available;
+    railTab->setVisible (available);
+    resized();
+    repaint();
+}
+
 void AdvancedPage::setRailShown (bool shown)
 {
     if (shown == railShown) return;

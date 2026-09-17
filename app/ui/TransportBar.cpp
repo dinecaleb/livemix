@@ -279,6 +279,8 @@ int TransportBar::minimumWidth() const
     return keysWellWidth() + kClusterGap + clockCellWidth();
 }
 
+int TransportBar::keysOnlyWidth() const { return keysWellWidth(); }
+
 // ---------------------------------------------------------------- paint
 void TransportBar::paint (juce::Graphics& g)
 {
