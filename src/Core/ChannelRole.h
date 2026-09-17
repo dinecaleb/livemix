@@ -51,6 +51,21 @@ enum class ChannelRole : int
     BassAmp,
     SynthBass,
     BassBus,
+    // ---- Crowd and ambience (2026-09: a broadcast mix is not only the stage) ----
+    // A microphone pointed at the congregation is not a room microphone on the drum kit,
+    // and it is certainly not a vocal. It is the thing that makes a stream sound like a
+    // service rather than a studio, and it needs its own dynamics: wide, slow, never gated,
+    // never pushed forward, and ducked under nothing except the sermon.
+    CrowdMic = 35,       // congregational singing, response, applause
+    AmbienceMic,         // the room itself: the reverberant field, for depth under the close mics
+    AmbienceBus,
+    // ---- Saxophone ----
+    // A horn is not a keyboard. It has a hard 1-2 kHz honk, real dynamic range between a
+    // held note and a wailed one, breath and key noise, and it lives in the same presence
+    // band as the lead vocal - which is the whole reason it needs rules of its own.
+    SaxAlto,
+    SaxTenor,
+    SaxBari,
     Count
 };
 
@@ -80,6 +95,9 @@ enum class RoleFamily : int
     ElectricBass,
     SynthBass,
     BassBus,
+    Ambience,
+    AmbienceBus,
+    Saxophone,
     Count
 };
 
@@ -93,7 +111,9 @@ inline constexpr std::array<const char*, int (ChannelRole::Count)> kChannelRoleN
     "Piano", "Electric Piano", "Organ", "Synth Pad", "Synth Lead", "Keys Bus",
     "Broadcast", "Livestream", "Recording", "Room PA",
     "Acoustic Guitar", "Electric Clean", "Electric Drive", "Guitar Bus",
-    "Bass DI", "Bass Amp", "Synth Bass", "Bass Bus"
+    "Bass DI", "Bass Amp", "Synth Bass", "Bass Bus",
+    "Crowd Mic", "Ambience Mic", "Ambience Bus",
+    "Alto Sax", "Tenor Sax", "Baritone Sax"
 };
 
 inline constexpr const char* channelRoleName (ChannelRole r) noexcept
@@ -141,6 +161,12 @@ inline constexpr RoleFamily roleFamily (ChannelRole r) noexcept
         case ChannelRole::BassAmp:             return RoleFamily::ElectricBass;
         case ChannelRole::SynthBass:           return RoleFamily::SynthBass;
         case ChannelRole::BassBus:             return RoleFamily::BassBus;
+        case ChannelRole::CrowdMic:
+        case ChannelRole::AmbienceMic:         return RoleFamily::Ambience;
+        case ChannelRole::AmbienceBus:         return RoleFamily::AmbienceBus;
+        case ChannelRole::SaxAlto:
+        case ChannelRole::SaxTenor:
+        case ChannelRole::SaxBari:             return RoleFamily::Saxophone;
         case ChannelRole::Count:
         default:                          return RoleFamily::Kick;
     }
@@ -167,6 +193,10 @@ inline constexpr Product productOf (RoleFamily f) noexcept
         case RoleFamily::ElectricBass:
         case RoleFamily::SynthBass:
         case RoleFamily::BassBus:      return Product::Bass;
+        // A saxophone is mixed with the band's musical sources, so it takes the Keys
+        // product's parameter set (the same stages, the same controls). Its *targets* and
+        // its strategy are its own - that is where a horn stops being a keyboard.
+        case RoleFamily::Saxophone:    return Product::Keys;
         default:                       return Product::Drums;
     }
 }
@@ -175,7 +205,17 @@ inline constexpr Product productOf (ChannelRole r) noexcept { return productOf (
 
 inline constexpr bool isBusFamily (RoleFamily f) noexcept
 {
-    return f == RoleFamily::Bus || f == RoleFamily::VocalBus || f == RoleFamily::KeysBus || f == RoleFamily::GuitarBus || f == RoleFamily::BassBus || f == RoleFamily::Master;
+    return f == RoleFamily::Bus || f == RoleFamily::VocalBus || f == RoleFamily::KeysBus || f == RoleFamily::GuitarBus
+        || f == RoleFamily::BassBus || f == RoleFamily::AmbienceBus || f == RoleFamily::Master;
+}
+
+// A microphone pointed at the room or the congregation rather than at a performer. Nothing
+// about mixing one is the same as mixing a stage source: it is never gated (the silence
+// between the words is the sound), never pushed forward, and its level is a decision about
+// how present the building should feel rather than about balance.
+inline constexpr bool isAmbienceRole (ChannelRole r) noexcept
+{
+    return r == ChannelRole::CrowdMic || r == ChannelRole::AmbienceMic || r == ChannelRole::AmbienceBus;
 }
 
 inline constexpr ChannelRole channelRoleFromIndex (int index) noexcept

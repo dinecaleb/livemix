@@ -42,6 +42,16 @@ public:
     int getNumInputChannels() const;
     int getNumOutputChannels() const;
     juce::StringArray getOutputChannelNames() const;
+
+    // CoreAudio has gained or lost a device (DLIVE building its own combined output, an
+    // interface plugged in). JUCE caches the device list inside each AudioIODeviceType, so a
+    // device that appeared after the last scan does not exist as far as it is concerned -
+    // which is why opening one straight after creating it fails with "No such device".
+    void rescanDevices();
+    // Wait for a named output device to turn up, asking again as it goes. A newly created
+    // aggregate device is published asynchronously, so "it is not there" immediately after
+    // making it is a timing answer rather than a real one.
+    bool waitForOutputDevice (const juce::String& name, int timeoutMs = 4000);
     double getSampleRate() const;
     int getBufferSize() const;
     int getXRunCount() const { return deviceManager.getXRunCount(); }

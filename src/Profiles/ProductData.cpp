@@ -182,6 +182,11 @@ const char* roleHint (ChannelRole r) noexcept
         case ChannelRole::ElectricGuitarClean: return "Clean and clear · no boom · sits beside the keys";
         case ChannelRole::ElectricGuitarDrive: return "Full amp tone · fizz tamed · level held";
         case ChannelRole::BassAmp:             return "Full amp tone · no boom · every note the same level";
+        case ChannelRole::CrowdMic:            return "The congregation · never gated · felt, not loud";
+        case ChannelRole::AmbienceMic:         return "The room itself · depth under the stage · never gated";
+        case ChannelRole::SaxAlto:             return "Bright and singing · honk removed · sits beside the voice";
+        case ChannelRole::SaxTenor:            return "Warm and reedy · honk removed · wails stay in control";
+        case ChannelRole::SaxBari:             return "Weight and growl · honk removed · clear of the bass";
         default: break;
     }
     switch (roleFamily (r))
@@ -210,6 +215,9 @@ const char* roleHint (ChannelRole r) noexcept
         case RoleFamily::ElectricBass: return "Deep and even · every note clear · heard on small speakers";
         case RoleFamily::SynthBass:    return "Sub kept clean · never jumps · fits with the kick";
         case RoleFamily::BassBus:      return "All the bass as one · solid low end";
+        case RoleFamily::Ambience:     return "The room and the people in it · never gated · felt, not loud";
+        case RoleFamily::AmbienceBus:  return "The whole room as one · lifted between songs, down under the sermon";
+        case RoleFamily::Saxophone:    return "Reedy and singing · honk removed · shares the voice's air";
         case RoleFamily::Count:
         default:                       return "";
     }

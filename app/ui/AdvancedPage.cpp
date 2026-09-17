@@ -1034,7 +1034,17 @@ void AdvancedPage::refresh()
     trail->setGain (selection.isBus ? MixController::InputAdvice {} : controller.getInputAdvice (selection.strip));
     trail->setStages (chain->stageViews(), chain->selectedStage());
     trail->refresh (peak);
-    repaint();
+
+    // The rail rows, the head, the chain and the trail are all components that repaint
+    // themselves when their own reading changes. What this page paints is the rail's chrome
+    // and the workspace's two bands - and repainting the whole Inspector thirty times a
+    // second for that is the single most expensive thing the app was doing: on a 48-channel
+    // console one full repaint of this page costs more than a 30 Hz frame has
+    // (dlive_ui_snapshots --frames). So it only happens when something it draws has changed.
+    const InspectorLook now { selection.isBus, selection.bus, selection.strip, int (rows.size()),
+                              controller.isBypassed(), controller.isPrepared(), railShown, trailShown,
+                              controller.getSampleRate(), controller.getBlockSize() };
+    if (now != painted) { painted = now; repaint(); }
 }
 
 void AdvancedPage::paint (juce::Graphics& g)

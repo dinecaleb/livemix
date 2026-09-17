@@ -248,6 +248,11 @@ private:
 
     MixController& controller;
     std::vector<std::unique_ptr<Tile>> purposeTiles, soundTiles;
+    // How loud the finished mix should end up. Until this was a control it was a hidden
+    // consequence of the purpose - "Church Broadcast" quietly meant -23 LUFS, which is right
+    // for a television feed and about 9 dB under what a church stream is expected to be, and
+    // nothing in the app said so. It is the number the whole gain structure is fitted against.
+    DinePopup deliveryButton;
     DineButton continueButton { "Tune the mix", DineButton::Style::Filled };
     DineButton backButton { "Back", DineButton::Style::Standard };
 };

@@ -59,6 +59,12 @@ public:
     void moveTrack (int from, int to);
     void moveSelectedTrack (int delta);           // the Track menu's Move Up / Move Down
     bool canMoveSelectedTrack (int delta) const;
+    // The channel panel's width. `setPanelWidth` is what the session restore calls; the
+    // divider between the panel and the timeline is what an engineer uses.
+    void setPanelWidth (int px);
+    int panelWidth() const noexcept { return headerWidth; }
+    std::function<void()> onPanelWidthChanged;        // worth saving
+
     void setSnap (bool on);
     bool snapEnabled() const noexcept { return snap; }
     void setFollow (bool on);
@@ -81,7 +87,7 @@ public:
 
 private:
     enum class Drag { None, Playhead, ClipMove, ClipTrimStart, ClipTrimEnd, TrackHeight, Scroll,
-                      LoopRange, Marker, Fader, TrackOrder };
+                      LoopRange, Marker, Fader, TrackOrder, PanelWidth };
     struct ClipRef { int track = -1; int index = -1; bool valid() const noexcept { return track >= 0 && index >= 0; } };
 
     // Geometry
@@ -106,8 +112,13 @@ private:
     // The header's own volume fader, so a level can come down without leaving the timeline.
     // Tall rows get it under the name; a short row gets it as a slim bar along the foot.
     juce::Rectangle<int> faderCell (int track) const;
+    // The level meter down the right edge of a header, so only it is repainted when only it
+    // moved - a 24-channel timeline redrawn whole at 30 Hz is what made DLIVE feel slow.
+    juce::Rectangle<int> meterCell (int track) const;
     void dragFader (int track, int x, bool fine);
     bool compactHeader (int track) const;
+    // The grab zone for the panel / timeline divider.
+    bool onDivider (juce::Point<int>) const;
     // Where a row being dragged would land: a slot between tracks, 0 .. numTracks().
     int dropSlotAtY (int y) const;
     int markerAt (juce::Point<int> p) const;
@@ -159,6 +170,8 @@ private:
     // What the last listen said about each input's level, built once per TUNE MIX rather
     // than per frame: gain staging only changes when the mix is planned again.
     std::vector<MixController::InputAdvice> advice;
+    // What each meter was last actually drawn at, so a level that has not moved costs nothing.
+    std::vector<float> paintedPeaks;
     int adviceForTune = -1;
     bool undoPushed = false;
     ClipRef selection;
@@ -174,6 +187,14 @@ private:
     bool dragOrderLifted = false;
     juce::int64 loopAnchor = 0;
     double dragStartScrollX = 0.0;
+
+    // How wide the channel panel is. One width for every row, dragged by the divider between
+    // the panel and the timeline the way every professional DAW does it: a session full of
+    // "Backing Vocal - Stage Right" needs more room than one patched "Kick / Snare / Bass",
+    // and the engineer is the only one who knows which they have. Persisted with the session.
+    int headerWidth = 212;
+    int dragStartHeaderWidth = 0;
+    bool dividerHot = false;            // the pointer is over the divider: it lights up
 
     double pixelsPerSecond = 18.0;
     double scrollX = 0.0;              // pixels

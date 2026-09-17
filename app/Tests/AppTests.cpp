@@ -448,7 +448,7 @@ TEST_CASE ("MixController: revert restores the mix that ran before the listen; a
     CHECK (saidNoSignal);
 }
 
-TEST_CASE ("MixController: changing the session and preparing again rebuilds the graph and clears the plan")
+TEST_CASE ("MixController: editing the session keeps the sound; preparing again rebuilds the graph")
 {
     MixController c;
     c.setSession (band());
@@ -458,15 +458,50 @@ TEST_CASE ("MixController: changing the session and preparing again rebuilds the
     f.play (2.0);
     REQUIRE (f.waitFor (MixController::Stage::Preview));
     c.keepPlan();
+
     MixSession s = band();
     s.inputs.push_back ({ "Pastor", ChannelRole::Speech, 6, -1 });
     c.setSession (s);
-    CHECK (c.getStage() == MixController::Stage::Setup);
+
+    // The document has moved ahead of the graph - and that is ALL it has done. `prepared` is
+    // what the audio callback checks before it does anything, so if this went false the output
+    // would be silenced by the act of assigning one more input, and would stay silent until
+    // something happened to rebuild the graph. That was a real fault, found in a real service.
+    CHECK (c.isPrepared());
+    CHECK (c.needsReconfigure());
+    // The mix underneath is still audible and still the user's; only the preview, which
+    // described the graph being replaced, is gone.
+    CHECK (! c.hasPlan());
+    CHECK (c.getStage() == MixController::Stage::Mixed);
+    CHECK (c.getEngine().getNumStrips() == 5);      // still the graph it was prepared with
+
     c.prepare (kSr, kBlock);
     CHECK (c.getEngine().getNumStrips() == 6);
+    CHECK (! c.needsReconfigure());                 // the graph is the document again
     CHECK (! c.hasPlan());
     CHECK (c.getTuneCount() == 0);
     CHECK (c.getStage() == MixController::Stage::Ready);
+}
+
+TEST_CASE ("MixController: assigning inputs one at a time never silences what is already playing")
+{
+    // The shape of the fault this guards: a volunteer adds a channel on the INPUTS page while
+    // the band is being monitored. Every edit calls setSession, and every edit used to take
+    // the output away until the graph happened to be rebuilt.
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    REQUIRE (c.isPrepared());
+
+    MixSession s = band();
+    for (int i = 0; i < 4; ++i)
+    {
+        s.inputs.push_back ({ "Extra " + std::to_string (i), ChannelRole::BackingVocal, 6 + i, -1 });
+        c.setSession (s);
+        CHECK (c.isPrepared());          // the sound carries on through every one of them
+    }
+    // Removing inputs is the same promise.
+    while (s.inputs.size() > 2) { s.inputs.pop_back(); c.setSession (s); CHECK (c.isPrepared()); }
 }
 
 TEST_CASE ("SessionStore: a session document survives the JSON round trip")

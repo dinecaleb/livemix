@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <cmath>
 #include <functional>
 #include <optional>
 #include <string>
@@ -9,6 +10,8 @@
 #include "Mix/MixPlanner.h"
 #include "Mix/MixMacros.h"
 #include "Mix/OutputFeeds.h"
+#include "Mix/LiveSafe.h"
+#include "Mix/MonitorBus.h"
 #include "MixAI/TuneLiveCoordinator.h"
 
 namespace livemix
@@ -42,10 +45,21 @@ public:
     void setInputIcon (int strip, const std::string& icon);
     void setPurpose (MixPurpose p);
     void setProfile (StyleProfileId p);
+    // How loud the finished mix should be. This is the number the whole gain structure is
+    // fitted against, not a gain added at the end: changing it changes nothing until the next
+    // TUNE MIX, and then every fader, bus and the master's own compressor are fitted to it.
+    void setDelivery (DeliveryLoudness d);
+    DeliveryLoudness getDelivery() const noexcept { return session.delivery; }
 
     // ---- Engine lifecycle (AudioHost calls these with the device stopped) ----
     void prepare (double sampleRate, int maxBlockSize);   // builds the graph for the session, clears any plan
+    // Does the engine have a graph it can run? This is what the audio callback asks before it
+    // does anything, so it must mean exactly that - and in particular it must not go false
+    // just because the *document* changed, or editing the assignments would silence the room.
     bool isPrepared() const noexcept { return prepared; }
+    // The document has been changed and the graph has not caught up yet. The mix keeps
+    // playing the graph it has; a host calls prepare() when the user is ready for the change.
+    bool needsReconfigure() const noexcept { return graphStale; }
     // The session the running graph was built for. setSession() replaces the document before
     // the device has been stopped and the graph rebuilt, so this - not getSession() - is what
     // the mix that is currently loaded belongs to, and what carrying it across a rebuild has
@@ -97,9 +111,24 @@ public:
         ListenSettings verify { 15.0f, -45.0f, 20.0f };    // listen again to what was applied
         bool refinementPass = true;                        // one correction, never an open loop
         std::string userRequest;                           // "make the drums bigger" - usually empty
+        // Repeatability. 0 is the mix the TUNE LIVE MIX button always asks for: the same
+        // band, the same listen and the same settings land on the same mix. TRY ANOTHER MIX
+        // asks for 1, 2, 3 ... - a different reading of the same measurements, requested by
+        // name instead of arrived at by surprise.
+        int variation = 0;
+        // Work from the listen DLIVE already has rather than asking the band to play again.
+        // This is what makes TRY ANOTHER MIX instant, and it is also what makes the comparison
+        // fair: two readings of the *same* performance, not of two different ones.
+        bool reuseListen = false;
     };
     void startTuneLiveMix (const LiveTuneSettings& s);
     void startTuneLiveMix() { startTuneLiveMix (LiveTuneSettings {}); }
+    // A different professional reading of the listen DLIVE already has. No new listen, no
+    // waiting for the band: the measurements are the same, the interpretation is not.
+    void tryAnotherMix();
+    int getMixVariation() const noexcept { return liveSettings.variation; }
+    // Can another reading be asked for? Only once a live run has heard something.
+    bool canTryAnotherMix() const noexcept { return listened && lastCapture.valid && ! liveRun && prepared; }
     // Off by default is the offline engineer, which needs no network and no configuration.
     // Passing nullptr goes back to it.
     void setReasoningProvider (std::shared_ptr<MixReasoningProvider>);
@@ -143,6 +172,50 @@ public:
     void revertPlan();
     int getTuneCount() const noexcept { return tuneCount; }
 
+    // ---- Mix history: UNDO and REDO on the mix itself ----
+    //
+    // KEEP and REVERT decide one plan. This is the other thing an engineer needs: a way back
+    // from *any* change to the mix - a chat request, a macro, a hand edit, a whole TUNE -
+    // without having to remember what it was before. One entry per change that is worth
+    // undoing, each with the sentence that says what it was, so the menu reads
+    // "Undo: bring the lead vocal forward" rather than "Undo".
+    //
+    // It is the kept mix that is remembered, never the running one: macros, BYPASS and the
+    // BEFORE / AFTER preview are ways of *listening*, and undoing a way of listening would be
+    // a surprise. LIVE SAFE lets both through, because going back to the mix that was working
+    // a minute ago is exactly what an operator needs most in the middle of a service.
+    void markMixChange (const std::string& what);   // call before making the change
+    bool canUndoMix() const noexcept { return ! history.empty(); }
+    bool canRedoMix() const noexcept { return ! future.empty(); }
+    std::string undoMixLabel() const { return history.empty() ? std::string() : history.back().what; }
+    std::string redoMixLabel() const { return future.empty() ? std::string() : future.back().what; }
+    void undoMix();
+    void redoMix();
+    void clearMixHistory() { history.clear(); future.clear(); }
+
+    // ---- AI MIX CHAT ----
+    // The chat is not a second mixing engine. A request in plain words goes through exactly
+    // the same pipeline as TUNE LIVE MIX - intent, resolve, validate, an ordinary MixPlan -
+    // so BEFORE / AFTER, KEEP, REVERT, the Inspector and the session record all work on it
+    // unchanged, and nothing a sentence asks for can reach a parameter by a path the reasoning
+    // layer could not. What the chat adds is the conversation and the history.
+    struct ChatTurn
+    {
+        bool fromEngineer = true;
+        std::string text;
+        std::vector<std::string> detail;    // what DLIVE decided, a line each
+        bool failed = false;
+        bool applied = false;
+    };
+    // Ask for something. Returns false when the mix is busy or there is nothing to work from,
+    // with the reason on onMessage. The answer arrives through poll(), like every other run.
+    bool sendChatRequest (const std::string& text);
+    const std::vector<ChatTurn>& getChat() const noexcept { return chat; }
+    void clearChat() { chat.clear(); }
+    bool isChatBusy() const noexcept { return liveRun && chatRun; }
+    // Can a request be made at all? The chat works from the listen DLIVE already has.
+    bool canChat() const noexcept { return prepared && listened && lastCapture.valid; }
+
     // ---- BYPASS: hear the inputs with nothing DLIVE does ----
     // Every chain is bypassed, faders and input gains go back to their starting point and
     // the returns go silent, so what comes out is the console feed itself. Nothing about
@@ -150,6 +223,40 @@ public:
     // are carried across so you can still audition one source while comparing.
     void setBypass (bool on);
     bool isBypassed() const noexcept { return bypassed; }
+
+    // ---- LIVE SAFE: the lock for the twenty minutes when a mistake is public ----
+    // The policy itself is src/Mix/LiveSafe.h - what is refused, what is only made smaller,
+    // and what is never touched because an operator must be able to act in an emergency. It
+    // is enforced *here*, on every path that can change the mix, rather than in the UI: a
+    // lock that only exists in a menu handler is not a lock, and the AI, the chat, a macro
+    // and a keyboard shortcut all reach the mix without passing a menu.
+    void setLiveSafe (bool on);
+    bool isLiveSafe() const noexcept { return safety.on; }
+    const LiveSafePolicy& getLiveSafePolicy() const noexcept { return safety; }
+    void setLiveSafePolicy (const LiveSafePolicy&);
+    // "May this happen now?" - with the sentence that says why not. The UI asks so it can grey
+    // a button out and say why; every setter below asks again before it acts.
+    liveSafe::Verdict checkLiveSafe (LiveAction) const;
+    // The same, and it reports the refusal through onMessage. Returns true when it was refused.
+    bool liveSafeRefuses (LiveAction);
+
+    // ---- The monitor (solo) bus: what the engineer hears, and nobody else ----
+    // Solo lands on the monitor output. The live master never changes, which is the whole
+    // point (src/Mix/MonitorBus.h). Everything here is monitoring: no plan, no export and no
+    // macro reads any of it.
+    const MonitorState& getMonitor() const noexcept { return kept.monitor; }
+    void setSoloMode (SoloMode);
+    void setSoloPoint (SoloPoint);
+    void setMonitorGain (float db);
+    void setMonitorDim (bool);
+    void setMonitorMute (bool);
+    void setMonitorSource (MixBus);
+    void setFxSolo (FxSlot, bool);
+    // Is a monitor output actually routed? Solo with nowhere to go is an S key that does
+    // nothing audible, so the app says so instead of letting it happen quietly.
+    bool hasMonitorOutput() const noexcept { return hasMonitorFeed (outputs); }
+    bool anySolo() const noexcept;
+    int numSoloed() const noexcept;
 
     // ---- Outputs: where the sound leaves the device ----
     // Monitoring, not mix: a feed never changes the mix, the plan or an export. Feed 0 is the
@@ -231,6 +338,31 @@ public:
     };
     InputAdvice getInputAdvice (int strip) const;
 
+    // ---- The master, metered properly ----
+    // Everything anyone needs to answer "is this mix loud enough, and is it safe" from one
+    // place, so the mixer, LIVE, the Inspector and the export dialog can never disagree.
+    // Read at UI rate; every number comes from the engine's own atomics.
+    struct MasterLoudness
+    {
+        bool known = false;
+        float integratedLufs = -120.0f;   // the whole service so far: what a platform normalises against
+        float shortTermLufs = -120.0f;    // the last 3 seconds: what to mix by
+        float momentaryLufs = -120.0f;    // the last 400 ms
+        float truePeakDb = -120.0f;       // inter-sample, of the last block
+        float limiterReductionDb = 0.0f;  // how hard the master limiter is working right now
+        float targetLufs = -23.0f;        // what this session is aiming at
+        float toleranceLu = 1.0f;
+        float ceilingDb = -1.0f;          // the limiter's true-peak ceiling
+        float headroomDb = 0.0f;          // ceiling - the master's own peak: what is left
+
+        // Where the mix sits against its target, in LU. Positive is louder than asked for.
+        float deltaLu() const noexcept { return integratedLufs <= -100.0f ? 0.0f : integratedLufs - targetLufs; }
+        bool onTarget() const noexcept { return integratedLufs > -100.0f && std::fabs (deltaLu()) <= toleranceLu; }
+        bool tooQuiet() const noexcept { return integratedLufs > -100.0f && deltaLu() < -toleranceLu; }
+        bool limiterWorkingHard() const noexcept { return limiterReductionDb > 3.0f; }
+    };
+    MasterLoudness getMasterLoudness() const;
+
     // ---- Health: the share of assigned inputs that were heard, not faint and at a healthy level in the last listen (0..100;
     // 0 = nothing known yet). The notes say what is not right, in plain words, so the number is never a mystery.
     int getMixHealthPercent() const;
@@ -255,6 +387,7 @@ private:
     bool listened = false;
     ReferenceProfile reference;
     bool prepared = false;
+    bool graphStale = false;            // the session was edited after the graph was built
     double sampleRate = 48000.0;
     int blockSize = 64;
 
@@ -266,6 +399,7 @@ private:
     Compare compare = Compare::After;
     MixMacroValues macros;
     OutputFeeds outputs;                // where the sound leaves the device (monitoring only)
+    LiveSafePolicy safety;              // LIVE SAFE, enforced on every path that changes the mix
     bool bypassed = false;              // hearing the raw inputs; the kept mix is untouched
     int tuneCount = 0;
     int tuningStrip = -1;               // TUNE CHANNEL: the one strip being listened to / previewed
@@ -275,6 +409,17 @@ private:
     // TUNE LIVE MIX. `liveRun` is on for the whole workflow, across both listens; `liveVerifying`
     // is on only while the second listen runs, and is what keeps the applied mix audible during
     // it (a verify listen has to hear what was applied, not what it replaced).
+    // The mix as it was before each change worth undoing, newest last, with what the change
+    // was. `future` is what UNDO took away, so REDO can put it back.
+    struct MixSnapshot { MixParameters mix; MixMacroValues macros; std::string what; bool mixedThen = false; };
+    std::vector<MixSnapshot> history, future;
+    static constexpr size_t kMaxHistory = 64;
+    void applySnapshot (const MixSnapshot&);
+    MixSnapshot snapshotNow (const std::string& what) const;
+
+    std::vector<ChatTurn> chat;
+    bool chatRun = false;               // this live run came from the chat, not from TUNE LIVE MIX
+
     TuneLiveCoordinator tuneLive;
     LiveTuneSettings liveSettings;
     MixParameters liveBefore;           // the complete pre-Tune snapshot: what REVERT goes back to

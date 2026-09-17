@@ -33,6 +33,16 @@ public:
     const Project& getProject() const noexcept { return project; }
     void setProject (const Project& p);
 
+    // LIVE SAFE is one switch with two halves: the timeline half lives on the Project (it is
+    // saved with the session) and the mix half is the policy MixController enforces. This is
+    // the one place both are set, so they can never disagree about whether the lock is on.
+    void setLiveSafe (bool on)
+    {
+        project.liveSafe = on;
+        controller.setLiveSafe (on);
+    }
+    bool isLiveSafe() const noexcept { return project.liveSafe; }
+
     Transport& getTransport() noexcept { return transport; }
     const Transport& getTransport() const noexcept { return transport; }
     Recorder& getRecorder() noexcept { return recorder; }

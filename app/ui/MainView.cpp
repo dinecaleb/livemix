@@ -1,4 +1,5 @@
 #include "MainView.h"
+#include "native/InputMapStore.h"
 #include "native/MultitrackImport.h"
 #include "native/OpenAiMixProvider.h"
 
@@ -206,6 +207,11 @@ public:
                 m.addItem (104, "Import Multitrack Folder...");
                 m.addItem (107, "Add a Reference Mix...");
                 m.addSeparator();
+                // The patch, saved so next Sunday does not start from nothing.
+                m.addItem (108, "Save Input Mapping" + juce::String (Glyph::ellip()),
+                           ! view.controller.getSession().inputs.empty());
+                m.addItem (109, "Input Mappings" + juce::String (Glyph::ellip()));
+                m.addSeparator();
                 m.addItem (105, "Export Stereo Mix (WAV)...");
                 m.addItem (106, "Export Stereo Mix (MP3)...");
                 break;
@@ -241,8 +247,28 @@ public:
                                     ? "Reference: " + juce::String (view.controller.getReference().name) + juce::String (Glyph::ellip())
                                     : "Add a Reference Mix...");
                 m.addSeparator();
+                m.addSeparator();
+                // A change asked for in words, and a different reading of the same listen.
+                m.addItem (409, "AI Mix Chat" + juce::String (Glyph::ellip()));
+                m.addItem (410, "Try Another Mix", view.controller.canTryAnotherMix());
+                m.addSeparator();
+                // Undo and redo on the mix itself, named after what they undo. Never locked by
+                // LIVE SAFE: going back to the mix that was working a minute ago is the thing an
+                // operator needs most in the middle of a service.
+                m.addItem (411, view.controller.canUndoMix()
+                                    ? "Undo " + juce::String (view.controller.undoMixLabel())
+                                    : juce::String ("Undo Mix Change"),
+                           view.controller.canUndoMix());
+                m.addItem (412, view.controller.canRedoMix()
+                                    ? "Redo " + juce::String (view.controller.redoMixLabel())
+                                    : juce::String ("Redo Mix Change"),
+                           view.controller.canRedoMix());
+                m.addSeparator();
                 m.addItem (401, "Reset Macros");
-                m.addItem (402, "Clear Solos");
+                m.addItem (402, view.controller.numSoloed() > 0
+                                    ? "Clear Solo (" + juce::String (view.controller.numSoloed()) + ")"
+                                    : juce::String ("Clear Solo"),
+                           view.controller.numSoloed() > 0);
                 m.addSeparator();
                 m.addItem (403, "Bypass: Hear the Inputs   B", true, view.controller.isBypassed());
                 m.addSeparator();
@@ -413,6 +439,13 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     purposePage->onContinue = [this] { enterSession(); };
 
     tracksPage->onToast = [this] (const juce::String& t) { showToast (t); };
+    // The channel panel's width is a layout preference, so it is saved with the session and
+    // put back when one is opened - an engineer sets it once for a room full of long names.
+    tracksPage->onPanelWidthChanged = [this]
+    {
+        services.setTrackPanelWidth (tracksPage->panelWidth());
+        services.saveSession();
+    };
     tracksPage->onTimelineChanged = [this] { updateChrome(); };
     tracksPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
     tracksPage->onOpenAssign = [this] { assignPage->refresh(); showPage (Page::Assign); };
@@ -457,6 +490,7 @@ MainView::~MainView()
     mixerWindow.reset();          // before the look and feel it draws with
     outputsSheet.reset();
     channelSheet.reset();
+    chatSheet.reset();
     controller.onMessage = nullptr;
     controller.onMixChanged = nullptr;
     setLookAndFeel (nullptr);
@@ -483,10 +517,14 @@ void MainView::timelineChanged()
     updateChrome();
 }
 
+// The policy itself lives in src/Mix/LiveSafe.h and is enforced in MixController. This is the
+// UI half: it greys a menu item out and says the same sentence the controller would, so the
+// lock cannot mean one thing in a menu and another in the code.
 bool MainView::liveSafeBlocks (const juce::String& what)
 {
     if (! services.daw().getProject().liveSafe) return false;
-    showToast ("LIVE SAFE is on: " + what + " is locked. Turn it off on the Live page.");
+    showToast ("LIVE SAFE is on: " + what + " is locked. " + juce::String (liveSafe::allowedSummary())
+               + " Turn the lock off on the LIVE page.");
     return true;
 }
 
@@ -507,7 +545,11 @@ void MainView::showPage (Page p)
     if (p == Page::Device) devicePage->refresh();
     if (p == Page::Assign) assignPage->refresh();
     if (p == Page::Purpose) purposePage->refresh();
-    if (p == Page::Tracks) tracksPage->rebuild();
+    if (p == Page::Tracks)
+    {
+        if (const int w = services.trackPanelWidth(); w > 0) tracksPage->setPanelWidth (w);
+        tracksPage->rebuild();
+    }
     if (p == Page::Mixer) mixerPage->rebuild();
     if (p == Page::Live) livePage->rebuild();
     if (p == Page::Inspector) advancedPage->rebuild();
@@ -572,7 +614,9 @@ void MainView::updateChrome()
     if (hasInputs) sub += "  " + Glyph::dot() + "  " + juce::String (int (session.inputs.size())) + " tracks";
     sessionButton->set (name, sub);
 
-    const juce::String out = services.currentOutputDevice();
+    // The device DLIVE built to join two of them is not a name anybody chose, so the toolbar
+    // says what the user picked instead (AppServices::outputDisplayName).
+    const juce::String out = services.outputDisplayName();
     outputButton.setValue (out.isEmpty() ? "No output" : out);
 }
 
@@ -721,6 +765,230 @@ void MainView::tuneChannel (int strip, const MixController::ListenSettings& sett
     channelSheet->toFront (true);
 }
 
+// AI MIX CHAT. It opens over the workspace rather than taking one of its own: the mix is the
+// thing being discussed, and it should stay visible and audible while it is.
+void MainView::openChat()
+{
+    if (chatSheet != nullptr)
+    {
+        chatSheet->toFront (true);
+        chatSheet->takeFocus();
+        return;
+    }
+    if (! controller.isPrepared())
+    {
+        showToast ("Assign your inputs first: there is nothing to talk about yet.");
+        return;
+    }
+    chatSheet = std::make_unique<ChatSheet> (controller);
+    chatSheet->onToast = [this] (const juce::String& t) { showToast (t); };
+    chatSheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->chatSheet.reset(); safe->updateChrome(); } });
+    };
+    addAndMakeVisible (*chatSheet);
+    resized();
+    chatSheet->toFront (true);
+    chatSheet->takeFocus();
+}
+
+// ---------------------------------------------------------------------------
+// Input mappings
+//
+// A church patches the same desk the same way every week. Saving that is the difference
+// between a five-minute setup and a forty-minute one, and the only thing that matters about
+// restoring it is that it must never put the wrong audio on a channel: a map made on a
+// 32-channel desk applied to an 8-channel interface brings its extra inputs back switched
+// off and named, with a sentence saying what is missing.
+// ---------------------------------------------------------------------------
+void MainView::saveInputMapping()
+{
+    const auto& session = controller.getSession();
+    if (session.inputs.empty()) { showToast ("There is nothing patched yet."); return; }
+
+    mapDialog = std::make_unique<juce::AlertWindow> ("Save input mapping",
+                                                     "A name you will recognise next Sunday.",
+                                                     juce::MessageBoxIconType::NoIcon);
+    mapDialog->addTextEditor ("name", services.currentSessionName().isEmpty() ? "Main hall" : services.currentSessionName(), "Name");
+    mapDialog->addTextEditor ("note", "", "Note (optional)");
+    mapDialog->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    mapDialog->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    mapDialog->enterModalState (true, juce::ModalCallbackFunction::create ([this] (int result)
+    {
+        if (mapDialog == nullptr) return;
+        const auto name = mapDialog->getTextEditorContents ("name").trim();
+        const auto note = mapDialog->getTextEditorContents ("note").trim();
+        mapDialog.reset();
+        if (result != 1 || name.isEmpty()) return;
+
+        auto map = InputMapStore::fromSession (controller.getSession(), name, services.currentInputDevice(),
+                                               services.numInputChannels(), true);
+        map.note = note;
+        if (InputMapStore::save (map))
+            showToast ("Saved \"" + name + "\": " + juce::String (map.inputs.size()) + " inputs across "
+                       + juce::String (map.channelsNeeded()) + " channels.");
+        else
+            showToast ("That mapping could not be saved.");
+    }), false);
+}
+
+void MainView::openInputMappings()
+{
+    const auto maps = InputMapStore::list();
+    juce::PopupMenu m;
+    if (maps.isEmpty())
+        m.addItem (-1, "No saved mappings yet", false, false);
+
+    int id = 1;
+    juce::Array<juce::File> files;
+    for (const auto& l : maps)
+    {
+        juce::PopupMenu sub;
+        const int base = id;
+        files.add (l.file);
+        sub.addItem (base, "Apply to this session");
+        sub.addSeparator();
+        sub.addItem (base + 1, "Rename" + juce::String (Glyph::ellip()));
+        sub.addItem (base + 2, "Duplicate");
+        sub.addItem (base + 3, "Export" + juce::String (Glyph::ellip()));
+        sub.addSeparator();
+        sub.addItem (base + 4, "Delete");
+        id += 10;
+        m.addSubMenu (l.name + "   (" + juce::String (l.inputCount) + " inputs, "
+                          + juce::String (l.channelsNeeded) + " channels)", sub);
+    }
+    m.addSeparator();
+    m.addItem (900, "Import a mapping" + juce::String (Glyph::ellip()));
+    m.addItem (901, "Save this session's patch" + juce::String (Glyph::ellip()),
+               ! controller.getSession().inputs.empty());
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMinimumWidth (300),
+                     [this, files] (int chosen)
+    {
+        if (chosen <= 0) return;
+        if (chosen == 901) { saveInputMapping(); return; }
+        if (chosen == 900)
+        {
+            mapChooser = std::make_unique<juce::FileChooser> ("Import an input mapping", juce::File(), "*.dlivemap.json");
+            mapChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                     [this] (const juce::FileChooser& fc)
+                                     {
+                                         const auto file = fc.getResult();
+                                         if (file == juce::File()) return;
+                                         InputMap imported;
+                                         if (! InputMapStore::load (file, imported)) { showToast ("That is not a DLIVE input mapping."); return; }
+                                         if (! InputMapStore::save (imported)) { showToast ("That mapping could not be saved."); return; }
+                                         showToast ("Imported \"" + imported.name + "\". Open Input Mappings to apply it.");
+                                     });
+            return;
+        }
+
+        const int index = (chosen - 1) / 10;
+        const int action = (chosen - 1) % 10;
+        if (index < 0 || index >= files.size()) return;
+        InputMap map;
+        if (! InputMapStore::load (files[index], map)) { showToast ("That mapping could not be read."); return; }
+
+        switch (action)
+        {
+            case 0: applyInputMapping (files[index]); break;
+            case 1:
+            {
+                mapDialog = std::make_unique<juce::AlertWindow> ("Rename mapping", "", juce::MessageBoxIconType::NoIcon);
+                mapDialog->addTextEditor ("name", map.name, "Name");
+                mapDialog->addButton ("Rename", 1, juce::KeyPress (juce::KeyPress::returnKey));
+                mapDialog->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+                const auto from = map.name;
+                mapDialog->enterModalState (true, juce::ModalCallbackFunction::create ([this, from] (int r)
+                {
+                    if (mapDialog == nullptr) return;
+                    const auto to = mapDialog->getTextEditorContents ("name").trim();
+                    mapDialog.reset();
+                    if (r != 1) return;
+                    const auto err = InputMapStore::rename (from, to);
+                    showToast (err.isEmpty() ? "Renamed to \"" + to + "\"." : err);
+                }), false);
+                break;
+            }
+            case 2:
+            {
+                const auto err = InputMapStore::duplicate (map.name, map.name + " copy");
+                showToast (err.isEmpty() ? "Duplicated \"" + map.name + "\"." : err);
+                break;
+            }
+            case 3:
+            {
+                mapChooser = std::make_unique<juce::FileChooser> ("Export input mapping",
+                                                                  juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                                                                      .getChildFile (juce::File::createLegalFileName (map.name) + ".dlivemap.json"),
+                                                                  "*.dlivemap.json");
+                mapChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
+                                         [this, map] (const juce::FileChooser& fc)
+                                         {
+                                             const auto dest = fc.getResult();
+                                             if (dest == juce::File()) return;
+                                             showToast (InputMapStore::saveAs (map, dest)
+                                                            ? "Exported to " + dest.getFileName() + "."
+                                                            : juce::String ("That mapping could not be exported."));
+                                         });
+                break;
+            }
+            case 4:
+                if (InputMapStore::remove (map.name)) showToast ("Deleted \"" + map.name + "\".");
+                break;
+            default: break;
+        }
+    });
+}
+
+void MainView::applyInputMapping (const juce::File& file)
+{
+    if (liveSafeBlocks ("changing the routing")) return;
+    InputMap map;
+    if (! InputMapStore::load (file, map)) { showToast ("That mapping could not be read."); return; }
+
+    const auto result = InputMapStore::apply (map, controller.getSession(), services.numInputChannels(),
+                                              services.currentInputDevice(), map.hasSound);
+
+    // Anything that could not be honoured is said *before* it is applied, never after: this is
+    // the one operation in DLIVE that could silently put the pastor's microphone on the kick.
+    if (! result.problems.empty())
+    {
+        juce::String body;
+        for (const auto& p : result.problems) body << p << "\n\n";
+        body << juce::String (result.restored) << " of " << juce::String (map.inputs.size())
+             << " inputs can be restored exactly as they were.";
+        mapDialog = std::make_unique<juce::AlertWindow> ("Apply \"" + map.name + "\"?", body,
+                                                         juce::MessageBoxIconType::WarningIcon);
+        mapDialog->addButton ("Apply anyway", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        mapDialog->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        const auto session = result.session;
+        mapDialog->enterModalState (true, juce::ModalCallbackFunction::create ([this, session, map, result] (int r)
+        {
+            mapDialog.reset();
+            if (r != 1) return;
+            controller.setSession (session);
+            services.reconfigure();
+            services.saveSession();
+            assignPage->refresh();
+            updateChrome();
+            resized();
+            showToast ("Applied \"" + map.name + "\": " + juce::String (result.restored) + " inputs restored, "
+                       + juce::String (result.unavailable + result.conflicts) + " switched off. Check the INPUTS page.");
+        }), false);
+        return;
+    }
+
+    controller.setSession (result.session);
+    services.reconfigure();
+    services.saveSession();
+    assignPage->refresh();
+    updateChrome();
+    resized();
+    showToast ("Applied \"" + map.name + "\": " + juce::String (result.restored) + " inputs.");
+}
+
 void MainView::openMixerWindow()
 {
     if (! controller.isPrepared() || controller.getSession().inputs.empty())
@@ -801,6 +1069,19 @@ void MainView::handleCommand (int id)
             showToast (juce::String ("Monitoring: ") + monitorModeName (mode) + " on every track.");
             break;
         }
+
+        case 409:
+            openChat();
+            break;
+        case 410:
+            if (liveSafeBlocks ("TUNE LIVE MIX")) break;
+            showPage (Page::Tune);
+            controller.tryAnotherMix();
+            break;
+        case 411: controller.undoMix(); updateChrome(); break;
+        case 412: controller.redoMix(); updateChrome(); break;
+        case 108: saveInputMapping(); break;
+        case 109: openInputMappings(); break;
 
         case 400:
             if (liveSafeBlocks ("TUNE MIX")) break;
@@ -1088,9 +1369,14 @@ void MainView::chooseOutput()
     const auto outs = services.outputDevices();
     if (outs.isEmpty()) { showToast ("No output devices found."); return; }
     juce::PopupMenu m;
-    const juce::String current = services.currentOutputDevice();
+    // Ticked against the *broadcast*, not the joined device: picking one here chooses where
+    // the stream goes, and the engineer's listen stays where it is.
+    const juce::String current = services.broadcastOutputDevice();
     for (int i = 0; i < outs.size(); ++i)
+    {
+        if (outs[i].name.startsWith ("DLIVE Monitoring")) continue;   // machinery, not a choice
         m.addItem (i + 1, outs[i].name, true, outs[i].name == current);
+    }
 
     m.addSeparator();
     m.addItem (900, "Set up outputs" + Glyph::ellip());
@@ -1101,11 +1387,11 @@ void MainView::chooseOutput()
                          if (result == 900) { showOutputs(); return; }
                          if (result <= 0 || result > outs.size()) return;
                          const auto& name = outs[result - 1].name;
-                         if (name == services.currentOutputDevice()) return;
+                         if (name == services.broadcastOutputDevice()) return;
                          const auto err = services.isAudioRunning() ? services.changeOutput (name)
                                                                     : services.openOutputOnly (name);
                          if (err.isNotEmpty()) showToast (err);
-                         else { showToast ("Output: " + name); updateChrome(); }
+                         else { showToast ("Broadcast: " + name); updateChrome(); }
                      });
 }
 
@@ -1122,6 +1408,7 @@ void MainView::timerCallback()
     else if (page == Page::Inspector) advancedPage->refresh();
 
     if (channelSheet != nullptr) channelSheet->refresh();
+    if (chatSheet != nullptr) chatSheet->refresh();
 
     if (toastTicks > 0 && --toastTicks == 0) toast->setVisible (false);
     if (saveTicks > 0 && --saveTicks == 0) services.saveSession();
@@ -1244,7 +1531,7 @@ void MainView::paintSidebar (juce::Graphics& g)
                                            ? services.currentInputDevice() + " stopped"
                                            : juce::String ("The audio device stopped")
                               : services.currentInputDevice().isNotEmpty() ? services.currentInputDevice()
-                                                                           : (running ? services.currentOutputDevice() + " (output only)" : "No audio device");
+                                                                           : (running ? services.outputDisplayName() + " (output only)" : "No audio device");
     g.drawText (device, inner.removeFromTop (14), juce::Justification::topLeft, true);
     g.setColour (lost ? Dine::crit : services.xrunCount() > 0 ? Dine::warn : Dine::ink3);
     g.setFont (lost ? Dine::text (11.0f) : Dine::mono (11.0f));
@@ -1327,6 +1614,12 @@ void MainView::resized()
         channelSheet->setBounds (getLocalBounds().withTrimmedLeft (sidebarWidth())
                                                  .withTrimmedTop (Dine::Metric::toolbar));
         channelSheet->toFront (false);
+    }
+    if (chatSheet != nullptr)
+    {
+        chatSheet->setBounds (getLocalBounds().withTrimmedLeft (sidebarWidth())
+                                             .withTrimmedTop (Dine::Metric::toolbar));
+        chatSheet->toFront (false);
     }
 
     if (toast->isVisible())

@@ -89,6 +89,8 @@ public:
     const ChannelProcessor& getBus (MixBus bus) const noexcept { return buses[size_t (bus)].processor; }
     const FxChain& getFx (FxSlot slot) const noexcept { return fx[size_t (slot)].chain; }
     bool isBusUsed (MixBus b) const noexcept { return graph.busUsed[size_t (b)]; }
+    // Is anything soloed into the engineer's listen? (Audio-thread view; display only.)
+    bool isMonitorSoloActive() const noexcept { return monitorSoloActive; }
     bool isFxUsed (FxSlot s) const noexcept { return graph.fxUsed[size_t (s)]; }
 
     // Audio-thread cost, for the performance tests and the diagnostics view.
@@ -104,6 +106,7 @@ private:
         MixBus bus = MixBus::Music;
         Smoother inputGain;                                     // digital preamp, linear
         Smoother gainL, gainR;                                  // fader x pan, linear
+        Smoother monitorGain;                                   // 1 while soloed into the monitor bus
         std::array<Smoother, int (FxSlot::Count)> send;         // linear
         std::array<std::vector<float>, kMaxChannels> scratch;
         std::array<float*, kMaxChannels> ptrs {};
@@ -112,6 +115,7 @@ private:
     {
         ChannelProcessor processor;
         Smoother gain;
+        Smoother monitorGain;                                  // 1 while soloed into the monitor bus
         std::array<std::vector<float>, 2> buffer;               // accumulator, stereo
         std::array<float*, 2> ptrs {};
     };
@@ -119,7 +123,17 @@ private:
     {
         FxChain chain;
         Smoother returnGain;
+        Smoother monitorGain;                                  // soloed into the engineer's listen
         std::array<std::vector<float>, 2> buffer;               // send accumulator, stereo
+        std::array<float*, 2> ptrs {};
+    };
+    // The engineer's listen. A stereo accumulator that exists beside the master and never
+    // feeds it: whatever is soloed lands here and leaves by a monitor output feed, so the
+    // broadcast is untouched by anything an engineer does to find a problem.
+    struct Monitor
+    {
+        Smoother gain;
+        std::array<std::vector<float>, 2> buffer;
         std::array<float*, 2> ptrs {};
     };
 
@@ -135,6 +149,12 @@ private:
     std::vector<std::unique_ptr<Strip>> strips;
     std::array<Bus, int (MixBus::Count)> buses;
     std::array<Fx, int (FxSlot::Count)> fx;
+    Monitor monitor;
+    // Resolved once per publish, so the block itself only multiplies.
+    bool monitorSoloActive = false;         // something is soloed
+    bool monitorPfl = false;                // tap before the fader
+    bool monitorRouted = false;             // a feed actually carries it: with none, the whole monitor path is skipped
+    MixBus monitorSource = MixBus::Master;  // what it carries with nothing soloed
 
     TripleBuffer<MixParameters> mailbox;
     MixParameters applied;                                       // audio thread's copy of the last snapshot

@@ -29,6 +29,7 @@ namespace
             { "Vox 2",  ChannelRole::BackingVocal, 12, -1 },
             { "Vox 3",  ChannelRole::BackingVocal, 13, -1 },
             { "Pastor", ChannelRole::Speech,       14, -1 },
+            { "Crowd",  ChannelRole::CrowdMic,     15, 16 },
         };
         return s;
     }
@@ -37,7 +38,7 @@ namespace
 TEST_CASE ("RoutingGraph: every source lands on its bus without the user building anything")
 {
     const auto g = RoutingGraph::build (churchSession());
-    REQUIRE (g.numStrips() == 13);
+    REQUIRE (g.numStrips() == 14);
     CHECK (g.stripsOnBus (MixBus::Drums) == 6);
     CHECK (g.stripsOnBus (MixBus::Bass) == 1);
     CHECK (g.stripsOnBus (MixBus::Music) == 1);
@@ -46,6 +47,10 @@ TEST_CASE ("RoutingGraph: every source lands on its bus without the user buildin
     CHECK (g.stripsOnBus (MixBus::Vocals) == 4);
     CHECK (g.stripsOnBus (MixBus::Speech) == 1);
     CHECK (g.strips[12].bus == MixBus::Speech);
+    // A microphone on the congregation is not a room microphone on the drum kit and not a
+    // singer: it has the AMBIENCE group to itself, with its own fader for the whole service.
+    CHECK (g.stripsOnBus (MixBus::Ambience) == 1);
+    CHECK (g.strips[13].bus == MixBus::Ambience);
     CHECK (g.stripsOnBus (MixBus::Master) == 0);
     for (int b = 0; b < int (MixBus::Count); ++b) CHECK (g.busUsed[size_t (b)]);
     CHECK (g.strips[4].numChannels() == 2);   // overhead pair
@@ -101,7 +106,7 @@ TEST_CASE ("RoutingGraph: disabled, unpatched and master-role inputs are skipped
     s.inputs[2].inputA = -1;
     s.inputs.push_back ({ "Oops", ChannelRole::MasterBroadcast, 20, -1 });
     const auto g = RoutingGraph::build (s);
-    CHECK (g.numStrips() == 11);
+    CHECK (g.numStrips() == 12);
     const auto h = RoutingGraph::build (s);
     CHECK (g.describe() == h.describe());
     CHECK (g.describe().find ("Kick") != std::string::npos);
@@ -112,7 +117,7 @@ TEST_CASE ("RoutingGraph: the starting point is the profile baseline for every s
     const auto s = churchSession();
     const auto g = RoutingGraph::build (s);
     const auto p = startingPoint (s, g);
-    REQUIRE (p.numStrips == 13);
+    REQUIRE (p.numStrips == 14);
     const auto kick = StyleProfile::baseline (ChannelRole::KickIn, StyleProfileId::ModernGospel);
     CHECK (p.strips[0].channel.hpfHz == kick.hpfHz);
     CHECK (p.strips[0].channel.compEnabled == kick.compEnabled);

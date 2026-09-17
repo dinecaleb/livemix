@@ -319,13 +319,20 @@ public:
 
         if (kind == Kind::Master && controller.isPrepared())
         {
-            const auto& loud = controller.getEngine().getBus (MixBus::Master).getLoudness();
-            const float integrated = loud.getIntegratedLufs();
-            shortTermLufs = loud.getShortTermLufs();
-            integratedText = integrated <= -60.0f ? Glyph::dash() : db1 (integrated);
-            shortTermText = shortTermLufs <= -60.0f ? Glyph::dash() : db1 (shortTermLufs);
-            const float tp = loud.getTruePeakDb();
-            truePeakText = tp <= -60.0f ? Glyph::dash() : db1 (tp);
+            // One place answers "is this loud enough, and is it safe": the controller's own
+            // reading, so the mixer, LIVE, the Inspector and an export can never disagree.
+            const auto m = controller.getMasterLoudness();
+            shortTermLufs = m.shortTermLufs;
+            integratedText = m.integratedLufs <= -60.0f ? Glyph::dash() : db1 (m.integratedLufs);
+            shortTermText = m.shortTermLufs <= -60.0f ? Glyph::dash() : db1 (m.shortTermLufs);
+            truePeakText = m.truePeakDb <= -60.0f ? Glyph::dash() : db1 (m.truePeakDb);
+            // How hard the master limiter is working. A mix that only reaches its target
+            // because the limiter is holding 6 dB down is not finished, it is squashed - and
+            // until this was on the console there was no way to see it.
+            limiterGrDb = m.limiterReductionDb;
+            grText = m.limiterReductionDb < 0.1f ? Glyph::dash() : db1 (-m.limiterReductionDb);
+            targetLufs = m.targetLufs;
+            truePeakOver = m.truePeakDb > m.ceilingDb + 0.1f;
         }
 
         // What the audio actually meets, and where it goes: read once per tick from the same
@@ -536,8 +543,10 @@ public:
                 g.setColour (Dine::accent);
                 g.fillRoundedRectangle (bar.toFloat().withWidth (juce::jmax (2.0f, float (bar.getWidth()) * t)), 2.0f);
             }
-            // the target the planner fits the mix to, so "how close am I" is one glance
-            const float target = (-23.0f + 40.0f) / 40.0f;
+            // The target the planner actually fitted the mix to - the session's own delivery
+            // loudness when it has one - so "how close am I" is one glance and never a guess
+            // about which standard this session is aiming at.
+            const float target = juce::jlimit (0.0f, 1.0f, (targetLufs + 40.0f) / 40.0f);
             g.setColour (juce::Colours::white.withAlpha (0.7f));
             g.fillRect (float (bar.getX()) + float (bar.getWidth()) * target, float (bar.getY()) - 2.0f, 1.0f,
                         float (bar.getHeight()) + 4.0f);
@@ -548,7 +557,17 @@ public:
             g.setFont (Dine::mono (9.0f));
             g.drawText ("SHORT " + shortTermText, feet.removeFromLeft (feet.getWidth() * 3 / 5),
                         juce::Justification::centredLeft, false);
+            g.setColour (truePeakOver ? Dine::crit : Dine::ink3);
             g.drawText ("TP " + truePeakText, feet, juce::Justification::centredRight, false);
+
+            // Master gain reduction, under the loudness it paid for.
+            auto grRow = block.removeFromTop (12);
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::text (8.5f, 600).withExtraKerningFactor (0.09f));
+            g.drawText ("LIMITER", grRow.removeFromLeft (44), juce::Justification::centredLeft);
+            g.setColour (limiterGrDb > 3.0f ? Dine::warn : (limiterGrDb > 0.1f ? Dine::ink2 : Dine::ink4));
+            g.setFont (Dine::mono (9.5f));
+            g.drawText (grText, grRow, juce::Justification::centredRight, false);
             Dine::drawRule (g, col.loudness.withY (col.loudness.getBottom()).withHeight (1), Dine::hairSoft);
         }
 
@@ -738,7 +757,11 @@ public:
         // Gain staging is reserved on every strip that can have it, narrow included: the
         // row holds its place so the sections below line up, and it only speaks when it must.
         const int gainH = kind == Kind::Master ? 0 : narrow ? 14 : 16;
-        const int loudH = (kind == Kind::Master && ! narrow) ? 44 : 0;
+        // The master's loudness block: LUFS-I, the bar against the target, SHORT / TP, and the
+        // limiter's own gain reduction underneath - a mix that only reaches its target because
+        // the limiter is holding 6 dB down is not finished, it is squashed, and that has to be
+        // visible on the console rather than only in the Inspector.
+        const int loudH = (kind == Kind::Master && ! narrow) ? 58 : 0;
         const int insertsH = inserts > 0 ? 12 + inserts * 16 + 4 : 0;
         const int sendsH = sends > 0 ? 12 + sends * 13 + 4 : 0;
         const int panH = onGrid ? 24 : 0;
@@ -955,6 +978,11 @@ public:
     int strip = -1;
     juce::String name, source, levelText { "+0.0" }, peakText, numberText, outText;
     juce::String integratedText { Glyph::dash() }, shortTermText { Glyph::dash() }, truePeakText { Glyph::dash() };
+    // What the master's loudness is being read against, and what it cost: the target this
+    // session aims at, the limiter's current reduction, and whether the true peak is over.
+    juce::String grText { Glyph::dash() };
+    float limiterGrDb = 0.0f, targetLufs = -23.0f;
+    bool truePeakOver = false;
     float peakDb = -120.0f, shortTermLufs = -70.0f;
     juce::Rectangle<int> valueRect;
     Col col;

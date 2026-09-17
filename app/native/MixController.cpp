@@ -19,9 +19,26 @@ MixController::~MixController()
 void MixController::setSession (const MixSession& s)
 {
     session = s;
-    prepared = false;
-    stage = Stage::Setup;
+    // The document has moved ahead of the graph, which is a different thing from having no
+    // graph. The engine keeps running the one it was prepared with until a host calls
+    // prepare(), so the sound carries on.
+    //
+    // This used to clear `prepared`, and `prepared` is what the audio callback checks before
+    // it does anything at all - so assigning one more input in the middle of a service went
+    // silent, and stayed silent until the user happened to press the button that rebuilt the
+    // graph. Losing the sound is never the right answer to an edit that has not reached the
+    // audio yet.
+    graphStale = true;
     plan.reset();
+    tuningStrip = -1;
+    if (! prepared) stage = Stage::Setup;
+    else if (stage == Stage::Listening || stage == Stage::Planning || stage == Stage::Preview)
+    {
+        // A listen or a preview described the graph that is being replaced, so it cannot
+        // stand - but the mix underneath it is still audible and still the user's.
+        capture.abort();
+        stage = restingStage();
+    }
 }
 
 void MixController::setInputName (int strip, const std::string& name)
@@ -39,6 +56,54 @@ void MixController::setInputIcon (int strip, const std::string& icon)
 }
 
 void MixController::setPurpose (MixPurpose p) { session.purpose = p; }
+
+void MixController::setDelivery (DeliveryLoudness d)
+{
+    if (session.delivery == d) return;
+    session.delivery = d;
+    if (onMessage)
+    {
+        const float target = session.deliveryTargetLufs();
+        onMessage (target < 0.0f
+                       ? "The mix will aim at " + std::to_string (int (std::round (target))) + " LUFS. Run TUNE MIX to fit the whole mix to it."
+                       : std::string ("The mix will aim at whatever its purpose asks for. Run TUNE MIX to fit it."));
+    }
+    if (onMixChanged) onMixChanged();
+}
+
+// Everything about the master's level in one answer. The target comes from the session's own
+// delivery setting when it has one, and from the delivery role's standard when it does not,
+// so what the meter is measured against is always the thing TUNE MIX aimed at.
+MixController::MasterLoudness MixController::getMasterLoudness() const
+{
+    MasterLoudness m;
+    const auto targets = Profiles::targets (session.profile, session.masterRole());
+    m.targetLufs = targets.targetLufs;
+    m.toleranceLu = targets.loudnessToleranceLu;
+    m.ceilingDb = targets.truePeakCeilingDb;
+    const float wanted = session.deliveryTargetLufs();
+    if (wanted < 0.0f && targets.loudnessTargetAppropriate)
+    {
+        m.targetLufs = wanted;
+        m.ceilingDb = std::min (m.ceilingDb, wanted >= -15.0f ? -1.0f : -1.5f);
+    }
+    if (! prepared) return m;
+
+    const auto& master = engine.getBus (MixBus::Master);
+    const auto& loud = master.getLoudness();
+    m.known = true;
+    m.integratedLufs = loud.getIntegratedLufs();
+    m.shortTermLufs = loud.getShortTermLufs();
+    m.momentaryLufs = loud.getMomentaryLufs();
+    m.truePeakDb = loud.getTruePeakDb();
+    m.limiterReductionDb = master.getLimiter().getGainReductionDb();
+    // The running mix decides the ceiling that is actually in force; the target above is what
+    // the plan was fitted to. When a hand edit has moved the limiter, the meter says so.
+    const auto& running = getRunning();
+    if (running.master().channel.limiterEnabled) m.ceilingDb = running.master().channel.limiterCeilingDb;
+    m.headroomDb = m.ceilingDb - master.getOutputMeter().getMaxPeakDb();
+    return m;
+}
 void MixController::setProfile (StyleProfileId p) { session.profile = p; }
 
 void MixController::prepare (double sr, int maxBlockSize)
@@ -64,8 +129,14 @@ void MixController::prepare (double sr, int maxBlockSize)
     // from. The reference is a target rather than a measurement of this session, and survives.
     lastCapture = MixCapture::Result {};
     listened = false;
+    // A rebuilt graph is a different mix: an undo step from before it would put the wrong
+    // chain on the wrong input. The chat's answers go with it for the same reason.
+    history.clear();
+    future.clear();
+    tuneLive.clearAnswers();
     stage = engine.getNumStrips() > 0 ? Stage::Ready : Stage::Setup;
     prepared = true;
+    graphStale = false;          // the graph is the document again
     engine.setOutputFeeds (outputs);        // routing survives a rebuild; it belongs to the device, not the mix
     publish();
 }
@@ -92,6 +163,8 @@ MixParameters MixController::compose() const
             raw.buses[size_t (b)].mute = base.buses[size_t (b)].mute;
             raw.buses[size_t (b)].solo = base.buses[size_t (b)].solo;
         }
+        for (int f = 0; f < int (FxSlot::Count); ++f) raw.fx[size_t (f)].solo = base.fx[size_t (f)].solo;
+        raw.monitor = base.monitor;      // the engineer's listen is not part of the mix being bypassed
         return raw;
     }
     return MixMacros::apply (base, macros, engine.getGraph(), session.profile);
@@ -99,8 +172,14 @@ MixParameters MixController::compose() const
 
 void MixController::setOutputFeeds (const OutputFeeds& f)
 {
+    // Moving the broadcast to a different pair of outputs mid-service is the one routing
+    // change that is silent until it is too late. Changing only the *monitor* feed is always
+    // allowed - it is the engineer's own listen and nobody else hears it.
+    if (safety.on && ! onlyMonitorChanged (outputs, f) && liveSafeRefuses (LiveAction::OutputRouting)) return;
     outputs = f;
-    outputs.count = std::max (1, std::min (int (kMaxOutputFeeds), outputs.count));
+    // The broadcast and the engineer's listen are always a real stereo pair, whatever set
+    // them - the sheet, a restored session, or the host wiring up two devices.
+    normaliseOutputs (outputs);
     if (prepared) engine.setOutputFeeds (outputs);
     if (onMixChanged) onMixChanged();        // the session remembers where the cue goes
 }
@@ -108,6 +187,7 @@ void MixController::setOutputFeeds (const OutputFeeds& f)
 void MixController::setBypass (bool on)
 {
     if (bypassed == on) return;
+    if (on && liveSafeRefuses (LiveAction::Bypass)) return;
     bypassed = on;
     publish();                       // the kept mix is not touched, so there is nothing to save
 }
@@ -123,6 +203,7 @@ void MixController::publish()
 
 void MixController::startTuneMix (const ListenSettings& s)
 {
+    if (liveSafeRefuses (LiveAction::Tune)) return;
     startListening (s, -1);
 }
 
@@ -132,6 +213,7 @@ void MixController::startTuneMix (const ListenSettings& s)
 void MixController::startTuneChannel (int strip, const ListenSettings& s)
 {
     if (strip < 0 || strip >= engine.getNumStrips()) return;
+    if (liveSafeRefuses (LiveAction::TuneChannel)) return;
     startListening (s, strip);
 }
 
@@ -178,6 +260,7 @@ void MixController::clearReference()
 void MixController::startReferenceMatch()
 {
     if (! prepared || stage == Stage::Listening || stage == Stage::Planning || liveRun) return;
+    if (liveSafeRefuses (LiveAction::ReferenceMatch)) return;
     if (! listened || ! lastCapture.valid)
     {
         // Nothing heard yet. The listen is the same listen; the reference simply comes with
@@ -247,6 +330,7 @@ void MixController::setReasoningProvider (std::shared_ptr<MixReasoningProvider> 
 void MixController::startTuneLiveMix (const LiveTuneSettings& s)
 {
     if (! prepared || stage == Stage::Listening || stage == Stage::Planning || liveRun) return;
+    if (liveSafeRefuses (LiveAction::TuneLive)) return;
     if (stage == Stage::Preview) keepPlan();     // a new run starts from what is audible now
 
     liveSettings = s;
@@ -257,9 +341,62 @@ void MixController::startTuneLiveMix (const LiveTuneSettings& s)
     TuneLiveCoordinator::Settings ts;
     ts.refinementPass = s.refinementPass;
     ts.userRequest = s.userRequest;
+    ts.variation = s.variation;
+    for (const auto& turn : chat)
+    {
+        if (turn.failed) continue;
+        ts.conversation.push_back ({ turn.fromEngineer, turn.text });
+    }
     tuneLive.setSettings (ts);
     tuneLive.beginListening (session.name);
+
+    // Working from the listen DLIVE already has: the band does not play again, and two
+    // readings are compared against the same performance rather than two different ones.
+    if (s.reuseListen && listened && lastCapture.valid)
+    {
+        MixPlanContext ctx;
+        ctx.session = session;
+        ctx.graph = engine.getGraph();
+        ctx.current = kept;
+        ctx.atCapture = lastCaptureAt;
+        ctx.capture = lastCapture;
+        ctx.reference = reference;
+        stage = Stage::Planning;
+        plan = MixPlanner::plan (ctx);
+        if (! plan || ! plan->valid || plan->stripsHeard == 0)
+        {
+            const std::string headline = plan ? plan->headline : std::string ("MIX: NO SIGNAL");
+            plan.reset();
+            tuneLive.cancel();
+            endTuneLive (headline + " Nothing was changed.", false);
+            return;
+        }
+        ++tuneCount;
+        stage = Stage::Preview;
+        compare = Compare::After;
+        publish();
+        tuneLive.onListenComplete (ctx, *plan);
+        pollTuneLive();
+        return;
+    }
     startListening (s.initial, -1);
+}
+
+void MixController::tryAnotherMix()
+{
+    if (! canTryAnotherMix())
+    {
+        if (onMessage) onMessage ("Nothing has been listened to yet. Run TUNE LIVE MIX first.");
+        return;
+    }
+    auto s = liveSettings;
+    s.variation = liveSettings.variation + 1;
+    s.reuseListen = true;
+    // A second reading is a refinement of a judgement, not of the audio: the verify listen
+    // would ask the band to play again for nothing.
+    s.refinementPass = false;
+    if (onMessage) onMessage ("Another reading of the same listen (" + std::to_string (s.variation) + ")...");
+    startTuneLiveMix (s);
 }
 
 // The proposal becomes the AFTER of an ordinary plan, so BEFORE / AFTER, KEEP, REVERT, the
@@ -303,6 +440,37 @@ void MixController::endTuneLive (const std::string& message, bool keepProposal)
     else stage = Stage::Preview;
     tuningStrip = -1;
     publish();
+
+    // A chat turn answers in the chat, not in a toast that scrolls away: what DLIVE decided,
+    // a line each, is what the engineer reviews before pressing KEEP.
+    if (chatRun)
+    {
+        chatRun = false;
+        ChatTurn reply;
+        reply.fromEngineer = false;
+        reply.applied = keepProposal;
+        reply.failed = ! keepProposal;
+        if (keepProposal)
+        {
+            const auto& intent = tuneLive.getIntent();
+            reply.text = intent.summary.empty() ? std::string ("Here is what that changes.") : intent.summary;
+            for (const auto& line : tuneLive.getReviewLines()) reply.detail.push_back (line);
+            if (plan && plan->noChangeRequired)
+            {
+                reply.text += " Nothing needed changing for that - the mix already does it.";
+                reply.applied = false;
+            }
+        }
+        else
+        {
+            reply.text = message.empty() ? std::string ("DLIVE could not do that.") : message;
+        }
+        chat.push_back (reply);
+        // A request that changed nothing should not leave an undo step that undoes nothing.
+        if (! reply.applied && ! history.empty()) history.pop_back();
+        return;                      // the chat already said it; no toast on top
+    }
+
     if (onMessage && ! message.empty()) onMessage (message);
 }
 
@@ -511,6 +679,10 @@ void MixController::setCompare (Compare c)
 void MixController::keepPlan()
 {
     if (! plan || stage != Stage::Preview) return;
+    if (liveSafeRefuses (LiveAction::KeepPlan)) return;
+    // KEEP replaces the whole mix, which is exactly the kind of change somebody wants a way
+    // back from. A chat turn has already marked its own step, so it does not mark a second.
+    if (! chatRun) markMixChange (isTuningChannel() ? "tune " + getTuningName() : std::string ("TUNE MIX"));
     kept = plan->proposed;
     mixed = true;
     stage = Stage::Mixed;
@@ -522,6 +694,7 @@ void MixController::keepPlan()
 void MixController::revertPlan()
 {
     if (! plan || stage != Stage::Preview) return;
+    if (liveSafeRefuses (LiveAction::RevertPlan)) return;
     kept = plan->before;
     plan.reset();
     tuningStrip = -1;
@@ -547,6 +720,237 @@ void MixController::resetMacros()
     if (onMixChanged) onMixChanged();
 }
 
+// ---------------------------------------------------------------------------
+// Mix history, and AI MIX CHAT
+// ---------------------------------------------------------------------------
+MixController::MixSnapshot MixController::snapshotNow (const std::string& what) const
+{
+    MixSnapshot s;
+    s.mix = kept;
+    s.macros = macros;
+    s.what = what;
+    s.mixedThen = mixed;
+    return s;
+}
+
+void MixController::markMixChange (const std::string& what)
+{
+    if (! prepared) return;
+    history.push_back (snapshotNow (what));
+    if (history.size() > kMaxHistory) history.erase (history.begin());
+    // A new change ends the redo line: there is no going forward to a future that has been
+    // replaced. This is how every undo stack behaves and it is what people expect.
+    future.clear();
+}
+
+void MixController::applySnapshot (const MixSnapshot& s)
+{
+    kept = s.mix;
+    kept.numStrips = std::min (kept.numStrips, engine.getNumStrips());
+    macros = s.macros;
+    mixed = s.mixedThen;
+    // Undoing while a plan is on BEFORE / AFTER would leave a preview of something that no
+    // longer exists. The preview goes; the mix that came back is what is heard.
+    plan.reset();
+    tuningStrip = -1;
+    compare = Compare::After;
+    stage = restingStage();
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::undoMix()
+{
+    if (history.empty())
+    {
+        if (onMessage) onMessage ("There is nothing to undo.");
+        return;
+    }
+    const auto what = history.back().what;
+    future.push_back (snapshotNow (what));
+    const auto back = history.back();
+    history.pop_back();
+    applySnapshot (back);
+    if (onMessage) onMessage (what.empty() ? std::string ("Undone.") : "Undone: " + what + ".");
+}
+
+void MixController::redoMix()
+{
+    if (future.empty())
+    {
+        if (onMessage) onMessage ("There is nothing to redo.");
+        return;
+    }
+    const auto forward = future.back();
+    future.pop_back();
+    history.push_back (snapshotNow (forward.what));
+    applySnapshot (forward);
+    if (onMessage) onMessage (forward.what.empty() ? std::string ("Redone.") : "Redone: " + forward.what + ".");
+}
+
+bool MixController::sendChatRequest (const std::string& text)
+{
+    if (text.find_first_not_of (" \t\n") == std::string::npos) return false;
+    if (! prepared)
+    {
+        if (onMessage) onMessage ("No mix is running yet.");
+        return false;
+    }
+    // The chat is a change to the mix, so LIVE SAFE decides whether it may happen. It is
+    // allowed while locked - each change is asked for by name and shown before it lands -
+    // but everything the reasoning layer proposes is still bounded by the policy.
+    if (liveRun || stage == Stage::Listening || stage == Stage::Planning)
+    {
+        if (onMessage) onMessage ("DLIVE is busy. Wait for it to finish, then ask again.");
+        return false;
+    }
+    if (! canChat())
+    {
+        chat.push_back ({ true, text, {}, false, false });
+        chat.push_back ({ false, "DLIVE has not heard the band yet. Run TUNE MIX (or TUNE LIVE MIX) once, "
+                                 "then ask for anything you like - the chat works from what it heard.", {}, true, false });
+        if (onMessage) onMessage ("Run TUNE MIX first: the chat works from what DLIVE heard.");
+        return false;
+    }
+
+    chat.push_back ({ true, text, {}, false, false });
+
+    LiveTuneSettings s = liveSettings;
+    s.userRequest = text;
+    s.reuseListen = true;         // the band does not play again for every sentence
+    s.refinementPass = false;     // one request, one change, reviewed by the person who asked
+    s.variation = 0;
+    chatRun = true;
+    markMixChange (text);
+    startTuneLiveMix (s);
+    if (! liveRun)
+    {
+        // startTuneLiveMix refused (LIVE SAFE, or nothing heard): take the history entry back
+        // so an undo does not point at a change that never happened.
+        chatRun = false;
+        if (! history.empty()) history.pop_back();
+        chat.push_back ({ false, "That could not be done right now.", {}, true, false });
+        return false;
+    }
+    return true;
+}
+
+// ---- LIVE SAFE ----
+//
+// The lock lives here rather than in the UI. Every way the mix can change - a menu item, a
+// keyboard shortcut, a drag on a fader, a macro, the reasoning layer, the chat - ends up in
+// one of the setters below, and each of them asks the policy first. A guard in a menu
+// handler only covers the menu.
+
+void MixController::setLiveSafe (bool on)
+{
+    if (safety.on == on) return;
+    safety.on = on;
+    if (on)
+    {
+        // Going safe never changes the sound. It does end anything mid-flight that would
+        // have: a listen in progress would land a whole new mix inside the service.
+        if (stage == Stage::Listening || liveRun) abortTuneMix();
+    }
+    if (onMessage)
+        onMessage (on ? std::string ("LIVE SAFE on. ") + liveSafe::lockedSummary() + " " + liveSafe::allowedSummary()
+                      : std::string ("LIVE SAFE off. Everything is available again."));
+}
+
+void MixController::setLiveSafePolicy (const LiveSafePolicy& p) { safety = p; }
+
+liveSafe::Verdict MixController::checkLiveSafe (LiveAction a) const { return liveSafe::check (safety, a); }
+
+bool MixController::liveSafeRefuses (LiveAction a)
+{
+    const auto v = checkLiveSafe (a);
+    if (v.allowed) return false;
+    if (onMessage) onMessage (v.reason);
+    return true;
+}
+
+// ---- The monitor (solo) bus ----
+
+bool MixController::anySolo() const noexcept { return numSoloed() > 0; }
+
+int MixController::numSoloed() const noexcept
+{
+    int n = 0;
+    for (int i = 0; i < kept.numStrips; ++i) if (kept.strips[size_t (i)].solo) ++n;
+    for (int b = 0; b < int (MixBus::Master); ++b) if (kept.buses[size_t (b)].solo) ++n;
+    for (int f = 0; f < int (FxSlot::Count); ++f) if (kept.fx[size_t (f)].solo) ++n;
+    return n;
+}
+
+void MixController::setSoloMode (SoloMode m)
+{
+    if (kept.monitor.mode == m) return;
+    kept.monitor.mode = m;
+    if (plan) { plan->proposed.monitor.mode = m; plan->before.monitor.mode = m; }
+    publish();
+    if (onMessage)
+        onMessage (m == SoloMode::InPlace
+                       ? std::string ("Careful: solo is now heard by everyone, not just you. That is for mixing a "
+                                      "recording, not for a service.")
+                       : std::string ("Solo goes to your own device only. The room and the stream never hear it."));
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::setSoloPoint (SoloPoint pt)
+{
+    if (kept.monitor.point == pt) return;
+    kept.monitor.point = pt;
+    if (plan) { plan->proposed.monitor.point = pt; plan->before.monitor.point = pt; }
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::setMonitorGain (float db)
+{
+    kept.monitor.gainDb = clamp (db, -60.0f, 12.0f);
+    if (plan) { plan->proposed.monitor.gainDb = kept.monitor.gainDb; plan->before.monitor.gainDb = kept.monitor.gainDb; }
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::setMonitorDim (bool on)
+{
+    if (kept.monitor.dim == on) return;
+    kept.monitor.dim = on;
+    if (plan) { plan->proposed.monitor.dim = on; plan->before.monitor.dim = on; }
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::setMonitorMute (bool on)
+{
+    if (kept.monitor.mute == on) return;
+    kept.monitor.mute = on;
+    if (plan) { plan->proposed.monitor.mute = on; plan->before.monitor.mute = on; }
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::setMonitorSource (MixBus b)
+{
+    if (b == MixBus::Count || kept.monitor.source == b) return;
+    kept.monitor.source = b;
+    if (plan) { plan->proposed.monitor.source = b; plan->before.monitor.source = b; }
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
+void MixController::setFxSolo (FxSlot slot, bool solo)
+{
+    if (int (slot) < 0 || int (slot) >= int (FxSlot::Count)) return;
+    kept.fx[size_t (slot)].solo = solo;
+    if (plan && stage == Stage::Preview) plan->proposed.fx[size_t (slot)].solo = solo;
+    publish();
+    if (solo && ! hasMonitorOutput() && kept.monitor.mode == SoloMode::Monitor && onMessage)
+        onMessage ("Solo has nowhere to go yet. Pick the device you listen on: Outputs > Solo.");
+    if (onMixChanged) onMixChanged();
+}
+
 // ---- Advanced edits ----
 
 namespace
@@ -557,7 +961,11 @@ namespace
 void MixController::setStripFader (int strip, float db)
 {
     if (! validStrip (kept, strip)) return;
-    kept.strips[size_t (strip)].faderDb = clamp (db, -60.0f, 12.0f);
+    float want = clamp (db, -60.0f, 12.0f);
+    liveSafe::Verdict v;
+    want = liveSafe::limitStepDb (safety, LiveAction::Fader, kept.strips[size_t (strip)].faderDb, want, v);
+    if (v.limited && onMessage) onMessage (v.reason);
+    kept.strips[size_t (strip)].faderDb = want;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].faderDb = kept.strips[size_t (strip)].faderDb;
     publish();
     if (onMixChanged) onMixChanged();
@@ -566,7 +974,11 @@ void MixController::setStripFader (int strip, float db)
 void MixController::setStripPan (int strip, float pan)
 {
     if (! validStrip (kept, strip)) return;
-    kept.strips[size_t (strip)].pan = clamp (pan, -1.0f, 1.0f);
+    float want = clamp (pan, -1.0f, 1.0f);
+    liveSafe::Verdict v;
+    want = liveSafe::limitStep (safety, LiveAction::Pan, kept.strips[size_t (strip)].pan, want, v);
+    if (v.limited && onMessage) onMessage (v.reason);
+    kept.strips[size_t (strip)].pan = want;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].pan = kept.strips[size_t (strip)].pan;
     publish();
     if (onMixChanged) onMixChanged();
@@ -575,7 +987,11 @@ void MixController::setStripPan (int strip, float pan)
 void MixController::setStripInputGain (int strip, float db)
 {
     if (! validStrip (kept, strip)) return;
-    kept.strips[size_t (strip)].inputGainDb = clamp (db, -24.0f, 24.0f);
+    float want = clamp (db, -24.0f, 24.0f);
+    liveSafe::Verdict v;
+    want = liveSafe::limitStepDb (safety, LiveAction::InputGain, kept.strips[size_t (strip)].inputGainDb, want, v);
+    if (v.limited && onMessage) onMessage (v.reason);
+    kept.strips[size_t (strip)].inputGainDb = want;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].inputGainDb = kept.strips[size_t (strip)].inputGainDb;
     publish();
     if (onMixChanged) onMixChanged();
@@ -596,13 +1012,25 @@ void MixController::setStripSolo (int strip, bool solo)
     kept.strips[size_t (strip)].solo = solo;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].solo = solo;
     publish();
+    // Solo is safe (it never reaches the master) but it is only *useful* when a monitor
+    // output exists. Saying so once beats an S key that appears to do nothing.
+    if (solo && ! hasMonitorOutput() && kept.monitor.mode == SoloMode::Monitor && onMessage)
+        onMessage ("Solo has nowhere to go yet. Pick the device you listen on: Outputs > Solo.");
     if (onMixChanged) onMixChanged();
 }
 
 void MixController::setStripSend (int strip, FxSlot slot, float db)
 {
     if (! validStrip (kept, strip)) return;
-    kept.strips[size_t (strip)].sendDb[size_t (slot)] = db <= -60.0f ? kSilenceDb : clamp (db, -60.0f, 6.0f);
+    float want = db <= -60.0f ? kSilenceDb : clamp (db, -60.0f, 6.0f);
+    if (safety.on && want > kSilenceDb)
+    {
+        liveSafe::Verdict v;
+        const float from = kept.strips[size_t (strip)].sendDb[size_t (slot)];
+        want = liveSafe::limitStepDb (safety, LiveAction::Send, from > kSilenceDb ? from : -60.0f, want, v);
+        if (v.limited && onMessage) onMessage (v.reason);
+    }
+    kept.strips[size_t (strip)].sendDb[size_t (slot)] = want;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].sendDb[size_t (slot)] = kept.strips[size_t (strip)].sendDb[size_t (slot)];
     publish();
     if (onMixChanged) onMixChanged();
@@ -610,7 +1038,13 @@ void MixController::setStripSend (int strip, FxSlot slot, float db)
 
 void MixController::setBusFader (MixBus bus, float db)
 {
-    kept.buses[size_t (bus)].faderDb = clamp (db, -60.0f, 12.0f);
+    if (bus == MixBus::Count) return;
+    float want = clamp (db, -60.0f, 12.0f);
+    liveSafe::Verdict v;
+    want = liveSafe::limitStepDb (safety, bus == MixBus::Master ? LiveAction::MasterFader : LiveAction::Fader,
+                                  kept.buses[size_t (bus)].faderDb, want, v);
+    if (v.limited && onMessage) onMessage (v.reason);
+    kept.buses[size_t (bus)].faderDb = want;
     if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].faderDb = kept.buses[size_t (bus)].faderDb;
     publish();
     if (onMixChanged) onMixChanged();
@@ -647,12 +1081,15 @@ void MixController::setBusSolo (MixBus bus, bool solo)
     kept.buses[size_t (bus)].solo = solo;
     if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].solo = solo;
     publish();
+    if (solo && ! hasMonitorOutput() && kept.monitor.mode == SoloMode::Monitor && onMessage)
+        onMessage ("Solo has nowhere to go yet. Pick the device you listen on: Outputs > Solo.");
     if (onMixChanged) onMixChanged();
 }
 
 void MixController::setStripChannel (int strip, const ChannelParameters& c)
 {
     if (! validStrip (kept, strip)) return;
+    markMixChange ("a processing change");
     kept.strips[size_t (strip)].channel = c;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].channel = c;
     publish();
@@ -662,6 +1099,7 @@ void MixController::setStripChannel (int strip, const ChannelParameters& c)
 void MixController::setBusChannel (MixBus bus, const ChannelParameters& c)
 {
     if (bus == MixBus::Count) return;
+    markMixChange (std::string (mixBusName (bus)) + " processing");
     kept.buses[size_t (bus)].channel = c;
     if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].channel = c;
     publish();
@@ -675,10 +1113,13 @@ void MixController::clearSolos()
         if (kept.strips[size_t (i)].solo) { kept.strips[size_t (i)].solo = false; changed = true; }
     for (int b = 0; b < int (MixBus::Count); ++b)
         if (kept.buses[size_t (b)].solo) { kept.buses[size_t (b)].solo = false; changed = true; }
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+        if (kept.fx[size_t (f)].solo) { kept.fx[size_t (f)].solo = false; changed = true; }
     if (plan && stage == Stage::Preview)
     {
         for (int i = 0; i < plan->proposed.numStrips; ++i) plan->proposed.strips[size_t (i)].solo = false;
         for (int b = 0; b < int (MixBus::Count); ++b) plan->proposed.buses[size_t (b)].solo = false;
+        for (int f = 0; f < int (FxSlot::Count); ++f) plan->proposed.fx[size_t (f)].solo = false;
     }
     if (! changed) return;
     publish();

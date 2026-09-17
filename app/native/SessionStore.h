@@ -23,7 +23,10 @@ namespace livemix
 // Version 1 documents (a single file, no timeline) still open.
 namespace SessionStore
 {
-    inline constexpr int kVersion = 3;   // 3 added the SPEECH group bus between VOCALS and MASTER
+    // 3 added the SPEECH group bus between VOCALS and MASTER; 4 added AMBIENCE the same way
+    // (and with it the monitor / solo bus, which is new state rather than a moved index).
+    // Every earlier version still opens: busFromStoredIndex remaps whatever layout it finds.
+    inline constexpr int kVersion = 4;
 
     struct Document
     {
@@ -44,6 +47,11 @@ namespace SessionStore
         // The measurement is what is stored, not the file, so reopening a service a year later
         // still knows what it was aimed at even if the song has been moved off the machine.
         ReferenceProfile reference;
+        // How wide the TRACKS channel panel was left. A layout preference rather than part of
+        // the mix, stored with the session for the same reason a track's row height is: an
+        // engineer sets it once for a room full of long channel names and expects it back.
+        // 0 = never set, so the page uses its own default.
+        int trackPanelWidth = 0;
     };
 
     struct Listing

@@ -1,4 +1,5 @@
 #include "MixContext.h"
+#include <cstdint>
 #include "DspCapabilityRegistry.h"
 #include "Profiles/MixProfileData.h"
 #include "Profiles/StyleProfile.h"
@@ -362,6 +363,22 @@ MixContext buildMixContext (const MixPlanContext& ctx, const MixPlan& plan)
         if (! r.what.empty()) out.baselineDecisions.push_back (r.what);
 
     return out;
+}
+
+
+// FNV-1a over the canonical document. Written out rather than pulled from a library so the
+// number is the same everywhere: a fingerprint that depends on the standard library's hash
+// is a fingerprint that changes when the toolchain does, and then nothing is repeatable.
+std::uint64_t MixContext::fingerprint() const
+{
+    const std::string text = write (false);
+    std::uint64_t h = 1469598103934665603ull;
+    for (unsigned char c : text)
+    {
+        h ^= std::uint64_t (c);
+        h *= 1099511628211ull;
+    }
+    return h;
 }
 
 } // namespace livemix

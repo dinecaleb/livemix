@@ -28,6 +28,8 @@ set(DLIVE_APP_SOURCES
     ${CMAKE_SOURCE_DIR}/src/Intelligence/AISettings.cpp
     ${CMAKE_SOURCE_DIR}/src/Intelligence/HttpJson.cpp
     native/SessionStore.cpp
+    native/InputMapStore.cpp
+    native/MonitorDevicePick.cpp
     native/MixBounce.cpp
     native/ClipSource.cpp
     native/DawEngine.cpp
@@ -46,6 +48,7 @@ set(DLIVE_UI_SOURCES
     ui/OutputsSheet.cpp
     ui/ChannelTuneSheet.cpp
     ui/ReferenceSheet.cpp
+    ui/ChatSheet.cpp
     ui/LivePage.cpp
     ui/AdvancedPage.cpp
     ui/ChainEditor.cpp
@@ -74,7 +77,7 @@ juce_add_gui_app(DLive
     HARDENED_RUNTIME_ENABLED TRUE
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "DLIVE mixes the inputs of your audio device.")
-target_sources(DLive PRIVATE Main.cpp native/AudioHost.cpp ${DLIVE_UI_SOURCES})
+target_sources(DLive PRIVATE Main.cpp native/AudioHost.cpp native/MonitorDevice.cpp ${DLIVE_UI_SOURCES})
 target_include_directories(DLive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(DLive PRIVATE ${DLIVE_DEFINES}
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:DLive,JUCE_PRODUCT_NAME>"
@@ -105,7 +108,7 @@ if (LIVEMIX_BUILD_TESTS)
 endif()
 
 # Real-device soak check (opens an audio device through AudioHost, runs the engine, reports).
-add_executable(dlive_device_check Tools/DeviceCheck.cpp native/AudioHost.cpp ${DLIVE_APP_SOURCES})
+add_executable(dlive_device_check Tools/DeviceCheck.cpp native/AudioHost.cpp native/MonitorDevice.cpp ${DLIVE_APP_SOURCES})
 target_include_directories(dlive_device_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(dlive_device_check PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)

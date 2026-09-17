@@ -9,6 +9,7 @@
 #include "ui/MainView.h"
 #include <cstdio>
 #include <random>
+#include <chrono>
 #include <thread>
 
 using namespace livemix;
@@ -207,9 +208,126 @@ namespace
     };
 }
 
+// ---------------------------------------------------------------------------
+// FRAME COST
+//
+// "It feels slower than a DAW should" is not something you can fix by guessing, and a small
+// demo session will never show it. This mode builds a realistically large console - 48
+// channels, a timeline with a clip on every one of them - and measures what one frame of
+// each workspace actually costs: the timer tick (meters, state, whatever each page decides
+// has changed) and the paint that follows it.
+//
+// Run it before and after a change. The numbers are wall-clock milliseconds per frame on
+// this machine; what matters is the direction, and that no workspace is anywhere near the
+// 33 ms a 30 Hz tick has to fit inside.
+//
+//   dlive_ui_snapshots --frames [channels=48] [frames=120]
+// ---------------------------------------------------------------------------
+static int measureFrames (int channels, int frames)
+{
+    Rig rig;
+    auto& view = *rig.view;
+    rig.services.openDevices ("Dante Virtual Soundcard", "Dante Virtual Soundcard");
+
+    // A console the size of a real church desk: a full kit, a band, a choir, the room.
+    MixSession session;
+    session.name = "Frame cost";
+    const ChannelRole roles[] = {
+        ChannelRole::KickIn, ChannelRole::SnareTop, ChannelRole::HiHat, ChannelRole::RackTom,
+        ChannelRole::FloorTom, ChannelRole::Overhead, ChannelRole::Room, ChannelRole::BassDI,
+        ChannelRole::Piano, ChannelRole::Organ, ChannelRole::SynthPad, ChannelRole::AcousticGuitar,
+        ChannelRole::ElectricGuitarClean, ChannelRole::SaxTenor, ChannelRole::LeadVocal,
+        ChannelRole::BackingVocal, ChannelRole::Choir, ChannelRole::Speech, ChannelRole::CrowdMic
+    };
+    for (int i = 0; i < channels; ++i)
+    {
+        InputAssignment a;
+        a.role = roles[size_t (i) % (sizeof (roles) / sizeof (roles[0]))];
+        // Long names on purpose: this is what the channel panel has to lay out, and it is
+        // exactly the case the panel's width was made adjustable for.
+        a.name = (juce::String (channelRoleName (a.role)) + " - stage right " + juce::String (i + 1)).toStdString();
+        a.inputA = i;
+        session.inputs.push_back (a);
+    }
+    rig.controller.setSession (session);
+    rig.services.reconfigure();          // the same three steps the application takes
+    rig.pump (120);
+
+    struct Result { const char* name; double tickMs; double steadyMs; double fullMs; };
+    std::vector<Result> results;
+
+    // Deliberately no window. Timing a real one on macOS measures the window server's vsync,
+    // not DLIVE: the same run varies by an order of magnitude. Rendering into an image
+    // measures only this application's own drawing, which is the thing a performance pass can
+    // actually change and the thing a regression would show up in.
+
+    const MainView::Page pages[] = { MainView::Page::Tracks, MainView::Page::Mixer,
+                                     MainView::Page::Tune, MainView::Page::Live, MainView::Page::Inspector };
+    const char* names[] = { "TRACKS", "MIXER", "TUNE", "LIVE", "INSPECTOR" };
+
+    for (size_t p = 0; p < sizeof (pages) / sizeof (pages[0]); ++p)
+    {
+        view.showPage (pages[p]);
+        rig.pump (120);
+
+        juce::Image canvas (juce::Image::ARGB, view.getWidth(), view.getHeight(), true);
+
+        // What one timer tick costs: every refresh() on this page, with real audio underneath
+        // so the meters really move and the pages really have new numbers to show.
+        double tickTotal = 0.0;
+        for (int f = 0; f < frames; ++f)
+        {
+            rig.feed (0.03);
+            const auto t0 = std::chrono::steady_clock::now();
+            rig.pump (1);
+            tickTotal += std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - t0).count();
+        }
+
+        // What painting the whole window costs. This is the price of a page switch or a
+        // resize - and it is also the price a page pays *every frame* if its refresh() calls
+        // repaint() on itself rather than on the few things that moved. That is the number to
+        // keep an eye on: it is the ceiling every other frame is measured against.
+        double fullTotal = 0.0;
+        for (int f = 0; f < 5; ++f)
+        {
+            const auto a = std::chrono::steady_clock::now();
+            {
+                juce::Graphics g (canvas);
+                view.paint (g);
+                for (auto* child : view.getChildren())
+                    if (child->isVisible() && ! child->getBounds().isEmpty())
+                    {
+                        juce::Graphics::ScopedSaveState save (g);
+                        g.reduceClipRegion (child->getBounds());
+                        g.setOrigin (child->getPosition());
+                        child->paintEntireComponent (g, true);
+                    }
+            }
+            fullTotal += std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - a).count();
+        }
+
+        results.push_back ({ names[p], tickTotal / frames, 0.0, fullTotal / 5.0 });
+    }
+
+    std::printf ("\nFRAME COST  (%d channels, %d frames, %d x %d)\n",
+                 channels, frames, view.getWidth(), view.getHeight());
+    std::printf ("  %-11s %10s %14s\n", "workspace", "tick ms", "full repaint");
+    for (const auto& r : results)
+        std::printf ("  %-11s %9.2f %13.2f%s\n", r.name, r.tickMs, r.fullMs,
+                     (r.tickMs + r.fullMs) > 33.0 ? "   a page that repaints itself whole would miss the frame" : "");
+    std::printf ("  tick = one refresh() of this page. full repaint = the whole window.\n");
+    std::printf ("  a page must not call repaint() on itself per tick: at these sizes that alone\n"
+                 "  spends the whole 33.3 ms a 30 Hz frame has.\n");
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+    if (argc > 1 && juce::String (argv[1]) == "--frames")
+        return measureFrames (argc > 2 ? juce::String (argv[2]).getIntValue() : 48,
+                              argc > 3 ? juce::String (argv[3]).getIntValue() : 120);
+
     const juce::File dir (argc > 1 ? juce::String (argv[1]) : juce::File::getCurrentWorkingDirectory().getChildFile ("app-snapshots").getFullPathName());
     dir.createDirectory();
 

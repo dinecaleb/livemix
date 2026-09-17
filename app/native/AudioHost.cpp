@@ -50,6 +50,26 @@ juce::Array<AudioHost::DeviceInfo> AudioHost::listOutputDevices()
     return out;
 }
 
+void AudioHost::rescanDevices()
+{
+    for (auto* type : deviceManager.getAvailableDeviceTypes())
+        if (type != nullptr) type->scanForDevices();
+}
+
+bool AudioHost::waitForOutputDevice (const juce::String& name, int timeoutMs)
+{
+    if (name.isEmpty()) return false;
+    const auto deadline = juce::Time::getMillisecondCounter() + (juce::uint32) juce::jmax (0, timeoutMs);
+    for (;;)
+    {
+        rescanDevices();
+        for (auto* type : deviceManager.getAvailableDeviceTypes())
+            if (type != nullptr && type->getDeviceNames (false).contains (name)) return true;
+        if (juce::Time::getMillisecondCounter() >= deadline) return false;
+        juce::Thread::sleep (80);
+    }
+}
+
 juce::String AudioHost::open (const juce::String& inputDevice, const juce::String& outputDevice, double preferredSampleRate, int preferredBufferSize)
 {
     close();

@@ -204,6 +204,9 @@ const SourceStrategy& strategyFor (RoleFamily family)
         case RoleFamily::ElectricBass:
         case RoleFamily::SynthBass:
         case RoleFamily::BassBus:  return bassStrategyFor (family);
+        case RoleFamily::Ambience:
+        case RoleFamily::AmbienceBus: return ambienceStrategyFor (family);
+        case RoleFamily::Saxophone:   return saxophoneStrategy();
         case RoleFamily::Count:
         default:                   return bus;
     }

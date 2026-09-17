@@ -404,3 +404,166 @@ TEST_CASE ("MixPlanner: a session without a lead vocal or bass makes no vocal or
     CHECK (! hasRelationship (plan, "Backing vocals"));
     CHECK (plan.buses[size_t (MixBus::Master)].tune.valid);
 }
+
+// ---------------------------------------------------------------------------
+// HOW LOUD THE FINISHED MIX SHOULD BE
+//
+// The master was quiet because "Church Broadcast" silently meant EBU R128 - -23 LUFS,
+// correct for a television feed and about 9 dB under what a church stream is expected to
+// be - and nothing in the app said so. The target is a setting now, and it is the number
+// the whole gain structure is fitted against rather than a gain added at the end.
+// ---------------------------------------------------------------------------
+TEST_CASE ("MixPlanner: the delivery loudness moves the whole gain structure, and stays idempotent")
+{
+    auto session = band();
+    Rig quiet (session);
+    auto in = bandAudio();
+    const auto cap = quiet.listen (in);
+    auto broadcastCtx = quiet.context (cap);
+    const auto broadcast = MixPlanner::plan (broadcastCtx);
+    REQUIRE (broadcast.valid);
+
+    // The same band, the same listen, aimed at a streaming loudness instead.
+    session.delivery = DeliveryLoudness::StreamingLoud;
+    auto loudCtx = broadcastCtx;
+    loudCtx.session = session;
+    const auto loud = MixPlanner::plan (loudCtx);
+    REQUIRE (loud.valid);
+
+    const auto& before = broadcast.proposed.master().channel;
+    const auto& after = loud.proposed.master().channel;
+
+    // The master ends up meaningfully louder: -14 LUFS against -23 is nine decibels.
+    CHECK (after.outputTrimDb > before.outputTrimDb + 6.0f);
+    // ...and it is not achieved by asking the limiter to do it. The ceiling comes *down*,
+    // because a louder target through a lossy encoder needs more true-peak room, not less.
+    CHECK (after.limiterEnabled);
+    CHECK (after.limiterCeilingDb <= -1.0f);
+    CHECK (after.limiterCeilingDb <= before.limiterCeilingDb + 1.5f);
+
+    // Nothing about the balance moved: the delivery target is about level, not about who is
+    // loud inside the mix.
+    for (int i = 0; i < loud.proposed.numStrips; ++i)
+        CHECK_NEAR (loud.proposed.strips[size_t (i)].faderDb, broadcast.proposed.strips[size_t (i)].faderDb, 0.01);
+
+    // And re-tuning the same listen with the new target still says NO CHANGE REQUIRED.
+    auto again = loudCtx;
+    again.current = loud.proposed;
+    const auto second = MixPlanner::plan (again);
+    REQUIRE (second.valid);
+    if (! second.noChangeRequired) dumpDifferences (loud, second);
+    CHECK (second.noChangeRequired);
+
+    // FromPurpose is what every session made before the setting existed had, and it is the
+    // profile's own standard: identical to the plan above it.
+    session.delivery = DeliveryLoudness::FromPurpose;
+    auto defaultCtx = broadcastCtx;
+    defaultCtx.session = session;
+    const auto fromPurpose = MixPlanner::plan (defaultCtx);
+    CHECK (MixPlanner::countParameterChanges (fromPurpose.proposed, broadcast.proposed) == 0);
+}
+
+// ---------------------------------------------------------------------------
+// Crowd / ambience microphones
+// ---------------------------------------------------------------------------
+TEST_CASE ("MixPlanner: a crowd microphone gets its own group, is never gated, and sits under the band")
+{
+    auto session = band();
+    session.inputs.push_back ({ "Crowd", ChannelRole::CrowdMic, 15, 16 });
+    Rig rig (session);
+
+    // The band, plus a wide, quiet, continuous room on 15/16 - the shape a congregation has.
+    testsig::Buffer in (17, int (kSr * 8));
+    {
+        auto full = bandAudio();
+        for (size_t c = 0; c < full.data.size() && c < in.data.size(); ++c) in.data[c] = full.data[c];
+    }
+    noise (in.data[15], 0.05f, 31);
+    noise (in.data[16], 0.05f, 32);
+
+    const auto cap = rig.listen (in);
+    auto ctx = rig.context (cap);
+    const auto plan = MixPlanner::plan (ctx);
+    REQUIRE (plan.valid);
+
+    const int crowd = stripIndex (plan, "Crowd");
+    REQUIRE (crowd >= 0);
+    CHECK (ctx.graph.strips[size_t (crowd)].bus == MixBus::Ambience);
+
+    const auto& chain = plan.proposed.strips[size_t (crowd)].channel;
+    // Never gated: on a room microphone the quiet between the sounds is the sound.
+    CHECK (! chain.gateEnabled);
+    // High-passed well above a stage source: a building's own low end carries nothing.
+    CHECK (chain.hpfEnabled);
+    CHECK (chain.hpfHz >= 90.0f);
+    // Not transient-shaped, and not saturated: neither belongs on a room.
+    CHECK (! chain.transientEnabled);
+    CHECK (! chain.satEnabled);
+
+    // It sits under the band rather than competing with it.
+    const int lead = stripIndex (plan, "Lead");
+    CHECK (plan.proposed.strips[size_t (crowd)].faderDb < plan.proposed.strips[size_t (lead)].faderDb + 6.0f);
+
+    // Re-tuning the same listen changes nothing, ambience included.
+    ctx.current = plan.proposed;
+    const auto second = MixPlanner::plan (ctx);
+    if (! second.noChangeRequired) dumpDifferences (plan, second);
+    CHECK (second.noChangeRequired);
+}
+
+// ---------------------------------------------------------------------------
+// Saxophone
+// ---------------------------------------------------------------------------
+TEST_CASE ("MixPlanner: a saxophone is a horn, not a keyboard")
+{
+    auto session = band();
+    session.inputs.push_back ({ "Sax", ChannelRole::SaxTenor, 15, -1 });
+    Rig rig (session);
+
+    testsig::Buffer in (16, int (kSr * 8));
+    {
+        auto full = bandAudio();
+        for (size_t c = 0; c < full.data.size() && c < in.data.size(); ++c) in.data[c] = full.data[c];
+    }
+    // A tenor's range, played in phrases with a hard honk at 1.2 kHz - the thing that makes a
+    // sax a sax to mix - and real range between a held note and a wailed one.
+    for (int phrase = 0; phrase < 4; ++phrase)
+    {
+        const float from = float (phrase) * 2.0f;
+        const float loud = phrase % 2 == 0 ? 1.0f : 0.45f;
+        sine (in.data[15], 220.0f, 0.30f * loud, from, from + 1.4f);
+        sine (in.data[15], 1200.0f, 0.42f * loud, from, from + 1.4f);
+        sine (in.data[15], 3300.0f, 0.10f * loud, from, from + 1.4f);
+    }
+
+    const auto cap = rig.listen (in);
+    auto ctx = rig.context (cap);
+    const auto plan = MixPlanner::plan (ctx);
+    REQUIRE (plan.valid);
+
+    const int sax = stripIndex (plan, "Sax");
+    REQUIRE (sax >= 0);
+    // It is a musical source, so it joins MUSIC - but it is tuned by its own family.
+    CHECK (ctx.graph.strips[size_t (sax)].bus == MixBus::Music);
+    CHECK (roleFamily (session.inputs.back().role) == RoleFamily::Saxophone);
+
+    const auto& chain = plan.proposed.strips[size_t (sax)].channel;
+    // A sustained source is never expanded: a horn player's breath between phrases is the player.
+    CHECK (! chain.gateEnabled);
+    // The high-pass sits under the horn and never above 0.8x of its lowest note.
+    CHECK (chain.hpfEnabled);
+    CHECK (chain.hpfHz <= 0.8f * 220.0f + 0.5f);
+    // The honk is cut somewhere in the horn's own range rather than shelved away.
+    bool honkCut = false;
+    for (const auto& b : chain.correctiveBands)
+        if (b.enabled && b.gainDb < -0.5f && b.freqHz >= 700.0f && b.freqHz <= 3000.0f) honkCut = true;
+    CHECK (honkCut);
+    // It is compressed like a horn, not like a piano.
+    CHECK (chain.compEnabled);
+    CHECK (chain.compRatio >= 2.5f);
+
+    ctx.current = plan.proposed;
+    const auto second = MixPlanner::plan (ctx);
+    if (! second.noChangeRequired) dumpDifferences (plan, second);
+    CHECK (second.noChangeRequired);
+}

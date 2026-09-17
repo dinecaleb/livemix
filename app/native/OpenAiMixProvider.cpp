@@ -122,6 +122,19 @@ juce::String OpenAiMixProvider::buildRequestBody (const MixReasoningRequest& req
         user << "Give the sonic intent for this mix. Leave alone anything that does not need changing.\n";
         if (! request.userRequest.empty())
             user << "\nThe engineer also asked for this, in their own words: \"" << juce::String (request.userRequest) << "\"\n";
+        // Repeatability is part of the brief, not a setting. The same band on the same Sunday
+        // has to get the same mix, or nobody can learn what DLIVE does. A different reading is
+        // only ever asked for by name.
+        if (request.variation <= 0)
+            user << "\nThis is the primary mix decision for this listen. Be repeatable: given these same "
+                    "measurements you should reach these same conclusions. Choose the most defensible "
+                    "reading, not an interesting one.\n";
+        else
+            user << "\nThe engineer has asked for ALTERNATIVE READING " << request.variation
+                 << " of the same listen. The measurements have not changed - your interpretation of them "
+                    "should. Take a different defensible view of this band (a different balance of "
+                    "intimacy against size, of clarity against warmth) and say in the summary what makes "
+                    "this reading different from the obvious one. It must still be a professional mix.\n";
     }
 
     auto* schemaWrapper = new juce::DynamicObject();
@@ -149,7 +162,24 @@ juce::String OpenAiMixProvider::buildRequestBody (const MixReasoningRequest& req
     auto* body = new juce::DynamicObject();
     body->setProperty ("model", settings.model.trim());
     body->setProperty ("max_completion_tokens", 8000);
-    if (isReasoningModel (settings.model)) body->setProperty ("reasoning_effort", settings.effort);
+    if (isReasoningModel (settings.model))
+    {
+        body->setProperty ("reasoning_effort", settings.effort);
+        // A reasoning model rejects a temperature other than its default, so the only lever
+        // left is the seed - which is exactly the lever that matters.
+    }
+    else
+    {
+        // Sampling is where "the same band, a different mix every time" comes from. The
+        // primary mix asks for none of it; an alternative reading asks for a little, and even
+        // then the seed keeps *that* reading repeatable.
+        body->setProperty ("temperature", request.variation > 0 ? 0.7 : 0.0);
+        body->setProperty ("top_p", 1.0);
+    }
+    // The seed is the fingerprint of this exact listen (MixContext::fingerprint), so the same
+    // audio asks the same question with the same seed. It is a best effort on the provider's
+    // side - which is why DLIVE also caches the answer rather than trusting it alone.
+    body->setProperty ("seed", juce::var ((juce::int64) (request.seed & 0x7FFFFFFFFFFFull)));
     body->setProperty ("response_format", juce::var (format));
     body->setProperty ("messages", messages);
     return juce::JSON::toString (juce::var (body), true);

@@ -10,7 +10,12 @@ namespace
 {
     // The ruler is one band: the loop strip along its top, the marker lane inside it, and the
     // ticks along its foot - so a moment, a loop and a bar line are read in one place.
-    constexpr int kHeaderWidth = 212;
+    // The channel panel's width is now the engineer's, not a constant (see TracksPage.h):
+    // these are only what it may be set to. 212 is what it used to be and is still the default.
+    constexpr int kDefaultHeaderWidth = 212;
+    constexpr int kMinHeaderWidth = 128;
+    constexpr int kMaxHeaderWidth = 560;
+    constexpr int kDividerGrip = 4;        // how close the pointer has to be to grab it
     constexpr int kToolbarHeight = 36;
     constexpr int kRulerHeight = 46;
     constexpr int kLoopStrip = 15;         // the top of the ruler: drag here to mark a loop
@@ -215,18 +220,18 @@ juce::Rectangle<int> TracksPage::toolbarArea() const
 
 juce::Rectangle<int> TracksPage::rulerArea() const
 {
-    return getLocalBounds().withTrimmedLeft (kHeaderWidth).withTrimmedTop (kToolbarHeight).withHeight (kRulerHeight);
+    return getLocalBounds().withTrimmedLeft (headerWidth).withTrimmedTop (kToolbarHeight).withHeight (kRulerHeight);
 }
 
 juce::Rectangle<int> TracksPage::markerArea() const
 {
-    return getLocalBounds().withTrimmedLeft (kHeaderWidth)
+    return getLocalBounds().withTrimmedLeft (headerWidth)
                            .withTrimmedTop (kToolbarHeight + kMarkerTop).withHeight (kMarkerHeight);
 }
 
 juce::Rectangle<int> TracksPage::lanesArea() const
 {
-    return getLocalBounds().withTrimmedLeft (kHeaderWidth).withTrimmedTop (lanesTop())
+    return getLocalBounds().withTrimmedLeft (headerWidth).withTrimmedTop (lanesTop())
                            .withTrimmedBottom (ChainStrip::height);
 }
 
@@ -245,17 +250,17 @@ double TracksPage::gridSeconds() const
 
 int TracksPage::sampleToX (juce::int64 sample) const
 {
-    return kHeaderWidth + int (double (sample) / samplesPerPixel() - scrollX);
+    return headerWidth + int (double (sample) / samplesPerPixel() - scrollX);
 }
 
 juce::int64 TracksPage::xToSample (int x) const
 {
-    return juce::jmax ((juce::int64) 0, juce::int64 ((double (x - kHeaderWidth) + scrollX) * samplesPerPixel()));
+    return juce::jmax ((juce::int64) 0, juce::int64 ((double (x - headerWidth) + scrollX) * samplesPerPixel()));
 }
 
 TracksPage::ClipRef TracksPage::clipAt (juce::Point<int> p) const
 {
-    if (p.x < kHeaderWidth || p.y < lanesTop()) return {};
+    if (p.x < headerWidth || p.y < lanesTop()) return {};
     const int track = trackAtY (p.y);
     if (track < 0) return {};
     const auto& clips = services.daw().getProject().tracks[size_t (track)].clips;
@@ -270,6 +275,35 @@ TracksPage::ClipRef TracksPage::clipAt (juce::Point<int> p) const
 
 bool TracksPage::compactHeader (int track) const { return trackHeight (track) < 48; }
 
+// ---------------------------------------------------------------------------
+// The channel panel's width
+//
+// One number, dragged once, inherited by every row - the interaction anyone arriving from
+// Logic, Pro Tools or Reaper already knows. Everything on this page is measured from
+// `headerWidth`, so widening the panel widens the names, moves the keys and the meter with
+// them and hands the remaining width to the timeline, with no per-row state anywhere.
+// ---------------------------------------------------------------------------
+void TracksPage::setPanelWidth (int px)
+{
+    // The maximum also yields to the window: a panel wider than the timeline it sits beside
+    // is a panel that has stopped being a panel.
+    const int roomForTimeline = 220;
+    const int cap = juce::jmin (kMaxHeaderWidth, juce::jmax (kMinHeaderWidth, getWidth() - roomForTimeline));
+    const int want = juce::jlimit (kMinHeaderWidth, cap, px);
+    if (want == headerWidth) return;
+    headerWidth = want;
+    clampScroll();
+    repaint();
+}
+
+// The grab zone for the divider: a few pixels either side of the panel's edge, everywhere
+// below the tool row, so it can be caught against the ruler as well as against the lanes.
+bool TracksPage::onDivider (juce::Point<int> p) const
+{
+    return p.y >= kToolbarHeight
+        && p.x >= headerWidth - kDividerGrip && p.x <= headerWidth + kDividerGrip - 1;
+}
+
 // The keys are a 2 x 2 block against the meter: M and S on top, record arm and monitoring
 // under them. Key 0 is the arm, 1 the monitor, 2 the mute and 3 the solo, whatever row they
 // are drawn on, so the paint and the hit-test read the same table.
@@ -277,7 +311,7 @@ juce::Rectangle<int> TracksPage::keyCell (int track, int key) const
 {
     const int top = trackTop (track), h = trackHeight (track);
     const int w = 19, cell = 16, gap = 3;
-    const int right = kHeaderWidth - 7 - 6 - 5 - 6;            // the meter and its gutter
+    const int right = headerWidth - 7 - 6 - 5 - 6;            // the meter and its gutter
     const int left = right - (2 * w + gap);
     const int column = (key == 0 || key == 2) ? 0 : 1;         // arm and mute on the left
     const int row = key >= 2 ? 0 : 1;                          // mute and solo on top
@@ -310,7 +344,10 @@ void TracksPage::dragFader (int track, int x, bool fine)
     const float travel = float (x - dragStartX) / float (juce::jmax (1, cell.getWidth()));
     const float norm = juce::jlimit (0.0f, 1.0f, dragFaderNorm + travel * (fine ? 0.25f : 1.0f));
     controller.setStripFader (track, std::round (faderRange().convertFrom0to1 (norm) * 10.0f) * 0.1f);
-    repaint();
+    // A fader has to feel immediate, which means repainting the row it is on and the readout
+    // that follows it - not the whole timeline, which at 48 channels costs more than a frame.
+    repaint (0, trackTop (track), headerWidth, trackHeight (track));
+    repaint (toolbarArea());
 }
 
 juce::Rectangle<int> TracksPage::markerFlag (int index) const
@@ -425,24 +462,64 @@ void TracksPage::refresh()
 
     updateChainStrip();
 
-    if (moving || playhead != lastPlayhead || loading != waitingOnThumbnails || loading)
+    // ---- what actually has to be redrawn this tick
+    //
+    // A timeline is the most expensive surface in the app: names, chips, faders, keys,
+    // waveforms and a playhead, times however many channels the church has. Repainting all of
+    // it thirty times a second because a meter moved is what made DLIVE feel slower than a
+    // DAW should, so nothing here repaints more than it has to.
+    //
+    //   the playhead moved  -> the ruler and the lanes (the headers have not changed)
+    //   the view scrolled   -> everything (the content under the clip is different)
+    //   otherwise           -> the meters, and only the ones whose reading actually moved
+    const double scrollWas = scrollX;
+    if (moving && follow)
+    {
+        const int x = sampleToX (playhead);
+        const auto lanes = lanesArea();
+        if (x > lanes.getRight() - 60 || x < lanes.getX())
+            scrollX = juce::jmax (0.0, double (playhead) / samplesPerPixel() - lanes.getWidth() * 0.2);
+    }
+    const bool scrolled = std::fabs (scrollX - scrollWas) > 0.01;
+    const bool thumbsChanged = loading != waitingOnThumbnails;
+
+    if (scrolled || thumbsChanged || loading)
     {
         lastPlayhead = playhead;
         waitingOnThumbnails = loading;
-        // Keep the playhead on screen while it rolls.
-        if (moving && follow)
-        {
-            const int x = sampleToX (playhead);
-            const auto lanes = lanesArea();
-            if (x > lanes.getRight() - 60 || x < lanes.getX())
-                scrollX = juce::jmax (0.0, double (playhead) / samplesPerPixel() - lanes.getWidth() * 0.2);
-        }
         repaint();
     }
-    else
+    else if (playhead != lastPlayhead)
     {
-        repaint (0, lanesTop(), kHeaderWidth, getHeight() - lanesTop());   // meters
+        lastPlayhead = playhead;
+        // The playhead lives over the ruler and the lanes; the channel panel never moves with
+        // it, so it is left alone.
+        repaint (getLocalBounds().withTrimmedLeft (headerWidth).withTrimmedTop (kToolbarHeight)
+                                 .withTrimmedBottom (ChainStrip::height));
     }
+
+    // The meters, one narrow strip per track, and only where the reading really changed. A
+    // level that has not moved a tenth of a decibel is not worth a repaint.
+    if (int (paintedPeaks.size()) != tracks) paintedPeaks.assign (size_t (tracks), -1000.0f);
+    const auto lanes = lanesArea();
+    for (int i = 0; i < tracks; ++i)
+    {
+        if (std::fabs (peaks[size_t (i)] - paintedPeaks[size_t (i)]) < 0.1f) continue;
+        paintedPeaks[size_t (i)] = peaks[size_t (i)];
+        const auto cell = meterCell (i);
+        if (! cell.isEmpty() && cell.getBottom() > lanes.getY() && cell.getY() < lanes.getBottom())
+            repaint (cell.expanded (1, 1));
+    }
+}
+
+// The level meter down the right edge of a header. One place, so the repaint that keeps it
+// moving and the paint that draws it can never disagree about where it is.
+juce::Rectangle<int> TracksPage::meterCell (int track) const
+{
+    if (track < 0 || track >= numTracks()) return {};
+    const int top = trackTop (track), h = trackHeight (track);
+    if (h <= 18) return {};
+    return { headerWidth - 11, top + 9, 5, h - 18 };
 }
 
 juce::AudioThumbnail* TracksPage::thumbnailFor (const AudioClip& clip)
@@ -551,7 +628,7 @@ void TracksPage::zoomAround (int x, double factor)
     const double was = pixelsPerSecond;
     pixelsPerSecond = juce::jlimit (0.2, 800.0, pixelsPerSecond * factor);
     if (std::abs (pixelsPerSecond - was) < 1.0e-9) return;
-    scrollX = juce::jmax (0.0, double (anchor) / samplesPerPixel() - double (anchorX - kHeaderWidth));
+    scrollX = juce::jmax (0.0, double (anchor) / samplesPerPixel() - double (anchorX - headerWidth));
     clampScroll();
     repaint();
 }
@@ -881,7 +958,7 @@ void TracksPage::headerMenu (int track)
     m.addItem (6, "TUNE CHANNEL", onTuneStrip != nullptr);
     m.addItem (5, "Open in the Inspector");
 
-    auto header = juce::Rectangle<int> (0, trackTop (track), kHeaderWidth, trackHeight (track));
+    auto header = juce::Rectangle<int> (0, trackTop (track), headerWidth, trackHeight (track));
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
                          .withTargetScreenArea (localAreaToGlobal (header))
                          .withMinimumWidth (240),
@@ -1018,7 +1095,7 @@ void TracksPage::paint (juce::Graphics& g)
     // ---- headers
     {
         juce::Graphics::ScopedSaveState save (g);
-        auto headers = getLocalBounds().withWidth (kHeaderWidth).withTrimmedTop (lanesTop())
+        auto headers = getLocalBounds().withWidth (headerWidth).withTrimmedTop (lanesTop())
                            .withTrimmedBottom (ChainStrip::height);
         g.reduceClipRegion (headers);
         g.setColour (Dine::window);
@@ -1028,12 +1105,12 @@ void TracksPage::paint (juce::Graphics& g)
             const int top = trackTop (i);
             const int height = trackHeight (i);
             if (top + height < headers.getY() || top > headers.getBottom()) continue;
-            paintHeader (g, i, { 0, top, kHeaderWidth, height });
+            paintHeader (g, i, { 0, top, headerWidth, height });
             // The row being rearranged is lifted off the page: it stays where it is, dimmed,
             // while the line below shows where letting go would put it.
             if (dragOrderLifted && i == dragOrderFrom)
             {
-                auto row = juce::Rectangle<int> (0, top, kHeaderWidth, height).toFloat();
+                auto row = juce::Rectangle<int> (0, top, headerWidth, height).toFloat();
                 g.setColour (Dine::window.withAlpha (0.55f));
                 g.fillRect (row);
                 g.setColour (Dine::accent.withAlpha (0.55f));
@@ -1072,7 +1149,7 @@ void TracksPage::paint (juce::Graphics& g)
         if (px >= lanes.getX() - 1 && px <= lanes.getRight() + 1)
         {
             juce::Graphics::ScopedSaveState save (g);
-            g.reduceClipRegion (getLocalBounds().withTrimmedLeft (kHeaderWidth).withTrimmedTop (kToolbarHeight)
+            g.reduceClipRegion (getLocalBounds().withTrimmedLeft (headerWidth).withTrimmedTop (kToolbarHeight)
                                     .withTrimmedBottom (ChainStrip::height));
             g.setColour (colour.withAlpha (0.16f));
             g.fillRect (float (px) - 1.5f, float (kToolbarHeight), 4.0f, float (lanes.getBottom() - kToolbarHeight));
@@ -1088,9 +1165,23 @@ void TracksPage::paint (juce::Graphics& g)
 
     paintToolbar (g);
 
-    g.setColour (Dine::hair);
-    g.fillRect (float (kHeaderWidth) - 0.5f, float (kToolbarHeight), 0.5f,
-                float (getHeight() - kToolbarHeight - ChainStrip::height));
+    // The divider between the channel panel and the timeline. Normally the same hairline the
+    // page has always drawn; under the pointer (or while it is being dragged) it lights up and
+    // grows a grip, so the one thing on this page that can be dragged sideways says so.
+    {
+        const bool active = drag == Drag::PanelWidth || dividerHot;
+        const float top = float (kToolbarHeight);
+        const float height = float (getHeight() - kToolbarHeight - ChainStrip::height);
+        g.setColour (active ? Dine::accent.withAlpha (0.75f) : Dine::hair);
+        g.fillRect (float (headerWidth) - (active ? 1.0f : 0.5f), top, active ? 2.0f : 0.5f, height);
+        if (active)
+        {
+            const float cy = top + height * 0.5f;
+            g.setColour (Dine::accent.withAlpha (0.9f));
+            for (int i = -1; i <= 1; ++i)
+                g.fillRoundedRectangle (float (headerWidth) - 1.5f, cy + float (i) * 7.0f - 1.0f, 3.0f, 2.0f, 1.0f);
+        }
+    }
 
     // Scroll indicators: how much of the session is on screen, in both directions.
     const int content = totalTrackHeight();
@@ -1189,7 +1280,7 @@ void TracksPage::paintRuler (juce::Graphics& g)
 
     // The header column of the ruler says what the lanes below it are.
     {
-        auto cell = juce::Rectangle<int> (0, all.getY(), kHeaderWidth, all.getHeight()).reduced (11, 0)
+        auto cell = juce::Rectangle<int> (0, all.getY(), headerWidth, all.getHeight()).reduced (11, 0)
                         .withTrimmedBottom (5);
         auto line = cell.removeFromBottom (14);
         const auto& project = services.daw().getProject();
@@ -1204,7 +1295,7 @@ void TracksPage::paintRuler (juce::Graphics& g)
         g.drawText ("TRACKS", cell.removeFromBottom (13), juce::Justification::bottomLeft);
     }
     g.setColour (Dine::hairStrong);
-    g.fillRect (float (kHeaderWidth) - 0.5f, float (all.getY()), 0.5f, float (all.getHeight()));
+    g.fillRect (float (headerWidth) - 0.5f, float (all.getY()), 0.5f, float (all.getHeight()));
 
     juce::Graphics::ScopedSaveState save (g);
     g.reduceClipRegion (area);
@@ -1235,7 +1326,7 @@ void TracksPage::paintRuler (juce::Graphics& g)
     {
         const int x = sampleToX (juce::int64 (sec * rate));
         if (x > area.getRight()) break;
-        if (x < kHeaderWidth - 60) continue;
+        if (x < headerWidth - 60) continue;
 
         g.setColour (juce::Colours::white.withAlpha (0.3f));
         g.fillRect (float (x), float (area.getBottom() - 12), 0.5f, 12.0f);
@@ -1308,6 +1399,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
     // ---- the meter down the right edge
     {
         auto meter = juce::Rectangle<int> (area.getRight() - 11, area.getY() + 9, 5, area.getHeight() - 18);
+        jassert (area.getWidth() != headerWidth || meter == meterCell (track));   // one geometry, two readers
         if (track < int (peaks.size()) && meter.getHeight() > 6)
         {
             const float db = peaks[size_t (track)];
@@ -1606,10 +1698,22 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
     const auto p = e.getPosition();
     if (p.y < kToolbarHeight) return;
 
+    // ---- the divider between the channel panel and the timeline
+    // The standard DAW gesture: drag it and every row gets wider together, so long channel
+    // names become readable without touching a single track. It is grabbed before anything
+    // else because it sits on top of both the header's right edge and the lane's left one.
+    if (onDivider (p))
+    {
+        drag = Drag::PanelWidth;
+        dragStartX = p.x;
+        dragStartHeaderWidth = headerWidth;
+        return;
+    }
+
     // ---- the ruler: the loop strip along its top, the marker lane inside it, the ticks below
     if (p.y < lanesTop())
     {
-        if (p.x < kHeaderWidth) return;
+        if (p.x < headerWidth) return;
         auto& project = services.daw().getProject();
 
         if (p.y < kToolbarHeight + kLoopStrip)
@@ -1646,7 +1750,7 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    if (p.x < kHeaderWidth)
+    if (p.x < headerWidth)
     {
         const int track = trackAtY (p.y);
         if (track < 0) return;
@@ -1751,6 +1855,13 @@ void TracksPage::mouseDrag (const juce::MouseEvent& e)
 
     switch (drag)
     {
+        case Drag::PanelWidth:
+            // One width for the whole panel, live while dragging. Every row inherits it, the
+            // timeline takes whatever is left, and the clips stay where they are in time
+            // because the scroll is measured from the panel's edge.
+            setPanelWidth (dragStartHeaderWidth + (p.x - dragStartX));
+            break;
+
         case Drag::Playhead:
             // Move the picture while dragging; the player is only re-primed once, on release.
             services.daw().getTransport().setPosition (snapSample (xToSample (p.x), -1, -1));
@@ -1862,6 +1973,8 @@ void TracksPage::mouseUp (const juce::MouseEvent&)
 {
     auto& project = services.daw().getProject();
 
+    if (drag == Drag::PanelWidth && onPanelWidthChanged) onPanelWidthChanged();
+
     if (drag == Drag::Playhead || drag == Drag::Marker)
         services.daw().locate (services.daw().getTransport().getPosition());
 
@@ -1925,7 +2038,7 @@ void TracksPage::mouseDoubleClick (const juce::MouseEvent& e)
     // A track header: double-click opens that channel in the Inspector. The controls on the
     // header keep their own single clicks - a double-click on the fader or a key is two of
     // those, not a request to leave the timeline.
-    if (p.x < kHeaderWidth && p.y >= lanesTop())
+    if (p.x < headerWidth && p.y >= lanesTop())
     {
         const int track = trackAtY (p.y);
         if (track < 0) return;
@@ -1968,11 +2081,16 @@ void TracksPage::mouseMove (const juce::MouseEvent& e)
     hoverMarker = markerAt (p);
     if (hoverMarker != wasHover) repaint (markerArea());
 
-    if (p.y >= kToolbarHeight && p.y < kToolbarHeight + kLoopStrip && p.x >= kHeaderWidth)
+    const bool overDivider = onDivider (p);
+    if (overDivider != dividerHot) { dividerHot = overDivider; repaint (headerWidth - 6, kToolbarHeight, 12, getHeight()); }
+
+    if (overDivider)
+        cursor = juce::MouseCursor::LeftRightResizeCursor;
+    else if (p.y >= kToolbarHeight && p.y < kToolbarHeight + kLoopStrip && p.x >= headerWidth)
         cursor = juce::MouseCursor::LeftRightResizeCursor;
     else if (hoverMarker >= 0)
         cursor = juce::MouseCursor::PointingHandCursor;
-    else if (p.x < kHeaderWidth && p.y >= lanesTop())
+    else if (p.x < headerWidth && p.y >= lanesTop())
     {
         const int track = trackAtY (p.y);
         if (track >= 0 && p.y >= trackTop (track) + trackHeight (track) - kResizeGrip)
@@ -1998,7 +2116,7 @@ juce::String TracksPage::getTooltip()
 {
     const auto p = getMouseXYRelative();
     const int track = trackAtY (p.y);
-    if (p.x >= kHeaderWidth || track < 0 || track >= numTracks()) return {};
+    if (p.x >= headerWidth || track < 0 || track >= numTracks()) return {};
 
     for (int k = 0; k < 4; ++k)
     {

@@ -140,6 +140,10 @@ juce::Colour Dine::busTint (MixBus b) noexcept
         // the vocal green to read as "someone on a microphone", far enough that a glance at a
         // bank never confuses the pastor with the choir.
         case MixBus::Speech: return juce::Colour (0xffcf8fb4);
+        // The room. A warm neutral, on purpose: ambience is the one group that is meant to sit
+        // behind everything else, and a band of it across a console should read as background
+        // rather than as another instrument competing for attention.
+        case MixBus::Ambience: return juce::Colour (0xffb59b7a);
         case MixBus::Master: return juce::Colour (0xffc8ccd4);
         case MixBus::Count:  break;
     }
@@ -336,11 +340,16 @@ const std::vector<Dine::RoleGroup>& Dine::roleGroups()
                      ChannelRole::RackTom, ChannelRole::FloorTom, ChannelRole::Overhead, ChannelRole::OverheadLeft, ChannelRole::OverheadRight, ChannelRole::Room, ChannelRole::DrumBus } },
         { "Bass",  { ChannelRole::BassDI, ChannelRole::BassAmp, ChannelRole::SynthBass } },
         { "Music", { ChannelRole::Piano, ChannelRole::ElectricPiano, ChannelRole::Organ, ChannelRole::SynthPad, ChannelRole::SynthLead,
-                     ChannelRole::AcousticGuitar, ChannelRole::ElectricGuitarClean, ChannelRole::ElectricGuitarDrive } },
+                     ChannelRole::AcousticGuitar, ChannelRole::ElectricGuitarClean, ChannelRole::ElectricGuitarDrive,
+                     ChannelRole::SaxAlto, ChannelRole::SaxTenor, ChannelRole::SaxBari } },
         { "Vocals", { ChannelRole::LeadVocal, ChannelRole::BackingVocal, ChannelRole::Choir } },
         // Speaking microphones are their own group in the mix, so they are their own group here:
         // whoever assigns the inputs picks the pastor out of a list of one, not out of the singers.
         { "Speech", { ChannelRole::Speech } },
+        // The room and the people in it. Its own group for the same reason SPEECH is: these
+        // microphones are turned up and down at moments nothing else moves at, and an operator
+        // has to be able to find them.
+        { "Crowd and room", { ChannelRole::CrowdMic, ChannelRole::AmbienceMic } },
     };
     return groups;
 }
@@ -356,6 +365,11 @@ juce::String Dine::friendlyRoleName (ChannelRole r)
         case ChannelRole::DrumBus:   return "Drum mix (stereo, from the console)";
         case ChannelRole::BassDI:    return "Bass (DI)";
         case ChannelRole::BassAmp:   return "Bass (amp mic)";
+        case ChannelRole::CrowdMic:  return "Crowd / congregation";
+        case ChannelRole::AmbienceMic: return "Room ambience";
+        case ChannelRole::SaxAlto:   return "Saxophone (alto)";
+        case ChannelRole::SaxTenor:  return "Saxophone (tenor)";
+        case ChannelRole::SaxBari:   return "Saxophone (baritone)";
         default:                     return channelRoleName (r);
     }
 }
@@ -372,6 +386,7 @@ Dine::Icon Dine::iconForRole (ChannelRole r) noexcept
         case ChannelRole::OverheadRight:
             return Icon::Cymbal;
         case ChannelRole::Room:
+        case ChannelRole::CrowdMic: case ChannelRole::AmbienceMic: case ChannelRole::AmbienceBus:
             return Icon::Room;
         case ChannelRole::LeadVocal: case ChannelRole::BackingVocal: case ChannelRole::Choir:
         case ChannelRole::VocalBus:

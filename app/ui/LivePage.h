@@ -40,9 +40,40 @@ private:
     // SPEECH MASTER FX.
     std::array<std::unique_ptr<GroupFader>, int (MixBus::Count) + 1> faders;
     DineButton liveSafeButton { "LIVE SAFE", DineButton::Style::Standard };
+    // The engineer's own listen. Everything here is monitoring: none of it can change what
+    // the room and the stream hear, which is the entire point of the monitor bus.
+    DinePopup soloModeButton;              // MONITOR SOLO / SOLO IN PLACE
+    DineButton soloPointButton { "AFL", DineButton::Style::Standard };
+    DineButton dimButton { "Dim", DineButton::Style::Standard };
+    DineButton clearSoloButton { "Clear solo", DineButton::Style::Standard };
+    juce::Slider monitorLevel { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     std::unique_ptr<RecordKey> recordButton;
+    // What the page is currently showing. A frame that would draw the same thing is skipped:
+    // the group tiles keep their own meters moving, and this is only the text around them.
+    struct Look
+    {
+        juce::String clock, state, stateNote, output, notes;
+        int health = -1;
+        int headroomTenths = 0;
+        bool recording = false, safe = false, running = false;
+        int soloCount = -1, xruns = -1, tunes = -1;
+        bool monitorRouted = false, inPlace = false;
+        bool operator== (const Look& o) const
+        {
+            return clock == o.clock && state == o.state && stateNote == o.stateNote && output == o.output
+                && notes == o.notes && health == o.health && headroomTenths == o.headroomTenths
+                && recording == o.recording && safe == o.safe && running == o.running
+                && soloCount == o.soloCount && xruns == o.xruns && tunes == o.tunes
+                && monitorRouted == o.monitorRouted && inPlace == o.inPlace;
+        }
+        bool operator!= (const Look& o) const { return ! (*this == o); }
+    };
+    Look look;
     int health = 0;
     bool liveSafeOn = false;
+    int soloCount = 0;
+    bool monitorRouted = false;
+    void refreshMonitor();
     bool recordingOn = false;
     float headroomDb = 0.0f;
     juce::String clock, state, stateNote;

@@ -19,6 +19,8 @@ void DawEngine::setProject (const Project& p)
 {
     project = p;
     project.syncTracks (session);
+    // Loading a session that was saved locked has to *be* locked, mix side included.
+    controller.setLiveSafe (project.liveSafe);
     clipsDirty = true;
     if (prepared) rebuildPlayer();
     refresh();

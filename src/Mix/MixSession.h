@@ -19,9 +19,17 @@ inline constexpr int kMaxStrips = 64;   // assigned inputs (a stereo pair is one
 // has to be able to find it and move it without touching the singers. Everything that walks
 // the group buses uses `b < int (MixBus::Master)`, so the order here is what the mixer bands,
 // the TUNE meters, the LIVE tiles and the output feeds all follow.
-enum class MixBus : int { Drums = 0, Bass, Music, Vocals, Speech, Master, Count };
+// AMBIENCE is the sixth group and the newest (2026-09). A broadcast mix that carries only
+// the stage sounds like a studio recording of a band; what makes a stream sound like a
+// service is the building - the congregation singing back, the response, the applause. Those
+// microphones need their own fader for the same reason SPEECH does: they are turned up and
+// down at different moments from everything else, and an operator has to be able to find
+// them. Everything that walks the group buses uses `b < int (MixBus::Master)`, so a new bus
+// goes in before MASTER - and doing that moved the stored indices again, which is why
+// SessionStore is version 4.
+enum class MixBus : int { Drums = 0, Bass, Music, Vocals, Speech, Ambience, Master, Count };
 
-inline constexpr std::array<const char*, int (MixBus::Count)> kMixBusNames { "DRUMS", "BASS", "MUSIC", "VOCALS", "SPEECH", "MASTER" };
+inline constexpr std::array<const char*, int (MixBus::Count)> kMixBusNames { "DRUMS", "BASS", "MUSIC", "VOCALS", "SPEECH", "AMBIENCE", "MASTER" };
 inline constexpr const char* mixBusName (MixBus b) noexcept
 {
     const int i = int (b);
@@ -83,15 +91,92 @@ struct InputAssignment
     int numChannels() const noexcept { return isStereo() ? 2 : 1; }
 };
 
+// ---------------------------------------------------------------------------
+// HOW LOUD THE FINISHED MIX SHOULD BE
+//
+// This is the single number that decides whether a DLIVE master sounds competitive next to
+// everything else the viewer watches, and until it was made visible it was a hidden
+// consequence of the purpose: "Church Broadcast" quietly meant EBU R128, which is -23 LUFS,
+// which is about 9 dB under what a stream is expected to be. That is the correct number for
+// a television feed and the wrong one for almost every church, and nothing in the app said so.
+//
+// So it is a setting now, with its number printed beside it. The whole gain structure aims
+// at it: the strips are fitted from it through the bus balance, the master's own compressor
+// is fitted under it, and the limiter holds the ceiling rather than being asked to make up
+// the difference. Turning it up does not mean "push the limiter harder" - it moves the
+// target every stage is fitted against.
+enum class DeliveryLoudness : int
+{
+    FromPurpose = 0,   // whatever the delivery role asks for: the professional default
+    Broadcast,         // -23 LUFS, EBU R128: a television or radio feed with a loudness spec
+    BroadcastUS,       // -24 LUFS, ATSC A/85
+    Podcast,           // -18 LUFS: spoken word and archive
+    Streaming,         // -16 LUFS: the conservative streaming number
+    StreamingLoud,     // -14 LUFS: YouTube, Spotify, Facebook - what a church stream competes with
+    Loud,              // -12 LUFS: as loud as DLIVE will aim without squashing the mix
+    Count
+};
+
+inline constexpr std::array<const char*, int (DeliveryLoudness::Count)> kDeliveryLoudnessNames {
+    "Match the purpose", "Broadcast (EBU R128)", "Broadcast (ATSC A/85)", "Podcast / archive",
+    "Streaming", "Streaming (loud)", "As loud as it goes"
+};
+
+inline constexpr const char* deliveryLoudnessName (DeliveryLoudness d) noexcept
+{
+    const int i = int (d);
+    return (i >= 0 && i < int (DeliveryLoudness::Count)) ? kDeliveryLoudnessNames[size_t (i)] : "?";
+}
+
+// The target itself. 0 means "whatever the delivery role already asks for", which is the one
+// value that is not a number.
+inline constexpr float deliveryLoudnessLufs (DeliveryLoudness d) noexcept
+{
+    switch (d)
+    {
+        case DeliveryLoudness::Broadcast:     return -23.0f;
+        case DeliveryLoudness::BroadcastUS:   return -24.0f;
+        case DeliveryLoudness::Podcast:       return -18.0f;
+        case DeliveryLoudness::Streaming:     return -16.0f;
+        case DeliveryLoudness::StreamingLoud: return -14.0f;
+        case DeliveryLoudness::Loud:          return -12.0f;
+        case DeliveryLoudness::FromPurpose:
+        case DeliveryLoudness::Count:
+        default:                              return 0.0f;
+    }
+}
+
+inline const char* deliveryLoudnessHint (DeliveryLoudness d) noexcept
+{
+    switch (d)
+    {
+        case DeliveryLoudness::Broadcast:     return "For a feed that has to meet a European broadcast spec. Quiet on a phone.";
+        case DeliveryLoudness::BroadcastUS:   return "For a feed that has to meet the American broadcast spec. Quiet on a phone.";
+        case DeliveryLoudness::Podcast:       return "Spoken word and archive: plenty of headroom, easy to listen to for an hour.";
+        case DeliveryLoudness::Streaming:     return "Safe for every platform. A little under what most channels sit at.";
+        case DeliveryLoudness::StreamingLoud: return "What YouTube, Facebook and Spotify normalise to. The right answer for most churches.";
+        case DeliveryLoudness::Loud:          return "As far as DLIVE will push without squashing the mix. Use when a stream has to cut through.";
+        case DeliveryLoudness::FromPurpose:
+        case DeliveryLoudness::Count:
+        default:                              return "Whatever the mix's purpose asks for.";
+    }
+}
+
 // Everything the user decided: which inputs are what, what the mix is for, which sound.
 struct MixSession
 {
     std::string name = "Sunday";
     StyleProfileId profile = StyleProfileId::ModernGospel;
     MixPurpose purpose = MixPurpose::ChurchBroadcast;
+    // How loud the finished mix should be. FromPurpose keeps the delivery role's own standard,
+    // which is what every session made before this setting existed had, so nothing about an
+    // old session changes when it is opened.
+    DeliveryLoudness delivery = DeliveryLoudness::FromPurpose;
     std::vector<InputAssignment> inputs;    // at most kMaxStrips are used
 
     ChannelRole masterRole() const noexcept { return masterRoleFor (purpose); }
+    // The delivery target this session actually aims at, or 0 for "the role's own".
+    float deliveryTargetLufs() const noexcept { return deliveryLoudnessLufs (delivery); }
     int numStrips() const noexcept { return int (inputs.size()) < kMaxStrips ? int (inputs.size()) : kMaxStrips; }
 };
 
@@ -146,6 +231,8 @@ inline constexpr MixBus mixBusForFamily (RoleFamily f) noexcept
         case RoleFamily::Choir:
         case RoleFamily::VocalBus:       return MixBus::Vocals;
         case RoleFamily::Speech:         return MixBus::Speech;
+        case RoleFamily::Ambience:
+        case RoleFamily::AmbienceBus:    return MixBus::Ambience;
         case RoleFamily::Master:         return MixBus::Master;
         case RoleFamily::Piano:
         case RoleFamily::ElectricPiano:
@@ -174,6 +261,10 @@ inline constexpr ChannelRole busRole (MixBus b, MixPurpose purpose) noexcept
         // glue, light tone), not the speech *channel* chain - the de-essing, the boom cut and
         // the presence lift were already done on the microphone itself.
         case MixBus::Speech: return ChannelRole::VocalBus;
+        // The ambience group is glued like a room, not like a band: gentle, slow, and with
+        // the same rule that governs every ambience source - it is never gated and never
+        // pushed forward, because what is between the sounds is the point of it.
+        case MixBus::Ambience: return ChannelRole::AmbienceBus;
         case MixBus::Master:
         default:             return masterRoleFor (purpose);
     }

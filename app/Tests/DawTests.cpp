@@ -7,6 +7,8 @@
 #include "native/MultitrackImport.h"
 #include "native/StemNames.h"
 #include "native/SessionStore.h"
+#include "native/InputMapStore.h"
+#include "native/MonitorDevice.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <array>
 #include <cmath>
@@ -1129,4 +1131,393 @@ TEST_CASE ("Project: length, arming and clip file resolution")
     CHECK (p.hasAudio());
     CHECK (p.fileFor (p.tracks[0].clips[0]) == juce::File ("/tmp/example/Audio Files/Kick_001.wav"));
     CHECK (p.fileFor (p.tracks[1].clips[0]) == juce::File ("/elsewhere/Snare.wav"));
+}
+
+// ---------------------------------------------------------------------------
+// LIVE SAFE
+//
+// The lock is only worth having if it is enforced where the mix actually changes, rather
+// than in the menu handler that happens to be the way most people reach it. These tests go
+// straight at MixController, which is where every path ends up.
+// ---------------------------------------------------------------------------
+TEST_CASE ("LIVE SAFE: refuses what would change the mix wholesale, and says why")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    std::vector<std::string> said;
+    c.onMessage = [&said] (const std::string& m) { said.push_back (m); };
+
+    c.setLiveSafe (true);
+    CHECK (c.isLiveSafe());
+
+    // A re-tune mid-service is a whole new mix landing inside a song.
+    said.clear();
+    c.startTuneMix();
+    CHECK (! c.isListening());
+    REQUIRE (! said.empty());
+    CHECK (said.back().find ("LIVE SAFE") != std::string::npos);
+    CHECK (said.back().find ("locked") != std::string::npos);
+
+    // BYPASS drops every chain at once.
+    c.setBypass (true);
+    CHECK (! c.isBypassed());
+
+    // Moving the broadcast to different outputs.
+    auto feeds = c.getOutputFeeds();
+    feeds.feeds[0].left = 4;
+    feeds.feeds[0].right = 5;
+    c.setOutputFeeds (feeds);
+    CHECK (c.getOutputFeeds().feeds[0].left == 0);
+
+    // ...but the engineer's own monitor feed may always be moved: nobody else hears it.
+    auto monitorFeeds = c.getOutputFeeds();
+    monitorFeeds.count = 2;
+    monitorFeeds.feeds[1].monitor = true;
+    monitorFeeds.feeds[1].left = 2;
+    monitorFeeds.feeds[1].right = 3;
+    c.setOutputFeeds (monitorFeeds);
+    CHECK (c.getOutputFeeds().count == 2);
+    CHECK (c.getOutputFeeds().feeds[1].monitor);
+    CHECK (c.hasMonitorOutput());
+
+    c.setLiveSafe (false);
+    c.setBypass (true);
+    CHECK (c.isBypassed());
+}
+
+TEST_CASE ("LIVE SAFE: never locks the emergency controls, and keeps every move small")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    c.setLiveSafe (true);
+    const auto& policy = c.getLiveSafePolicy();
+
+    // A mute is the one thing an operator must always be able to reach.
+    c.setStripMute (0, true);
+    CHECK (c.getKept().strips[0].mute);
+
+    // Solo is monitoring, so it is never locked either - and it still cannot reach the master.
+    c.setStripSolo (1, true);
+    CHECK (c.getKept().strips[1].solo);
+    CHECK (c.getMonitor().mode == SoloMode::Monitor);
+
+    // A fader is not locked, but one move cannot throw it across the console.
+    c.setStripFader (2, 0.0f);
+    c.setStripFader (2, 30.0f);
+    CHECK_NEAR (c.getKept().strips[2].faderDb, policy.maxFaderStepDb, 0.01);
+    // Moving it again gets further: it is a step limit, not a ceiling.
+    c.setStripFader (2, 30.0f);
+    CHECK_NEAR (c.getKept().strips[2].faderDb, 2.0f * policy.maxFaderStepDb, 0.01);
+
+    // The master is the broadcast, so it moves in smaller steps still.
+    c.setBusFader (MixBus::Master, -20.0f);
+    CHECK_NEAR (c.getKept().master().faderDb, -policy.maxMasterStepDb, 0.01);
+
+    // With the lock off, the same move lands where it was asked to.
+    c.setLiveSafe (false);
+    c.setStripFader (2, 0.0f);
+    CHECK_NEAR (c.getKept().strips[2].faderDb, 0.0f, 0.01);
+}
+
+// ---------------------------------------------------------------------------
+// The monitor bus, at the controller
+// ---------------------------------------------------------------------------
+TEST_CASE ("Monitor: solo is monitoring, and the mix that is published is unchanged by it")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+
+    const auto before = c.getRunning();
+    c.setStripSolo (0, true);
+    const auto after = c.getRunning();
+
+    // Every fader, every chain, every bus: identical. Only the solo flag and the monitor
+    // state moved, and neither of those is heard anywhere but the monitor output.
+    CHECK (MixPlanner::countParameterChanges (before, after) == 0);
+    for (int i = 0; i < after.numStrips; ++i)
+        CHECK_NEAR (after.strips[size_t (i)].faderDb, before.strips[size_t (i)].faderDb, 1.0e-6);
+    for (int b = 0; b < int (MixBus::Count); ++b)
+        CHECK_NEAR (after.buses[size_t (b)].faderDb, before.buses[size_t (b)].faderDb, 1.0e-6);
+
+    CHECK (c.numSoloed() == 1);
+    c.setBusSolo (MixBus::Drums, true);
+    c.setFxSolo (FxSlot::VocalPlate, true);
+    CHECK (c.numSoloed() == 3);
+    c.clearSolos();
+    CHECK (c.numSoloed() == 0);
+    CHECK (! c.anySolo());
+}
+
+// ---------------------------------------------------------------------------
+// Mix history
+// ---------------------------------------------------------------------------
+TEST_CASE ("Mix history: a change can be undone by name, and redone")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+
+    auto chain = c.getKept().strips[0].channel;
+    const float was = chain.hpfHz;
+    chain.hpfHz = was + 30.0f;
+    c.setStripChannel (0, chain);
+    CHECK_NEAR (c.getKept().strips[0].channel.hpfHz, was + 30.0f, 0.01);
+
+    REQUIRE (c.canUndoMix());
+    CHECK (c.undoMixLabel() == "a processing change");
+    c.undoMix();
+    CHECK_NEAR (c.getKept().strips[0].channel.hpfHz, was, 0.01);
+
+    REQUIRE (c.canRedoMix());
+    c.redoMix();
+    CHECK_NEAR (c.getKept().strips[0].channel.hpfHz, was + 30.0f, 0.01);
+
+    // Undo and redo are never locked: going back to the mix that was working a minute ago is
+    // exactly what an operator needs most in the middle of a service.
+    c.setLiveSafe (true);
+    c.undoMix();
+    CHECK_NEAR (c.getKept().strips[0].channel.hpfHz, was, 0.01);
+}
+
+// ---------------------------------------------------------------------------
+// Input mappings
+// ---------------------------------------------------------------------------
+TEST_CASE ("Input mappings: a patch is saved, listed, applied and exported")
+{
+    const auto folder = scratchFolder().getChildFile ("maps");
+    folder.deleteRecursively();
+
+    MixSession s;
+    s.name = "Main hall";
+    s.delivery = DeliveryLoudness::StreamingLoud;
+    s.inputs = { { "Kick",   ChannelRole::KickIn,      0, -1 },
+                 { "Snare",  ChannelRole::SnareTop,    1, -1 },
+                 { "Crowd",  ChannelRole::CrowdMic,    8,  9 },
+                 { "Sax",    ChannelRole::SaxTenor,   12, -1 },
+                 { "Lead",   ChannelRole::LeadVocal,  16, -1 } };
+
+    auto map = InputMapStore::fromSession (s, "Sunday rig", "Test Desk", 32, true);
+    CHECK (map.channelsNeeded() == 17);
+    CHECK (map.numStereo() == 1);
+
+    // The document survives a round trip through JSON, source roles and stereo links included.
+    const auto file = folder.getChildFile ("sunday.dlivemap.json");
+    REQUIRE (InputMapStore::saveAs (map, file));
+    InputMap back;
+    REQUIRE (InputMapStore::load (file, back));
+    CHECK (back.name == "Sunday rig");
+    CHECK (back.inputs.size() == 5);
+    CHECK (back.inputs[2].role == ChannelRole::CrowdMic);
+    CHECK (back.inputs[2].isStereo());
+    CHECK (back.delivery == DeliveryLoudness::StreamingLoud);
+
+    // A document from an unknown schema is ignored rather than half-read.
+    auto bad = juce::JSON::parse (file);
+    if (auto* o = bad.getDynamicObject()) o->setProperty ("schema", 99);
+    InputMap refused;
+    CHECK (! InputMapStore::fromVar (bad, refused));
+
+    // Applied onto a desk that has the channels: everything comes back exactly as it was.
+    MixSession current;
+    const auto ok = InputMapStore::apply (back, current, 32, "Test Desk", true);
+    CHECK (ok.ok());
+    CHECK (ok.restored == 5);
+    CHECK (ok.session.inputs.size() == 5);
+    CHECK (ok.session.inputs[4].name == "Lead");
+    CHECK (ok.session.delivery == DeliveryLoudness::StreamingLoud);
+
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("Input mappings: a device that cannot provide a channel is told, never guessed at")
+{
+    MixSession s;
+    s.inputs = { { "Kick", ChannelRole::KickIn,     0, -1 },
+                 { "Lead", ChannelRole::LeadVocal, 16, -1 } };
+    const auto map = InputMapStore::fromSession (s, "Big desk", "32 channel desk", 32, false);
+
+    // Eight inputs available, and the lead wants channel 17.
+    const auto result = InputMapStore::apply (map, MixSession {}, 8, "Small interface", false);
+    CHECK (! result.ok());
+    CHECK (result.restored == 1);
+    CHECK (result.unavailable == 1);
+    REQUIRE (result.session.inputs.size() == 2);
+    // The input is kept, named and switched off - never moved onto a channel that exists,
+    // which is how the pastor's microphone ends up on the kick.
+    CHECK (result.session.inputs[1].name == "Lead");
+    CHECK (result.session.inputs[1].inputA == 16);
+    CHECK (! result.session.inputs[1].enabled);
+    CHECK (result.session.inputs[0].enabled);
+    REQUIRE (! result.problems.empty());
+    CHECK (result.problems.front().contains ("32"));
+    CHECK (result.problems.front().contains ("8"));
+
+    // Two inputs on one channel is a map that has been edited by hand: reported, not applied.
+    MixSession clash;
+    clash.inputs = { { "A", ChannelRole::KickIn, 3, -1 }, { "B", ChannelRole::SnareTop, 3, -1 } };
+    const auto both = InputMapStore::apply (InputMapStore::fromSession (clash, "clash", "", 8, false),
+                                            MixSession {}, 8, "Small interface", false);
+    CHECK (both.conflicts == 1);
+    CHECK (! both.session.inputs[1].enabled);
+}
+
+// ---------------------------------------------------------------------------
+// Delivery loudness, and opening older sessions
+// ---------------------------------------------------------------------------
+TEST_CASE ("SessionStore: the delivery loudness, the monitor and the AMBIENCE bus survive a round trip")
+{
+    SessionStore::Document d;
+    d.session = band();
+    d.session.inputs.push_back ({ "Crowd", ChannelRole::CrowdMic, 8, 9 });
+    d.session.delivery = DeliveryLoudness::StreamingLoud;
+    d.project.syncTracks (d.session);
+    d.hasMix = true;
+    d.mix.numStrips = int (d.session.inputs.size());
+    d.mix.monitor.mode = SoloMode::InPlace;
+    d.mix.monitor.point = SoloPoint::PFL;
+    d.mix.monitor.gainDb = -6.0f;
+    d.mix.monitor.dim = true;
+    d.mix.buses[size_t (MixBus::Ambience)].faderDb = -4.0f;
+    d.mix.buses[size_t (MixBus::Master)].faderDb = -1.5f;
+    d.mix.fx[size_t (FxSlot::VocalPlate)].solo = true;
+    d.outputs.count = 2;
+    d.outputs.feeds[1].monitor = true;
+    d.outputs.feeds[1].left = 2;
+    d.outputs.feeds[1].right = 3;
+    d.trackPanelWidth = 340;
+
+    const auto file = scratchFolder().getChildFile ("delivery.dlive.json");
+    REQUIRE (SessionStore::save (d, file));
+    SessionStore::Document back;
+    REQUIRE (SessionStore::load (file, back));
+
+    CHECK (back.session.delivery == DeliveryLoudness::StreamingLoud);
+    CHECK_NEAR (back.session.deliveryTargetLufs(), -14.0f, 0.01);
+    CHECK (back.session.inputs.back().role == ChannelRole::CrowdMic);
+    CHECK (back.mix.monitor.mode == SoloMode::InPlace);
+    CHECK (back.mix.monitor.point == SoloPoint::PFL);
+    CHECK_NEAR (back.mix.monitor.gainDb, -6.0f, 0.01);
+    CHECK (back.mix.monitor.dim);
+    CHECK_NEAR (back.mix.buses[size_t (MixBus::Ambience)].faderDb, -4.0f, 0.01);
+    CHECK_NEAR (back.mix.master().faderDb, -1.5f, 0.01);
+    CHECK (back.mix.fx[size_t (FxSlot::VocalPlate)].solo);
+    CHECK (back.outputs.feeds[1].monitor);
+    CHECK (back.trackPanelWidth == 340);
+    file.deleteFile();
+}
+
+TEST_CASE ("SessionStore: a session saved before AMBIENCE existed opens with its master on the master")
+{
+    // A version 3 document: six bus slots, the last of which was the master.
+    auto* mix = new juce::DynamicObject();
+    mix->setProperty ("numStrips", 1);
+    juce::Array<juce::var> strips;
+    auto* strip = new juce::DynamicObject();
+    strip->setProperty ("faderDb", -2.0);
+    strips.add (juce::var (strip));
+    mix->setProperty ("strips", strips);
+    juce::Array<juce::var> buses;
+    for (int b = 0; b < 6; ++b)
+    {
+        auto* bo = new juce::DynamicObject();
+        bo->setProperty ("faderDb", double (b));      // 5 = the old master
+        buses.add (juce::var (bo));
+    }
+    mix->setProperty ("buses", buses);
+
+    auto* doc = new juce::DynamicObject();
+    doc->setProperty ("app", "DLIVE");
+    doc->setProperty ("version", 3);
+    doc->setProperty ("name", "Old service");
+    doc->setProperty ("purpose", int (MixPurpose::ChurchBroadcast));
+    juce::Array<juce::var> inputs;
+    auto* in = new juce::DynamicObject();
+    in->setProperty ("name", "Kick");
+    in->setProperty ("role", int (ChannelRole::KickIn));
+    in->setProperty ("inputA", 0);
+    in->setProperty ("inputB", -1);
+    in->setProperty ("enabled", true);
+    inputs.add (juce::var (in));
+    doc->setProperty ("inputs", inputs);
+    doc->setProperty ("hasMix", true);
+    doc->setProperty ("mix", juce::var (mix));
+    // An output feed pointing at the old master index.
+    juce::Array<juce::var> feeds;
+    auto* feed = new juce::DynamicObject();
+    feed->setProperty ("left", 0);
+    feed->setProperty ("right", 1);
+    feed->setProperty ("source", 5);
+    feeds.add (juce::var (feed));
+    doc->setProperty ("outputs", feeds);
+
+    const auto file = scratchFolder().getChildFile ("v3.dlive.json");
+    file.replaceWithText (juce::JSON::toString (juce::var (doc), false));
+
+    SessionStore::Document back;
+    REQUIRE (SessionStore::load (file, back));
+    // Every group kept its own fader...
+    CHECK_NEAR (back.mix.buses[size_t (MixBus::Drums)].faderDb, 0.0f, 0.01);
+    CHECK_NEAR (back.mix.buses[size_t (MixBus::Speech)].faderDb, 4.0f, 0.01);
+    // ...the old master's fader is on the master, not on the new AMBIENCE group...
+    CHECK_NEAR (back.mix.master().faderDb, 5.0f, 0.01);
+    CHECK_NEAR (back.mix.buses[size_t (MixBus::Ambience)].faderDb, 0.0f, 0.01);
+    // ...and the output feed still carries the main mix.
+    CHECK (back.outputs.feeds[0].source == MixBus::Master);
+    CHECK (! back.outputs.feeds[0].monitor);
+    // A session from before the setting existed aims where it always aimed.
+    CHECK (back.session.delivery == DeliveryLoudness::FromPurpose);
+    CHECK (back.mix.monitor.mode == SoloMode::Monitor);
+    file.deleteFile();
+}
+
+// ---------------------------------------------------------------------------
+// Which two devices "solo goes here" should join
+//
+// The rule that matters is the one a sound booth cares about: never suggest the laptop
+// speaker when there is a real interface plugged in. Nobody wants to discover their solo came
+// out of the Mac in the middle of a sermon.
+// ---------------------------------------------------------------------------
+TEST_CASE ("Monitoring: the device solo goes to is chosen sensibly, and says so when it cannot be")
+{
+    using MonitorDevice::Device;
+    juce::Array<Device> devices;
+    devices.add ({ "Dante Virtual Soundcard", "uid-dante", 32, false, false });
+    devices.add ({ "MacBook Pro Speakers",    "uid-builtin", 2, false, false });
+    devices.add ({ "Scarlett 2i2 USB",        "uid-scarlett", 4, false, false });
+
+    // The broadcast is whatever is already carrying the mix; the headphones are the interface,
+    // not the laptop.
+    const auto s = MonitorDevice::suggestFrom (devices, "Dante Virtual Soundcard");
+    REQUIRE (s.valid);
+    CHECK (s.broadcast.name == "Dante Virtual Soundcard");
+    CHECK (s.headphones.name == "Scarlett 2i2 USB");
+    CHECK (s.why.contains ("Scarlett"));
+
+    // With no interface the built-in output is better than nothing, and is offered.
+    juce::Array<Device> noInterface;
+    noInterface.add ({ "Dante Virtual Soundcard", "uid-dante", 32, false, false });
+    noInterface.add ({ "MacBook Pro Speakers", "uid-builtin", 2, false, false });
+    const auto fallback = MonitorDevice::suggestFrom (noInterface, "Dante Virtual Soundcard");
+    REQUIRE (fallback.valid);
+    CHECK (fallback.headphones.name == "MacBook Pro Speakers");
+
+    // One device and nothing else: said plainly, never guessed at.
+    juce::Array<Device> alone;
+    alone.add ({ "Dante Virtual Soundcard", "uid-dante", 32, false, false });
+    const auto none = MonitorDevice::suggestFrom (alone, "Dante Virtual Soundcard");
+    CHECK (! none.valid);
+    CHECK (none.problem.contains ("only one output device"));
+
+    // A combined device DLIVE built earlier is never itself a building block.
+    juce::Array<Device> withOurs;
+    withOurs.add ({ "DLIVE Monitoring", "com.dine.dlive.monitoring", 34, true, true });
+    withOurs.add ({ "Dante Virtual Soundcard", "uid-dante", 32, false, false });
+    withOurs.add ({ "Scarlett 2i2 USB", "uid-scarlett", 4, false, false });
+    const auto again = MonitorDevice::suggestFrom (withOurs, "DLIVE Monitoring");
+    REQUIRE (again.valid);
+    CHECK (again.broadcast.name == "Dante Virtual Soundcard");
+    CHECK (again.headphones.name == "Scarlett 2i2 USB");
 }

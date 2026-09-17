@@ -27,6 +27,7 @@ add_library(livemix_engine STATIC
     Tune/GuitarStrategies.cpp
     Tune/BassStrategies.cpp
     Tune/MasterStrategy.cpp
+    Tune/AmbienceStrategies.cpp
     Tune/TuneEngine.cpp
     Profiles/ProfileData.cpp
     Profiles/ProductData.cpp
@@ -46,6 +47,7 @@ add_library(livemix_engine STATIC
     MixAI/ProcessingPlan.cpp
     MixAI/CapabilityResolver.cpp
     MixAI/MixSafetyValidator.cpp
+    MixAI/MixRequestParser.cpp
     MixAI/MixReasoningProvider.cpp
     MixAI/TuneLiveCoordinator.cpp
     Communication/InstanceRegistry.cpp

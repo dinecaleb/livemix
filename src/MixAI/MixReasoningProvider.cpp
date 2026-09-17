@@ -1,4 +1,5 @@
 #include "MixReasoningProvider.h"
+#include "MixRequestParser.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -72,7 +73,10 @@ std::string mixEngineerInstructions (StyleProfileId profile, MixPurpose purpose)
          "  Say so instead of asking for level.\n"
          "- Do not ask for processing on a source that was not playing during the listen.\n"
          "- Ask for the sound you want even when you are not sure DLIVE has the exact effect. DLIVE will build the\n"
-         "  closest honest thing it can, or tell the user it cannot.\n\n";
+         "  closest honest thing it can, or tell the user it cannot.\n"
+         "- Be repeatable. The same measurements must lead you to the same decisions: an engineer has to be able to\n"
+         "  learn what DLIVE does, and cannot learn from a system that answers differently each time it is asked.\n"
+         "  Reach for the most defensible reading of the numbers, not the most interesting one.\n\n";
     s += "The mix is for: " + std::string (mixPurposeName (purpose)) + ".\n";
     s += "The sonic profile is " + std::string (styleProfileName (profile)) + ".\n";
     if (profile == StyleProfileId::ModernGospel)
@@ -109,6 +113,30 @@ MixReasoningResponse LocalMixReasoningProvider::reason (const MixReasoningReques
     if (! c.adequacy.sufficient)
     {
         out.error = c.adequacy.reason.empty() ? "The listen was not enough to mix from." : c.adequacy.reason;
+        return out;
+    }
+
+    // ---- AI MIX CHAT, offline ----
+    // A request in the engineer's own words is answered by reading the words, not by running
+    // the whole automatic mix again: they asked for one thing and should get one thing. The
+    // registry is rebuilt from the same session the context describes, so a name in a sentence
+    // can only reach something that really exists.
+    if (! request.userRequest.empty() && ! request.refinement)
+    {
+        const auto reading = readMixRequest (request.userRequest, c, request.registry);
+        if (! reading.understood)
+        {
+            out.error = reading.failure;
+            for (const auto& p : reading.notMixDecisions) out.problems.push_back (p);
+            return out;
+        }
+        out.intent = reading.intent;
+        out.intent.unsupportedRequests = reading.notMixDecisions;
+        std::string summary = "Heard: ";
+        for (size_t i = 0; i < reading.readAs.size(); ++i)
+            summary += (i > 0 ? "; " : "") + reading.readAs[i];
+        out.intent.summary = summary + ".";
+        out.valid = true;
         return out;
     }
 

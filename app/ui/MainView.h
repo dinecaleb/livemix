@@ -9,6 +9,7 @@
 #include "MixerPage.h"
 #include "OutputsSheet.h"
 #include "ChannelTuneSheet.h"
+#include "ChatSheet.h"
 #include "MixPage.h"
 #include "LivePage.h"
 #include "AdvancedPage.h"
@@ -115,6 +116,18 @@ private:
     std::unique_ptr<MixerPage> mixerPage;
     std::unique_ptr<OutputsSheet> outputsSheet;
     std::unique_ptr<ChannelTuneSheet> channelSheet;
+    // AI MIX CHAT. A sheet over whatever workspace you are on, so the console keeps playing
+    // behind it and the answer lands on BEFORE / AFTER where everything else does.
+    std::unique_ptr<ChatSheet> chatSheet;
+    void openChat();
+    // Input mappings: the patch, saved so a recurring setup is one click rather than
+    // twenty-four. Applying one never routes audio to a channel the device does not have -
+    // what is missing is shown and switched off instead (native/InputMapStore.h).
+    void saveInputMapping();
+    void openInputMappings();
+    void applyInputMapping (const juce::File&);
+    std::unique_ptr<juce::FileChooser> mapChooser;
+    std::unique_ptr<juce::AlertWindow> mapDialog;
     std::unique_ptr<MixPage> mixPage;
     std::unique_ptr<LivePage> livePage;
     std::unique_ptr<AdvancedPage> advancedPage;

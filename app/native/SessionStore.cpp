@@ -94,26 +94,49 @@ namespace
             fo->setProperty ("fx", fxToVar (f.fx));
             fo->setProperty ("returnDb", f.returnDb);
             fo->setProperty ("enabled", f.enabled);
+            fo->setProperty ("solo", f.solo);
             fx.add (juce::var (fo));
         }
         obj->setProperty ("fx", fx);
         obj->setProperty ("fxReturnDb", m.fxReturnDb);
         obj->setProperty ("fxMute", m.fxMute);
+        // The engineer's own listen. Monitoring, never mix - but it is worth reopening a
+        // service with the headphones set the way they were left.
+        auto* mon = new juce::DynamicObject();
+        mon->setProperty ("mode", int (m.monitor.mode));
+        mon->setProperty ("point", int (m.monitor.point));
+        mon->setProperty ("gainDb", m.monitor.gainDb);
+        mon->setProperty ("mute", m.monitor.mute);
+        mon->setProperty ("dim", m.monitor.dim);
+        mon->setProperty ("dimDb", m.monitor.dimDb);
+        mon->setProperty ("source", int (m.monitor.source));
+        obj->setProperty ("monitor", juce::var (mon));
         return juce::var (obj);
     }
 
-    // Version 3 gave speaking microphones their own group, inserted between VOCALS and MASTER,
-    // so every bus index above VOCALS moved up by one. The stored array says which layout it
-    // was written in - five group slots is the old one, where the last slot was the master -
-    // and a session written then opens with its master on the master and an empty speech group.
-    constexpr int kBusCountBeforeSpeech = int (MixBus::Count) - 1;
+    // Every group bus DLIVE has added went in immediately before MASTER - SPEECH in version 3,
+    // AMBIENCE in version 4 - because everything that walks the groups uses `b < Master`. That
+    // moves the master's stored index each time and nothing else's, which is the whole of the
+    // migration: a stored slot is the same group it always was, except the last one, which was
+    // the master then and is the master now.
+    //
+    // A session saved before a group existed opens with that group empty and everything else
+    // exactly where it was. Nothing is guessed and nothing is dropped.
+    constexpr int storedBusCount (int fileVersion) noexcept
+    {
+        if (fileVersion >= 4) return int (MixBus::Count);       // ... DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE MASTER
+        if (fileVersion == 3) return int (MixBus::Count) - 1;   // no AMBIENCE
+        return int (MixBus::Count) - 2;                         // no SPEECH either
+    }
 
-    MixBus busFromStoredIndex (int stored, int storedBusCount) noexcept
+    MixBus busFromStoredIndex (int stored, int storedCount) noexcept
     {
         if (stored < 0) return MixBus::Master;
-        if (storedBusCount == kBusCountBeforeSpeech && stored >= int (MixBus::Speech))
-            ++stored;                                    // the old master, and anything past it
-        return stored < int (MixBus::Count) ? MixBus (stored) : MixBus::Master;
+        if (storedCount <= 0 || storedCount > int (MixBus::Count)) storedCount = int (MixBus::Count);
+        if (stored >= storedCount) return MixBus::Master;
+        // The last stored slot has always been the master, wherever it happened to sit.
+        if (stored == storedCount - 1) return MixBus::Master;
+        return MixBus (stored);
     }
 
     void mixFromVar (const juce::var& v, MixParameters& m)
@@ -161,7 +184,24 @@ namespace
                 fxFromVar (fo->getProperty ("fx"), m.fx[size_t (f)].fx);
                 m.fx[size_t (f)].returnDb = float (double (fo->getProperty ("returnDb")));
                 m.fx[size_t (f)].enabled = bool (fo->getProperty ("enabled"));
+                m.fx[size_t (f)].solo = bool (fo->getProperty ("solo"));
             }
+        // Absent before the monitor bus existed. The defaults are the safe ones - solo goes to
+        // the monitor and the live output never changes - so an older session opens safer than
+        // it was saved, which is the right direction for this particular default to move.
+        if (auto* mon = obj->getProperty ("monitor").getDynamicObject())
+        {
+            const int mode = int (mon->getProperty ("mode"));
+            const int point = int (mon->getProperty ("point"));
+            if (mode >= 0 && mode < int (SoloMode::Count)) m.monitor.mode = SoloMode (mode);
+            if (point >= 0 && point < int (SoloPoint::Count)) m.monitor.point = SoloPoint (point);
+            m.monitor.gainDb = juce::jlimit (-60.0f, 12.0f, float (double (mon->getProperty ("gainDb"))));
+            m.monitor.mute = bool (mon->getProperty ("mute"));
+            m.monitor.dim = bool (mon->getProperty ("dim"));
+            if (mon->hasProperty ("dimDb")) m.monitor.dimDb = juce::jlimit (-40.0f, 0.0f, float (double (mon->getProperty ("dimDb"))));
+            const int src = int (mon->getProperty ("source"));
+            if (src >= 0 && src < int (MixBus::Count)) m.monitor.source = MixBus (src);
+        }
     }
 
     juce::var projectToVar (const Project& p)
@@ -319,6 +359,8 @@ juce::var toVar (const Document& d)
     obj->setProperty ("name", juce::String (d.session.name));
     obj->setProperty ("profile", int (d.session.profile));
     obj->setProperty ("purpose", int (d.session.purpose));
+    obj->setProperty ("delivery", int (d.session.delivery));   // how loud the finished mix should be
+    if (d.trackPanelWidth > 0) obj->setProperty ("trackPanelWidth", d.trackPanelWidth);
     obj->setProperty ("inputDevice", d.inputDevice);
     obj->setProperty ("outputDevice", d.outputDevice);
     juce::Array<juce::var> inputs;
@@ -357,6 +399,7 @@ juce::var toVar (const Document& d)
         fo->setProperty ("gainDb", f.gainDb);
         fo->setProperty ("mute", f.mute);
         fo->setProperty ("mono", f.mono);
+        fo->setProperty ("monitor", f.monitor);
         feeds.add (juce::var (fo));
     }
     obj->setProperty ("outputs", feeds);
@@ -375,6 +418,11 @@ bool fromVar (const juce::var& v, Document& d)
     d.session.profile = styleProfileFromIndex (int (obj->getProperty ("profile")));
     const int purpose = int (obj->getProperty ("purpose"));
     d.session.purpose = purpose >= 0 && purpose < int (MixPurpose::Count) ? MixPurpose (purpose) : MixPurpose::ChurchBroadcast;
+    // Absent before the delivery loudness was a setting, and FromPurpose is exactly what those
+    // sessions did: an older mix opens aiming where it always aimed.
+    const int delivery = obj->hasProperty ("delivery") ? int (obj->getProperty ("delivery")) : 0;
+    d.session.delivery = delivery > 0 && delivery < int (DeliveryLoudness::Count) ? DeliveryLoudness (delivery) : DeliveryLoudness::FromPurpose;
+    d.trackPanelWidth = int (obj->getProperty ("trackPanelWidth"));
     d.inputDevice = obj->getProperty ("inputDevice").toString();
     d.outputDevice = obj->getProperty ("outputDevice").toString();
     if (auto* inputs = obj->getProperty ("inputs").getArray())
@@ -413,11 +461,13 @@ bool fromVar (const juce::var& v, Document& d)
             f.right = int (fo->getProperty ("right"));
             // Before version 3 there was no speech group, so a feed's source index above
             // VOCALS meant one bus lower than it does now.
-            f.source = busFromStoredIndex (int (fo->getProperty ("source")),
-                                           fileVersion < 3 ? kBusCountBeforeSpeech : int (MixBus::Count));
+            f.source = busFromStoredIndex (int (fo->getProperty ("source")), storedBusCount (fileVersion));
             f.gainDb = float (double (fo->getProperty ("gainDb")));
             f.mute = bool (fo->getProperty ("mute"));
             f.mono = bool (fo->getProperty ("mono"));
+            // A feed that carries the engineer's listen rather than a bus. Absent before the
+            // monitor bus existed, which is exactly right: those sessions had no monitor feed.
+            f.monitor = bool (fo->getProperty ("monitor"));
             ++n;
         }
         if (n > 0) d.outputs.count = n;

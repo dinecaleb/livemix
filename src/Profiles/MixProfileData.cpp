@@ -103,6 +103,9 @@ float spreadForRole (ChannelRole role)
         case RoleFamily::Tom:            return 0.7f;   // several toms walk left to right
         case RoleFamily::Overhead:       return 0.9f;   // two mono overheads = a pair, wide but off the wall
         case RoleFamily::Room:           return 0.8f;
+        // Two crowd microphones are a pair across the room: as wide as the overheads, and for
+        // the same reason - it is the width that makes a congregation sound like one.
+        case RoleFamily::Ambience:       return 0.9f;
         case RoleFamily::AcousticGuitar:
         case RoleFamily::ElectricGuitar: return 0.5f;
         case RoleFamily::Piano:
@@ -137,6 +140,11 @@ float mixLevelTargetDb (StyleProfileId profile, RoleFamily family)
         case RoleFamily::HiHat:          db = -29.0f; break;
         case RoleFamily::Overhead:       db = -27.0f; break;
         case RoleFamily::Room:           db = -31.0f; break;
+        // Ambience is felt before it is heard. Well under everything on the stage, so the
+        // broadcast gets the building without the building competing with the band.
+        case RoleFamily::Ambience:       db = -33.0f; break;
+        // A horn sits with the band, a little under the voices it shares a band with.
+        case RoleFamily::Saxophone:      db = -24.0f; break;
         case RoleFamily::ElectricBass:
         case RoleFamily::SynthBass:      db = -20.0f; break;
         case RoleFamily::Piano:
@@ -152,6 +160,8 @@ float mixLevelTargetDb (StyleProfileId profile, RoleFamily family)
         // Worship: guitars and pads a touch more forward, the choir a little further back.
         if (family == RoleFamily::AcousticGuitar || family == RoleFamily::ElectricGuitar || family == RoleFamily::Synth) db += 1.5f;
         if (family == RoleFamily::Choir) db -= 1.0f;
+        // Worship wants more of the room: it is what stops a stream sounding like a rehearsal.
+        if (family == RoleFamily::Ambience) db += 2.0f;
     }
     return db;
 }
@@ -173,6 +183,9 @@ const Relationships& relationships (StyleProfileId profile)
         // The spoken word is the reason the room is there: when the pastor is on, the speech
         // group sits level with the singing group, never under it.
         r.busBelowVocalsDb[size_t (MixBus::Speech)] = 0.0f;
+        // The room sits well under the singing: audible, never a competitor. This is the
+        // number that decides whether a broadcast sounds like a service or like a crowd.
+        r.busBelowVocalsDb[size_t (MixBus::Ambience)] = -12.0f;
         r.busBelowVocalsDb[size_t (MixBus::Master)] = 0.0f;
         return r;
     }();
@@ -180,6 +193,7 @@ const Relationships& relationships (StyleProfileId profile)
     {
         Relationships r = gospel;
         r.busBelowVocalsDb[size_t (MixBus::Music)] = -3.5f;   // the band sits closer to the voices
+        r.busBelowVocalsDb[size_t (MixBus::Ambience)] = -10.0f;
         r.backingBelowLeadDb = 4.0f;
         return r;
     }();
@@ -197,7 +211,9 @@ float compPeakRiseMs (StyleProfileId profile, ChannelRole role)
         case RoleFamily::Tom:      return r.compPeakRiseCloseDrumMs;
         case RoleFamily::HiHat:
         case RoleFamily::Overhead: return r.compPeakRisePercussiveMs;
-        case RoleFamily::Room:     return r.compPeakRiseRoomMs;
+        case RoleFamily::Room:
+        case RoleFamily::Ambience:
+        case RoleFamily::AmbienceBus: return r.compPeakRiseRoomMs;
         default:                   return r.compPeakRiseSustainedMs;
     }
 }

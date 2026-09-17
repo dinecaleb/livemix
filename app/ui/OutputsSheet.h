@@ -44,6 +44,9 @@ private:
     juce::String pairName (int pair) const;
     void chooseDevice();
     void addFeed();
+    // The second of the two choices this sheet exists for: which device the engineer listens
+    // on. Different from the broadcast is the normal case; the host joins the two.
+    void chooseSoloDevice();
 
     MixController& controller;
     AppServices& services;
@@ -51,7 +54,7 @@ private:
     std::array<std::unique_ptr<Row>, kMaxOutputFeeds> rows;
     DinePopup deviceButton;
     DineButton addButton { "Add an output", DineButton::Style::Standard };
-    DineButton aggregateButton { "Open Audio MIDI Setup", DineButton::Style::Ghost };
+    DinePopup soloDeviceButton;
     DineButton doneButton { "Done", DineButton::Style::Filled };
     int channels = 0;
 };

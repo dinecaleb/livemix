@@ -906,6 +906,159 @@ namespace
         return p;
     }
 
+    // ------------------------------------------------------------------
+    // Crowd / ambience microphones
+    //
+    // The one thing everything in here is built around: on an ambience microphone, what
+    // happens between the sounds is the sound. A gate or an expander removes the room and
+    // leaves the mix sounding like a studio recording with occasional applause stuck to it,
+    // so `gateAppropriate` is false and the strategy never asks. Compression is slow and
+    // gentle - it is there to stop a sudden shout taking the master's headroom, not to make
+    // the congregation "punchy". The high-pass is high (a building full of people is full of
+    // low-frequency noise that carries nothing) and the level target is deliberately well
+    // under everything else: ambience is felt before it is heard.
+    // ------------------------------------------------------------------
+    SourceTargets gospelAmbienceTargets()
+    {
+        SourceTargets t;
+        t.intent = "The building: the congregation, the response, the size of the room. Present enough to be felt, "
+                   "never loud enough to compete with the stage, and never gated - what is between the sounds is the point.";
+        t.capturePeakMinDb = -30.0f; t.capturePeakMaxDb = -12.0f;
+        t.bandTargetDb    = { -28.0f, -16.0f, -10.0f, -8.0f, -9.0f, -10.0f, -13.0f, -18.0f };
+        t.bandToleranceDb = { 10.0f, 7.0f, 6.0f, 5.0f, 5.0f, 5.0f, 6.0f, 7.0f };
+        t.fundamentalMinHz = 0.0f; t.fundamentalMaxHz = 0.0f; t.bodyHz = 200.0f;
+        t.boxinessHz = 400.0f; t.attackHz = 4000.0f;
+        t.harshnessMinHz = 2000.0f; t.harshnessMaxHz = 6000.0f; t.airHz = 12000.0f;
+        // Air handling, traffic, a building settling: none of it is the congregation.
+        t.hpfMinHz = 100.0f; t.hpfMaxHz = 220.0f;
+        t.maxEqCutDb = 5.0f; t.maxEqBoostDb = 2.0f; t.maxNotchCutDb = 6.0f;
+        // A room microphone is meant to be dynamic. It only needs control when one shout
+        // would otherwise cost the master its headroom.
+        t.crestFactorMaxDb = 26.0f; t.crestFactorMinDb = 8.0f;
+        t.compressionAppropriate = true;
+        t.compTargetGrDb = 2.5f; t.compRatioMin = 1.5f; t.compRatioMax = 3.0f;
+        t.compAttackMinMs = 30.0f; t.compAttackMaxMs = 80.0f; t.compReleaseMinMs = 300.0f; t.compReleaseMaxMs = 800.0f;
+        t.compDetectorHpfHz = 120.0f;
+        // Nothing transient-shaped: an ambience microphone has no attack to sharpen, and
+        // sharpening the room is how a broadcast ends up sounding like a stadium advert.
+        t.transientAppropriate = false;
+        t.gateAppropriate = false;
+        t.saturationAppropriate = false; t.satMaxDrive = 0.0f;
+        t.widthAppropriate = true; t.widthTarget = 1.3f; t.widthMin = 1.0f; t.widthMax = 1.6f;
+        t.correlationMin = -0.1f; t.monoBelowHz = 200.0f;
+        t.deEssAppropriate = false;
+        t.mixPeakTargetDb = -26.0f; t.kitBalanceRelDb = -14.0f;
+        return t;
+    }
+
+    SourceTargets gospelAmbienceBusTargets()
+    {
+        SourceTargets t = gospelAmbienceTargets();
+        t.intent = "The room, taken as one: glue and a ceiling, so the crowd can be turned up as one fader without "
+                   "anything sudden reaching the broadcast.";
+        t.hpfMinHz = 80.0f; t.hpfMaxHz = 160.0f;
+        t.maxEqCutDb = 3.0f; t.maxEqBoostDb = 1.5f;
+        t.compTargetGrDb = 2.0f; t.compRatioMin = 1.5f; t.compRatioMax = 2.5f;
+        t.mixPeakTargetDb = -20.0f; t.kitBalanceRelDb = -12.0f;
+        return t;
+    }
+
+    ChannelParameters gospelAmbienceBaseline()
+    {
+        ChannelParameters p;
+        p.hpfEnabled = true; p.hpfHz = 140.0f;
+        p.gateEnabled = false;                 // never, on this family
+        p.correctiveBands[0] = band (true, FilterType::Peak, 350.0f, -2.0f, 1.0f);
+        p.compEnabled = true; p.compThresholdDb = -26.0f; p.compRatio = 2.0f;
+        p.compAttackMs = 50.0f; p.compReleaseMs = 500.0f; p.compKneeDb = 12.0f;
+        p.compScHpfHz = 120.0f;
+        p.transientEnabled = false;
+        p.toneBands[0] = band (false, FilterType::LowShelf, 200.0f, 0.0f, 0.7f);
+        p.toneBands[1] = band (false, FilterType::Peak, 400.0f, 0.0f, 1.0f);
+        p.toneBands[2] = band (false, FilterType::Peak, 3000.0f, 0.0f, 1.0f);
+        p.toneBands[3] = band (true, FilterType::HighShelf, 10000.0f, 1.0f, 0.7f);
+        p.satEnabled = false;
+        p.widthEnabled = true; p.widthAmount = 1.3f; p.widthMonoBelowHz = 200.0f;
+        return p;
+    }
+
+    ChannelParameters gospelAmbienceBusBaseline()
+    {
+        ChannelParameters p = gospelAmbienceBaseline();
+        p.hpfHz = 100.0f;
+        p.correctiveBands[0].enabled = false;
+        p.compThresholdDb = -22.0f; p.compRatio = 1.8f; p.compAttackMs = 60.0f; p.compReleaseMs = 600.0f;
+        p.widthAmount = 1.2f;
+        return p;
+    }
+
+    // ------------------------------------------------------------------
+    // Saxophone
+    //
+    // A horn is not a keyboard, which is the whole reason it is here. Three things make it
+    // its own family: a hard honk between 800 Hz and 2 kHz that has to be found and notched
+    // rather than shelved; a real dynamic range between a held note and a wailed one, so it
+    // wants more compression than any keyboard and a slow enough attack to keep the reed's
+    // bite; and a presence band that is the lead vocal's presence band, which is why it is
+    // targeted a little under and gets its own pocket in the relationship rules.
+    // ------------------------------------------------------------------
+    SourceTargets gospelSaxTargets()
+    {
+        SourceTargets t;
+        t.intent = "Reedy and singing, with the honk taken out and the top kept smooth: a horn that sits beside the "
+                   "voice rather than fighting it for the same air.";
+        t.capturePeakMinDb = -18.0f; t.capturePeakMaxDb = -6.0f;
+        t.bandTargetDb    = { -34.0f, -20.0f, -9.0f, -7.0f, -8.0f, -11.0f, -16.0f, -24.0f };
+        t.bandToleranceDb = { 8.0f, 6.0f, 4.0f, 4.0f, 3.5f, 4.0f, 5.0f, 6.0f };
+        // A tenor's low B flat is about 116 Hz; an alto's is about 138 Hz. The range below
+        // covers the family, and the high-pass rule never goes above 0.8x what it measures.
+        t.fundamentalMinHz = 110.0f; t.fundamentalMaxHz = 700.0f;
+        t.bodyHz = 250.0f;
+        t.boxinessHz = 500.0f;
+        t.attackHz = 3500.0f;
+        // The honk. Narrow, real, and the one cut that makes a sax sound professional.
+        t.harshnessMinHz = 900.0f; t.harshnessMaxHz = 2500.0f;
+        t.airHz = 11000.0f;
+        t.hpfMinHz = 60.0f; t.hpfMaxHz = 110.0f;
+        t.maxEqCutDb = 6.0f; t.maxEqBoostDb = 2.5f; t.maxNotchCutDb = 6.0f;
+        t.resonanceMinProminenceDb = 5.5f;    // a honk is a resonance worth finding early
+        t.crestFactorMaxDb = 18.0f; t.crestFactorMinDb = 7.0f;
+        t.compTargetGrDb = 4.5f; t.compRatioMin = 2.5f; t.compRatioMax = 4.0f;
+        // Slow enough to let the reed's attack through, quick enough to catch a wail.
+        t.compAttackMinMs = 10.0f; t.compAttackMaxMs = 30.0f;
+        t.compReleaseMinMs = 120.0f; t.compReleaseMaxMs = 350.0f;
+        t.compDetectorHpfHz = 100.0f;
+        t.transientAppropriate = false;
+        // A sustained source never gets an expander, and a horn player's breath between
+        // phrases is part of the performance.
+        t.gateAppropriate = false;
+        t.saturationAppropriate = true; t.satMaxDrive = 0.15f;
+        t.widthAppropriate = false;
+        t.deEssAppropriate = false;
+        t.mixPeakTargetDb = -13.0f; t.kitBalanceRelDb = 0.0f;
+        return t;
+    }
+
+    ChannelParameters gospelSaxBaseline()
+    {
+        ChannelParameters p;
+        p.hpfEnabled = true; p.hpfHz = 80.0f;
+        p.gateEnabled = false;
+        p.correctiveBands[0] = band (true, FilterType::Peak, 1200.0f, -2.5f, 2.2f);   // the honk
+        p.correctiveBands[1] = band (false, FilterType::Peak, 400.0f, 0.0f, 1.5f);
+        p.correctiveBands[2] = band (false, FilterType::Peak, 6000.0f, 0.0f, 2.0f);
+        p.compEnabled = true; p.compThresholdDb = -20.0f; p.compRatio = 3.0f;
+        p.compAttackMs = 15.0f; p.compReleaseMs = 200.0f; p.compKneeDb = 8.0f;
+        p.compScHpfHz = 100.0f;
+        p.transientEnabled = false;
+        p.toneBands[0] = band (false, FilterType::LowShelf, 250.0f, 0.0f, 0.7f);
+        p.toneBands[1] = band (false, FilterType::Peak, 500.0f, 0.0f, 1.0f);
+        p.toneBands[2] = band (true, FilterType::Peak, 3500.0f, 1.0f, 1.0f);
+        p.toneBands[3] = band (true, FilterType::HighShelf, 11000.0f, 1.0f, 0.7f);
+        p.satEnabled = true; p.satDrive = 0.08f;
+        return p;
+    }
+
     ProfileDefinition buildModernGospel()
     {
         ProfileDefinition d;
@@ -938,6 +1091,9 @@ namespace
         t[int (RoleFamily::ElectricBass)]   = gospelBassTargets();           b[int (RoleFamily::ElectricBass)]   = gospelBassBaseline();
         t[int (RoleFamily::SynthBass)]      = gospelSynthBassTargets();      b[int (RoleFamily::SynthBass)]      = gospelSynthBassBaseline();
         t[int (RoleFamily::BassBus)]        = gospelBassBusTargets();        b[int (RoleFamily::BassBus)]        = gospelBassBusBaseline();
+        t[int (RoleFamily::Ambience)]       = gospelAmbienceTargets();       b[int (RoleFamily::Ambience)]       = gospelAmbienceBaseline();
+        t[int (RoleFamily::AmbienceBus)]    = gospelAmbienceBusTargets();    b[int (RoleFamily::AmbienceBus)]    = gospelAmbienceBusBaseline();
+        t[int (RoleFamily::Saxophone)]      = gospelSaxTargets();            b[int (RoleFamily::Saxophone)]      = gospelSaxBaseline();
         return d;
     }
 
@@ -996,6 +1152,15 @@ namespace
         d.baselines[int (RoleFamily::ElectricGuitar)].lpfHz = 10000.0f;
         // Bass: worship wants a cleaner, slightly more open low end; the generic deltas above already take 0.05 off the grit.
         d.targets[int (RoleFamily::ElectricBass)].compTargetGrDb = 3.0f;
+        // Ambience: worship services want more of the room, not less - it is what stops a
+        // stream sounding like a rehearsal. A touch more level and a touch more air.
+        d.targets[int (RoleFamily::Ambience)].mixPeakTargetDb += 2.0f;
+        d.targets[int (RoleFamily::Ambience)].kitBalanceRelDb += 2.0f;
+        d.targets[int (RoleFamily::Ambience)].bandTargetDb[size_t (Band::Air)] += 1.0f;
+        // Sax: a little less honk-cutting and a little more of the reed, to match the softer
+        // top end the rest of the worship profile asks for.
+        d.targets[int (RoleFamily::Saxophone)].bandTargetDb[size_t (Band::Air)] += 1.0f;
+        d.baselines[int (RoleFamily::Saxophone)].correctiveBands[0].gainDb = -2.0f;
         // Master: a little more open dynamics and a slightly lower default loudness push.
         d.targets[int (RoleFamily::Master)].compTargetGrDb = 1.5f;
         return d;
@@ -1006,6 +1171,16 @@ namespace
     {
         switch (role)
         {
+            // A crowd microphone is aimed at people and an ambience microphone at the room:
+            // the first wants the voices, the second wants the decay. One high-pass apart.
+            case ChannelRole::CrowdMic:    p.hpfHz = 150.0f; p.toneBands[3].gainDb = 1.5f; break;
+            case ChannelRole::AmbienceMic: p.hpfHz = 120.0f; p.compThresholdDb = -28.0f; break;
+            // Where the honk sits moves with the horn. An alto honks higher than a tenor, and
+            // a baritone is a different instrument again: more weight, a lower high-pass.
+            case ChannelRole::SaxAlto:     p.hpfHz = 110.0f; p.correctiveBands[0].freqHz = 1500.0f; break;
+            case ChannelRole::SaxTenor:    p.hpfHz = 85.0f;  p.correctiveBands[0].freqHz = 1100.0f; break;
+            case ChannelRole::SaxBari:     p.hpfHz = 55.0f;  p.correctiveBands[0].freqHz = 800.0f;
+                                           p.toneBands[0] = band (true, FilterType::LowShelf, 180.0f, 1.0f, 0.7f); break;
             case ChannelRole::KickOut:     p.hpfHz = 24.0f; p.toneBands[0].freqHz = 50.0f; p.gateScHpfHz = 25.0f; break;
             case ChannelRole::SnareBottom: p.hpfHz = 200.0f; p.toneBands[0].enabled = false; p.toneBands[3].gainDb = 2.0f; p.gateScHpfHz = 250.0f; break;
             case ChannelRole::FloorTom:    p.hpfHz = 38.0f; p.toneBands[0].freqHz = 80.0f; p.correctiveBands[0].freqHz = 300.0f; p.toneBands[2].freqHz = 2500.0f; p.gateScHpfHz = 60.0f; p.gateHoldMs = 150.0f; p.gateReleaseMs = 200.0f; break;

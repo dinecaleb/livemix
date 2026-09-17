@@ -9,6 +9,7 @@
 #include "MixAI/MixContext.h"
 #include "MixAI/MixIntent.h"
 #include "MixAI/MixReasoningProvider.h"
+#include "MixAI/MixRequestParser.h"
 #include "MixAI/MixSafetyValidator.h"
 #include "MixAI/RelationshipEngine.h"
 #include "Profiles/MixProfileData.h"
@@ -713,4 +714,403 @@ TEST_CASE ("TUNE LIVE MIX: cancelling and a broken provider both leave the mix e
     cancelled.cancel();
     CHECK (cancelled.getState() == TuneLiveCoordinator::State::Cancelled);
     CHECK (! cancelled.hasProposal());
+}
+
+// ---------------------------------------------------------------------------
+// REPEATABILITY
+//
+// The same band, the same listen and the same settings have to produce the same mix. This
+// is not a nicety: an engineer cannot learn what DLIVE does from a system that answers
+// differently every time it is asked, and cannot trust one in front of a congregation.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    // A provider that answers differently every single time - the worst case the cache and
+    // the seed exist to defend against. It also counts how often it was actually asked.
+    class DriftingProvider final : public MixReasoningProvider
+    {
+    public:
+        std::string getName() const override { return "drifting (test)"; }
+        bool isAvailable() const override { return true; }
+        bool sendsDataExternally() const override { return false; }
+        MixReasoningResponse reason (const MixReasoningRequest& r, const std::atomic<bool>&) override
+        {
+            ++calls;
+            seenSeeds.push_back (r.seed);
+            seenVariations.push_back (r.variation);
+            MixReasoningResponse out;
+            out.providerName = getName();
+            out.valid = true;
+            out.intent.valid = true;
+            out.intent.schemaVersion = kMixIntentSchemaVersion;
+            out.intent.summary = "drift " + std::to_string (calls);
+            MixTargetIntent t;
+            t.target = MixTargetRef { MixTargetKind::Bus, int (MixBus::Vocals) };
+            t.targetName = "VOCALS";
+            t.reason = "drifting on purpose";
+            t.confidence = Confidence::Medium;
+            MixObjective o;
+            o.type = MixObjectiveType::Presence;
+            // A different strength every call: if anything downstream is pinned, it is pinned
+            // because DLIVE pinned it, not because the provider was well behaved.
+            o.strength = 0.1f * float (calls);
+            t.objectives.push_back (o);
+            out.intent.targets.push_back (t);
+            return out;
+        }
+        int calls = 0;
+        std::vector<std::uint64_t> seenSeeds;
+        std::vector<int> seenVariations;
+    };
+
+    // One whole reasoning pass, returning the mix it proposes.
+    MixParameters runOnePass (TuneLiveCoordinator& tune, const MixPlanContext& ctx, const MixPlan& baseline)
+    {
+        tune.reset();
+        tune.beginListening ("repeatability");
+        tune.onListenComplete (ctx, baseline);
+        pump (tune);
+        return tune.getProposed();
+    }
+
+    bool sameMix (const MixParameters& a, const MixParameters& b)
+    {
+        if (a.numStrips != b.numStrips) return false;
+        return MixPlanner::countParameterChanges (a, b) == 0;
+    }
+}
+
+TEST_CASE ("Repeatability: the same listen is the same document, and the same fingerprint")
+{
+    Rig rig (band());
+    auto in = bandAudio();
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    auto ctx = rig.context (cap);
+    const auto baseline = MixPlanner::plan (ctx);
+
+    const auto a = buildMixContext (ctx, baseline);
+    const auto b = buildMixContext (ctx, baseline);
+    CHECK (a.write() == b.write());
+    CHECK (a.fingerprint() == b.fingerprint());
+    CHECK (a.fingerprint() != 0);
+
+    // A different band is a different question, and says so.
+    auto quiet = ctx;
+    quiet.capture.strips[0].peakDb -= 12.0f;
+    const auto c = buildMixContext (quiet, baseline);
+    CHECK (c.fingerprint() != a.fingerprint());
+}
+
+TEST_CASE ("Repeatability: the deterministic engineer reaches the same mix every time")
+{
+    Rig rig (band());
+    auto in = bandAudio();
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    auto ctx = rig.context (cap);
+    const auto baseline = MixPlanner::plan (ctx);
+    REQUIRE (baseline.valid);
+
+    TuneLiveCoordinator tune;
+    TuneLiveCoordinator::Settings s;
+    s.refinementPass = false;
+    tune.setSettings (s);
+
+    const auto first = runOnePass (tune, ctx, baseline);
+    const auto second = runOnePass (tune, ctx, baseline);
+    const auto third = runOnePass (tune, ctx, baseline);
+    CHECK (sameMix (first, second));
+    CHECK (sameMix (second, third));
+}
+
+TEST_CASE ("Repeatability: a provider that drifts is asked once, and the answer is pinned")
+{
+    Rig rig (band());
+    auto in = bandAudio();
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    auto ctx = rig.context (cap);
+    const auto baseline = MixPlanner::plan (ctx);
+
+    auto drifting = std::make_shared<DriftingProvider>();
+    TuneLiveCoordinator tune;
+    tune.setProvider (drifting);
+    TuneLiveCoordinator::Settings s;
+    s.refinementPass = false;
+    tune.setSettings (s);
+
+    const auto first = runOnePass (tune, ctx, baseline);
+    CHECK (drifting->calls == 1);
+    const auto second = runOnePass (tune, ctx, baseline);
+    const auto third = runOnePass (tune, ctx, baseline);
+
+    // The provider was asked once. Everything after that is the answer it already gave.
+    CHECK (drifting->calls == 1);
+    CHECK (sameMix (first, second));
+    CHECK (sameMix (second, third));
+    CHECK (tune.getDiagnostics().answerFromCache);
+
+    // The seed it was given is derived from this exact listen, not from a clock or a counter:
+    // a different band gets a different seed, and the same band always gets the same one.
+    REQUIRE (! drifting->seenSeeds.empty());
+    const auto seedHere = drifting->seenSeeds.front();
+    CHECK (seedHere != 0);
+
+    auto quieter = ctx;
+    for (auto& strip : quieter.capture.strips) strip.peakDb -= 9.0f;
+    auto other = std::make_shared<DriftingProvider>();
+    TuneLiveCoordinator onQuieter;
+    onQuieter.setProvider (other);
+    onQuieter.setSettings (s);
+    runOnePass (onQuieter, quieter, MixPlanner::plan (quieter));
+    REQUIRE (! other->seenSeeds.empty());
+    CHECK (other->seenSeeds.front() != seedHere);
+}
+
+TEST_CASE ("Repeatability: TRY ANOTHER MIX is a different question, asked on purpose")
+{
+    Rig rig (band());
+    auto in = bandAudio();
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    auto ctx = rig.context (cap);
+    const auto baseline = MixPlanner::plan (ctx);
+
+    auto drifting = std::make_shared<DriftingProvider>();
+    TuneLiveCoordinator tune;
+    tune.setProvider (drifting);
+
+    TuneLiveCoordinator::Settings s;
+    s.refinementPass = false;
+    s.variation = 0;
+    tune.setSettings (s);
+    const auto primary = runOnePass (tune, ctx, baseline);
+
+    s.variation = 1;
+    tune.setSettings (s);
+    const auto alternative = runOnePass (tune, ctx, baseline);
+
+    // A new variation is a new question: the provider is asked again, with a different seed.
+    CHECK (drifting->calls == 2);
+    CHECK (drifting->seenSeeds[0] != drifting->seenSeeds[1]);
+    CHECK (drifting->seenVariations[1] == 1);
+
+    // And that variation is itself repeatable.
+    const auto alternativeAgain = runOnePass (tune, ctx, baseline);
+    CHECK (drifting->calls == 2);
+    CHECK (sameMix (alternative, alternativeAgain));
+    (void) primary;
+
+    // Going back to the primary mix gives the primary mix, not the newest answer.
+    s.variation = 0;
+    tune.setSettings (s);
+    CHECK (sameMix (runOnePass (tune, ctx, baseline), primary));
+    CHECK (drifting->calls == 2);
+}
+
+// ---------------------------------------------------------------------------
+// AI MIX CHAT
+//
+// The whole point of the chat is that a sentence becomes a real, bounded, reviewable change
+// rather than written advice. These tests are about the reading: does DLIVE hear what was
+// asked, on the right channel, in the right direction - and does it say so plainly when it
+// did not follow, instead of confidently changing something nobody asked about.
+// ---------------------------------------------------------------------------
+namespace
+{
+    struct ChatRig
+    {
+        Rig rig;
+        MixCapture::Result cap;
+        MixPlanContext ctx;
+        MixPlan baseline;
+        MixContext context;
+        DspCapabilityRegistry registry;
+
+        explicit ChatRig (const MixSession& s) : rig (s)
+        {
+            auto in = bandAudio();
+            cap = rig.listen (in);
+            ctx = rig.context (cap);
+            baseline = MixPlanner::plan (ctx);
+            context = buildMixContext (ctx, baseline);
+            registry = DspCapabilityRegistry::build (rig.session, rig.engine.getGraph());
+        }
+        MixRequestReading read (const char* text) const { return readMixRequest (text, context, registry); }
+    };
+
+    const MixTargetIntent* intentFor (const MixIntent& i, const std::string& name)
+    {
+        for (const auto& t : i.targets) if (t.targetName == name) return &t;
+        return nullptr;
+    }
+    const MixObjective* objectiveOfType (const MixTargetIntent& t, MixObjectiveType type)
+    {
+        for (const auto& o : t.objectives) if (o.type == type) return &o;
+        return nullptr;
+    }
+}
+
+TEST_CASE ("AI MIX CHAT: plain words become a bounded intent on the right channel")
+{
+    ChatRig chat { band() };
+
+    {
+        const auto r = chat.read ("Bring the lead vocal forward");
+        REQUIRE (r.understood);
+        const auto* lead = intentFor (r.intent, "Lead");
+        REQUIRE (lead != nullptr);
+        const auto* o = objectiveOfType (*lead, MixObjectiveType::Presence);
+        REQUIRE (o != nullptr);
+        CHECK (o->strength > 0.0f);           // forward, not back
+    }
+    {
+        // A complaint asks for the opposite of the thing complained about.
+        const auto r = chat.read ("The vocals sound harsh");
+        REQUIRE (r.understood);
+        REQUIRE (! r.intent.targets.empty());
+        const auto* o = objectiveOfType (r.intent.targets.front(), MixObjectiveType::Brightness);
+        REQUIRE (o != nullptr);
+        CHECK (o->strength < 0.0f);
+    }
+    {
+        const auto r = chat.read ("Make the drums punchier");
+        REQUIRE (r.understood);
+        const auto* drums = intentFor (r.intent, "DRUMS");
+        REQUIRE (drums != nullptr);           // a whole family means the group, which is one move
+        const auto* o = objectiveOfType (*drums, MixObjectiveType::Punch);
+        REQUIRE (o != nullptr);
+        CHECK (o->strength > 0.0f);
+        CHECK (o->preserveTransients);        // control must not cost the attack
+    }
+    {
+        const auto r = chat.read ("The mix sounds muddy");
+        REQUIRE (r.understood);
+        const auto* master = intentFor (r.intent, "MASTER");
+        REQUIRE (master != nullptr);          // a statement about the whole mix is about the master
+        CHECK (objectiveOfType (*master, MixObjectiveType::Clarity) != nullptr);
+    }
+    {
+        // "a little" is a smaller move than the same request without it.
+        const auto plain = chat.read ("Give the lead more warmth");
+        const auto gentle = chat.read ("Give the lead a little more warmth");
+        REQUIRE (plain.understood && gentle.understood);
+        const auto* a = objectiveOfType (*intentFor (plain.intent, "Lead"), MixObjectiveType::Warmth);
+        const auto* b = objectiveOfType (*intentFor (gentle.intent, "Lead"), MixObjectiveType::Warmth);
+        REQUIRE (a != nullptr && b != nullptr);
+        CHECK (b->strength < a->strength);
+    }
+    {
+        // Two sources and a "make room" word is about the relationship, not about a channel.
+        const auto r = chat.read ("The keys are covering the lead");
+        REQUIRE (r.understood);
+        bool madeRoom = false;
+        for (const auto& t : r.intent.targets)
+            for (const auto& o : t.objectives)
+                if (o.type == MixObjectiveType::Separation && o.hasAgainst()) madeRoom = true;
+        CHECK (madeRoom);
+    }
+}
+
+TEST_CASE ("AI MIX CHAT: what it did not follow, and what is not a mix decision, are said plainly")
+{
+    ChatRig chat { band() };
+
+    // Nothing recognisable: no change is proposed, and the answer says what to try.
+    {
+        const auto r = chat.read ("do the thing with the wotsit");
+        CHECK (! r.understood);
+        CHECK (! r.failure.empty());
+        CHECK (r.intent.targets.empty());
+    }
+    // A channel but no wish.
+    {
+        const auto r = chat.read ("the lead vocal");
+        CHECK (! r.understood);
+        CHECK (r.failure.find ("what you want") != std::string::npos);
+    }
+    // A wish but no channel.
+    {
+        const auto r = chat.read ("make it punchier please");
+        CHECK (! r.understood);
+        CHECK (r.failure.find ("which channel") != std::string::npos);
+    }
+    // A source naming something that is not on this console is not invented.
+    {
+        const auto r = chat.read ("more air on the saxophone");
+        CHECK (! r.understood);               // there is no sax in this band
+    }
+    // A capture problem is answered honestly rather than hidden with processing.
+    {
+        const auto r = chat.read ("the lead vocal is feedback-y and the singer is off mic");
+        bool saidSo = false;
+        for (const auto& n : r.notMixDecisions) if (n.find ("at the source") != std::string::npos) saidSo = true;
+        CHECK (saidSo);
+    }
+    // "Louder without clipping" is a request and a refusal at once, and says both.
+    {
+        const auto r = chat.read ("make the master louder without clipping");
+        REQUIRE (r.understood);
+        bool keptHeadroom = false;
+        for (const auto& n : r.notMixDecisions) if (n.find ("headroom") != std::string::npos) keptHeadroom = true;
+        CHECK (keptHeadroom);
+    }
+}
+
+TEST_CASE ("AI MIX CHAT: the same sentence always reads the same way")
+{
+    ChatRig chat { band() };
+    const auto a = chat.read ("the backing vocals need less reverb and a bit more clarity");
+    const auto b = chat.read ("the backing vocals need less reverb and a bit more clarity");
+    REQUIRE (a.understood && b.understood);
+    CHECK (a.intent.write() == b.intent.write());
+}
+
+TEST_CASE ("AI MIX CHAT: a request goes through the same bounds as a Tune, offline")
+{
+    ChatRig chat { band() };
+
+    MixReasoningRequest request;
+    request.context = chat.context;
+    request.registry = chat.registry;
+    request.userRequest = "bring the lead vocal forward and give the drums more punch";
+
+    LocalMixReasoningProvider provider;
+    std::atomic<bool> cancel { false };
+    const auto reply = provider.reason (request, cancel);
+    REQUIRE (reply.valid);
+    CHECK (reply.intent.objectiveCount() > 0);
+
+    // Resolved and validated exactly as a Tune's intent is: nothing the chat asks for can
+    // reach a parameter by a path the reasoning layer could not.
+    const auto intent = validateMixIntent (reply.intent, chat.registry);
+
+    CapabilityResolver::Context rc;
+    rc.registry = &chat.registry;
+    rc.mix = &chat.context;
+    rc.baseline = &chat.baseline.proposed;
+    rc.graph = &chat.ctx.graph;
+    rc.profile = chat.ctx.session.profile;
+    const auto resolved = CapabilityResolver::resolve (intent, rc);
+
+    MixSafetyValidator::Context vc;
+    vc.registry = &chat.registry;
+    vc.baseline = &chat.baseline.proposed;
+    vc.graph = &chat.ctx.graph;
+    vc.mix = &chat.context;
+    vc.profile = chat.ctx.session.profile;
+    MixSafetyValidator::Report report;
+    const auto checked = MixSafetyValidator::validate (resolved, vc, &report);
+    const auto proposed = applyProcessingPlan (chat.baseline.proposed, checked, chat.ctx.graph);
+
+    const auto& B = MixProfile::aiBounds();
+    for (int i = 0; i < proposed.numStrips; ++i)
+    {
+        CHECK (std::fabs (proposed.strips[size_t (i)].faderDb - chat.baseline.proposed.strips[size_t (i)].faderDb)
+                   <= B.maxFaderMoveDb + 1.0e-3f);
+        // Capture gain is the console's, whatever anybody types into a chat window.
+        CHECK_NEAR (proposed.strips[size_t (i)].inputGainDb, chat.baseline.proposed.strips[size_t (i)].inputGainDb, 1.0e-4f);
+    }
 }

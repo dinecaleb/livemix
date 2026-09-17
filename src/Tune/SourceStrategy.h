@@ -45,6 +45,8 @@ const SourceStrategy& keysStrategyFor (RoleFamily family);    // KeysStrategies.
 const SourceStrategy& masterStrategy();                       // MasterStrategy.cpp
 const SourceStrategy& guitarStrategyFor (RoleFamily family);  // GuitarStrategies.cpp
 const SourceStrategy& bassStrategyFor (RoleFamily family);    // BassStrategies.cpp
+const SourceStrategy& ambienceStrategyFor (RoleFamily family);// AmbienceStrategies.cpp (crowd / room)
+const SourceStrategy& saxophoneStrategy();                    // AmbienceStrategies.cpp
 
 // Shared engineering rules used by several strategies. Each is bounded by the
 // profile's safe ranges and does nothing when the measurement is already inside

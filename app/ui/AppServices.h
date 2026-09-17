@@ -40,8 +40,31 @@ public:
     virtual int xrunCount() = 0;
     virtual bool deviceStopped() { return false; }   // the device went away without the app closing it
     virtual void reconfigure() = 0;          // assignments changed: rebuild the graph with audio stopped
+
+    // ---- Two outputs: one for the broadcast, one for the engineer ----
+    //
+    // The whole feature, from the user's side, is two choices: which device the stream and the
+    // room go out of, and which device the engineer listens on. Everything underneath is
+    // DLIVE's problem - and it is a real one, because macOS opens exactly one audio device at
+    // a time. Choosing two different devices makes DLIVE build the combined device itself
+    // (native/MonitorDevice.h) and route a pair to each; choosing the same device puts solo on
+    // a second pair of it. Neither case mentions an Aggregate Device to anybody.
+    struct MonitorSetup { bool ok = false; juce::String message; };
+    virtual bool canCombineOutputs() { return false; }
+    // Which device carries the broadcast, and which carries solo ("" = solo is not set up).
+    virtual juce::String broadcastOutputDevice() { return currentOutputDevice(); }
+    virtual juce::String soloOutputDevice() { return {}; }
+    // Choose the device solo goes to. "" turns it off and puts the Mac back as it was.
+    virtual MonitorSetup setSoloOutputDevice (const juce::String&) { return { false, "That is not available here." }; }
+    // What is set up right now, in plain words; empty when solo has nowhere to go.
+    virtual juce::String headphonesSummary() { return {}; }
     virtual juce::String currentInputDevice() = 0;
     virtual juce::String currentOutputDevice() = 0;
+    // What to *call* the output, which is not always the device that is open. While DLIVE has
+    // two devices joined, the open device is one it built and the user has never heard of;
+    // what they chose is the broadcast. Every piece of chrome says this rather than the name
+    // of the machinery, so the toolbar and the Outputs sheet cannot appear to disagree.
+    virtual juce::String outputDisplayName() { return currentOutputDevice(); }
 
     // ---- the session document ----
     virtual void saveSession() = 0;
@@ -54,6 +77,11 @@ public:
     virtual juce::String loadSession (const juce::File& file) = 0;
     virtual juce::Array<SessionStore::Listing> listSessions() = 0;
     virtual juce::String currentSessionName() = 0;
+    // How wide the TRACKS channel panel was left. A layout preference stored with the session,
+    // the way a track's row height already is: 0 means "never set", so the page keeps its own
+    // default. Not part of the mix, so it goes through here rather than through MixController.
+    virtual int trackPanelWidth() { return 0; }
+    virtual void setTrackPanelWidth (int) {}
     virtual juce::File sessionFolder() = 0;   // empty until the session has been saved
 
     // A folder of stems becomes tracks and clips: assign, TUNE MIX, mix and export without a console.

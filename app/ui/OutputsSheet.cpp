@@ -41,7 +41,9 @@ public:
         addAndMakeVisible (muteButton);
         addChildComponent (removeButton);
 
-        sourceButton.setTooltip ("What this output carries: the finished mix, or one group on its own.");
+        sourceButton.setTooltip ("What goes out here: the finished mix, one group on its own, or your "
+                                 "headphones - whatever you have soloed. Nothing you solo is ever heard by "
+                                 "the room or the stream. (Engineers: the monitor / solo bus, PFL or AFL.)");
         pairButton.setTooltip ("Which pair of the device's outputs it leaves by.");
         levelSlider.setTooltip ("Monitoring level for this output. It never changes the mix.");
         monoButton.setTooltip ("Sum to mono: a single fill speaker, or a phone feed.");
@@ -80,11 +82,20 @@ public:
         updating = true;
         feed = f;
         levelSlider.setValue (f.gainDb, juce::dontSendNotification);
-        sourceButton.setValue (f.source == MixBus::Master ? juce::String ("Main mix") : sentence (mixBusName (f.source)));
+        sourceButton.setValue (f.monitor ? juce::String ("My headphones")
+                                         : (f.source == MixBus::Master ? juce::String ("Main mix") : sentence (mixBusName (f.source))));
         pairButton.setValue (sheet.pairName (f.left < 0 ? -1 : f.left / 2));
         monoButton.setStyle (f.mono ? DineButton::Style::Filled : DineButton::Style::Standard);
         muteButton.setStyle (f.mute ? DineButton::Style::Filled : DineButton::Style::Standard);
         monoButton.setButtonText (f.mono ? "Mono" : "Stereo");
+        // The broadcast and the engineer's listen are always a real stereo pair, so the switch
+        // is not offered on them - a mix that reaches the stream summed to mono is the kind of
+        // fault nobody notices until it is on the recording. The extra feeds keep it, because
+        // that is what it is for: one fill speaker, a feed to a phone.
+        const bool alwaysStereo = feedIndex == 0 || f.monitor;
+        monoButton.setEnabled (! alwaysStereo);
+        monoButton.setTooltip (alwaysStereo ? "Always stereo: the broadcast and your own listen are never summed."
+                                            : "Sum this output to mono - for a single fill speaker or a feed to a phone.");
         muteButton.setButtonText (f.mute ? "Muted" : "Mute");
         removeButton.setButtonText ("Remove");
         removeButton.setVisible (canRemove);
@@ -100,7 +111,7 @@ public:
         Dine::drawCard (g, r, feed.mute ? Dine::card.darker (0.2f) : Dine::card);
 
         auto inner = getLocalBounds().reduced (12, 0);
-        g.setColour (sourceTint (feed.source).withAlpha (feed.mute ? 0.3f : 0.9f));
+        g.setColour ((feed.monitor ? Dine::accent : sourceTint (feed.source)).withAlpha (feed.mute ? 0.3f : 0.9f));
         g.fillRoundedRectangle (float (inner.getX()), float (inner.getY()) + 9.0f, 3.0f,
                                 float (inner.getHeight()) - 18.0f, 1.5f);
         inner.removeFromLeft (12);
@@ -145,23 +156,31 @@ public:
     }
 
 private:
+    static constexpr int kMonitorId = 900;
+
     void chooseSource()
     {
         juce::PopupMenu m;
-        m.addItem (int (MixBus::Master) + 1, "Main mix", true, feed.source == MixBus::Master);
+        m.addItem (int (MixBus::Master) + 1, "Main mix", true, ! feed.monitor && feed.source == MixBus::Master);
         m.addSeparator();
         for (int b = 0; b < int (MixBus::Master); ++b)
         {
             const auto bus = MixBus (b);
             const bool used = sheet.busAvailable (bus);
-            m.addItem (b + 1, sentence (mixBusName (bus)), used, feed.source == bus);
+            m.addItem (b + 1, sentence (mixBusName (bus)), used, ! feed.monitor && feed.source == bus);
         }
+        // The engineer's own listen. It is the one entry here that is not part of the
+        // broadcast, so it gets its own section and says what it is for.
+        m.addSeparator();
+        m.addSectionHeader ("Just for you");
+        m.addItem (kMonitorId, "My headphones (whatever is soloed)", true, feed.monitor);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sourceButton)
                              .withMinimumWidth (sourceButton.getWidth()),
                          [this] (int id)
                          {
                              if (id <= 0) return;
-                             feed.source = MixBus (id - 1);
+                             if (id == kMonitorId) feed.monitor = true;
+                             else { feed.monitor = false; feed.source = MixBus (id - 1); }
                              sheet.commit();
                              sheet.refresh();
                          });
@@ -214,27 +233,21 @@ OutputsSheet::OutputsSheet (MixController& c, AppServices& s) : controller (c), 
     }
 
     addAndMakeVisible (deviceButton);
-    deviceButton.setTooltip ("The device the mix leaves by. Every one of its outputs is opened.");
+    deviceButton.setTooltip ("The device the stream and the room hear. Always a stereo pair, on its outputs 1-2.");
     deviceButton.onClick = [this] { chooseDevice(); };
 
     addAndMakeVisible (addButton);
     addButton.setTooltip ("Send the mix, or one group, to another pair of outputs as well.");
     addButton.onClick = [this] { addFeed(); };
 
-    addAndMakeVisible (aggregateButton);
-    aggregateButton.setFontPx (11.5f);
-    aggregateButton.setTooltip ("macOS can only play to one device at a time. An Aggregate Device joins two of "
-                                "them into one, and DLIVE then shows all of its outputs here.");
-    aggregateButton.onClick = [this]
-    {
-        for (const char* path : { "/System/Applications/Utilities/Audio MIDI Setup.app",
-                                  "/Applications/Utilities/Audio MIDI Setup.app" })
-        {
-            juce::File app (path);
-            if (app.exists() && app.startAsProcess()) return;
-        }
-        if (onToast) onToast ("Audio MIDI Setup could not be opened. It lives in Applications > Utilities.");
-    };
+    // The second of the two choices this sheet exists for: which device the engineer listens
+    // on. Picking a different one from the broadcast is allowed and is the normal case - DLIVE
+    // joins the two underneath, and the words "aggregate device" never appear.
+    addAndMakeVisible (soloDeviceButton);
+    soloDeviceButton.setTooltip ("The device you listen on. Solo a channel and it comes out here - the room and "
+                                 "the stream never hear it. It can be a different box from the broadcast; DLIVE "
+                                 "joins them for you.");
+    soloDeviceButton.onClick = [this] { chooseSoloDevice(); };
 
     addAndMakeVisible (doneButton);
     doneButton.onClick = [this] { if (onClose) onClose(); };
@@ -263,9 +276,60 @@ juce::String OutputsSheet::pairName (int pair) const
     return "Outputs " + juce::String (l + 1) + "-" + juce::String (r + 1);
 }
 
+// Which device the engineer listens on. Every real output device is offered, including the one
+// already carrying the broadcast (that is the four-output-interface case: the stream on 1-2 and
+// solo on 3-4). Choosing a different box is the normal case and costs the user nothing to know
+// about - the host joins the two.
+void OutputsSheet::chooseSoloDevice()
+{
+    const auto current = services.soloOutputDevice();
+    const auto broadcast = services.broadcastOutputDevice();
+
+    juce::PopupMenu m;
+    m.addItem (1, "Nowhere - I do not need solo", true, current.isEmpty());
+    m.addSeparator();
+
+    juce::StringArray names;
+    for (const auto& d : services.outputDevices())
+    {
+        if (d.outputChannels <= 0) continue;
+        if (d.name.startsWith ("DLIVE Monitoring")) continue;   // one DLIVE made: not a building block
+        names.add (d.name);
+    }
+
+    int id = 100;
+    for (const auto& name : names)
+    {
+        const bool same = name == broadcast;
+        // The broadcast device itself only works when it has a second pair to spare.
+        bool usable = true;
+        if (same)
+        {
+            usable = false;
+            for (const auto& d : services.outputDevices())
+                if (d.name == name && d.outputChannels >= 4) usable = true;
+        }
+        m.addItem (id++, same ? name + "   (on its outputs 3-4)" : name, usable, name == current);
+    }
+    if (names.isEmpty()) m.addItem (-1, "No output devices found", false, false);
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (soloDeviceButton).withMinimumWidth (320),
+                     [this, names] (int chosen)
+                     {
+                         if (chosen <= 0) return;
+                         const juce::String wanted = chosen == 1 ? juce::String() : names[chosen - 100];
+                         const auto done = services.setSoloOutputDevice (wanted);
+                         if (onToast) onToast (done.message);
+                         refresh();
+                     });
+}
+
 void OutputsSheet::refresh()
 {
     channels = services.numOutputChannels();
+    const auto solo = services.soloOutputDevice();
+    soloDeviceButton.setValue (solo.isEmpty() ? juce::String ("Nowhere yet") : solo);
+    soloDeviceButton.setEnabled (services.isAudioRunning());
     const auto& feeds = controller.getOutputFeeds();
     const int count = juce::jlimit (1, kMaxOutputFeeds, feeds.count);
     for (int i = 0; i < kMaxOutputFeeds; ++i)
@@ -274,7 +338,10 @@ void OutputsSheet::refresh()
         rows[size_t (i)]->setVisible (used);
         if (used) rows[size_t (i)]->set (feeds.feeds[size_t (i)], i > 0);
     }
-    deviceButton.setValue (services.currentOutputDevice().isEmpty() ? "None" : services.currentOutputDevice());
+    // While a combined device is open the *open* device is DLIVE's own; what the user chose
+    // is the broadcast device, and that is what this has to say.
+    const auto broadcast = services.broadcastOutputDevice();
+    deviceButton.setValue (broadcast.isEmpty() ? "None" : broadcast);
     addButton.setEnabled (count < kMaxOutputFeeds && channels >= 2);
     resized();
     repaint();
@@ -347,7 +414,7 @@ void OutputsSheet::chooseDevice()
 juce::Rectangle<int> OutputsSheet::cardBounds() const
 {
     const int count = juce::jlimit (1, kMaxOutputFeeds, controller.getOutputFeeds().count);
-    const int h = 96 + 30 + count * (kRowH + 8) + 44 + 56;
+    const int h = 96 + 30 + 32 + count * (kRowH + 8) + 44 + 56;
     auto r = getLocalBounds().withSizeKeepingCentre (juce::jmin (kCardW, getWidth() - 60),
                                                      juce::jmin (h, getHeight() - 40));
     return r.withY (juce::jmax (20, r.getY() - 20));
@@ -373,25 +440,46 @@ void OutputsSheet::paint (juce::Graphics& g)
                       r.removeFromTop (34), juce::Justification::topLeft, 2);
     r.removeFromTop (12);
 
-    // the device line
-    auto deviceLine = r.removeFromTop (Dine::Metric::control);
-    g.setColour (Dine::ink2);
-    g.setFont (Dine::text (12.0f));
-    g.drawText ("Device", deviceLine.removeFromLeft (62), juce::Justification::centredLeft);
-    auto after = deviceLine.withTrimmedLeft (62 + 300 + 12 - 62);
-    g.setColour (channels >= 2 ? Dine::ink3 : Dine::warn);
-    g.setFont (Dine::text (11.5f));
-    g.drawText (channels <= 0 ? "no device open"
-                              : juce::String (channels) + (channels == 1 ? " output channel" : " output channels")
-                                    + "   " + Glyph::dot() + "   " + juce::String (numPairs())
-                                    + (numPairs() == 1 ? " pair" : " pairs"),
-                after, juce::Justification::centredLeft, true);
+    // The two choices this sheet exists for, one under the other: where the broadcast goes,
+    // and where the engineer listens. Everything below them is the detail.
+    const int labelW = 96;
+    {
+        auto line = r.removeFromTop (Dine::Metric::control);
+        g.setColour (Dine::ink2);
+        g.setFont (Dine::text (12.0f));
+        g.drawText ("Broadcast", line.removeFromLeft (labelW), juce::Justification::centredLeft);
+        auto after = line.withTrimmedLeft (300 + 12);
+        g.setColour (channels >= 2 ? Dine::ink3 : Dine::warn);
+        g.setFont (Dine::text (11.5f));
+        g.drawText (channels <= 0 ? "no device open"
+                                  : juce::String (channels) + (channels == 1 ? " output channel" : " output channels")
+                                        + "   " + Glyph::dot() + "   always stereo, on 1-2",
+                    after, juce::Justification::centredLeft, true);
+        r.removeFromTop (8);
+    }
+    {
+        auto line = r.removeFromTop (Dine::Metric::control);
+        g.setColour (Dine::ink2);
+        g.setFont (Dine::text (12.0f));
+        g.drawText ("Solo", line.removeFromLeft (labelW), juce::Justification::centredLeft);
+        auto after = line.withTrimmedLeft (300 + 12);
+        const bool set = services.soloOutputDevice().isNotEmpty();
+        g.setColour (set ? Dine::ok : Dine::ink4);
+        g.setFont (Dine::text (11.5f));
+        g.drawText (set ? "only you hear this" : "solo has nowhere to go yet",
+                    after, juce::Justification::centredLeft, true);
+    }
 
-    // the note about two devices at once, along the foot
+    // Along the foot: what is set up for the engineer right now, in one sentence. This is the
+    // question somebody actually has open this sheet to answer.
     auto foot = card.reduced (26, 22).removeFromBottom (Dine::Metric::button);
-    g.setColour (Dine::ink3);
+    const auto headphones = services.headphonesSummary();
+    g.setColour (headphones.isNotEmpty() ? Dine::ok : Dine::ink3);
     g.setFont (Dine::text (11.5f));
-    g.drawText ("Two devices at once (an interface and the headphone jack) needs an Aggregate Device.",
+    g.drawText (headphones.isNotEmpty()
+                    ? headphones
+                    : juce::String ("Pick the device you listen on above. It can be a different box from the "
+                                    "broadcast - DLIVE joins them for you."),
                 foot.withTrimmedRight (juce::jmax (90, doneButton.getWidth()) + 12).withTrimmedLeft (0),
                 juce::Justification::centredLeft, true);
 }
@@ -402,18 +490,19 @@ void OutputsSheet::resized()
     auto r = card.reduced (26, 22);
     r.removeFromTop (22 + 4 + 34 + 12);
 
-    auto deviceLine = r.removeFromTop (Dine::Metric::control);
-    deviceLine.removeFromLeft (62);
-    deviceButton.setBounds (deviceLine.removeFromLeft (300));
+    const int labelW = 96;
+    auto broadcastLine = r.removeFromTop (Dine::Metric::control);
+    broadcastLine.removeFromLeft (labelW);
+    deviceButton.setBounds (broadcastLine.removeFromLeft (300));
+    r.removeFromTop (8);
+    auto soloLine = r.removeFromTop (Dine::Metric::control);
+    soloLine.removeFromLeft (labelW);
+    soloDeviceButton.setBounds (soloLine.removeFromLeft (300));
     r.removeFromTop (16);
 
     auto foot = r.removeFromBottom (Dine::Metric::button);
     doneButton.setBounds (foot.removeFromRight (juce::jmax (90, doneButton.idealWidth())));
     r.removeFromBottom (10);
-
-    auto aggregate = r.removeFromBottom (Dine::Metric::control);
-    aggregateButton.setBounds (aggregate.removeFromLeft (juce::jmax (180, aggregateButton.idealWidth())));
-    r.removeFromBottom (8);
 
     auto add = r.removeFromBottom (Dine::Metric::control);
     addButton.setBounds (add.removeFromLeft (juce::jmax (140, addButton.idealWidth())));

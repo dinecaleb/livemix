@@ -1,7 +1,11 @@
 // DLIVE offline success test: a folder of recorded stems goes through the complete
 // standalone pipeline with no audio device and no UI.
 //
-//   dlive_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dlive-out] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording] [reference.wav]
+//   dlive_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dlive-out] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording[:LUFS]] [reference.wav]
+//
+// The delivery target can be named outright: "broadcast:-14" aims the whole gain structure at
+// -14 LUFS instead of the purpose's own standard, which is the one knob that decides whether a
+// DLIVE master sounds competitive next to everything else the viewer watches.
 //
 // The last argument is optional: a finished recording to aim the mix at (REFERENCE MIX). The
 // master is then tuned toward that record's tonal balance, image and density instead of toward
@@ -108,11 +112,27 @@ int main (int argc, char** argv)
     const StyleProfileId profile = argc > 4 && juce::String (argv[4]).containsIgnoreCase ("worship") ? StyleProfileId::ModernWorship : StyleProfileId::ModernGospel;
     const double offsetArg = argc > 5 ? juce::String (argv[5]).getDoubleValue() : -1.0;
     MixPurpose purpose = MixPurpose::ChurchBroadcast;
+    DeliveryLoudness delivery = DeliveryLoudness::FromPurpose;
     if (argc > 6)
     {
         const juce::String p (argv[6]);
         if (p.containsIgnoreCase ("stream")) purpose = MixPurpose::Livestream;
         else if (p.containsIgnoreCase ("record")) purpose = MixPurpose::LiveRecording;
+        // "broadcast:-14": aim the finished mix at a named loudness rather than the standard
+        // the delivery role happens to carry.
+        if (p.contains (":"))
+        {
+            const float lufs = p.fromFirstOccurrenceOf (":", false, false).getFloatValue();
+            if (lufs < -1.0f && lufs > -40.0f)
+            {
+                float best = 1.0e9f;
+                for (int i = 1; i < int (DeliveryLoudness::Count); ++i)
+                {
+                    const float d = std::fabs (deliveryLoudnessLufs (DeliveryLoudness (i)) - lufs);
+                    if (d < best) { best = d; delivery = DeliveryLoudness (i); }
+                }
+            }
+        }
     }
 
     // REFERENCE MIX: the record the mix is aimed at, measured the same way the band is.
@@ -217,6 +237,7 @@ int main (int argc, char** argv)
     session.name = folder.getFileName().toStdString();
     session.profile = profile;
     session.purpose = purpose;
+    session.delivery = delivery;
     std::vector<Stem> stems;
     std::vector<juce::AudioBuffer<float>> device;   // device input channels
     int nextInput = 0;

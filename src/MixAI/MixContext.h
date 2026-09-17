@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include "Core/Json.h"
@@ -137,6 +138,17 @@ struct MixContext
 
     json::Value toJson() const;
     std::string write (bool pretty = false) const { return toJson().write (pretty); }
+
+    // A stable identity for this description of the mix.
+    //
+    // The same audio, the same session and the same settings produce the same document, so
+    // they produce the same fingerprint - on any machine, in any build. That is what makes a
+    // repeated TUNE LIVE MIX repeatable rather than merely similar: the reasoning layer is
+    // asked the same question with the same seed, and an answer that has already been given
+    // for this exact mix is reused instead of asked for again. A different listen - a band
+    // that played differently - is a different fingerprint, which is correct: the mix really
+    // has changed and deserves fresh thinking.
+    std::uint64_t fingerprint() const;
 };
 
 // Built from the listen and the deterministic plan made from it. `plan` supplies which

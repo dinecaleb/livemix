@@ -984,7 +984,15 @@ void MixPage::refresh()
     // otherwise the primary action is still offering "Stop" after the mix is ready.
     if (stage != lastStage || live != lastLiveRun) { refreshTuneButton(); lastStage = stage; lastLiveRun = live; }
     for (int i = 0; i < int (MixMacro::Count); ++i) macros[size_t (i)]->setValue (controller.getMacros().get (MixMacro (i)));
-    repaint();
+
+    // The meters and the rail rows are components that repaint themselves; this page's own
+    // paint is the headline, the status line and the health number. Redrawing all of that
+    // thirty times a second for text that has not changed costs a whole 30 Hz frame on a
+    // large console (dlive_ui_snapshots --frames), so it only happens when it says something
+    // different.
+    const PageLook now { status, health, stage, controller.getTuneCount(), controller.hasReference(),
+                         controller.hasReference() ? juce::String (controller.getReference().name) : juce::String() };
+    if (now != painted) { painted = now; repaint(); }
 }
 
 MixPage::Layout MixPage::layout() const

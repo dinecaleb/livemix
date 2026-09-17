@@ -75,6 +75,28 @@ private:
     std::unique_ptr<DinePanelTab> railTab, trailTab;
     bool railShown = true, trailShown = true;
     int builtForStrips = -1;
+    // What this page's own paint last drew. A full repaint of the Inspector on a large
+    // console costs more than a 30 Hz frame has, so a frame that would draw the same thing is
+    // skipped; everything that really moves (meters, the chain, the trail) is a child
+    // component that repaints itself.
+    struct InspectorLook
+    {
+        bool isBus = false;
+        MixBus bus = MixBus::Master;
+        int strip = -2;
+        int rowCount = -1;
+        bool bypassed = false, prepared = false, rail = true, trail = true;
+        double sampleRate = 0.0;
+        int blockSize = 0;
+        bool operator== (const InspectorLook& o) const
+        {
+            return isBus == o.isBus && bus == o.bus && strip == o.strip && rowCount == o.rowCount
+                && bypassed == o.bypassed && prepared == o.prepared && rail == o.rail && trail == o.trail
+                && sampleRate == o.sampleRate && blockSize == o.blockSize;
+        }
+        bool operator!= (const InspectorLook& o) const { return ! (*this == o); }
+    };
+    InspectorLook painted;
 };
 
 } // namespace livemix

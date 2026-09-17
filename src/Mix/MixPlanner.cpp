@@ -698,11 +698,31 @@ MixPlan plan (const MixPlanContext& ctx)
         // strategy does not - every bound, sentence and the idempotency rule come along
         // unchanged, and the match is computed from the reference and the profile, never from
         // where the master happens to sit, so re-tuning the same listen lands in the same place.
-        SourceTargets refTargets;
-        if (isMaster && ctx.reference.valid)
+        SourceTargets masterTargets;
+        if (isMaster)
         {
-            refTargets = Reference::targets (Profiles::targets (profile, role), ctx.reference, a, profile, plan.reference);
-            tc.targetsOverride = &refTargets;
+            masterTargets = Profiles::targets (profile, role);
+            bool overridden = false;
+            if (ctx.reference.valid)
+            {
+                masterTargets = Reference::targets (masterTargets, ctx.reference, a, profile, plan.reference);
+                overridden = true;
+            }
+            // HOW LOUD THE FINISHED MIX SHOULD BE. A session can aim somewhere other than its
+            // delivery role's own standard, and when it does, that is the number the whole
+            // gain structure is fitted against - not a gain added at the end. A reference sets
+            // the *tone*; it is explicitly not allowed to set the delivery loudness, so this
+            // is applied after it and wins.
+            const float wanted = ctx.session.deliveryTargetLufs();
+            if (wanted < 0.0f && masterTargets.loudnessTargetAppropriate)
+            {
+                masterTargets.targetLufs = wanted;
+                // A louder target needs a lower ceiling to stay true-peak safe on a codec:
+                // -14 LUFS through a lossy encoder wants -1 dBTP, not -0.3.
+                masterTargets.truePeakCeilingDb = std::min (masterTargets.truePeakCeilingDb, wanted >= -15.0f ? -1.0f : -1.5f);
+                overridden = true;
+            }
+            if (overridden) tc.targetsOverride = &masterTargets;
         }
         // What the bus will receive once the faders have moved (the master: once the buses have moved), from the
         // processed levels. A bus chain that then works harder (its compressor sees more level) puts out less than

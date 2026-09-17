@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include "MixSession.h"
+#include "MonitorBus.h"
 #include "DSP/ChannelParameters.h"
 #include "FX/FxParameters.h"
 #include "Core/Constants.h"
@@ -35,6 +36,9 @@ struct FxSlotParameters
     FxParameters fx;          // mix is forced to 1 (wet only): a return, not an insert
     float returnDb = 0.0f;
     bool enabled = false;
+    // A return can be soloed like anything else - "what is that reverb actually doing" is a
+    // question an engineer asks mid-service. It only ever reaches the monitor bus.
+    bool solo = false;
 };
 
 // The complete state of the mix engine, fixed capacity so it can be copied on the
@@ -58,6 +62,12 @@ struct MixParameters
     // "as tuned", so a session that never touched them behaves exactly as before.
     float fxReturnDb = 0.0f;
     bool fxMute = false;
+
+    // The engineer's own listen: where solo goes, what the monitor carries, how loud it is.
+    // Monitoring, never mix - nothing here changes the master, the plan or an export. It
+    // rides in MixParameters rather than beside it only because solo is a per-strip flag and
+    // the two have to be applied in the same breath.
+    MonitorState monitor {};
 
     // BEFORE: pass every strip and bus through unprocessed (faders, pans and routing
     // stay), returns are silent. The master limiter keeps its delay so latency is constant.
@@ -100,6 +110,7 @@ inline MixParameters carryMix (const MixParameters& from, const MixSession& prev
     out.tempoBpm = from.tempoBpm;
     out.fxReturnDb = from.fxReturnDb;
     out.fxMute = from.fxMute;
+    out.monitor = from.monitor;
     out.bypassProcessing = from.bypassProcessing;
     return out;
 }

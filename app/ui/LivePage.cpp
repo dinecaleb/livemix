@@ -5,6 +5,14 @@
 namespace livemix
 {
 
+namespace
+{
+    // The band along the foot of LIVE: the lock on the left, the engineer's own listen on the
+    // right. Tall enough for three sentences of what LIVE SAFE actually refuses, because
+    // "this is locked" without saying what is locked is the problem it exists to solve.
+    constexpr int kFootHeight = 114;
+}
+
 // One group: a name, a meter, a fader big enough to find without looking, and the two
 // keys that can change what the room hears. Whatever state the group is in - muted,
 // soloed - the tile says so in colour and in words: during a service nobody should have
@@ -288,18 +296,87 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     addAndMakeVisible (liveSafeButton);
     liveSafeButton.setCaps (true);
     liveSafeButton.setClickingTogglesState (false);
-    liveSafeButton.setTooltip ("Lock the session for the service: tuning, routing and timeline edits are refused "
-                               "until it is switched off. The faders and the keys keep working.");
+    liveSafeButton.setTooltip (juce::String ("Lock the mix for the service. ") + liveSafe::lockedSummary() + " "
+                               + liveSafe::allowedSummary());
     liveSafeButton.onClick = [this]
     {
-        auto& project = services.daw().getProject();
-        project.liveSafe = ! project.liveSafe;
+        auto& daw = services.daw();
+        // One switch, both halves: the timeline's lock and the mix's policy (DawEngine::setLiveSafe).
+        daw.setLiveSafe (! daw.isLiveSafe());
         services.saveSession();
-        if (onToast) onToast (project.liveSafe ? "LIVE SAFE on. Tune, routing and timeline edits are locked."
-                                               : "LIVE SAFE off.");
         if (onLiveSafeChanged) onLiveSafeChanged();
+        resized();
         repaint();
     };
+
+    // ---- the engineer's own listen ----
+    addAndMakeVisible (soloModeButton);
+    soloModeButton.setTooltip ("Normally solo goes to your headphones only - the room and the stream never hear "
+                               "it, so you can listen to any channel during a service. The other setting mutes "
+                               "everything else for everybody, which is only for mixing a recording. "
+                               "(Engineers: monitor solo / solo in place.)");
+    soloModeButton.onClick = [this]
+    {
+        juce::PopupMenu m;
+        const auto mode = controller.getMonitor().mode;
+        m.addSectionHeader ("When I press S...");
+        m.addItem (1, "...only I hear it, in my headphones", true, mode == SoloMode::Monitor);
+        m.addItem (2, "...everyone hears it on its own  (recording only)", true, mode == SoloMode::InPlace);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (soloModeButton).withMinimumWidth (330),
+                         [this] (int id)
+                         {
+                             if (id <= 0) return;
+                             controller.setSoloMode (id == 2 ? SoloMode::InPlace : SoloMode::Monitor);
+                             refreshMonitor();
+                             repaint();
+                         });
+    };
+
+    addAndMakeVisible (soloPointButton);
+    soloPointButton.setTooltip ("\"In the mix\" hears the channel where it sits - panned, and silent if it is "
+                                "muted. \"On its own\" hears it as it arrives, whatever its fader and mute are "
+                                "doing, which is how you find a problem. (Engineers: AFL / PFL.)");
+    soloPointButton.onClick = [this]
+    {
+        controller.setSoloPoint (controller.getMonitor().point == SoloPoint::PFL ? SoloPoint::AFL : SoloPoint::PFL);
+        refreshMonitor();
+    };
+
+    addAndMakeVisible (dimButton);
+    dimButton.setTooltip ("Drop your headphones to talk to someone, without losing the level you had set.");
+    dimButton.onClick = [this] { controller.setMonitorDim (! controller.getMonitor().dim); refreshMonitor(); };
+
+    addAndMakeVisible (clearSoloButton);
+    clearSoloButton.setTooltip ("Stop listening to everything you have soloed, all at once.");
+    clearSoloButton.onClick = [this] { controller.clearSolos(); refreshMonitor(); repaint(); };
+
+    addAndMakeVisible (monitorLevel);
+    monitorLevel.setRange (-40.0, 12.0, 0.5);
+    monitorLevel.setValue (0.0, juce::dontSendNotification);
+    monitorLevel.setTooltip ("How loud your headphones are. Nothing to do with the mix anyone else hears.");
+    Dine::dragOnly (monitorLevel);
+    monitorLevel.onValueChange = [this] { controller.setMonitorGain (float (monitorLevel.getValue())); };
+
+    refreshMonitor();
+}
+
+// The monitor controls say what they are doing at a glance: an engineer glancing at this
+// during a service needs "is anything soloed, and can I hear it" answered without reading.
+void LivePage::refreshMonitor()
+{
+    const auto& m = controller.getMonitor();
+    const bool inPlace = m.mode == SoloMode::InPlace;
+    soloModeButton.setValue (inPlace ? "Everyone hears it" : "Only I hear it");
+    soloPointButton.setButtonText (m.point == SoloPoint::PFL ? "On its own" : "In the mix");
+    soloPointButton.setStyle (m.point == SoloPoint::PFL ? DineButton::Style::Filled : DineButton::Style::Standard);
+    dimButton.setStyle (m.dim ? DineButton::Style::Filled : DineButton::Style::Standard);
+    soloCount = controller.numSoloed();
+    clearSoloButton.setEnabled (soloCount > 0);
+    clearSoloButton.setStyle (soloCount > 0 ? DineButton::Style::Filled : DineButton::Style::Standard);
+    monitorRouted = controller.hasMonitorOutput();
+    if (std::fabs (monitorLevel.getValue() - double (m.gainDb)) > 0.01)
+        monitorLevel.setValue (m.gainDb, juce::dontSendNotification);
+    repaint();
 }
 
 LivePage::~LivePage() = default;
@@ -345,7 +422,20 @@ void LivePage::refresh()
         liveSafeButton.setIcon (safe ? Dine::Icon::Check : Dine::Icon::None);
         resized();
     }
-    repaint();
+    // Solo can be pressed from four other places, so this page follows rather than owns it.
+    if (soloCount != controller.numSoloed() || monitorRouted != controller.hasMonitorOutput()) refreshMonitor();
+
+    // The tiles repaint themselves; the page around them is cards of text, and text laid out
+    // thirty times a second for a clock that reads the same is the kind of waste that makes an
+    // app feel heavier than it is. So the page only repaints when what it says has changed.
+    juce::String notes;
+    for (const auto& n : controller.getMixHealthNotes()) notes << juce::String (n) << "|";
+    const Look now { clock, state, stateNote, services.currentOutputDevice(), notes,
+                     health, int (std::lround (headroomDb * 10.0f)),
+                     recordingOn, liveSafeOn, services.isAudioRunning(),
+                     soloCount, services.xrunCount(), controller.getTuneCount(),
+                     monitorRouted, controller.getMonitor().mode == SoloMode::InPlace };
+    if (now != look) { look = now; repaint(); }
 }
 
 // What the STATE card says under its word. While a take is running this is the one number
@@ -456,7 +546,7 @@ void LivePage::paint (juce::Graphics& g)
           services.xrunCount() > 0 ? juce::String (services.xrunCount()) + " drops" : "No drops");
 
     r.removeFromTop (16);
-    r.removeFromBottom (52);      // the LIVE SAFE row is laid out in resized()
+    r.removeFromBottom (kFootHeight);    // the LIVE SAFE and MONITOR cards, laid out in resized()
 
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (11.0f, 600));
@@ -496,16 +586,83 @@ void LivePage::paint (juce::Graphics& g)
         }
     }
 
-    // ---- the lock, and what it is doing right now
+    // ---- the lock and the engineer's listen, side by side along the foot
+    //
+    // Both answer a question an operator asks mid-service without wanting to read anything:
+    // "is this locked, and what does that stop" on the left, "is anything soloed, and can I
+    // hear it" on the right. Neither is a tooltip: what LIVE SAFE actually refuses is printed.
     {
-        auto safeRow = body().removeFromBottom (52);
-        safeRow.removeFromLeft (liveSafeButton.getWidth() + 14);
-        g.setColour (liveSafeOn ? Dine::warn : Dine::ink4);
-        g.setFont (Dine::text (12.0f));
-        g.drawText (liveSafeOn ? "Locked for the service: tuning, routing and timeline edits are refused. "
-                                 "Faders, mutes and the transport still work."
-                               : "Lock the session before the service starts, so nothing can be changed by accident.",
-                    safeRow.withSizeKeepingCentre (safeRow.getWidth(), 30), juce::Justification::centredLeft, true);
+        auto foot = body().removeFromBottom (kFootHeight);
+        auto left = foot.removeFromLeft (foot.getWidth() * 3 / 5);
+        foot.removeFromLeft (12);
+        auto right = foot;
+
+        // ---- LIVE SAFE
+        Dine::drawCard (g, left.toFloat(), liveSafeOn ? Dine::card.brighter (0.04f) : Dine::card);
+        if (liveSafeOn) Dine::hairlineRounded (g, left.toFloat(), Dine::warn.withAlpha (0.35f), Dine::Radius::card);
+        auto inner = left.reduced (16, 12);
+        inner.removeFromLeft (liveSafeButton.getWidth() + 16);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (10.5f, 700).withExtraKerningFactor (0.06f));
+        g.drawText (liveSafeOn ? "LOCKED FOR THE SERVICE" : "NOT LOCKED", inner.removeFromTop (14),
+                    juce::Justification::topLeft);
+        inner.removeFromTop (2);
+        g.setColour (liveSafeOn ? Dine::warn : Dine::ink2);
+        g.setFont (Dine::text (11.5f));
+        g.drawText (liveSafeOn ? juce::String ("Refused: ") + liveSafe::lockedSummary()
+                               : juce::String ("Lock the mix before the service starts, so nothing can change it by accident."),
+                    inner.removeFromTop (16), juce::Justification::topLeft, true);
+        g.setColour (Dine::ink3);
+        g.drawText (liveSafeOn ? juce::String ("Still working: ") + liveSafe::allowedSummary()
+                               : juce::String ("Faders, mutes, solo, the monitor, the transport and recording always keep working."),
+                    inner.removeFromTop (16), juce::Justification::topLeft, true);
+        if (liveSafeOn)
+        {
+            const auto& policy = controller.getLiveSafePolicy();
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::text (11.0f));
+            g.drawText ("Limited: a channel fader moves at most " + juce::String (int (policy.maxFaderStepDb))
+                            + " dB at a time, the master " + juce::String (int (policy.maxMasterStepDb)) + " dB.",
+                        inner.removeFromTop (15), juce::Justification::topLeft, true);
+        }
+
+        // ---- MONITOR
+        Dine::drawCard (g, right.toFloat());
+        auto m = right.reduced (16, 12);
+        auto caption = m.removeFromTop (14);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (10.5f, 700).withExtraKerningFactor (0.06f));
+        g.drawText ("WHAT I HEAR", caption.removeFromLeft (110), juce::Justification::topLeft);
+        if (soloCount > 0)
+        {
+            g.setColour (Dine::accent);
+            g.drawText (juce::String (soloCount) + (soloCount == 1 ? " CHANNEL SOLOED" : " CHANNELS SOLOED"),
+                        caption, juce::Justification::topLeft);
+        }
+        // The two rows of controls are laid out in resized(); the sentence goes under them.
+        m.removeFromTop (2 + Dine::Metric::control + 6 + Dine::Metric::control + 4);
+
+        const bool inPlace = controller.getMonitor().mode == SoloMode::InPlace;
+        juce::String note;
+        juce::Colour noteColour = Dine::ink3;
+        if (inPlace)
+        {
+            note = "Careful: pressing S is heard by the room and the stream too.";
+            noteColour = Dine::warn;
+        }
+        else if (! monitorRouted)
+        {
+            note = "Solo has nowhere to go yet. Pick the device you listen on in Outputs.";
+            noteColour = Dine::warn;
+        }
+        else
+        {
+            note = "Press S on any channel to hear it. Only you hear it.";
+            noteColour = Dine::ok;
+        }
+        g.setColour (noteColour);
+        g.setFont (Dine::text (11.0f));
+        g.drawText (note, m.removeFromTop (16), juce::Justification::topLeft, true);
     }
 }
 
@@ -519,9 +676,32 @@ void LivePage::resized()
         recordButton->setBounds (head.removeFromRight (w).withSizeKeepingCentre (w, 38));
     }
     r.removeFromTop (12 + 86 + 16 + 18);
-    auto safeRow = r.removeFromBottom (52);
-    liveSafeButton.setBounds (safeRow.removeFromLeft (juce::jmax (140, liveSafeButton.idealWidth()))
-                                  .withSizeKeepingCentre (juce::jmax (140, liveSafeButton.idealWidth()), 30));
+    auto foot = r.removeFromBottom (kFootHeight);
+    auto left = foot.removeFromLeft (foot.getWidth() * 3 / 5);
+    foot.removeFromLeft (12);
+    auto right = foot;
+
+    {
+        auto cell = left.reduced (16, 12);
+        const int w = juce::jmax (140, liveSafeButton.idealWidth());
+        liveSafeButton.setBounds (cell.removeFromLeft (w).withSizeKeepingCentre (w, 32));
+    }
+    {
+        auto cell = right.reduced (16, 12);
+        cell.removeFromTop (14 + 2);
+        auto row = cell.removeFromTop (Dine::Metric::control);
+        soloModeButton.setBounds (row.removeFromLeft (juce::jmin (150, row.getWidth() / 2)));
+        row.removeFromLeft (6);
+        soloPointButton.setBounds (row.removeFromLeft (52));
+        row.removeFromLeft (6);
+        dimButton.setBounds (row.removeFromLeft (juce::jmax (48, dimButton.idealWidth())));
+
+        cell.removeFromTop (6);
+        auto row2 = cell.removeFromTop (Dine::Metric::control);
+        clearSoloButton.setBounds (row2.removeFromLeft (juce::jmax (92, clearSoloButton.idealWidth())));
+        row2.removeFromLeft (10);
+        monitorLevel.setBounds (row2);
+    }
 
     const int count = int (faders.size());
     const int gap = 14;

@@ -33,11 +33,22 @@ namespace StemNames
             { "ovh", ChannelRole::Overhead, true }, { "ov", ChannelRole::Overhead, true }, { "oh", ChannelRole::Overhead, true },
             { "cymbal", ChannelRole::Overhead }, { "ride", ChannelRole::Overhead }, { "crash", ChannelRole::Overhead },
             { "full drums", ChannelRole::DrumBus }, { "drum mix", ChannelRole::DrumBus }, { "drums", ChannelRole::DrumBus },
+            // "Room" on a live desk almost always means the drum room microphone, and it belongs
+            // with the kit. Anything aimed at the people does not: a congregation microphone is
+            // its own source with its own bus (2026-09), because it is never gated, never
+            // pushed forward and turned up and down at moments nothing else moves at.
+            { "congregation", ChannelRole::CrowdMic }, { "audience", ChannelRole::CrowdMic },
+            { "crowd", ChannelRole::CrowdMic }, { "house mic", ChannelRole::CrowdMic },
+            { "ambience", ChannelRole::AmbienceMic }, { "ambient", ChannelRole::AmbienceMic },
+            { "amb", ChannelRole::AmbienceMic, true }, { "aud", ChannelRole::CrowdMic, true },
+            { "room mic", ChannelRole::AmbienceMic },
             { "room",  ChannelRole::Room },
-            // A congregation / audience microphone is a room microphone: it is what the broadcast hears
-            // of the building. (It joins the drum bus with the other room mics - see mixBusForFamily.)
-            { "crowd", ChannelRole::Room }, { "congregation", ChannelRole::Room }, { "audience", ChannelRole::Room },
-            { "ambience", ChannelRole::Room }, { "ambient", ChannelRole::Room },
+            // Horns. A saxophone is not a keyboard: it has its own family, its own honk to cut
+            // and its own dynamics (see AmbienceStrategies.cpp).
+            { "alto sax", ChannelRole::SaxAlto }, { "tenor sax", ChannelRole::SaxTenor },
+            { "bari sax", ChannelRole::SaxBari }, { "baritone sax", ChannelRole::SaxBari },
+            { "alto", ChannelRole::SaxAlto }, { "tenor", ChannelRole::SaxTenor }, { "bari", ChannelRole::SaxBari },
+            { "saxophone", ChannelRole::SaxTenor }, { "sax", ChannelRole::SaxTenor },
             { "bass",  ChannelRole::BassDI },
             { "organ", ChannelRole::Organ }, { "keys", ChannelRole::Piano }, { "piano", ChannelRole::Piano }, { "pad", ChannelRole::SynthPad },
             // Playback from the stage or the booth: a loop, a backing track, a click, the computer feed

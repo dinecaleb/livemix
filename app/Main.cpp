@@ -11,6 +11,7 @@
 #include "native/MixController.h"
 #include "native/MultitrackImport.h"
 #include "native/SessionStore.h"
+#include "native/MonitorDevice.h"
 #include "ui/MainView.h"
 #include <optional>
 
@@ -60,12 +61,32 @@ namespace
 
         juce::String changeOutput (const juce::String& output) override
         {
+            // Changing the broadcast while solo is set up is not a device swap - it is the same
+            // pairing with a different half, so the joined device has to be rebuilt around it.
+            // Without this, choosing a new broadcast from the toolbar would silently drop the
+            // engineer's listen (or, worse, keep pointing it at the old device's channels).
+            if (soloDevice.isNotEmpty() && output != soloDevice)
+            {
+                broadcastDevice = output;
+                const auto again = setSoloOutputDevice (soloDevice);
+                return again.ok ? juce::String() : again.message;
+            }
+
             // Snapshot the mix, swap the device (prepare rebuilds the graph), then put the mix back.
             hold();
             const juce::String err = host.setOutputDevice (output);
             applyPendingMix();
-            if (err.isEmpty()) saveSession();
+            if (err.isEmpty()) { broadcastDevice = {}; saveSession(); }
             return err;
+        }
+
+        // The name every piece of chrome shows. While two devices are joined the open device is
+        // DLIVE's own; what the user picked is the broadcast, and that is what they are told.
+        juce::String outputDisplayName() override
+        {
+            const auto broadcast = broadcastOutputDevice();
+            if (soloDevice.isEmpty() || soloDevice == broadcast) return broadcast;
+            return broadcast + "  +  " + soloDevice;
         }
 
         bool isAudioRunning() override { return host.isOpen(); }
@@ -183,6 +204,7 @@ namespace
             controller.setSession (doc.session);
             dawEngine.setSession (doc.session);
             dawEngine.setProject (doc.project);
+            panelWidth = doc.trackPanelWidth;
             pending = doc;
 
             juce::String err;
@@ -201,6 +223,139 @@ namespace
         }
 
         juce::Array<SessionStore::Listing> listSessions() override { return SessionStore::listSessions(); }
+
+        // ---- Two outputs: one for the broadcast, one for the engineer ----
+        //
+        // From the outside this is two pickers. Underneath there are three cases, and the
+        // point of doing it here rather than in the UI is that none of them reach the user:
+        //
+        //   solo on the same device   - it has spare outputs, so solo takes a second pair
+        //   solo on another device    - macOS opens one device at a time, so DLIVE builds the
+        //                               combined device, reopens on it, and routes a pair each
+        //   solo turned off           - the combined device is removed and the Mac is put back
+        //
+        // The mix survives all three the way it survives any other device change: held before,
+        // put back after.
+        bool canCombineOutputs() override { return MonitorDevice::available(); }
+
+        juce::String broadcastOutputDevice() override
+        {
+            // While the combined device is open, the broadcast is the device inside it that
+            // the user actually chose - not the one DLIVE built around it.
+            return broadcastDevice.isNotEmpty() ? broadcastDevice : host.getOutputDeviceName();
+        }
+
+        juce::String soloOutputDevice() override { return soloDevice; }
+
+        MonitorSetup setSoloOutputDevice (const juce::String& wanted) override
+        {
+            const auto broadcast = broadcastOutputDevice();
+            // Taken now, because a failed open closes the device and forgets it - and putting
+            // the console back afterwards is the whole point of the fallback path.
+            const auto input = host.getInputDeviceName();
+
+            // ---- turn it off: put the Mac back the way it was found
+            if (wanted.isEmpty())
+            {
+                soloDevice = {};
+                auto feeds = controller.getOutputFeeds();
+                for (int i = 0; i < juce::jmin (feeds.count, int (kMaxOutputFeeds)); ++i)
+                    if (feeds.feeds[size_t (i)].monitor) feeds.feeds[size_t (i)].left = feeds.feeds[size_t (i)].right = -1;
+                controller.setOutputFeeds (feeds);
+                if (MonitorDevice::dliveDeviceExists())
+                {
+                    hold();
+                    MonitorDevice::removeDliveDevice();
+                    host.rescanDevices();          // the device it was open on has just gone
+                    const auto err = openWith (broadcast, input);
+                    applyPendingMix();
+                    if (err.isNotEmpty()) return { false, err };
+                }
+                broadcastDevice = {};
+                saveSession();
+                return { true, "Solo is switched off. Everything goes out of " + broadcast + " as before." };
+            }
+
+            // ---- same device: solo just takes another pair of it
+            if (wanted == broadcast)
+            {
+                if (numOutputChannels() < 4)
+                    return { false, broadcast + " has only one pair of outputs, so there is nowhere separate for "
+                                    "solo to go. Choose a different device - DLIVE will join the two for you." };
+                soloDevice = wanted;
+                broadcastDevice = broadcast;
+                routeOutputs (0, 2);
+                saveSession();
+                return { true, "Solo goes to outputs 3-4 of " + broadcast + ". The stream is on 1-2 and never changes." };
+            }
+
+            // ---- two devices: DLIVE builds the combined one
+            if (! MonitorDevice::available())
+                return { false, "This Mac will not let DLIVE join two output devices. "
+                                "You can make an Aggregate Device yourself in Audio MIDI Setup and choose it above." };
+
+            MonitorDevice::Device broadcastDev, soloDev;
+            for (const auto& d : MonitorDevice::outputDevices())
+            {
+                if (d.isDliveBuilt) continue;
+                if (d.name == broadcast) broadcastDev = d;
+                if (d.name == wanted) soloDev = d;
+            }
+            if (broadcastDev.uid.isEmpty() || soloDev.uid.isEmpty())
+                return { false, "One of those devices is no longer connected." };
+
+            const auto built = MonitorDevice::combine (broadcastDev, soloDev);
+            if (! built.ok) return { false, built.error };
+
+            hold();
+            // The device exists in CoreAudio the moment it is created, but it is published
+            // asynchronously and JUCE caches a device list per type - so without waiting for it
+            // and asking again, opening it fails with "No such device" on the device DLIVE has
+            // just built. This is the whole reason the first attempt at this did not work.
+            const bool appeared = host.waitForOutputDevice (built.deviceName);
+            const auto err = appeared ? openWith (built.deviceName, input)
+                                      : juce::String ("this Mac did not publish it in time");
+            if (err.isNotEmpty())
+            {
+                // It would not open. Leave nothing behind and put the old device back.
+                MonitorDevice::removeDliveDevice();
+                host.rescanDevices();
+                openWith (broadcast, input);
+                applyPendingMix();
+                return { false, "Those two could not be joined (" + err + "). Nothing has been changed. "
+                                "Some devices - Bluetooth especially - refuse to be combined; try a wired one." };
+            }
+            applyPendingMix();
+
+            // It opened - but if it came back without a second pair there is nowhere for solo
+            // to go, and a silent solo with no explanation is worse than a refusal.
+            if (numOutputChannels() < built.headphoneChannel + 2)
+            {
+                MonitorDevice::removeDliveDevice();
+                host.rescanDevices();
+                openWith (broadcast, input);
+                applyPendingMix();
+                return { false, "The two were joined but came back with only "
+                                + juce::String (numOutputChannels()) + " outputs, so there is no separate pair "
+                                "for solo. Nothing has been changed." };
+            }
+
+            broadcastDevice = broadcast;
+            soloDevice = wanted;
+            routeOutputs (built.broadcastChannel, built.headphoneChannel);
+            saveSession();
+            return { true, built.summary };
+        }
+
+        juce::String headphonesSummary() override
+        {
+            if (soloDevice.isEmpty()) return {};
+            return "Solo goes to " + soloDevice + ". The stream stays on " + broadcastOutputDevice()
+                 + " and never changes.";
+        }
+
+        int trackPanelWidth() override { return panelWidth; }
+        void setTrackPanelWidth (int px) override { panelWidth = px; }
 
         // Restoring a mix that a device change is about to wipe.
         void holdMix (const SessionStore::Document& doc) { pending = doc; }
@@ -261,6 +416,7 @@ namespace
             d.hasMix = controller.isPrepared() && controller.hasKeptMix();
             if (d.hasMix) d.mix = controller.getKept();
             d.reference = controller.getReference();      // what the mix is aimed at, already measured
+            d.trackPanelWidth = panelWidth;
             if (controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready)
             {
                 auto record = juce::JSON::parse (juce::String (controller.getTuneLive().toJson().write()));
@@ -280,10 +436,44 @@ namespace
             return true;
         }
 
+        // Reopen on an output device, keeping whatever input is already in use. A session built
+        // from imported stems has no console attached at all, and opening with an empty input
+        // name is a different call - getting that wrong is how "it just would not open" happens
+        // to the person who has no desk plugged in.
+        juce::String openWith (const juce::String& outputDevice, const juce::String& inputDevice)
+        {
+            return inputDevice.isNotEmpty() ? host.open (inputDevice, outputDevice)
+                                            : host.openOutputOnly (outputDevice);
+        }
+
+        // Feed 0 is the broadcast, feed 1 is the engineer's listen. Written in one place so the
+        // three ways of setting solo up cannot end up disagreeing about which pair is which.
+        void routeOutputs (int broadcastChannel, int soloChannel)
+        {
+            auto feeds = controller.getOutputFeeds();
+            feeds.count = 2;
+            feeds.feeds[0].monitor = false;
+            feeds.feeds[0].source = MixBus::Master;
+            feeds.feeds[0].left = broadcastChannel;
+            feeds.feeds[0].right = broadcastChannel + 1;
+            feeds.feeds[0].mono = false;          // the broadcast is never summed
+            feeds.feeds[0].mute = false;
+            feeds.feeds[1].monitor = true;
+            feeds.feeds[1].left = soloChannel;
+            feeds.feeds[1].right = soloChannel + 1;
+            feeds.feeds[1].mono = false;
+            feeds.feeds[1].mute = false;
+            controller.setOutputFeeds (feeds);
+        }
+
         MixController& controller;
         DawEngine& dawEngine;
         AudioHost& host;
         std::optional<SessionStore::Document> pending;
+        int panelWidth = 0;             // TRACKS channel panel; 0 = the page's own default
+        // The two devices the user chose. While a combined device is open, the *open* device is
+        // DLIVE's own and these are what the user actually picked.
+        juce::String broadcastDevice, soloDevice;
     };
 
     class MainWindow : public juce::DocumentWindow

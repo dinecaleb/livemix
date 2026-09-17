@@ -184,9 +184,28 @@ void TuneLiveCoordinator::startWorker (bool refinement)
         pending = {};
         pending.context = context;
         pending.capabilities = registry.toJson();
+        pending.registry = registry;              // the same toolbox, structured, for the offline reader
+        pending.conversation = settings.conversation;
         pending.instructions = mixEngineerInstructions (planContext.session.profile, planContext.session.purpose);
         pending.userRequest = settings.userRequest;
         pending.refinement = refinement;
+        // The identity of this exact mix, used as the model's seed and as the cache key.
+        // Same listen, same variation, same question, same answer.
+        // The identity of the question, not only of the listen: the same words about the same
+        // mix get the same answer, and different words are a different question.
+        std::uint64_t asked = 1469598103934665603ull;
+        auto mix = [&asked] (const std::string& text)
+        {
+            for (unsigned char ch : text) { asked ^= std::uint64_t (ch); asked *= 1099511628211ull; }
+        };
+        mix (settings.userRequest);
+        for (const auto& turn : settings.conversation) { mix (turn.fromEngineer ? "e" : "d"); mix (turn.text); }
+        pending.seed = context.fingerprint()
+                     ^ (std::uint64_t (settings.variation) * 0x9E3779B97F4A7C15ull)
+                     ^ (asked * 0xC2B2AE3D27D4EB4Full);
+        pending.variation = settings.variation;
+        diagnostics.variation = settings.variation;
+        diagnostics.contextFingerprint = context.fingerprint();
         if (refinement)
         {
             pending.previousIntent = intent;
@@ -199,8 +218,27 @@ void TuneLiveCoordinator::startWorker (bool refinement)
 
     if (p == nullptr) { fail ("No reasoning provider is configured."); return; }
 
+    // Has this exact question already been answered? Then answer it the same way, with no
+    // round trip and no chance of a different reply. This is the whole of "repeatable".
+    if (settings.reuseAnswers)
+    {
+        const MixReasoningCache::Key key { pending.seed, settings.variation, refinement };
+        std::lock_guard<std::mutex> lock (mutex);
+        if (const auto* cached = answers.find (key))
+        {
+            response = *cached;
+            diagnostics.answerFromCache = true;
+            if (refinement) diagnostics.refinementMs = 0.0; else diagnostics.reasoningMs = 0.0;
+            workerDone.store (true, std::memory_order_release);
+            setState (refinement ? State::WaitingForRefinement : State::WaitingForReasoning);
+            return;
+        }
+    }
+
     setState (refinement ? State::WaitingForRefinement : State::WaitingForReasoning);
-    worker = std::thread ([this, p, refinement]
+    const std::uint64_t requestSeed = pending.seed;
+    const int requestVariation = settings.variation;
+    worker = std::thread ([this, p, refinement, requestSeed, requestVariation]
     {
         MixReasoningResponse r;
         const auto started = std::chrono::steady_clock::now();
@@ -230,12 +268,19 @@ void TuneLiveCoordinator::startWorker (bool refinement)
             std::lock_guard<std::mutex> lock (mutex);
             response = std::move (r);
             if (response.elapsedMs <= 0.0) response.elapsedMs = ms;
+            answers.store ({ requestSeed, requestVariation, refinement }, response);
             if (refinement) diagnostics.refinementMs = response.elapsedMs;
             else diagnostics.reasoningMs = response.elapsedMs;
             diagnostics.requestBytes = response.requestBytes;
         }
         workerDone.store (true, std::memory_order_release);
     });
+}
+
+void TuneLiveCoordinator::clearAnswers()
+{
+    std::lock_guard<std::mutex> lock (mutex);
+    answers.clear();
 }
 
 void TuneLiveCoordinator::joinWorker()

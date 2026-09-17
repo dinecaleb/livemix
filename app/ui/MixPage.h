@@ -81,6 +81,26 @@ private:
     DineButton advancedButton { "Open Advanced", DineButton::Style::Standard };
     DineButton resetMacrosButton { "Reset all", DineButton::Style::Ghost };
     int health = 0;
+    // Everything this page's own paint reads. A frame that would draw the same thing is
+    // skipped: the meters and the rail rows are components that repaint themselves, and a
+    // full repaint of a page on a large console costs a whole 30 Hz frame
+    // (dlive_ui_snapshots --frames).
+    struct PageLook
+    {
+        juce::String status;
+        int health = -1;
+        MixController::Stage stage = MixController::Stage::Setup;
+        int tunes = -1;
+        bool hasReference = false;
+        juce::String referenceName;
+        bool operator== (const PageLook& o) const
+        {
+            return status == o.status && health == o.health && stage == o.stage && tunes == o.tunes
+                && hasReference == o.hasReference && referenceName == o.referenceName;
+        }
+        bool operator!= (const PageLook& o) const { return ! (*this == o); }
+    };
+    PageLook painted;
     int builtRailFor = -1;
     juce::String status;
     MixController::Stage lastStage = MixController::Stage::Setup;

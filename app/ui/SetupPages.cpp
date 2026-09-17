@@ -55,6 +55,11 @@ namespace
             case ChannelRole::BackingVocal:         return "BV";
             case ChannelRole::Choir:                return "Choir";
             case ChannelRole::Speech:               return "Pastor";
+            case ChannelRole::CrowdMic:             return "Crowd";
+            case ChannelRole::AmbienceMic:          return "Ambience";
+            case ChannelRole::SaxAlto:              return "Alto sax";
+            case ChannelRole::SaxTenor:             return "Tenor sax";
+            case ChannelRole::SaxBari:              return "Bari sax";
             default:                                return channelRoleName (r);
         }
     }
@@ -74,7 +79,11 @@ namespace
                                        ChannelRole::AcousticGuitar, ChannelRole::Piano, ChannelRole::SynthPad } },
             { "Keys in stereo", MixBus::Music, { ChannelRole::Piano, ChannelRole::Piano } },
             { "Singers", MixBus::Vocals, { ChannelRole::LeadVocal, ChannelRole::BackingVocal } },
-            { "Speaking mics", MixBus::Speech, { ChannelRole::Speech } }
+            { "Speaking mics", MixBus::Speech, { ChannelRole::Speech } },
+            // The building. Two of these across the room is what makes a stream sound like a
+            // service rather than a studio recording of a band.
+            { "Crowd and room", MixBus::Ambience, { ChannelRole::CrowdMic, ChannelRole::CrowdMic, ChannelRole::AmbienceMic } },
+            { "Horns", MixBus::Music, { ChannelRole::SaxAlto, ChannelRole::SaxTenor, ChannelRole::SaxBari } }
         };
         return k;
     }
@@ -694,7 +703,7 @@ void DevicePage::refresh()
         for (int i = 1; i < inputs.size(); ++i) if (inputs[i].inputChannels > inputs[best].inputChannels) best = i;
         selected = best;
     }
-    outputName = services.currentOutputDevice();
+    outputName = services.outputDisplayName();
     if (outputName.isEmpty() && selected >= 0)
     {
         // Same device when it has outputs, else the first output device.
@@ -2026,6 +2035,33 @@ PurposePage::PurposePage (MixController& c) : controller (c)
         addAndMakeVisible (*t);
         soundTiles.push_back (std::move (t));
     }
+    addAndMakeVisible (deliveryButton);
+    deliveryButton.setTooltip ("How loud the finished mix should end up. This is what the whole gain structure is "
+                               "fitted against - not a gain added at the end - so changing it changes nothing until "
+                               "the next TUNE MIX, and then every fader, group and the master follow it.");
+    deliveryButton.onClick = [this]
+    {
+        juce::PopupMenu m;
+        const auto current = controller.getDelivery();
+        const auto purposeTarget = masterTargets (controller.getSession().profile, controller.getSession().purpose);
+        m.addItem (1, juce::String (deliveryLoudnessName (DeliveryLoudness::FromPurpose)) + "   ("
+                       + lufs (purposeTarget.targetLufs) + ")", true, current == DeliveryLoudness::FromPurpose);
+        m.addSeparator();
+        for (int i = 1; i < int (DeliveryLoudness::Count); ++i)
+        {
+            const auto d = DeliveryLoudness (i);
+            m.addItem (i + 1, juce::String (deliveryLoudnessName (d)) + "   " + lufs (deliveryLoudnessLufs (d)),
+                       true, current == d);
+        }
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (deliveryButton).withMinimumWidth (330),
+                         [this] (int id)
+                         {
+                             if (id <= 0) return;
+                             controller.setDelivery (DeliveryLoudness (id - 1));
+                             refresh();
+                         });
+    };
+
     addAndMakeVisible (continueButton);
     addAndMakeVisible (backButton);
     continueButton.setCaps (false);
@@ -2049,6 +2085,10 @@ void PurposePage::refresh()
     }
     for (int i = 0; i < int (soundTiles.size()); ++i)
         soundTiles[size_t (i)]->setToggleState (int (session.profile) == i, juce::dontSendNotification);
+    const auto purposeTarget = masterTargets (session.profile, session.purpose);
+    deliveryButton.setValue (session.delivery == DeliveryLoudness::FromPurpose
+                                 ? juce::String (deliveryLoudnessName (session.delivery)) + "  (" + lufs (purposeTarget.targetLufs) + ")"
+                                 : juce::String (deliveryLoudnessName (session.delivery)) + "  " + lufs (session.deliveryTargetLufs()));
     repaint();
 }
 
@@ -2058,7 +2098,13 @@ void PurposePage::paint (juce::Graphics& g)
 {
     const auto L = layout();
     const auto& session = controller.getSession();
-    const auto target = masterTargets (session.profile, session.purpose);
+    auto target = masterTargets (session.profile, session.purpose);
+    // What this session actually aims at: its own delivery setting when it has one.
+    if (const float wanted = session.deliveryTargetLufs(); wanted < 0.0f && target.loudnessTargetAppropriate)
+    {
+        target.targetLufs = wanted;
+        target.truePeakCeilingDb = juce::jmin (target.truePeakCeilingDb, wanted >= -15.0f ? -1.0f : -1.5f);
+    }
 
     auto head = L.head;
     auto plan = head.removeFromRight (juce::jmin (330, juce::jmax (0, head.getWidth() - 470)));
@@ -2093,6 +2139,17 @@ void PurposePage::paint (juce::Graphics& g)
     Dine::drawCaption (g, main.removeFromTop (16), "Purpose - where it is going");
     main.removeFromTop (5 + kPurposeGrid + 22);
     Dine::drawCaption (g, main.removeFromTop (16), "Sound - what it should feel like");
+    {
+        auto after = main;
+        after.removeFromTop (5 + 86 + 18);
+        Dine::drawCaption (g, after.removeFromTop (16), "How loud it should end up");
+        after.removeFromTop (4);
+        auto row = after.removeFromTop (Dine::Metric::control);
+        row.removeFromLeft (deliveryButton.getWidth() + 12);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.5f));
+        g.drawText (deliveryLoudnessHint (session.delivery), row, juce::Justification::centredLeft, true);
+    }
 
     if (! L.rail.isEmpty())
     {
@@ -2111,7 +2168,8 @@ void PurposePage::paint (juce::Graphics& g)
         inner.removeFromTop (8);
         drawStat (g, inner.removeFromTop (17), "Purpose", mixPurposeName (session.purpose));
         drawStat (g, inner.removeFromTop (17), "Sound", styleProfileName (session.profile));
-        drawStat (g, inner.removeFromTop (17), "Groups", "5 groups and a master");
+        drawStat (g, inner.removeFromTop (17), "Groups",
+                  juce::String (int (MixBus::Master)) + " groups and a master");
         drawStat (g, inner.removeFromTop (17), "Listens to",
                   juce::String (int (session.inputs.size())) + (session.inputs.size() == 1 ? " input" : " inputs"));
         rail.removeFromTop (kCardGap);
@@ -2147,6 +2205,10 @@ void PurposePage::resized()
     auto soundArea = main.removeFromTop (juce::jmin (main.getHeight(), 86));
     const int sw = (soundArea.getWidth() - gap * (int (soundTiles.size()) - 1)) / juce::jmax (1, int (soundTiles.size()));
     for (auto& t : soundTiles) { t->setBounds (soundArea.removeFromLeft (sw)); soundArea.removeFromLeft (gap); }
+
+    main.removeFromTop (18 + 16 + 4);
+    auto loudRow = main.removeFromTop (Dine::Metric::control);
+    deliveryButton.setBounds (loudRow.removeFromLeft (juce::jmin (260, juce::jmax (200, deliveryButton.idealWidth()))));
 
     auto footer = L.footer.reduced (Dine::Metric::padX, 0);
     const int cw = juce::jmax (130, continueButton.idealWidth());

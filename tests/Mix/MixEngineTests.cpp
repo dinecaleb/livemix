@@ -110,11 +110,12 @@ TEST_CASE ("MixEngine: pan, fader and mute behave like a console")
     CHECK_NEAR (d2.peak (0, settle), 0.5f * dbToGain (-6.0f) * std::cos (float (M_PI) / 4.0f), 0.01);
 }
 
-TEST_CASE ("MixEngine: solo mutes everything else; mute still wins")
+TEST_CASE ("MixEngine: SOLO IN PLACE mutes everything else; mute still wins")
 {
     MixEngine e;
     e.prepare (kSr, 64, smallSession());
     MixParameters p = rawMix (e);
+    p.monitor.mode = SoloMode::InPlace;      // the destructive listen, chosen on purpose
     p.strips[0].pan = -1.0f;                 // kick hard left so the right channel is a clean check
     p.strips[0].solo = true;                 // kick solo
     p.strips[1].solo = true;                 // snare also solo (additive)
@@ -300,4 +301,227 @@ TEST_CASE ("MixEngine: 64 processed strips with buses and returns fit comfortabl
     std::printf ("    64 strips @ 64 samples: %.0f us/block (%.0f%% of %.0f us), peak %.0f us\n", perBlock, 100.0 * perBlock / budget, budget, double (e.getStats().peakBlockMicros));
     CHECK (perBlock < 0.6 * budget);
     CHECK (e.getStats().blocks == 400);
+}
+
+// ---------------------------------------------------------------------------
+// The monitor (solo) bus. The rule the whole feature stands on is one sentence:
+// pressing S must never change what leaves the master.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    // Feed 0 = the broadcast on outputs 0/1, feed 1 = the engineer's headphones on 2/3.
+    OutputFeeds mainAndMonitor()
+    {
+        OutputFeeds f;
+        f.count = 2;
+        f.feeds[0] = { 0, 1, MixBus::Master, 0.0f, false, false, false };
+        f.feeds[1] = { 2, 3, MixBus::Master, 0.0f, false, false, true };
+        return f;
+    }
+}
+
+TEST_CASE ("MixEngine: solo feeds the monitor output and leaves the live master untouched")
+{
+    MixEngine e;
+    e.prepare (kSr, 64, smallSession());
+    e.setOutputFeeds (mainAndMonitor());
+
+    MixParameters p = rawMix (e);
+    e.setParameters (p);
+    Device before (8, 4, 48000);
+    sineOnInput (before, 0, 100.0f, 0.5f);   // kick
+    sineOnInput (before, 5, 440.0f, 0.5f);   // lead
+    before.run (e, 64);
+    const int settle = 24000;
+    const float masterBefore = before.peak (0, settle);
+    CHECK (masterBefore > 0.2f);
+
+    // Now solo the kick. The default is MONITOR SOLO.
+    p.strips[0].solo = true;
+    e.setParameters (p);
+    e.reset();
+    Device after (8, 4, 48000);
+    sineOnInput (after, 0, 100.0f, 0.5f);
+    sineOnInput (after, 5, 440.0f, 0.5f);
+    after.run (e, 64);
+
+    // The broadcast is bit-for-bit the same mix: both sources still there, same level.
+    CHECK_NEAR (after.peak (0, settle), masterBefore, 0.01);
+    // The monitor pair carries the kick on its own.
+    CHECK (after.peak (2, settle) > 0.2f);
+}
+
+TEST_CASE ("MixEngine: with nothing soloed the monitor output carries the mix")
+{
+    MixEngine e;
+    e.prepare (kSr, 64, smallSession());
+    e.setOutputFeeds (mainAndMonitor());
+    e.setParameters (rawMix (e));
+    Device d (8, 4, 48000);
+    sineOnInput (d, 5, 440.0f, 0.5f);
+    d.run (e, 64);
+    const int settle = 24000;
+    CHECK (d.peak (0, settle) > 0.2f);
+    CHECK_NEAR (d.peak (2, settle), d.peak (0, settle), 0.01);
+}
+
+TEST_CASE ("MixEngine: PFL hears a muted channel, AFL does not; neither reaches the master")
+{
+    MixEngine e;
+    e.prepare (kSr, 64, smallSession());
+    e.setOutputFeeds (mainAndMonitor());
+    MixParameters p = rawMix (e);
+    p.strips[4].mute = true;                 // the lead is muted in the mix
+    p.strips[4].solo = true;                 // and soloed into the monitor
+    p.monitor.point = SoloPoint::PFL;
+    e.setParameters (p);
+    Device pfl (8, 4, 48000);
+    sineOnInput (pfl, 5, 440.0f, 0.5f);
+    pfl.run (e, 64);
+    const int settle = 24000;
+    CHECK (pfl.peak (0, settle) < 0.02f);    // muted: nothing on the broadcast
+    CHECK (pfl.peak (2, settle) > 0.2f);     // but the engineer can still hear it
+
+    p.monitor.point = SoloPoint::AFL;
+    e.setParameters (p);
+    e.reset();
+    Device afl (8, 4, 48000);
+    sineOnInput (afl, 5, 440.0f, 0.5f);
+    afl.run (e, 64);
+    CHECK (afl.peak (0, settle) < 0.02f);
+    CHECK (afl.peak (2, settle) < 0.02f);    // after the fader, a mute is a mute
+}
+
+TEST_CASE ("MixEngine: a soloed group and a soloed return reach the monitor only")
+{
+    MixEngine e;
+    e.prepare (kSr, 64, smallSession());
+    e.setOutputFeeds (mainAndMonitor());
+    MixParameters p = rawMix (e);
+    p.buses[size_t (MixBus::Drums)].solo = true;
+    e.setParameters (p);
+    Device d (8, 4, 48000);
+    sineOnInput (d, 0, 100.0f, 0.5f);        // kick -> DRUMS
+    sineOnInput (d, 5, 440.0f, 0.5f);        // lead -> VOCALS
+    d.run (e, 64);
+    const int settle = 24000;
+    CHECK (d.peak (0, settle) > 0.2f);       // the broadcast still has the whole band
+    CHECK (d.peak (2, settle) > 0.2f);       // the drums alone are in the headphones
+}
+
+TEST_CASE ("MixEngine: the monitor level, dim and mute never touch the master")
+{
+    MixEngine e;
+    e.prepare (kSr, 64, smallSession());
+    e.setOutputFeeds (mainAndMonitor());
+    MixParameters p = rawMix (e);
+    e.setParameters (p);
+    Device open (8, 4, 48000);
+    sineOnInput (open, 5, 440.0f, 0.5f);
+    open.run (e, 64);
+    const int settle = 24000;
+    const float master = open.peak (0, settle);
+
+    p.monitor.dim = true;
+    e.setParameters (p);
+    e.reset();
+    Device dimmed (8, 4, 48000);
+    sineOnInput (dimmed, 5, 440.0f, 0.5f);
+    dimmed.run (e, 64);
+    CHECK_NEAR (dimmed.peak (0, settle), master, 0.01);
+    CHECK (dimmed.peak (2, settle) < master * 0.25f);
+
+    p.monitor.dim = false;
+    p.monitor.mute = true;
+    e.setParameters (p);
+    e.reset();
+    Device muted (8, 4, 48000);
+    sineOnInput (muted, 5, 440.0f, 0.5f);
+    muted.run (e, 64);
+    CHECK_NEAR (muted.peak (0, settle), master, 0.01);
+    CHECK (muted.peak (2, settle) < 0.02f);
+}
+
+TEST_CASE ("MixEngine: with no monitor feed routed, solo changes nothing at all")
+{
+    MixEngine e;
+    e.prepare (kSr, 64, smallSession());
+    e.setOutputFeeds (OutputFeeds::mainOnly());
+    MixParameters p = rawMix (e);
+    e.setParameters (p);
+    Device before (8, 2, 48000);
+    sineOnInput (before, 0, 100.0f, 0.5f);
+    sineOnInput (before, 5, 440.0f, 0.5f);
+    before.run (e, 64);
+    const int settle = 24000;
+    const float master = before.peak (0, settle);
+
+    p.strips[0].solo = true;
+    e.setParameters (p);
+    e.reset();
+    Device after (8, 2, 48000);
+    sineOnInput (after, 0, 100.0f, 0.5f);
+    sineOnInput (after, 5, 440.0f, 0.5f);
+    after.run (e, 64);
+    CHECK_NEAR (after.peak (0, settle), master, 0.01);
+}
+
+// ---------------------------------------------------------------------------
+// The broadcast is always a real stereo pair
+//
+// Not "usually": a mix that reaches the stream summed to mono, or on one leg because a pair
+// was half-chosen, is the kind of fault nobody notices until it is on the recording. The
+// shape is enforced where feeds enter the system, so no caller can get it wrong.
+// ---------------------------------------------------------------------------
+TEST_CASE ("OutputFeeds: the broadcast and the engineer's listen are always a stereo pair")
+{
+    OutputFeeds f;
+    f.count = 4;
+    // Feed 0: somebody summed the broadcast to mono.
+    f.feeds[0] = { 0, 1, MixBus::Master, 0.0f, false, true, false };
+    // Feed 1: the engineer's listen, with only one leg chosen.
+    f.feeds[1] = { 5, -1, MixBus::Master, 0.0f, false, false, true };
+    // Feed 2: a monitor feed somebody made mono.
+    f.feeds[2] = { 2, 3, MixBus::Master, 0.0f, false, true, true };
+    // Feed 3: an ordinary extra feed, deliberately mono - a single fill speaker.
+    f.feeds[3] = { 6, 7, MixBus::Drums, -6.0f, false, true, false };
+
+    normaliseOutputs (f);
+
+    CHECK (! f.feeds[0].mono);                  // the broadcast is never summed
+    CHECK (f.feeds[0].left == 0);
+    CHECK (f.feeds[0].right == 1);
+
+    // Half a pair is completed rather than summed onto the one leg that was chosen. The
+    // channel that exists becomes the *left* of the pair rather than being snapped down to an
+    // even boundary: an aggregate device's second sub-device starts wherever the first one
+    // ends, which is not always an even index, and snapping would quietly move the engineer's
+    // listen onto the broadcast's last channel.
+    CHECK (! f.feeds[1].mono);
+    CHECK (f.feeds[1].left == 5);
+    CHECK (f.feeds[1].right == 6);
+
+    CHECK (! f.feeds[2].mono);                  // a monitor feed is stereo too
+
+    CHECK (f.feeds[3].mono);                    // ...but a fill speaker keeps its mono switch
+    CHECK (f.feeds[3].left == 6);
+
+    // A device smaller than the routing expects never gets written past its end.
+    OutputFeeds small;
+    small.count = 2;
+    small.feeds[0] = { 0, 1, MixBus::Master, 0.0f, false, false, false };
+    small.feeds[1] = { 8, 9, MixBus::Master, 0.0f, false, false, true };
+    normaliseOutputs (small, 4);
+    CHECK (small.feeds[0].routed());
+    CHECK (! small.feeds[1].routed());
+
+    // ...but with no device open the routing survives, because it belongs to the session and
+    // has to come back when the interface is plugged in again.
+    OutputFeeds stored;
+    stored.count = 2;
+    stored.feeds[1] = { 8, 9, MixBus::Master, 0.0f, false, false, true };
+    normaliseOutputs (stored, 0);
+    CHECK (stored.feeds[1].routed());
+    CHECK (stored.feeds[1].left == 8);
 }

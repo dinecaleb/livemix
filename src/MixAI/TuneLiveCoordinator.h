@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -54,6 +55,18 @@ public:
     {
         bool refinementPass = true;      // one conservative correction, never an open loop
         std::string userRequest;         // "make the drums bigger" - empty for a plain Tune
+        // 0 is the repeatable mix and is what the TUNE LIVE MIX button always asks for.
+        // TRY ANOTHER MIX asks for 1, 2, 3 ... - a different reading of the same band, wanted
+        // on purpose rather than arrived at by accident.
+        int variation = 0;
+        // Reuse an answer already given for this exact listen and variation. On by default:
+        // running the same thing twice must give the same mix, and it should not cost a round
+        // trip to find that out. TRY ANOTHER MIX still reuses, because variation 2 asked twice
+        // is still the same question.
+        bool reuseAnswers = true;
+        // AI MIX CHAT: what has already been said, so "and a bit more" follows on. Empty for
+        // an ordinary Tune.
+        std::vector<MixReasoningRequest::Turn> conversation;
     };
 
     // Everything a development build wants to know about a run, and nothing a user's session
@@ -70,6 +83,9 @@ public:
         int actionsProposed = 0, actionsAccepted = 0, actionsClamped = 0, actionsRejected = 0;
         bool refinementRan = false;
         bool refinementChanged = false;
+        int variation = 0;
+        std::uint64_t contextFingerprint = 0;    // the identity of the listen this run reasoned about
+        bool answerFromCache = false;            // this exact question had already been answered
         std::vector<std::string> problems;      // anything a reply carried that had to be dropped
     };
 
@@ -91,6 +107,9 @@ public:
     void finish();                                 // LIVE MIX READY
     void cancel();
     void reset();
+    // Answers already given for this session. Cleared when the routing is rebuilt: a mix of a
+    // different shape is a different question.
+    void clearAnswers();
 
     // ---- What the UI reads ----
     State getState() const noexcept { return State (state.load (std::memory_order_acquire)); }
@@ -152,6 +171,7 @@ private:
     MixContext context, verification;
     MixReasoningRequest pending;
     MixReasoningResponse response;
+    MixReasoningCache answers;
     MixIntent intent;
     ProcessingPlan plan;
     MixSafetyValidator::Report report;

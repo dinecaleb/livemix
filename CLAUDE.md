@@ -4,6 +4,9 @@
   The app on its own (the fast loop, no plug-ins): `scripts/dlive.sh` builds DLIVE and opens it;
   `--build` builds only, `--tests` runs the app + engine tests, `--shots [dir]` renders the UI snapshots,
   `--debug` uses `build-debug`.
+  A build to hand someone else: `scripts/package.sh` (`--universal` for Intel too, `--no-build`, `--out <dir>`) writes
+  `dist/DLIVE-<version>-<date>.zip` + `dist/NOTES.txt` — send both; the signature is ad-hoc, so the tester opens it
+  once by right-click > Open. Every build/run/share command, and what to tell the tester: `BUILD-RUN-SHARE.md`.
   Engine-only iteration (fast, no JUCE): `cmake -S . -B build-engine -G Ninja -DLIVEMIX_BUILD_PLUGIN=OFF && cmake --build build-engine && build-engine/tests/livemix_tests`.
 - `src/` must stay JUCE-free. JUCE-dependent code lives in `src/State/ParameterLayout|Bridge`, `src/UI`, `modules/`.
 - Products: Dine Drums / Vocals / Keys / Master / Guitar / Bass are ONE shared plugin (`modules/Common/ChannelPlugin{Processor,Editor}`)
@@ -94,6 +97,107 @@
   `build-engine/tests/livemix_tests` (`Reference*`), `build/app/dlive_app_tests`, the `07c` / `07d` snapshots
   and `build/app/dlive_mix_stems "<stems>" 30 <outdir> gospel -1 broadcast <reference.wav>` (the REFERENCE MIX
   block, and RE-TUNE still saying NO CHANGE REQUIRED).
+- **THE MONITOR (SOLO) BUS** (2026-09-16, `src/Mix/MonitorBus.h`). Pressing S never changes what the room and the
+  stream hear. Solo feeds a stereo accumulator that sits beside the master and never into it (`MixEngine::Monitor`),
+  and it leaves by an output feed with `monitor = true` (`OutputFeeds.h`) - headphones, a pair of nearfields, an
+  Aggregate Device. `MonitorState` (in `MixParameters`, so solo flags and the monitor are applied in one breath)
+  carries the mode, the tap point, the level, dim, mute and what the monitor follows when nothing is soloed.
+  `SoloMode::Monitor` is the default and the whole point; `SoloMode::InPlace` is the old destructive behaviour, kept
+  because it is right for mixing a recording, never the default, and said out loud on the LIVE page when it is on.
+  `SoloPoint::PFL` taps before the fader (a muted channel is still audible - that is what a pre-fade listen is for),
+  `AFL` after it. Strips, group buses and FX returns can all be soloed (`FxSlotParameters::solo`). The whole monitor
+  path is skipped when no feed carries it, so a session that never uses it costs nothing; solo with nowhere to go is
+  said once rather than silently doing nothing (`MixController::hasMonitorOutput`). Verify with the `MixEngine: solo
+  ...` / `MixEngine: PFL ...` tests and `Monitor: solo is monitoring ...` in `dlive_app_tests`.
+  **From the user's side the whole feature is two pickers** on the Outputs sheet - "Broadcast"
+  and "Solo" - and everything under them is DLIVE's problem, because macOS opens exactly one
+  audio device at a time. Two different devices makes `app/native/MonitorDevice` build the
+  combined CoreAudio device itself: **unstacked** (a *stacked* aggregate is a Multi-Output
+  Device, which mirrors one bus to every device in it - which is precisely why a private solo
+  was impossible before), with the broadcast as clock master and **drift correction on the
+  solo device**, because Dante and a USB interface do not share a clock. The same device with
+  four or more outputs needs no aggregate at all: solo takes its outputs 3-4. Choosing
+  "nowhere" removes what DLIVE made and puts the Mac back. The words "Aggregate Device" never
+  reach the user; a device the *user* built is never touched (only ours carries our UID). The
+  picking rules live apart from CoreAudio in `MonitorDevicePick.cpp` so they are tested
+  without a device - the one that matters is "never suggest the laptop speaker when a real
+  interface is plugged in".
+  **The broadcast and the engineer's listen are always a real stereo pair**, enforced by
+  `normaliseOutputs` at the single chokepoint every routing passes through
+  (`MixController::setOutputFeeds`), never at the call sites: a mix that reaches the stream
+  summed to mono, or on one leg because a pair was half-chosen, is the kind of fault nobody
+  notices until it is on the recording. The optional extra feeds keep their mono switch,
+  because that is what it is for (one fill speaker, a feed to a phone).
+  **The words are the volunteer's, not the engineer's**: WHAT I HEAR, "Only I hear it" /
+  "Everyone hears it", "In the mix" / "On its own", "My headphones". The engineer's terms
+  (monitor bus, solo in place, AFL, PFL, aggregate device) survive once each, in tooltips -
+  the same plain-language-on-the-surface rule the rest of the app follows.
+- **LIVE SAFE is a policy, not a tooltip** (`src/Mix/LiveSafe.h`), enforced in `MixController` rather than in a menu
+  handler - a guard in `MainView` only covers the menu, and the AI, the chat, a macro and a keyboard shortcut all
+  reach the mix without passing one. It never locks the emergency controls (mute, solo, the monitor, the transport,
+  recording, UNDO/REDO); it refuses what changes the mix wholesale or interrupts the audio (TUNE / TUNE CHANNEL /
+  TUNE LIVE MIX / MATCH TO REFERENCE, KEEP, REVERT, BYPASS, routing, output routing, the device, timeline edits,
+  opening a session); and it *limits* what is still allowed - `maxFaderStepDb` 6, `maxMasterStepDb` 3,
+  `maxInputGainStepDb` 6, a pan step - so one slip cannot throw a fader across the console. A refusal always carries
+  the sentence saying what the risk was. Moving the *monitor* feed stays legal mid-service (`onlyMonitorChanged`).
+  `DawEngine::setLiveSafe` is the one place both halves are set (the timeline's lock on `Project`, the mix's policy
+  on `MixController`), so they can never disagree.
+- **REPEATABILITY** is a requirement of the reasoning layer, not a setting. The same band, the same listen and the
+  same settings must produce the same mix. `MixContext::fingerprint()` (FNV-1a over the canonical document, written
+  out so it does not move with the toolchain) identifies a listen; it is the model's `seed` and the key of
+  `MixReasoningCache`, so a question already answered is answered the same way without a round trip.
+  `OpenAiMixProvider` sends `temperature: 0` and `top_p: 1` for the primary mix (a reasoning model takes only the
+  seed), and the brief tells every provider to be repeatable. **TRY ANOTHER MIX** is the only way to a different
+  reading: `LiveTuneSettings::variation` 1, 2, 3 ... - asked for by name, and itself repeatable -
+  and it works from the listen DLIVE already has (`reuseListen`), so two readings are compared against the same
+  performance. Verify with the `Repeatability: ...` tests, which pin a deliberately drifting provider.
+- **AI MIX CHAT** (`app/ui/ChatSheet`, `MixController::sendChatRequest`) is not a second mixing engine: a sentence
+  goes through the same pipeline as TUNE LIVE MIX - intent, `CapabilityResolver`, `MixSafetyValidator` - and comes
+  out as an ordinary `MixPlan`, so BEFORE / AFTER, KEEP, REVERT and the Inspector work on it unchanged and nothing
+  typed into a chat can reach a parameter by a path the reasoning layer could not. With no cloud model configured
+  the request is read by `MixAI/MixRequestParser` - deterministic, offline, and honest: a sentence it cannot read
+  comes back with what to try instead rather than a confident change to something nobody asked about, and a capture
+  problem ("the singer is off mic") is named as a capture problem. The transcript and the conversation ride in
+  `MixReasoningRequest::conversation`. Beside it is mix-level UNDO / REDO (`markMixChange` / `undoMix` / `redoMix`),
+  which LIVE SAFE deliberately never locks.
+- **HOW LOUD THE FINISHED MIX SHOULD BE** is a setting now (`MixSession::delivery`, `DeliveryLoudness`). It used to
+  be a hidden consequence of the purpose: "Church Broadcast" quietly meant EBU R128, which is -23 LUFS - right for a
+  television feed and about 9 dB under what a church stream is expected to be - and nothing said so. The target is
+  what the whole gain structure is fitted against (`MixPlanner` sets it on the master's `targetsOverride`, after any
+  reference and winning over it, because a reference sets the tone and is never allowed to set the delivery
+  loudness), not a gain added at the end: at -14 the stems land at -14.7 LUFS, -3.2 dBTP and the same 14.5 dB crest
+  as the -23 mix, and RE-TUNE still says NO CHANGE REQUIRED. `MixController::getMasterLoudness()` is the one place
+  the master's LUFS-I / short-term / true peak / limiter reduction / target / headroom are read, so no two pages can
+  disagree. Check with `dlive_mix_stems "<stems>" 30 <out> gospel -1 broadcast:-14`.
+- **AMBIENCE is the sixth group bus** (`MixBus::Ambience`, before MASTER) and `SessionStore` is **version 4**, which
+  remaps a version <= 3 document's bus slots (`busFromStoredIndex` + `storedBusCount`: the last stored slot has
+  always been the master, wherever it sat). `ChannelRole::CrowdMic` / `AmbienceMic` / `AmbienceBus` and
+  `RoleFamily::Ambience` / `AmbienceBus` are their own family with their own strategy
+  (`src/Tune/AmbienceStrategies.cpp`): **never gated** - on a room microphone the quiet between the sounds is the
+  sound - never transient-shaped, high-passed well above a stage source, compressed slowly as a ceiling rather than
+  for punch, and aimed well under the band (`busBelowVocalsDb[Ambience]` = -12). A congregation microphone routed
+  through the drum-room rules was gated and pushed forward, which is the bug this fixes.
+  `ChannelRole::SaxAlto` / `SaxTenor` / `SaxBari` (`RoleFamily::Saxophone`, MUSIC bus, same file) are a horn and not
+  a keyboard: the honk between 0.9 and 2.5 kHz is *notched* rather than shelved, the compressor is fitted for the
+  range between a held note and a wailed one with an attack slow enough to keep the reed, the high-pass sits under
+  the horn's own lowest note, and it is never expanded. Both are in `StemNames`, `Dine::roleGroups`, the ASSIGN
+  kits and `Dine::busTint`.
+- **INPUT MAPPINGS** (`app/native/InputMapStore.{h,cpp}`, `~/Music/DLIVE/Input Maps/*.dlivemap.json`, File menu).
+  A church patches the same desk the same way every week; a map is the patch and nothing else - device channel,
+  name, source, stereo link - deliberately not a mix. Save / rename / duplicate / import / export / apply. The one
+  rule that matters: applying a map must never route audio to the wrong place, so an input the open device cannot
+  provide comes back **switched off and named**, with a sentence saying what is missing, and the dialog says so
+  *before* anything is applied. Two inputs wanting one channel is reported the same way.
+- **The TRACKS channel panel is resizable** (`TracksPage::setPanelWidth`, the divider at `headerWidth`): the
+  standard DAW drag, one width inherited by every row, persisted with the session (`Document::trackPanelWidth`).
+  `kHeaderWidth` is gone - everything on that page measures from the member.
+- **UI frame budget.** `build/app/dlive_ui_snapshots --frames [channels=48] [frames=120]` builds a realistically
+  large console and reports, per workspace, the cost of one `refresh()` and the cost of a full repaint. A full
+  repaint is 30-130 ms at 48 channels, so **no page may call `repaint()` on itself from its 30 Hz tick** - that
+  alone spends the whole frame. Every workspace now compares what it is about to draw with what it last drew
+  (`Look` / `PageLook` / `InspectorLook`) and repaints only when that changed; TRACKS repaints the meter strips it
+  has to (`meterCell`) and the lanes only when the playhead moved. When adding anything to a page's `paint`, add it
+  to that page's `Look` too, or it will draw stale.
 - Read the PRD sections 6-8, 42, 48 and `docs/ARCHITECTURE-DINE-CORE.md` before touching the audio path or adding a product.
 - DLIVE is **the live recording and broadcast DAW** (2026-09 DAW milestone; see `docs/MILESTONE-7.md`).
   Four workspaces over one session: TRACKS (timeline, clips, waveforms), MIXER, TUNE, LIVE. The DAW layer is
