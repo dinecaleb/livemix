@@ -80,7 +80,7 @@ app/                 DLIVE, the application
   Tests/             dlive_app_tests (controller, DAW, documents, import, bounce)
 tests/               unit tests (custom header-only framework), plugin integration tests, benchmark,
                      regression renders (tests/reference/*.f32, regenerate with LIVEMIX_REGEN_REFERENCES=1)
-scripts/             bootstrap / build / test / validate_au
+scripts/             bootstrap / build / dlive (build + run) / test / package (zip for a tester) / validate_au
 external/JUCE/       vendored JUCE 8.0.8 (git-ignored; scripts/bootstrap.sh clones it)
 ```
 
@@ -99,6 +99,27 @@ cmake -S . -B build-universal -G Ninja -DLIVEMIX_UNIVERSAL_BINARY=ON   # arm64 +
 Artefacts: `build/modules/<Product>/LiveMix<Product>_artefacts/Release/{AU,Standalone}/` for Drums, Vocals, Keys, Master
 and FX. The AUs are copied to `~/Library/Audio/Plug-Ins/Components/Dine <Product>.component` after each build
 (`-DLIVEMIX_COPY_PLUGIN_AFTER_BUILD=OFF` to disable).
+
+## Run DLIVE
+
+```sh
+scripts/dlive.sh                # build (Release) and open DLIVE.app — the fast loop: only the app, not the plug-ins
+scripts/dlive.sh --build        # build only     --debug  from build-debug/
+scripts/dlive.sh --tests        # dlive_app_tests + livemix_tests
+scripts/dlive.sh --shots [dir]  # every workspace as PNGs (default: build/app-snapshots)
+```
+
+## Share a test build
+
+```sh
+scripts/package.sh              # build and zip for this Mac      --universal  arm64 + x86_64
+scripts/package.sh --no-build   # zip what is already built       --out <dir>  default: dist/
+```
+
+Leaves `dist/DLIVE-<version>-<date>.zip` and `dist/NOTES.txt` — **send both**. The signature is ad-hoc, so the
+tester right-click > Opens it once.
+
+**Every command, and what to tell the tester: [`BUILD-RUN-SHARE.md`](BUILD-RUN-SHARE.md).**
 
 ## Test
 
