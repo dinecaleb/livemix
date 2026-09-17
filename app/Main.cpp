@@ -245,7 +245,15 @@ namespace
             return broadcastDevice.isNotEmpty() ? broadcastDevice : host.getOutputDeviceName();
         }
 
-        juce::String soloOutputDevice() override { return soloDevice; }
+        // Derived, never remembered. `soloDevice` records which device was chosen, but whether
+        // solo actually goes anywhere is a property of the routing - and the routing can be
+        // changed from the feed rows underneath, which is how this came to claim solo was set
+        // up long after the monitor feed had been turned into something else. A second copy of
+        // a truth is a second copy that will one day disagree.
+        juce::String soloOutputDevice() override
+        {
+            return hasMonitorFeed (controller.getOutputFeeds()) ? soloDevice : juce::String();
+        }
 
         MonitorSetup setSoloOutputDevice (const juce::String& wanted) override
         {
@@ -265,9 +273,10 @@ namespace
                 if (MonitorDevice::dliveDeviceExists())
                 {
                     hold();
-                    MonitorDevice::removeDliveDevice();
-                    host.rescanDevices();          // the device it was open on has just gone
+                    // Off the combined device *before* it is destroyed, for the same reason.
                     const auto err = openWith (broadcast, input);
+                    MonitorDevice::removeDliveDevice();
+                    host.rescanDevices();
                     applyPendingMix();
                     if (err.isNotEmpty()) return { false, err };
                 }
@@ -304,10 +313,26 @@ namespace
             if (broadcastDev.uid.isEmpty() || soloDev.uid.isEmpty())
                 return { false, "One of those devices is no longer connected." };
 
-            const auto built = MonitorDevice::combine (broadcastDev, soloDev);
-            if (! built.ok) return { false, built.error };
-
             hold();
+            // Never destroy the device the audio is running on. Rebuilding the pairing - which
+            // is what choosing a solo device does when one is already set up - starts by
+            // removing the combined device, and if that is the open one, CoreAudio is being
+            // asked to delete the interface underneath a running stream. Step back onto the
+            // plain broadcast device first.
+            if (MonitorDevice::dliveDeviceExists())
+            {
+                openWith (broadcast, input);
+                host.rescanDevices();
+            }
+
+            const auto built = MonitorDevice::combine (broadcastDev, soloDev);
+            if (! built.ok)
+            {
+                // Back where we started, with the broadcast still playing.
+                applyPendingMix();
+                return { false, built.error };
+            }
+
             // The device exists in CoreAudio the moment it is created, but it is published
             // asynchronously and JUCE caches a device list per type - so without waiting for it
             // and asking again, opening it fails with "No such device" on the device DLIVE has
@@ -349,8 +374,9 @@ namespace
 
         juce::String headphonesSummary() override
         {
-            if (soloDevice.isEmpty()) return {};
-            return "Solo goes to " + soloDevice + ". The stream stays on " + broadcastOutputDevice()
+            const auto solo = soloOutputDevice();          // derived: it cannot claim what is not routed
+            if (solo.isEmpty()) return {};
+            return "Solo goes to " + solo + ". The stream stays on " + broadcastOutputDevice()
                  + " and never changes.";
         }
 

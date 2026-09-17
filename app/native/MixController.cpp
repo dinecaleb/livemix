@@ -116,7 +116,14 @@ void MixController::prepare (double sr, int maxBlockSize)
     preparedSession = session;          // the graph and the mix below now belong to this session
     capture.prepare (sr, engine.getGraph());
     engine.setTap (&capture);
+    // The engineer's own listen belongs to the device and the person at the desk, not to the
+    // mix - exactly like the output feeds restored at the end of this function. Rebuilding the
+    // graph must not reach into their headphones and put the level, the tap point and the solo
+    // mode back to factory. It used to, so changing the assignments quietly undid whatever
+    // they had set up to hear with.
+    const MonitorState listen = kept.monitor;
     kept = startingPoint (session, engine.getGraph());
+    kept.monitor = listen;
     atCapture = kept;
     plan.reset();
     compare = Compare::After;

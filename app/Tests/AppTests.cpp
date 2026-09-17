@@ -483,6 +483,77 @@ TEST_CASE ("MixController: editing the session keeps the sound; preparing again 
     CHECK (c.getStage() == MixController::Stage::Ready);
 }
 
+TEST_CASE ("MixController: rebuilding the graph does not reach into the engineer's headphones")
+{
+    // The monitor belongs to the device and the person at the desk, not to the mix. Rebuilding
+    // the graph - which is what changing the assignments does - used to put the level, the tap
+    // point and the solo mode back to factory, so a routing change silently undid whatever the
+    // engineer had set up to hear with, and solo appeared to stop working for good.
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+
+    OutputFeeds feeds;
+    feeds.count = 2;
+    feeds.feeds[0] = { 0, 1, MixBus::Master, 0.0f, false, false, false };
+    feeds.feeds[1] = { 2, 3, MixBus::Master, 0.0f, false, false, true };
+    c.setOutputFeeds (feeds);
+    c.setSoloPoint (SoloPoint::PFL);
+    c.setMonitorGain (-7.5f);
+    c.setMonitorDim (true);
+    REQUIRE (c.hasMonitorOutput());
+
+    MixSession s = band();
+    s.inputs.push_back ({ "Pastor", ChannelRole::Speech, 6, -1 });
+    c.setSession (s);
+    c.prepare (kSr, kBlock);
+
+    // The routing survives, as it always did...
+    CHECK (c.hasMonitorOutput());
+    CHECK (c.getOutputFeeds().feeds[1].monitor);
+    // ...and so does what the engineer set up to listen with.
+    CHECK (c.getMonitor().point == SoloPoint::PFL);
+    CHECK_NEAR (c.getMonitor().gainDb, -7.5f, 0.01);
+    CHECK (c.getMonitor().dim);
+    CHECK (c.getMonitor().mode == SoloMode::Monitor);
+
+    // Solo in place is a deliberate, dangerous choice, so it survives a rebuild too rather
+    // than silently reverting to something the engineer did not pick.
+    c.setSoloMode (SoloMode::InPlace);
+    c.prepare (kSr, kBlock);
+    CHECK (c.getMonitor().mode == SoloMode::InPlace);
+}
+
+TEST_CASE ("MixController: solo cannot claim to be set up when no monitor feed is routed")
+{
+    // The fault this guards is a second copy of a truth. Whether solo goes anywhere is a
+    // property of the routing; turning the monitor feed into an ordinary bus feed from the
+    // rows underneath has to be reflected, not contradicted by something remembered earlier.
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+
+    OutputFeeds feeds;
+    feeds.count = 2;
+    feeds.feeds[0] = { 0, 1, MixBus::Master, 0.0f, false, false, false };
+    feeds.feeds[1] = { 2, 3, MixBus::Master, 0.0f, false, false, true };
+    c.setOutputFeeds (feeds);
+    CHECK (c.hasMonitorOutput());
+
+    // The engineer re-points that feed at a group. Solo now has nowhere to go, and the app
+    // has to say so rather than keep claiming it is set up.
+    feeds.feeds[1].monitor = false;
+    feeds.feeds[1].source = MixBus::Vocals;
+    c.setOutputFeeds (feeds);
+    CHECK (! c.hasMonitorOutput());
+
+    // Un-routing it entirely is the same answer.
+    feeds.feeds[1].monitor = true;
+    feeds.feeds[1].left = feeds.feeds[1].right = -1;
+    c.setOutputFeeds (feeds);
+    CHECK (! c.hasMonitorOutput());
+}
+
 TEST_CASE ("MixController: assigning inputs one at a time never silences what is already playing")
 {
     // The shape of the fault this guards: a volunteer adds a channel on the INPUTS page while
