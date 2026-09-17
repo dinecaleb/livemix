@@ -122,7 +122,7 @@ public:
     static constexpr int titleH = 24;
     // Narrower than this and a chip stops being readable, so the path scrolls instead of
     // squeezing: a stage you cannot read is a stage you cannot pick.
-    static constexpr int minChipW = 74;
+    static constexpr int minChipW = 100;
 
 private:
     juce::Rectangle<int> chipBounds (int index) const;

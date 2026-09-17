@@ -43,13 +43,17 @@ public:
     void paint (juce::Graphics&) override;
     void mouseUp (const juce::MouseEvent&) override;
 
-    static constexpr int height = 34;
+    static constexpr int height = 48;
 
 private:
     juce::String name, note, empty;
     juce::Colour tint { Dine::ink3 };
     std::vector<ChainStage> stages;
     bool hasSource = false;
+    bool hover = false;
+public:
+    void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { hover = false; repaint(); }
 };
 
 } // namespace livemix

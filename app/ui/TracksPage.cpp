@@ -12,15 +12,14 @@ namespace
     // ticks along its foot - so a moment, a loop and a bar line are read in one place.
     // The channel panel's width is now the engineer's, not a constant (see TracksPage.h):
     // these are only what it may be set to. 212 is what it used to be and is still the default.
-    constexpr int kDefaultHeaderWidth = 212;
-    constexpr int kMinHeaderWidth = 128;
-    constexpr int kMaxHeaderWidth = 560;
+    constexpr int kMinHeaderWidth = 300;
+    constexpr int kMaxHeaderWidth = 640;
     constexpr int kDividerGrip = 4;        // how close the pointer has to be to grab it
-    constexpr int kToolbarHeight = 36;
-    constexpr int kRulerHeight = 46;
-    constexpr int kLoopStrip = 15;         // the top of the ruler: drag here to mark a loop
-    constexpr int kMarkerTop = 17;         // the marker lane, inside the ruler
-    constexpr int kMarkerHeight = 13;
+    constexpr int kToolbarHeight = 46;
+    constexpr int kRulerHeight = 38;
+    constexpr int kLoopStrip = 8;          // the top of the ruler: drag here to mark a loop
+    constexpr int kMarkerTop = 7;          // the marker lane, inside the ruler
+    constexpr int kMarkerHeight = 18;
     constexpr int kMinTrackHeight = 38;
     constexpr int kMaxTrackHeight = 260;
     constexpr int kResizeGrip = 5;
@@ -63,13 +62,12 @@ namespace
         using Level = MixController::InputAdvice::Level;
         switch (a.level)
         {
-            case Level::Clipping: return { "CLIP", Dine::crit };
-            case Level::Faint:    return { "CHECK", Dine::crit };
-            case Level::Low:      return { "GAIN +" + juce::String (juce::roundToInt (std::fabs (a.consoleMoveDb))), Dine::warn };
-            case Level::Hot:      return { "GAIN " + Glyph::minus() + juce::String (juce::roundToInt (std::fabs (a.consoleMoveDb))), Dine::warn };
-            case Level::Digital:  return { "GAIN " + juce::String (a.consoleMoveDb > 0.0f ? "+" : Glyph::minus())
-                                               + juce::String (juce::roundToInt (std::fabs (a.consoleMoveDb))), Dine::warn };
-            case Level::NotHeard: return { "QUIET", Dine::ink4 };
+            case Level::Clipping: return { "CLIPPING", Dine::crit };
+            case Level::Faint:    return { "FAINT", Dine::warn };
+            case Level::Low:      return { "LOW", Dine::warn };
+            case Level::Hot:      return { "HOT", Dine::hot };
+            case Level::Digital:  return { "DIGITAL", Dine::warn };
+            case Level::NotHeard: return { "NOT HEARD", Dine::ink3 };
             default:              return {};
         }
     }
@@ -96,8 +94,8 @@ TracksPage::TracksPage (MixController& c, AppServices& s) : controller (c), serv
     for (int i = 0; i < 3; ++i)
     {
         rowTabs[size_t (i)] = std::make_unique<DineButton> (rowNames[i], DineButton::Style::Segment);
-        rowTabs[size_t (i)]->setFontPx (11.5f);
-        rowTabs[size_t (i)]->setPadX (8);
+        rowTabs[size_t (i)]->setFontPx (12.0f);
+        rowTabs[size_t (i)]->setPadX (9);
         rowTabs[size_t (i)]->setClickingTogglesState (false);
         rowTabs[size_t (i)]->setTooltip (rowTips[i]);
         rowTabs[size_t (i)]->onClick = [this, i] { setRowHeight (RowHeight (i)); };
@@ -116,18 +114,26 @@ TracksPage::TracksPage (MixController& c, AppServices& s) : controller (c), serv
         addAndMakeVisible (*b);
     };
 
-    make (zoomOutButton, Glyph::minus(), "Zoom out (Cmd -).", [this] { zoom (1.0 / 1.4); });
-    make (zoomFitButton, "Fit", "Fit the whole session on screen (Cmd 0).", [this] { zoomToFit(); });
-    make (zoomInButton, "+", "Zoom in (Cmd +).", [this] { zoom (1.4); });
-    make (splitButton, "Split", "Split every clip under the playhead (Cmd E).", [this] { splitAtPlayhead(); });
+    make (zoomOutButton, Glyph::minus(), "Zoom out (Cmd-minus)", [this] { zoom (0.8); });
+    make (zoomInButton, "+", "Zoom in (Cmd-plus)", [this] { zoom (1.25); });
+    make (zoomFitButton, "Fit", "Zoom to fit (Cmd-0)", [this] { zoomToFit(); });
+    make (splitButton, "Split at playhead", "Split the selected clip (Cmd-E)", [this] { splitAtPlayhead(); });
     make (snapButton, "Snap", "Snap clips to the grid, the markers, the playhead and other clips while dragging.",
           [this] { setSnap (! snap); });
     make (followButton, "Follow", "Keep the playhead on screen while it rolls.", [this] { setFollow (! follow); });
-    make (markerButton, "Marker", "Drop a marker at the playhead (M). Click a marker to jump to it.",
-          [this] { addMarkerAtPlayhead(); });
+    make (markerButton, "Add marker", "Drop a marker at the playhead (M)", [this] { addMarkerAtPlayhead(); });
     make (recordAllButton, "All to record",
           "Set every track to record, and click again to set none. Nothing is captured until you press Record.",
           [this] { setAllToRecord (! allSetToRecord()); });
+    for (auto* b : { zoomOutButton.get(), zoomInButton.get(), zoomFitButton.get(), splitButton.get(), markerButton.get(), recordAllButton.get() })
+    {
+        b->setQuiet (true);
+        b->setFontPx (12.0f);
+        b->setPadX (11);
+    }
+    snapButton->setStyle (DineButton::Style::Segment);
+    followButton->setStyle (DineButton::Style::Segment);
+    for (auto* b : { snapButton.get(), followButton.get() }) { b->setFontPx (12.0f); b->setPadX (10); }
 
     chainStrip.setEmpty ("Click a clip to read its chain here. Double-click a track header to open that channel in the Inspector.");
     chainStrip.onOpen = [this] { if (selection.track >= 0 && onOpenStrip) onOpenStrip (selection.track); };
@@ -232,7 +238,7 @@ juce::Rectangle<int> TracksPage::markerArea() const
 juce::Rectangle<int> TracksPage::lanesArea() const
 {
     return getLocalBounds().withTrimmedLeft (headerWidth).withTrimmedTop (lanesTop())
-                           .withTrimmedBottom (ChainStrip::height);
+                           .withTrimmedBottom (footHeight());
 }
 
 double TracksPage::samplesPerPixel() const
@@ -273,7 +279,7 @@ TracksPage::ClipRef TracksPage::clipAt (juce::Point<int> p) const
     return {};
 }
 
-bool TracksPage::compactHeader (int track) const { return trackHeight (track) < 48; }
+bool TracksPage::compactHeader (int track) const { return trackHeight (track) < 50; }
 
 // ---------------------------------------------------------------------------
 // The channel panel's width
@@ -309,12 +315,21 @@ bool TracksPage::onDivider (juce::Point<int> p) const
 // are drawn on, so the paint and the hit-test read the same table.
 juce::Rectangle<int> TracksPage::keyCell (int track, int key) const
 {
+    // Right to left along the header: the level (52), the fader (58), the meter (8), then the
+    // keys - a 2 x 2 grid on a tall row (R A over M S), one row of four on a short one.
     const int top = trackTop (track), h = trackHeight (track);
-    const int w = 19, cell = 16, gap = 3;
-    const int right = headerWidth - 7 - 6 - 5 - 6;            // the meter and its gutter
+    const bool compact = compactHeader (track);
+    const int w = compact ? 19 : 24, cell = compact ? 16 : 22, gap = compact ? 3 : 4;
+    const int right = headerWidth - 12 - (compact ? 0 : 52 + 8) - 58 - 8 - 8 - 8;
+    if (compact)
+    {
+        const int left = right - (4 * w + 3 * gap);
+        const int y = top + juce::jmax (2, (h - cell) / 2);
+        return { left + key * (w + gap), y, w, cell };
+    }
     const int left = right - (2 * w + gap);
-    const int column = (key == 0 || key == 2) ? 0 : 1;         // arm and mute on the left
-    const int row = key >= 2 ? 0 : 1;                          // mute and solo on top
+    const int column = (key == 0 || key == 2) ? 0 : 1;         // R and M on the left
+    const int row = key >= 2 ? 1 : 0;                          // R A on top, M S under them
     const int y = top + juce::jmax (2, (h - (2 * cell + gap)) / 2);
     return { left + column * (w + gap), y + row * (cell + gap), w, cell };
 }
@@ -325,12 +340,10 @@ juce::Rectangle<int> TracksPage::faderCell (int track) const
 {
     if (track < 0 || track >= numTracks()) return {};
     const int top = trackTop (track), h = trackHeight (track);
-    const int left = 9 + 21;
-    const int right = keyCell (track, 0).getX() - 8;
-    if (right - left < 60) return {};
-    if (compactHeader (track))
-        return { 9, top + h - kResizeGrip - 8, right - 9, 7 };
-    return { left, top + 26, right - left - 36, 10 };
+    const bool compact = compactHeader (track);
+    const int right = headerWidth - 12 - (compact ? 0 : 52 + 8);
+    if (right - 58 < 60) return {};
+    return { right - 58, top + (h - 14) / 2, 58, 14 };
 }
 
 // A fader is grabbed where it stands and moved from there - it never jumps to the click.
@@ -356,8 +369,8 @@ juce::Rectangle<int> TracksPage::markerFlag (int index) const
     if (index < 0 || index >= int (markers.size())) return {};
     const auto& m = markers[size_t (index)];
     const int x = sampleToX (m.position);
-    const auto font = Dine::text (9.5f, 700).withExtraKerningFactor (0.08f);
-    const int w = juce::jmin (170, Dine::textWidth (font, m.name.toUpperCase()) + 12);
+    const auto font = Dine::text (10.0f);
+    const int w = juce::jmin (170, Dine::textWidth (font, m.name) + 12);
     return { x, markerArea().getY(), juce::jmax (22, w), kMarkerHeight };
 }
 
@@ -495,7 +508,7 @@ void TracksPage::refresh()
         // The playhead lives over the ruler and the lanes; the channel panel never moves with
         // it, so it is left alone.
         repaint (getLocalBounds().withTrimmedLeft (headerWidth).withTrimmedTop (kToolbarHeight)
-                                 .withTrimmedBottom (ChainStrip::height));
+                                 .withTrimmedBottom (footHeight()));
     }
 
     // The meters, one narrow strip per track, and only where the reading really changed. A
@@ -519,7 +532,10 @@ juce::Rectangle<int> TracksPage::meterCell (int track) const
     if (track < 0 || track >= numTracks()) return {};
     const int top = trackTop (track), h = trackHeight (track);
     if (h <= 18) return {};
-    return { headerWidth - 11, top + 9, 5, h - 18 };
+    const bool compact = compactHeader (track);
+    const int right = headerWidth - 12 - (compact ? 0 : 52 + 8) - 58 - 8;
+    const int mh = juce::jmin (30, h - 10);
+    return { right - 8, top + (h - mh) / 2, 8, mh };
 }
 
 juce::AudioThumbnail* TracksPage::thumbnailFor (const AudioClip& clip)
@@ -646,12 +662,21 @@ void TracksPage::zoomToFit()
 void TracksPage::setRowHeight (RowHeight h)
 {
     rowHeight = h;
-    const int px = h == RowHeight::Small ? 42 : h == RowHeight::Large ? 112 : 66;
+    const int px = h == RowHeight::Small ? 40 : h == RowHeight::Large ? 82 : 58;
     auto& project = services.daw().getProject();
     for (auto& t : project.tracks) t.height = px;
     clampScroll();
     updateToolbar();
     services.saveSession();
+    repaint();
+}
+
+void TracksPage::setFootShown (bool v)
+{
+    if (footShown == v) return;
+    footShown = v;
+    chainStrip.setVisible (v);
+    resized();
     repaint();
 }
 
@@ -1047,7 +1072,7 @@ void TracksPage::paint (juce::Graphics& g)
         if (project.loopEnabled && project.loopEnd > project.loopStart)
         {
             const int x1 = sampleToX (project.loopStart), x2 = sampleToX (project.loopEnd);
-            g.setColour (Dine::accent.withAlpha (0.07f));
+            g.setColour (Dine::monitor.withAlpha (0.06f));
             g.fillRect (juce::Rectangle<int> (x1, lanes.getY(), juce::jmax (1, x2 - x1), lanes.getHeight()));
         }
 
@@ -1105,7 +1130,7 @@ void TracksPage::paint (juce::Graphics& g)
     {
         juce::Graphics::ScopedSaveState save (g);
         auto headers = getLocalBounds().withWidth (headerWidth).withTrimmedTop (lanesTop())
-                           .withTrimmedBottom (ChainStrip::height);
+                           .withTrimmedBottom (footHeight());
         g.reduceClipRegion (headers);
         g.setColour (Dine::window);
         g.fillRect (headers);
@@ -1139,7 +1164,7 @@ void TracksPage::paint (juce::Graphics& g)
     if (dragOrderLifted && dragOrderSlot >= 0 && tracks > 0)
     {
         juce::Graphics::ScopedSaveState save (g);
-        g.reduceClipRegion (getLocalBounds().withTrimmedTop (lanesTop()).withTrimmedBottom (ChainStrip::height));
+        g.reduceClipRegion (getLocalBounds().withTrimmedTop (lanesTop()).withTrimmedBottom (footHeight()));
         const int slot = juce::jlimit (0, tracks, dragOrderSlot);
         const float y = float (slot < tracks ? trackTop (slot)
                                              : trackTop (tracks - 1) + trackHeight (tracks - 1));
@@ -1154,21 +1179,14 @@ void TracksPage::paint (juce::Graphics& g)
     // can see from the far side of the room.
     {
         const int px = sampleToX (services.daw().getTransport().getPosition());
-        const auto colour = services.daw().isRecording() ? Dine::crit : Dine::ink;
+        const auto colour = services.daw().isRecording() ? Dine::crit : Dine::accent;
         if (px >= lanes.getX() - 1 && px <= lanes.getRight() + 1)
         {
             juce::Graphics::ScopedSaveState save (g);
             g.reduceClipRegion (getLocalBounds().withTrimmedLeft (headerWidth).withTrimmedTop (kToolbarHeight)
-                                    .withTrimmedBottom (ChainStrip::height));
-            g.setColour (colour.withAlpha (0.16f));
-            g.fillRect (float (px) - 1.5f, float (kToolbarHeight), 4.0f, float (lanes.getBottom() - kToolbarHeight));
+                                    .withTrimmedBottom (footHeight()));
             g.setColour (colour);
             g.fillRect (float (px), float (kToolbarHeight), 1.0f, float (lanes.getBottom() - kToolbarHeight));
-            juce::Path cap;
-            cap.addTriangle (float (px) - 5.0f, float (kToolbarHeight),
-                             float (px) + 6.0f, float (kToolbarHeight),
-                             float (px) + 0.5f, float (kToolbarHeight) + 9.0f);
-            g.fillPath (cap);
         }
     }
 
@@ -1180,9 +1198,9 @@ void TracksPage::paint (juce::Graphics& g)
     {
         const bool active = drag == Drag::PanelWidth || dividerHot;
         const float top = float (kToolbarHeight);
-        const float height = float (getHeight() - kToolbarHeight - ChainStrip::height);
-        g.setColour (active ? Dine::accent.withAlpha (0.75f) : Dine::hair);
-        g.fillRect (float (headerWidth) - (active ? 1.0f : 0.5f), top, active ? 2.0f : 0.5f, height);
+        const float height = float (getHeight() - kToolbarHeight - footHeight());
+        g.setColour (active ? Dine::accent.withAlpha (0.75f) : Dine::window);
+        g.fillRect (float (headerWidth) - (active ? 1.0f : 1.0f), top, active ? 2.0f : 2.0f, height);
         if (active)
         {
             const float cy = top + height * 0.5f;
@@ -1216,66 +1234,33 @@ void TracksPage::paintToolbar (juce::Graphics& g)
 {
     auto area = toolbarArea();
     Dine::drawHeaderBand (g, area);
-    area.removeFromBottom (1);
 
-    // the segmented row-height control sits on its own quiet track
     if (rowTabs[0] != nullptr && rowTabs[0]->isVisible())
-    {
-        auto r = rowTabs[0]->getBounds().getUnion (rowTabs[2]->getBounds());
-        Dine::drawSegmentTrack (g, r.expanded (3, 3));
-    }
+        Dine::drawSegmentTrack (g, rowTabs[0]->getBounds().getUnion (rowTabs[2]->getBounds()).expanded (2, 2));
+    if (snapButton != nullptr)
+        Dine::drawSegmentTrack (g, snapButton->getBounds().getUnion (followButton->getBounds()).expanded (2, 2));
 
-    const auto& project = services.daw().getProject();
-
-    // ---- what is picked out, in the middle: the source, its clips and its level
+    // ---- what is picked out, then the zoom, from the right
     if (recordAllButton != nullptr && zoomOutButton != nullptr)
     {
-        // It starts where the last button on the left ends, so adding one to the row can never
-        // put the readout underneath it.
         auto row = toolbarArea().withTrimmedLeft (recordAllButton->getRight() + 14)
-                                .withRight (zoomOutButton->getX() - 120);
+                                .withRight (zoomOutButton->getX() - 60);
         if (row.getWidth() > 60)
         {
-            g.setColour (Dine::hair);
-            g.fillRect (float (row.getX()) - 8.0f, float (row.getCentreY()) - 9.0f, 0.5f, 18.0f);
-
             juce::String info;
             if (selection.track >= 0 && selection.track < numTracks())
-            {
-                const auto& input = controller.getSession().inputs[size_t (selection.track)];
-                const int clips = int (project.tracks[size_t (selection.track)].clips.size());
-                const auto& params = controller.getBase();
-                info = juce::String (input.name).toUpperCase() + "  " + Glyph::dot() + "  "
-                       + juce::String (clips) + (clips == 1 ? " CLIP" : " CLIPS");
-                if (selection.track < params.numStrips)
-                {
-                    const float db = params.strips[size_t (selection.track)].faderDb;
-                    info += "  " + Glyph::dot() + "  " + (db >= 0.0f ? "+" : Glyph::minus())
-                            + juce::String (std::fabs (db), 1) + " dB";
-                }
-            }
-            else if (project.liveSafe) info = "LIVE SAFE  " + Glyph::dot() + "  THE TIMELINE IS LOCKED";
-            else info = "NOTHING SELECTED";
-
-            g.setColour (project.liveSafe && selection.track < 0 ? Dine::warn : Dine::ink3);
-            g.setFont (Dine::mono (11.0f));
-            g.drawText (info, row, juce::Justification::centredLeft, true);
+                info = juce::String (controller.getSession().inputs[size_t (selection.track)].name) + " selected";
+            else if (services.daw().getProject().liveSafe) info = "LIVE SAFE " + Glyph::dot() + " the timeline is locked";
+            else info = "Nothing selected";
+            g.setColour (services.daw().getProject().liveSafe && selection.track < 0 ? Dine::warn : Dine::ink3);
+            g.setFont (Dine::text (13.0f));
+            g.drawText (info, row, juce::Justification::centredRight, true);
         }
-    }
-
-    // ---- the loop, beside the zoom
-    if (zoomOutButton != nullptr)
-    {
-        auto cell = toolbarArea().withRight (zoomOutButton->getX() - 10).withTrimmedRight (0);
-        cell = cell.removeFromRight (juce::jmin (cell.getWidth(), 168));
-        const bool set = project.loopEnd > project.loopStart;
-        g.setColour (set && project.loopEnabled ? Dine::accent.withAlpha (0.85f) : Dine::ink4);
-        g.setFont (Dine::text (10.0f, 700).withExtraKerningFactor (0.07f));
-        g.drawText (set ? "LOOP " + clockText (project.loopStart, project.sampleRate) + " "
-                              + juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92")) + " "
-                              + clockText (project.loopEnd, project.sampleRate)
-                        : juce::String ("NO LOOP"),
-                    cell, juce::Justification::centredRight, false);
+        auto zoomCell = toolbarArea().withRight (zoomOutButton->getX() - 6).withTrimmedRight (0);
+        zoomCell = zoomCell.removeFromRight (44);
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::mono (11.0f));
+        g.drawText (juce::String (juce::roundToInt (pixelsPerSecond / 18.0 * 100.0)) + "%", zoomCell, juce::Justification::centredRight);
     }
 }
 
@@ -1283,27 +1268,26 @@ void TracksPage::paintRuler (juce::Graphics& g)
 {
     auto area = rulerArea();
     auto all = getLocalBounds().withTrimmedTop (kToolbarHeight).withHeight (kRulerHeight);
-    g.setColour (Dine::card);
+    g.setColour (Dine::pageBar);
     g.fillRect (all);
 
-    // The header column of the ruler says what the lanes below it are.
+    // The header column of the ruler says what the lane beside it holds.
     {
-        auto cell = juce::Rectangle<int> (0, all.getY(), headerWidth, all.getHeight()).reduced (11, 0)
-                        .withTrimmedBottom (5);
-        auto line = cell.removeFromBottom (14);
+        auto cell = juce::Rectangle<int> (0, all.getY(), headerWidth, all.getHeight());
+        g.setColour (Dine::toolbar);
+        g.fillRect (cell);
         const auto& project = services.daw().getProject();
-        g.setColour (Dine::ink2);
-        g.setFont (Dine::mono (11.0f));
-        juce::String meta = juce::String (numTracks()) + (project.numArmed() > 0
-                                ? "  " + Glyph::dot() + "  " + juce::String (project.numArmed()) + " TO RECORD"
-                                : juce::String());
-        g.drawText (meta, line, juce::Justification::bottomLeft);
         g.setColour (Dine::ink4);
-        g.setFont (Dine::text (9.5f, 700).withExtraKerningFactor (0.09f));
-        g.drawText ("TRACKS", cell.removeFromBottom (13), juce::Justification::bottomLeft);
+        g.setFont (Dine::caps (11.0f, 0.08f, 500));
+        auto text = cell.reduced (14, 0);
+        g.drawText ("MARKERS", text, juce::Justification::centredLeft);
+        if (project.numArmed() > 0)
+        {
+            g.setColour (Dine::crit);
+            g.setFont (Dine::mono (10.0f, 500));
+            g.drawText (juce::String (project.numArmed()) + " TO RECORD", text, juce::Justification::centredRight, true);
+        }
     }
-    g.setColour (Dine::hairStrong);
-    g.fillRect (float (headerWidth) - 0.5f, float (all.getY()), 0.5f, float (all.getHeight()));
 
     juce::Graphics::ScopedSaveState save (g);
     g.reduceClipRegion (area);
@@ -1312,23 +1296,19 @@ void TracksPage::paintRuler (juce::Graphics& g)
     const double rate = juce::jmax (1.0, project.sampleRate);
     const double step = gridSeconds();
 
-    // The loop strip along the top of the ruler: drag here to mark the range.
-    auto strip = area.withHeight (kLoopStrip);
-    g.setColour (juce::Colours::black.withAlpha (0.28f));
-    g.fillRect (strip);
+    // The loop, as a bar along the top of the ruler.
     if (project.loopEnd > project.loopStart)
     {
         const int x1 = sampleToX (project.loopStart), x2 = sampleToX (project.loopEnd);
-        const auto tint = project.loopEnabled ? Dine::accent : Dine::ink4;
-        auto range = juce::Rectangle<float> (float (x1), float (strip.getY()),
-                                             float (juce::jmax (3, x2 - x1)), float (kLoopStrip));
-        g.setColour (tint.withAlpha (project.loopEnabled ? 0.22f : 0.12f));
-        g.fillRect (range);
-        g.setColour (tint.withAlpha (project.loopEnabled ? 0.55f : 0.3f));
-        g.drawRect (range, 0.5f);
+        const auto tint = project.loopEnabled ? Dine::monitor : Dine::ink4;
+        auto range = juce::Rectangle<float> (float (x1), float (area.getY()), float (juce::jmax (3, x2 - x1)), 5.0f);
+        juce::Path p;
+        p.addRoundedRectangle (range.getX(), range.getY(), range.getWidth(), range.getHeight(), 3.0f, 3.0f, false, false, true, true);
+        g.setColour (tint.withAlpha (project.loopEnabled ? 1.0f : 0.5f));
+        g.fillPath (p);
     }
 
-    // The ticks along the foot: a tall line where the number goes, a short one between.
+    // The ticks along the foot: a tall one where the number goes, short ones between.
     const double firstSecond = std::floor ((scrollX / pixelsPerSecond) / step) * step;
     for (double sec = firstSecond; ; sec += step)
     {
@@ -1336,25 +1316,22 @@ void TracksPage::paintRuler (juce::Graphics& g)
         if (x > area.getRight()) break;
         if (x < headerWidth - 60) continue;
 
-        g.setColour (juce::Colours::white.withAlpha (0.3f));
-        g.fillRect (float (x), float (area.getBottom() - 12), 0.5f, 12.0f);
+        g.setColour (Dine::control);
+        g.fillRect (float (x), float (area.getBottom() - 12), 1.0f, 12.0f);
         for (int q = 1; q < 4; ++q)
         {
             const int hx = sampleToX (juce::int64 ((sec + step * 0.25 * q) * rate));
-            g.setColour (juce::Colours::white.withAlpha (0.14f));
-            g.fillRect (float (hx), float (area.getBottom() - 6), 0.5f, 6.0f);
+            g.fillRect (float (hx), float (area.getBottom() - 6), 1.0f, 6.0f);
         }
 
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::mono (10.5f));
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::mono (9.0f));
         const int total = int (sec);
-        juce::String label = juce::String (total / 60) + ":" + juce::String (total % 60).paddedLeft ('0', 2);
+        juce::String label = total >= 60 && step >= 60.0 ? juce::String (total / 60) + "m"
+                           : juce::String (total / 60) + ":" + juce::String (total % 60).paddedLeft ('0', 2);
         if (step < 1.0) label += "." + juce::String (int ((sec - double (total)) * 10.0 + 0.5));
-        g.drawText (label, x + 4, area.getBottom() - 14, 60, 13, juce::Justification::bottomLeft, false);
+        g.drawText (label, x + 4, area.getBottom() - 24, 60, 12, juce::Justification::bottomLeft, false);
     }
-
-    g.setColour (Dine::hairStrong);
-    g.fillRect (float (all.getX()), float (all.getBottom()) - 0.5f, float (all.getWidth()), 0.5f);
 }
 
 // Markers live inside the ruler: a line at the moment and its name in small caps beside it,
@@ -1370,13 +1347,10 @@ void TracksPage::paintMarkers (juce::Graphics& g)
         auto flag = markerFlag (i);
         if (flag.getRight() < markerArea().getX() || flag.getX() > markerArea().getRight()) continue;
         const bool hot = hoverMarker == i;
-        if (hot) Dine::fillRounded (g, flag.toFloat(), Dine::accent.withAlpha (0.18f), 3.0f);
-        g.setColour (hot ? Dine::accent : juce::Colours::white.withAlpha (0.34f));
-        g.fillRect (float (flag.getX()), float (flag.getY()), 1.0f, float (flag.getHeight()));
-        g.setColour (hot ? Dine::accent : Dine::ink2);
-        g.setFont (Dine::text (9.5f, 700).withExtraKerningFactor (0.08f));
-        g.drawText (markers[size_t (i)].name.toUpperCase(), flag.withTrimmedLeft (5),
-                    juce::Justification::centredLeft, true);
+        Dine::fillRounded (g, flag.toFloat(), hot ? Dine::controlHot : Dine::control, Dine::Radius::chip);
+        g.setColour (hot ? Dine::ink : Dine::ink2);
+        g.setFont (Dine::text (10.0f));
+        g.drawText (markers[size_t (i)].name, flag.reduced (6, 0), juce::Justification::centredLeft, true);
     }
 }
 
@@ -1388,181 +1362,112 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
     const auto& state = project.tracks[size_t (track)];
     const bool selected = selection.track == track;
     const auto tint = laneColourFor (input.role);
+    const bool compact = compactHeader (track);
 
-    g.setColour (selected ? Dine::selected : Dine::console);
+    // The row: a flat plane with 2 px of the ground between it and the next.
+    g.setColour (Dine::window);
     g.fillRect (area);
-    g.setColour (Dine::hairSoft);
-    g.fillRect (float (area.getX()), float (area.getBottom()) - 0.5f, float (area.getWidth()), 0.5f);
-
-    // Group colour spine, red while the track is armed.
-    g.setColour (state.armed ? Dine::crit : tint);
-    g.fillRect (area.getX(), area.getY(), 3, area.getHeight());
+    auto row = area.withTrimmedBottom (2);
+    g.setColour (selected ? Dine::card : Dine::console);
+    g.fillRect (row);
 
     const auto& params = controller.getBase();
     const bool inRange = track < params.numStrips;
     const bool mute = inRange && params.strips[size_t (track)].mute;
     const bool solo = inRange && params.strips[size_t (track)].solo;
     const bool dim = mute;
+    const bool monitoring = state.monitor != MonitorMode::Off;
 
-    // ---- the meter down the right edge
+    // ---- the dot, the number, the name and its note
+    auto text = row.reduced (12, 0).withRight (keyCell (track, 0).getX() - 8);
     {
-        auto meter = juce::Rectangle<int> (area.getRight() - 11, area.getY() + 9, 5, area.getHeight() - 18);
-        jassert (area.getWidth() != headerWidth || meter == meterCell (track));   // one geometry, two readers
-        if (track < int (peaks.size()) && meter.getHeight() > 6)
-        {
-            const float db = peaks[size_t (track)];
-            Dine::drawWell (g, meter.toFloat(), 1.5f);
-            const float norm = DineMeter::norm (db);
-            if (norm > 0.001f)
-            {
-                auto lit = meter.toFloat().withTrimmedTop (meter.getHeight() * (1.0f - norm));
-                g.setColour (Dine::levelColour (db));
-                g.fillRoundedRectangle (lit, 1.5f);
-            }
-        }
-    }
-
-    // A chip, drawn wherever there is room for it, saying what the last listen made of this
-    // input's level. Gain staging is the first move in a mix, so the timeline says it too.
-    const auto chip = gainChipFor (track < int (advice.size()) ? advice[size_t (track)]
-                                                               : MixController::InputAdvice {});
-    auto drawChip = [&] (juce::Rectangle<int> cell)
-    {
-        Dine::fillRounded (g, cell.toFloat(), chip.colour.withAlpha (0.16f), 3.0f);
-        Dine::hairlineRounded (g, cell.toFloat(), chip.colour.withAlpha (0.55f), 3.0f);
-        g.setColour (chip.colour);
-        g.setFont (Dine::text (8.5f, 700).withExtraKerningFactor (0.06f));
-        g.drawText (chip.text, cell, juce::Justification::centred);
-    };
-
-    // ---- the number, the source's icon and its name
-    auto text = area.withTrimmedLeft (9).withRight (keyCell (track, 0).getX() - 8);
-    const bool compact = compactHeader (track);
-    auto line = compact ? text.withSizeKeepingCentre (text.getWidth(), 17).translated (0, -4)
-                        : text.withTrimmedTop (8).withHeight (17);
-    // Is DINE's chain doing anything on this channel? One accent dot in the status gutter
-    // says so. It replaces the DINE pill: the same fact, without a badge on every row.
-    const bool tuned = inRange && ! activeChainStages (params.strips[size_t (track)].channel, false,
-                                                       input.isStereo()).empty();
-    {
-        auto row = line;
-        auto gutter = row.removeFromLeft (8);
-        if (tuned)
-        {
-            g.setColour (dim || controller.isBypassed() ? Dine::ink4 : Dine::accent);
-            g.fillEllipse (gutter.withSizeKeepingCentre (5, 5).toFloat());
-        }
+        auto dot = text.removeFromLeft (7).withSizeKeepingCentre (7, 7);
+        g.setColour (state.armed ? Dine::crit : monitoring ? Dine::monitor : mute ? Dine::warn : tint);
+        g.fillEllipse (dot.toFloat());
+        text.removeFromLeft (8);
         g.setColour (Dine::ink4);
-        g.setFont (Dine::mono (9.5f));
-        g.drawText (juce::String (track + 1).paddedLeft ('0', 2), row.removeFromLeft (15),
-                    juce::Justification::centredLeft);
-        row.removeFromLeft (4);
-        Dine::drawIcon (g, Dine::iconFor (input.icon, input.role), row.removeFromLeft (15).toFloat()
-                            .withSizeKeepingCentre (14.0f, 14.0f), dim ? Dine::ink4 : tint);
-        row.removeFromLeft (6);
-        if (compact && chip.text.isNotEmpty() && row.getWidth() >= 90)
-        {
-            drawChip (row.removeFromRight (44).withSizeKeepingCentre (44, 12));
-            row.removeFromRight (4);
-        }
-        // A track whose name no longer describes the audio under it says so here rather than
-        // waiting to be noticed: right-click the header to put it right. The glyph follows the
-        // name rather than floating off to the right, so the two read as one thing.
-        const bool wrongName = nameMismatch (track);
-        const auto nameFont = Dine::text (12.5f, selected ? 700 : 500);
-        g.setColour (dim ? Dine::ink3 : wrongName ? Dine::warn : selected ? Dine::ink : Dine::ink.withAlpha (0.88f));
-        g.setFont (nameFont);
-        const int room = row.getWidth() - (wrongName ? 15 : 0);
-        g.drawText (juce::String (input.name),
-                    row.removeFromLeft (juce::jlimit (0, room, Dine::textWidth (nameFont, input.name) + 1)),
-                    juce::Justification::centredLeft, true);
-        if (wrongName && row.getWidth() >= 13)
-            Dine::drawIcon (g, Dine::Icon::Warn, row.removeFromLeft (13).toFloat()
-                                .withSizeKeepingCentre (11.0f, 11.0f), Dine::warn);
+        g.setFont (Dine::mono (11.0f));
+        g.drawText (juce::String (track + 1).paddedLeft ('0', 2), text.removeFromLeft (20), juce::Justification::centredLeft);
     }
 
-    // ---- the fader: one drag brings a source down without leaving the timeline
+    const auto chip = gainChipFor (track < int (advice.size()) ? advice[size_t (track)] : MixController::InputAdvice {});
+    const bool wrongName = nameMismatch (track);
+    const float pan = inRange ? params.strips[size_t (track)].pan : 0.0f;
+    juce::String note;
+    if (chip.text == "DIGITAL") note = "The level works only because DLIVE raised it digitally. Raise the console gain instead.";
+    else if (std::fabs (pan) >= 0.005f) note = "Balance " + juce::String (pan < 0.0f ? "L" : "R") + juce::String (juce::roundToInt (std::fabs (pan) * 100.0f));
+    else if (wrongName) note = "Named differently from its clips - right-click to fix";
+
+    auto lines = text;
+    auto nameLine = compact || note.isEmpty() ? lines.withSizeKeepingCentre (lines.getWidth(), 18)
+                                              : lines.withSizeKeepingCentre (lines.getWidth(), 34).removeFromTop (18);
+    {
+        const auto nameFont = Dine::text (13.0f, 500);
+        g.setColour (dim ? Dine::ink3 : chip.text == "DIGITAL" ? Dine::warn : wrongName ? Dine::warn : Dine::ink);
+        g.setFont (nameFont);
+        auto nameCell = nameLine;
+        if (chip.text.isNotEmpty() && chip.text != "HEALTHY" && nameCell.getWidth() > 150)
+        {
+            auto c = nameCell.removeFromRight (juce::jmin (76, Dine::textWidth (Dine::caps (9.0f, 0.06f, 500), chip.text) + 14));
+            Dine::drawStatusChip (g, c.withSizeKeepingCentre (c.getWidth(), 15).toFloat(), chip.text, chip.colour);
+            nameCell.removeFromRight (6);
+        }
+        const int room = nameCell.getWidth() - (wrongName ? 15 : 0);
+        g.drawText (juce::String (input.name), nameCell.removeFromLeft (juce::jlimit (0, room, Dine::textWidth (nameFont, input.name) + 1)),
+                    juce::Justification::centredLeft, true);
+        if (wrongName && nameCell.getWidth() >= 13)
+            Dine::drawIcon (g, Dine::Icon::Warn, nameCell.removeFromLeft (13).toFloat().withSizeKeepingCentre (11.0f, 11.0f), Dine::warn);
+    }
+    if (! compact && note.isNotEmpty())
+    {
+        auto noteLine = lines.withSizeKeepingCentre (lines.getWidth(), 34).removeFromBottom (14);
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::text (10.0f));
+        g.drawText (note, noteLine, juce::Justification::centredLeft, true);
+    }
+
+    // ---- R / A / M / S: the console's own keys
+    auto key = [&] (juce::Rectangle<int> cell, const juce::String& label, bool on, juce::Colour colour)
+    {
+        Dine::fillRounded (g, cell.toFloat(), on ? colour : Dine::control, Dine::Radius::chip);
+        g.setColour (on ? Dine::onAccent : Dine::ink2);
+        g.setFont (Dine::text (compact ? 10.0f : 11.0f, 600));
+        g.drawText (label, cell, juce::Justification::centred);
+    };
+    key (keyCell (track, 0), "R", state.armed, Dine::keyRec);
+    key (keyCell (track, 1), "A", monitoring, Dine::keyMon);
+    key (keyCell (track, 2), "M", mute, Dine::keyMute);
+    key (keyCell (track, 3), "S", solo, Dine::keySolo);
+
+    // ---- the meter
+    {
+        auto meter = meterCell (track);
+        if (! meter.isEmpty() && track < int (peaks.size()))
+            Dine::fillMeter (g, meter.toFloat(), DineMeter::norm (peaks[size_t (track)]), true, dim, 2.0f);
+    }
+
+    // ---- the fader and its level
     const float faderDb = inRange ? params.strips[size_t (track)].faderDb : 0.0f;
     if (const auto cell = faderCell (track); ! cell.isEmpty())
     {
         const float norm = faderRange().convertTo0to1 (juce::jlimit (-60.0f, 12.0f, faderDb));
-        const float unity = faderRange().convertTo0to1 (0.0f);
-        Dine::drawWell (g, cell.toFloat(), cell.getHeight() * 0.5f);
-        auto lit = cell.toFloat().withWidth (juce::jmax (2.0f, cell.getWidth() * norm));
-        // Pale metal, not the group's colour: a filled colour bar beside a lime meter reads
-        // as a second meter. The group is already said by the stripe at the head of the row.
-        // Above unity it goes amber, because that is a fact about the mix, not a decoration.
-        g.setColour (controller.isBypassed() || dim ? Dine::ink4
-                                                    : faderDb > 0.5f ? Dine::warn : Dine::ink2.withAlpha (0.55f));
-        g.fillRoundedRectangle (lit, cell.getHeight() * 0.5f);
-        g.setColour (juce::Colours::white.withAlpha (0.16f));                       // where unity sits
-        g.fillRect (cell.getX() + cell.getWidth() * unity, float (cell.getY()), 1.0f, float (cell.getHeight()));
-        g.setColour (dim ? Dine::ink3 : juce::Colours::white.withAlpha (0.85f));    // the handle
-        g.fillRoundedRectangle (juce::jlimit (float (cell.getX()), float (cell.getRight()) - 3.0f,
-                                              cell.getX() + cell.getWidth() * norm - 1.5f),
-                                float (cell.getY()) - 1.0f, 3.0f, float (cell.getHeight()) + 2.0f, 1.5f);
-
+        g.setColour (Dine::hairStrong);
+        g.fillRect (float (cell.getX()), float (cell.getCentreY()) - 1.0f, float (cell.getWidth()), 2.0f);
+        const float cx = juce::jlimit (float (cell.getX()) + 4.5f, float (cell.getRight()) - 4.5f, cell.getX() + cell.getWidth() * norm);
+        g.setColour (controller.isBypassed() || dim ? Dine::ink4 : Dine::ink2);
+        g.fillRoundedRectangle (cx - 4.5f, float (cell.getY()), 9.0f, float (cell.getHeight()), 3.0f);
         if (! compact)
         {
-            g.setColour (dim ? Dine::ink4 : Dine::ink3);
-            g.setFont (Dine::mono (10.0f));
+            g.setColour (dim ? Dine::ink4 : Dine::ink2);
+            g.setFont (Dine::mono (11.0f, 500));
             g.drawText ((faderDb >= 0.0f ? "+" : Glyph::minus()) + juce::String (std::fabs (faderDb), 1),
-                        text.withLeft (cell.getRight() + 6).withTop (cell.getY() - 2).withHeight (14),
-                        juce::Justification::centredLeft);
+                        juce::Rectangle<int> (cell.getRight() + 8, cell.getY(), 52, cell.getHeight()), juce::Justification::centredRight);
         }
     }
 
-    // ---- the third line: the balance and the gain advice, and only when there is something
-    // to say. A centred pan and a healthy level are the normal case, and the normal case is
-    // drawn as nothing at all - most rows end at the fader.
-    if (! compact)
-    {
-        auto row = text.withTop (juce::jmax (line.getBottom() + 1, trackTop (track) + 41)).withHeight (13).withTrimmedLeft (21);
-        if (row.getBottom() <= area.getBottom() - kResizeGrip)
-        {
-            const float pan = inRange ? params.strips[size_t (track)].pan : 0.0f;
-            if (std::fabs (pan) >= 0.005f)
-            {
-                g.setColour (Dine::ink4);
-                g.setFont (Dine::mono (10.0f));
-                g.drawText ((pan < 0.0f ? "L" : "R") + juce::String (juce::roundToInt (std::fabs (pan) * 100.0f)),
-                            row.removeFromLeft (28), juce::Justification::centredLeft);
-            }
-
-            if (chip.text.isNotEmpty() && row.getWidth() >= 44)
-                drawChip (row.removeFromLeft (44).withSizeKeepingCentre (44, 12));
-        }
-    }
-
-    // ---- R / A / M / S, drawn exactly as the console's own keys: same colours, same
-    //      shape, same "on" - a mute has to look the same wherever it is pressed.
-    auto key = [&] (juce::Rectangle<int> cell, const juce::String& label, bool on, juce::Colour colour)
-    {
-        auto r = cell.toFloat();
-        if (on)
-        {
-            Dine::fillRounded (g, r, colour, 4.0f);
-            Dine::hairlineRounded (g, r, juce::Colours::black.withAlpha (0.30f), 4.0f);
-        }
-        else
-        {
-            Dine::fillRounded (g, r, juce::Colours::white.withAlpha (0.05f), 4.0f);
-            Dine::hairlineRounded (g, r, Dine::hairSoft, 4.0f);
-        }
-        g.setColour (on ? Dine::onAccent : Dine::ink3);
-        g.setFont (Dine::text (9.5f, on ? 800 : 600));
-        g.drawText (label, cell, juce::Justification::centred);
-    };
-
-    key (keyCell (track, 0), "R", state.armed, Dine::keyRec);
-    key (keyCell (track, 1), state.monitor == MonitorMode::Off ? Glyph::dash() : (state.monitor == MonitorMode::Input ? "I" : "A"),
-         state.monitor == MonitorMode::Input, Dine::keyMon);
-    key (keyCell (track, 2), "M", mute, Dine::keyMute);
-    key (keyCell (track, 3), "S", solo, Dine::keySolo);
-
-    // the row-height grip, so the affordance is seen rather than discovered
-    g.setColour (juce::Colours::white.withAlpha (0.10f));
-    g.fillRect (float (area.getRight() - 34), float (area.getBottom()) - 2.5f, 22.0f, 1.0f);
+    // the row-height grip
+    g.setColour (juce::Colours::white.withAlpha (0.08f));
+    g.fillRect (float (area.getRight() - 34), float (row.getBottom()) - 2.5f, 22.0f, 1.0f);
 }
 
 void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> area)
@@ -1572,8 +1477,6 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
     const auto& state = project.tracks[size_t (track)];
     const auto colour = laneColourFor (session.inputs[size_t (track)].role);
 
-    // A track you cannot hear is drawn grey: the timeline says what is in the mix, not only
-    // what was recorded.
     const auto& params = controller.getBase();
     bool anySolo = false;
     for (int i = 0; i < params.numStrips; ++i) anySolo = anySolo || params.strips[size_t (i)].solo;
@@ -1581,13 +1484,11 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
     const bool dim = inRange && (params.strips[size_t (track)].mute
                                  || (anySolo && ! params.strips[size_t (track)].solo));
 
-    if (selection.track == track)
-    {
-        g.setColour (juce::Colours::white.withAlpha (0.025f));
-        g.fillRect (area);
-    }
-    g.setColour (Dine::hairSoft);
-    g.fillRect (float (area.getX()), float (area.getBottom()) - 0.5f, float (area.getWidth()), 0.5f);
+    // The lane is the same plane as its header, with the same 2 px of ground under it.
+    g.setColour (Dine::window);
+    g.fillRect (area);
+    g.setColour (selection.track == track ? Dine::card : Dine::console);
+    g.fillRect (area.withTrimmedBottom (2));
 
     for (int i = 0; i < int (state.clips.size()); ++i)
     {
@@ -1596,32 +1497,15 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
         const int x2 = sampleToX (clip.end());
         if (x2 < area.getX() - 2 || x1 > area.getRight() + 2) continue;
 
-        auto box = juce::Rectangle<int> (x1, area.getY() + 4, juce::jmax (2, x2 - x1), area.getHeight() - 9);
+        auto box = juce::Rectangle<int> (x1, area.getY() + 4, juce::jmax (2, x2 - x1), area.getHeight() - 10);
         const bool selected = selection.track == track && selection.index == i;
-        const bool named = box.getHeight() > 26 && box.getWidth() > 44;
-        const auto tint = dim ? Dine::ink3 : colour;
+        const bool named = box.getHeight() > 22 && box.getWidth() > 44;
+        const auto tint = dim ? Dine::ink4 : colour;
 
-        if (selected)
-            juce::DropShadow (juce::Colours::black.withAlpha (0.45f), 8, { 0, 2 }).drawForRectangle (g, box);
-
-        // The body stays close to the black of the lane so a full timeline reads as a
-        // session rather than as a wall of colour; the name bar and the waveform are where
-        // the group's colour is actually spent.
-        Dine::fillRounded (g, box.toFloat(), tint.withMultipliedSaturation (dim ? 0.0f : 0.9f)
-                                                 .withAlpha (selected ? 0.22f : 0.13f), Dine::Radius::chip);
-        if (named)
-        {
-            // A title bar the width of the clip: the name never sits on top of the waveform.
-            juce::Path head;
-            head.addRoundedRectangle (float (box.getX()), float (box.getY()), float (box.getWidth()), 14.0f,
-                                      Dine::Radius::chip, Dine::Radius::chip, true, true, false, false);
-            g.setColour (tint.withAlpha (dim ? 0.28f : selected ? 0.92f : 0.62f));
-            g.fillPath (head);
-        }
-        Dine::hairlineRounded (g, box.toFloat(), tint.withAlpha (selected ? 0.9f : 0.42f),
-                               Dine::Radius::chip);
-
-        auto wave = box.reduced (2, 3).withTrimmedTop (named ? 12 : 0);
+        // A clip is a plane of its group's colour, the waveform dark on it, the name dark in
+        // the corner - the way the design draws one.
+        Dine::fillRounded (g, box.toFloat(), tint.withMultipliedSaturation (dim ? 0.0f : 1.0f).withAlpha (selected ? 1.0f : 0.85f), Dine::Radius::chip);
+        auto wave = box.reduced (2, 3).withTrimmedTop (named ? 14 : 0);
         if (auto* thumb = thumbnailFor (clip); thumb != nullptr && wave.getHeight() > 4)
         {
             const double rate = juce::jmax (1.0, clip.fileSampleRate > 0.0 ? clip.fileSampleRate : project.sampleRate);
@@ -1629,35 +1513,30 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
             const double to = from + double (clip.length) / juce::jmax (1.0, project.sampleRate);
             juce::Graphics::ScopedSaveState save (g);
             g.reduceClipRegion (wave);
-            g.setColour (dim ? juce::Colours::white.withAlpha (0.16f)
-                             : colour.brighter (0.55f).withAlpha (selected ? 0.98f : 0.85f));
+            g.setColour (juce::Colours::black.withAlpha (dim ? 0.25f : 0.42f));
             thumb->drawChannels (g, wave, from, to, 0.95f);
         }
-
         if (named)
         {
-            // Dark type on the group's own colour, the way the brand sets type on a colour
-            // plane anywhere else.
-            g.setColour (dim ? Dine::ink2 : Dine::onAccent);
-            g.setFont (Dine::text (9.5f, 600).withExtraKerningFactor (0.03f));
+            g.setColour (juce::Colours::black.withAlpha (0.65f));
+            g.setFont (Dine::text (10.0f));
             g.drawText (clip.name.isEmpty() ? juce::String (session.inputs[size_t (track)].name) : clip.name,
-                        box.reduced (5, 0).withHeight (14), juce::Justification::centredLeft, true);
+                        box.reduced (7, 0).withTrimmedTop (2).withHeight (14), juce::Justification::centredLeft, true);
         }
-
         if (selected)
         {
-            // trim handles, so the edges say they can be dragged
-            g.setColour (tint);
-            g.fillRect (box.getX() + 1, box.getY() + 3, 2, box.getHeight() - 6);
-            g.fillRect (box.getRight() - 3, box.getY() + 3, 2, box.getHeight() - 6);
+            g.setColour (Dine::ink);
+            g.drawRoundedRectangle (box.toFloat().reduced (0.5f), Dine::Radius::chip, 1.0f);
+            g.fillRect (box.getX() + 2, box.getY() + 3, 2, box.getHeight() - 6);
+            g.fillRect (box.getRight() - 4, box.getY() + 3, 2, box.getHeight() - 6);
         }
     }
 
     if (state.clips.empty() && state.armed)
     {
-        g.setColour (Dine::crit.withAlpha (0.35f));
-        g.setFont (Dine::text (10.0f, 700).withExtraKerningFactor (0.07f));
-        g.drawText ("TO RECORD", area.reduced (10, 0).withWidth (96), juce::Justification::centredLeft);
+        g.setColour (Dine::crit.withAlpha (0.55f));
+        g.setFont (Dine::caps (10.0f, 0.08f));
+        g.drawText ("TO RECORD", area.reduced (12, 0).withWidth (96), juce::Justification::centredLeft);
     }
 }
 
@@ -1666,51 +1545,50 @@ void TracksPage::updateToolbar()
 {
     for (int i = 0; i < 3; ++i)
         rowTabs[size_t (i)]->setToggleState (int (rowHeight) == i, juce::dontSendNotification);
-    // Snap, Follow and "All to record" are settings, not the action the page is asking
-    // for: they light as a chosen plane with a lime hairline rather than filling with it.
-    snapButton->setStyle (DineButton::Style::Toggle);
     snapButton->setToggleState (snap, juce::dontSendNotification);
-    followButton->setStyle (DineButton::Style::Toggle);
     followButton->setToggleState (follow, juce::dontSendNotification);
     recordAllButton->setStyle (DineButton::Style::Toggle);
-    recordAllButton->setTint (Dine::keyRec);
+    recordAllButton->setQuiet (true);
     recordAllButton->setToggleState (allSetToRecord(), juce::dontSendNotification);
     repaint (toolbarArea());
 }
 
 void TracksPage::resized()
 {
-    auto row = toolbarArea().reduced (11, 0).withSizeKeepingCentre (juce::jmax (100, getWidth() - 22),
-                                                                    Dine::Metric::control - 2);
+    auto row = toolbarArea().reduced (18, 0).withSizeKeepingCentre (juce::jmax (100, getWidth() - 36), Dine::Metric::control);
 
+    auto seg = [&row] (std::initializer_list<DineButton*> buttons, int minW)
     {
-        auto seg = row.removeFromLeft (90);
-        for (int i = 0; i < 3; ++i) rowTabs[size_t (i)]->setBounds (seg.removeFromLeft (30));
-        row.removeFromLeft (12);
-    }
+        int x = row.getX() + 2;
+        for (auto* b : buttons)
+        {
+            const int w = juce::jmax (minW, b->idealWidth());
+            b->setBounds (x, row.getY() + 2, w, row.getHeight() - 4);
+            x += w;
+        }
+        row.removeFromLeft (x + 2 - row.getX() + 10);
+    };
+    seg ({ rowTabs[0].get(), rowTabs[1].get(), rowTabs[2].get() }, 28);
+    seg ({ snapButton.get(), followButton.get() }, 52);
     auto fromLeft = [&row] (DineButton& b, int minWidth)
     {
-        b.setBounds (row.removeFromLeft (juce::jmax (minWidth, b.idealWidth() + 6)));
-        row.removeFromLeft (7);
+        b.setBounds (row.removeFromLeft (juce::jmax (minWidth, b.idealWidth())).reduced (0, 1));
+        row.removeFromLeft (6);
     };
-    fromLeft (*snapButton, 58);
-    fromLeft (*followButton, 66);
-    row.removeFromLeft (5);
-    fromLeft (*splitButton, 58);
-    fromLeft (*markerButton, 70);
-    row.removeFromLeft (5);
-    fromLeft (*recordAllButton, 96);
+    fromLeft (*splitButton, 60);
+    fromLeft (*markerButton, 60);
+    fromLeft (*recordAllButton, 60);
 
     auto fromRight = [&row] (DineButton& b, int minWidth)
     {
-        b.setBounds (row.removeFromRight (juce::jmax (minWidth, b.idealWidth() + 6)));
+        b.setBounds (row.removeFromRight (juce::jmax (minWidth, b.idealWidth())).reduced (0, 1));
         row.removeFromRight (6);
     };
-    fromRight (*zoomInButton, 30);
     fromRight (*zoomFitButton, 40);
+    fromRight (*zoomInButton, 30);
     fromRight (*zoomOutButton, 30);
 
-    chainStrip.setBounds (getLocalBounds().removeFromBottom (ChainStrip::height));
+    chainStrip.setBounds (getLocalBounds().removeFromBottom (footHeight()));
     clampScroll();
 }
 

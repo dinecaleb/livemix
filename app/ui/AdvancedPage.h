@@ -48,6 +48,7 @@ public:
     void select (int strip);                  // programmatic (snapshot tool)
     int selectedStrip() const noexcept { return selection.isBus ? -1 : selection.strip; }
     void selectBus (MixBus bus);
+    MixBus selectedBus() const noexcept { return selection.isBus ? selection.bus : MixBus::Count; }
     void selectStage (int index);             // ... and one stage of its chain
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -64,8 +65,8 @@ private:
     int railWidth() const noexcept  { return ! railAvailable ? 0 : railShown ? kRailW : Dine::Metric::panelTab; }
     int trailWidth() const noexcept { return trailShown ? kTrailW : Dine::Metric::panelTab; }
 
-    static constexpr int kRailW  = 206;       // the channel rail
-    static constexpr int kTrailW = 272;       // what DINE did
+    static constexpr int kRailW  = 200;       // the channel rail
+    static constexpr int kTrailW = 280;       // what DLIVE did
 
     MixController& controller;
     Selection selection;

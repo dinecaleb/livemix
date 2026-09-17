@@ -7,24 +7,24 @@ namespace livemix
 
 namespace
 {
-    // TUNE reads the mix as its groups: every group bus in console order, then the FX returns
-    // as one more tile. Both counts come from MixBus, so a new group bus - SPEECH, when
-    // speaking microphones were taken out of VOCALS - becomes a meter here without being
-    // wired in by hand.
-    constexpr int kGroupBuses = int (MixBus::Master);      // DRUMS BASS MUSIC VOCALS SPEECH
-    constexpr int kGroupTiles = kGroupBuses + 1;           // ... and the returns
+    // TUNE reads the mix as its groups: every group bus in console order, then the FX
+    // returns as one more tile. Both counts come from MixBus, so a new group bus becomes a
+    // tile here without being wired in by hand.
+    constexpr int kGroupBuses = int (MixBus::Master);
+    constexpr int kGroupTiles = kGroupBuses + 1;
 
-    const char* kGroupNames[kGroupTiles] = { "Drums", "Bass", "Music", "Vocals", "Speech", "FX" };
-    const MixBus kGroupBus[kGroupBuses] = { MixBus::Drums, MixBus::Bass, MixBus::Music, MixBus::Vocals, MixBus::Speech };
-    const Dine::Icon kGroupIcons[kGroupTiles] = { Dine::Icon::Drum, Dine::Icon::Guitar, Dine::Icon::Piano,
-                                                  Dine::Icon::Mic, Dine::Icon::Speech, Dine::Icon::Fx };
+    juce::String groupName (int i)
+    {
+        return i < kGroupBuses ? juce::String (mixBusName (MixBus (i))).toUpperCase() : juce::String ("FX RETURNS");
+    }
 
     juce::Colour groupColour (int i) noexcept
     {
-        return i >= 0 && i < kGroupBuses ? Dine::busTint (kGroupBus[i]) : Dine::ink2;
+        return i >= 0 && i < kGroupBuses ? Dine::busTint (MixBus (i)) : Dine::ink2;
     }
 
-    constexpr int kMacroRowH = 78;   // name, slider, the two end labels
+    constexpr int kGroupsH = 210;
+    constexpr int kMacroRowH = 40;
 
     juce::String dbText (float db)
     {
@@ -34,101 +34,89 @@ namespace
 }
 
 // ------------------------------------------------------------------ GroupTile
+// One group bus: its name in its colour, a fader and a meter side by side, and its level.
 class MixPage::GroupTile : public juce::Component
 {
 public:
-    explicit GroupTile (int index) : group (index) { addAndMakeVisible (meter); }
-
-    void set (bool isUsed, int stripCount, float peakDb, float holdDb, bool clipped, int heardState /*0 none, 1 listening no, 2 heard*/)
+    GroupTile (MixController& c, int index) : controller (c), group (index)
     {
-        used = isUsed; strips = stripCount; heard = heardState;
+        addAndMakeVisible (meter);
+        addAndMakeVisible (fader);
+        fader.setSliderStyle (juce::Slider::LinearVertical);
+        fader.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        Dine::dragOnly (fader);
+        fader.setRange (-60.0, 12.0, 0.1);
+        fader.setSkewFactorFromMidPoint (-12.0);
+        fader.setDoubleClickReturnValue (true, 0.0);
+        fader.getProperties().set ("dineFader", true);
+        fader.setTooltip (isFx() ? "Level for every effect return together. Double-click for 0.0 dB, which is what TUNE MIX set."
+                                 : "Level for the whole group. Double-click for 0.0 dB.");
+        fader.onValueChange = [this]
+        {
+            if (updating) return;
+            if (isFx()) controller.setFxReturn (float (fader.getValue()));
+            else        controller.setBusFader (MixBus (group), float (fader.getValue()));
+            repaint (readout);
+        };
+    }
+
+    void set (bool isUsed, float peakDb, float holdDb, bool clipped, bool isMuted, float faderDb, int heardState)
+    {
+        updating = true;
+        bool body = used != isUsed || heard != heardState || muted != isMuted;
+        used = isUsed; heard = heardState; muted = isMuted;
         meter.setLevels (peakDb, holdDb, clipped);
-        peak = meter.getPeakDb();
-        meter.setVisible (used);
-        repaint();
+        meter.setMuted (isMuted || ! used);
+        if (std::fabs (faderDb - float (fader.getValue())) > 0.01f) { fader.setValue (faderDb, juce::dontSendNotification); repaint (readout); }
+        fader.setEnabled (used);
+        updating = false;
+        if (body) repaint();
     }
 
     void paint (juce::Graphics& g) override
     {
-        auto b = getLocalBounds().toFloat();
-        Dine::drawCard (g, b, used ? Dine::card : Dine::card.withAlpha (0.55f), Dine::hair);
-
-        auto r = getLocalBounds().reduced (12, 11);
-        const bool tall = getHeight() > 150;
-        if (! tall) r.removeFromRight (16 + 10);   // the meter sits beside the text
-        auto top = r.removeFromTop (16);
-        Dine::drawIcon (g, kGroupIcons[group], top.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f),
-                        used ? groupColour (group) : Dine::ink4);
-        top.removeFromLeft (6);
+        Dine::fillRounded (g, getLocalBounds().toFloat(), Dine::tile, Dine::Radius::card);
+        auto r = getLocalBounds().reduced (10, 14);
+        g.setColour (used ? groupColour (group) : Dine::ink4);
+        g.setFont (Dine::caps (11.0f, 0.06f, 500));
+        g.drawText (groupName (group), r.removeFromTop (14), juce::Justification::centred);
         if (heard == 2)
-            Dine::drawIcon (g, Dine::Icon::Check, top.removeFromRight (13).toFloat().withSizeKeepingCentre (13.0f, 13.0f), Dine::ok);
+        {
+            g.setColour (Dine::ok);
+            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ float (getWidth() - 14), 14.0f }));
+        }
         else if (heard == 1)
         {
-            g.setColour (Dine::warn.withAlpha (0.85f));
-            g.fillEllipse (top.removeFromRight (13).withSizeKeepingCentre (6, 6).toFloat());
+            g.setColour (Dine::warn);
+            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ float (getWidth() - 14), 14.0f }));
         }
-        g.setColour (used ? Dine::ink : Dine::ink4);
-        g.setFont (Dine::text (12.5f, 600));
-        g.drawText (kGroupNames[group], top, juce::Justification::centredLeft, true);
-
-        r.removeFromTop (4);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (11.0f));
-        g.drawText (! used ? "not in this mix"
-                           : group == kGroupBuses ? juce::String (strips) + (strips == 1 ? " return" : " returns")
-                                                  : juce::String (strips) + (strips == 1 ? " input" : " inputs"),
-                    r.removeFromTop (15), juce::Justification::topLeft, true);
-
-        if (used)
-        {
-            g.setColour (peak >= -1.0f ? Dine::crit : Dine::ink);
-            g.setFont (Dine::mono (15.0f, 500));
-            g.drawText (dbText (peak), r.removeFromTop (juce::jmin (r.getHeight(), 26)).withTrimmedTop (6),
-                        juce::Justification::topLeft);
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::text (10.5f));
-            g.drawText ("dBFS peak", r.removeFromTop (14), juce::Justification::topLeft);
-
-            // The scale beside the meter. Five group meters can carry the numbers a bank of
-            // twenty-four strips cannot: this is where "how loud is that" is actually read.
-            if (tall && meter.isVisible())
-            {
-                const auto m = meter.getBounds();
-                const int marks[] = { 0, -6, -12, -24, -36, -48 };
-                g.setFont (Dine::mono (9.0f));
-                for (int db : marks)
-                {
-                    const float y = float (m.getBottom()) - float (m.getHeight()) * DineMeter::norm (float (db));
-                    g.setColour (juce::Colours::white.withAlpha (0.10f));
-                    g.fillRect (float (m.getX()) - 4.0f, y - 0.5f, 4.0f, 1.0f);
-                    g.setColour (Dine::ink4);
-                    g.drawText (juce::String (-db), m.getX() - 34, juce::roundToInt (y) - 6, 26, 12,
-                                juce::Justification::centredRight);
-                }
-            }
-        }
+        g.setColour (! used ? Dine::ink4 : muted ? Dine::warn : Dine::ink2);
+        g.setFont (Dine::mono (11.0f, 500));
+        g.drawText (! used ? "not in this mix" : muted ? "NOT HEARD" : dbText (float (fader.getValue())), readout, juce::Justification::centred);
     }
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced (12, 11);
-        if (getHeight() > 150)
-        {
-            // A tall tile reads like a console meter: the numbers on top, then a meter wide
-            // enough to be read across the room, with its scale beside it.
-            r.removeFromTop (16 + 4 + 15 + 26 + 14 + 8);
-            const int w = juce::jlimit (22, 56, juce::roundToInt (float (r.getWidth()) * 0.40f));
-            meter.setBounds (r.withSizeKeepingCentre (w, r.getHeight()).translated ((r.getWidth() - w) / 6, 0));
-        }
-        else meter.setBounds (r.removeFromRight (16));
+        auto r = getLocalBounds().reduced (10, 14);
+        r.removeFromTop (14 + 10);
+        readout = r.removeFromBottom (14);
+        r.removeFromBottom (10);
+        auto pair = r.withSizeKeepingCentre (20 + 6 + 7, r.getHeight());
+        fader.setBounds (pair.removeFromLeft (20));
+        pair.removeFromLeft (6);
+        meter.setBounds (pair);
     }
 
 private:
+    bool isFx() const noexcept { return group >= kGroupBuses; }
+
+    MixController& controller;
     int group;
-    bool used = false;
-    int strips = 0, heard = 0;
-    float peak = -120.0f;
-    DineMeter meter { DineMeter::Style::Segments };
+    bool used = false, muted = false, updating = false;
+    int heard = 0;
+    juce::Rectangle<int> readout;
+    DineMeter meter { DineMeter::Style::Bar };
+    juce::Slider fader;
 };
 
 // ------------------------------------------------------------------ MacroSlider
@@ -143,153 +131,128 @@ public:
         slider.setRange (0.0, 100.0, 1.0);
         slider.setValue (50.0, juce::dontSendNotification);
         slider.setDoubleClickReturnValue (true, 50.0);
-        slider.setTooltip (MixMacros::tooltip (m));
-        slider.onValueChange = [this] { if (changed) changed (float (slider.getValue())); repaint(); };
+        slider.setTooltip (juce::String (MixMacros::tooltip (m)) + "  " + Glyph::dot() + "  "
+                           + MixMacros::lowLabel (m) + " at 0, " + MixMacros::highLabel (m) + " at 100, the plan at 50.");
+        slider.onValueChange = [this] { if (changed) changed (float (slider.getValue())); repaint (top); };
         DineLookAndFeel::setBipolar (slider, true);
         addAndMakeVisible (slider);
     }
-    void setValue (float v) { slider.setValue (v, juce::dontSendNotification); repaint(); }
+    void setValue (float v)
+    {
+        if (std::fabs (v - float (slider.getValue())) < 0.01f) return;
+        slider.setValue (v, juce::dontSendNotification);
+        repaint (top);
+    }
 
     void paint (juce::Graphics& g) override
     {
-        auto r = getLocalBounds();
-        auto top = r.removeFromTop (16);
-        const float v = float (slider.getValue());
-        const bool centred = v == 50.0f;
-
-        g.setColour (Dine::ink);
-        g.setFont (Dine::text (12.0f, 600));
-        // Sentence case: the design keeps capitals for the product verbs only.
         const juce::String label = juce::String (MixMacros::name (macro));
-        g.drawText (label.substring (0, 1) + label.substring (1).toLowerCase(),
-                    top.removeFromLeft (top.getWidth() / 2), juce::Justification::centredLeft);
-
-        g.setColour (centred ? Dine::ink3 : Dine::accent);
-        g.setFont (Dine::mono (11.5f));
-        g.drawText (centred ? juce::String ("as tuned")
-                            : juce::String (v < 50.0f ? MixMacros::lowLabel (macro) : MixMacros::highLabel (macro)) + " "
-                                  + juce::String (int (std::round (std::fabs (v - 50.0f) * 2.0f))) + "%",
-                    top, juce::Justification::centredRight);
-
-        auto labels = r.removeFromBottom (14);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (10.5f));
-        g.drawText (MixMacros::lowLabel (macro), labels, juce::Justification::centredLeft);
-        g.drawText (MixMacros::highLabel (macro), labels, juce::Justification::centredRight);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (13.0f, 500));
+        g.drawText (label.substring (0, 1) + label.substring (1).toLowerCase(), top, juce::Justification::centredLeft);
+        g.setColour (Dine::ink2);
+        g.setFont (Dine::mono (12.0f, 500));
+        g.drawText (juce::String (int (slider.getValue())), top, juce::Justification::centredRight);
     }
 
     void resized() override
     {
         auto r = getLocalBounds();
-        r.removeFromTop (16);
-        r.removeFromBottom (14);
-        slider.setBounds (r.withSizeKeepingCentre (r.getWidth(), 24));
+        top = r.removeFromTop (18);
+        r.removeFromTop (7);
+        slider.setBounds (r.removeFromTop (14));
     }
 
 private:
     MixMacro macro;
     juce::Slider slider;
+    juce::Rectangle<int> top;
     std::function<void (float)> changed;
 };
 
 // ------------------------------------------------------------------ InputRow (the rail)
+// A name and the one verb this rail exists for. Clicking the row picks the channel out
+// (the chain along the foot follows it); clicking TUNE CHANNEL listens to it alone.
 class MixPage::InputRow : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     InputRow (const juce::String& n, ChannelRole role, int number, const std::string& iconKey)
-        : name (n), icon (Dine::iconFor (iconKey, role)), num (number), meter (DineMeter::Style::Bar)
+        : name (n), icon (Dine::iconFor (iconKey, role)), num (number)
     {
-        addAndMakeVisible (meter);
-        meter.setInterceptsMouseClicks (false, false);
-        setTooltip ("Click to tune " + name + " on its own. Nothing else in the mix moves.");
+        setTooltip ("Click to pick " + name + " out. TUNE CHANNEL listens to it on its own - nothing else in the mix moves.");
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
 
-    // The rail is the list of everything the mix is made of, so it is also the shortest way
-    // to tune one of them: click the input and DLIVE listens to that source alone.
-    std::function<void()> onTune;
+    std::function<void()> onTune, onSelect;
 
     void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
     void mouseExit  (const juce::MouseEvent&) override { hover = false; repaint(); }
     void mouseUp (const juce::MouseEvent& e) override
     {
         if (e.mouseWasDraggedSinceMouseDown() || ! getLocalBounds().contains (e.getPosition())) return;
-        if (onTune) onTune();
+        if (e.getPosition().x >= verbRect.getX() - 6) { if (onTune) onTune(); }
+        else if (onSelect) onSelect();
     }
 
-    void set (float peakDb, float holdDb, bool clipped, bool isMuted, bool isFaint)
+    void set (bool isMuted, bool isFaint, bool isSelected)
     {
-        meter.setLevels (peakDb, holdDb, clipped);
-        const float shown = meter.getPeakDb();
-        if (muted != isMuted || faint != isFaint || std::abs (shown - peak) > 0.4f)
+        if (muted != isMuted || faint != isFaint || selected != isSelected)
         {
-            muted = isMuted; faint = isFaint; peak = shown; repaint();
+            muted = isMuted; faint = isFaint; selected = isSelected; repaint();
         }
     }
 
     void paint (juce::Graphics& g) override
     {
         auto b = getLocalBounds().toFloat();
-        if (muted)      Dine::fillRounded (g, b, Dine::crit.withAlpha (0.10f), Dine::Radius::control);
-        else if (faint) Dine::fillRounded (g, b, Dine::warn.withAlpha (0.10f), Dine::Radius::control);
-        if (hover)      Dine::fillRounded (g, b, Dine::fillSoft, Dine::Radius::control);
+        if (selected)   g.fillAll (Dine::card);
+        else if (hover) g.fillAll (Dine::tile);
+        juce::ignoreUnused (b);
 
-        auto r = getLocalBounds().reduced (6, 0);
-        Dine::drawIcon (g, icon, r.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f),
-                        muted ? Dine::crit : faint ? Dine::warn : Dine::glyph);
-        r.removeFromLeft (9);
+        auto r = getLocalBounds().reduced (14, 0);
+        const auto verbFont = Dine::caps (10.0f, 0.06f);
+        const int verbW = Dine::textWidth (verbFont, "TUNE CHANNEL");
+        verbRect = r.removeFromRight (verbW);
+        g.setColour (Dine::accent);
+        g.setFont (verbFont);
+        g.drawText ("TUNE CHANNEL", verbRect, juce::Justification::centredRight);
+        r.removeFromRight (8);
 
-        const juce::String state = hover ? "TUNE" : muted ? "Muted" : faint ? "Faint" : dbText (peak);
-        const juce::Colour stateColour = hover ? Dine::accent : muted ? Dine::crit : faint ? Dine::warn : Dine::ink3;
-        auto right = r.removeFromRight (muted || faint || hover ? 42 : 34);
-        g.setColour (stateColour);
-        g.setFont (hover ? Dine::text (10.5f, 700).withExtraKerningFactor (0.08f)
-                         : muted || faint ? Dine::text (10.5f, 600) : Dine::mono (10.5f));
-        g.drawText (state, right, juce::Justification::centredRight);
-
-        auto text = r.withTrimmedRight (6).removeFromTop (getHeight() - 12);
-        g.setColour (muted ? Dine::ink3 : Dine::ink);
-        g.setFont (Dine::text (12.5f));
-        g.drawText (juce::String (num) + "  " + name, text.withTrimmedTop (5), juce::Justification::centredLeft, true);
-    }
-
-    void resized() override
-    {
-        auto r = getLocalBounds().reduced (6, 0);
-        r.removeFromLeft (15 + 9);
-        r.removeFromRight (40 + 6);
-        meter.setBounds (r.removeFromBottom (9).withHeight (4));
+        if (muted || faint)
+        {
+            g.setColour (muted ? Dine::warn : Dine::crit);
+            g.fillEllipse (r.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat());
+            r.removeFromLeft (6);
+        }
+        g.setColour (selected ? Dine::ink : Dine::ink2);
+        g.setFont (Dine::text (12.5f, selected ? 600 : 400));
+        g.drawText (name, r, juce::Justification::centredLeft, true);
     }
 
     juce::String name;
     Dine::Icon icon;
     int num = 0;
-    float peak = -120.0f;
-    bool muted = false, faint = false, hover = false;
-    DineMeter meter;
+    bool muted = false, faint = false, hover = false, selected = false;
+    juce::Rectangle<int> verbRect;
 };
 
-// The steps of a TUNE LIVE MIX run, as the user sees them. One entry per piece of real
-// work the state machine actually does - nothing here is a progress bar with no state behind
-// it, and a step is only ticked once the machine has genuinely passed it.
+// The steps of a TUNE LIVE MIX run, as the user sees them.
 namespace
 {
     struct LiveStep { const char* label; TuneLiveCoordinator::State from; };
 
     constexpr LiveStep kLiveSteps[] = {
-        { "Listening to the band",              TuneLiveCoordinator::State::CapturingInitial },
-        { "Measuring every input",              TuneLiveCoordinator::State::AnalyzingInitial },
-        { "Deciding what this mix needs",       TuneLiveCoordinator::State::WaitingForReasoning },
-        { "Working out how, with what DLIVE has", TuneLiveCoordinator::State::Resolving },
-        { "Checking every change is safe",      TuneLiveCoordinator::State::Validating },
-        { "Applying the mix",                   TuneLiveCoordinator::State::Applying },
-        { "Listening again to what it did",     TuneLiveCoordinator::State::CapturingVerify },
-        { "Making the last corrections",        TuneLiveCoordinator::State::WaitingForRefinement },
+        { "Listen",   TuneLiveCoordinator::State::CapturingInitial },
+        { "Measure",  TuneLiveCoordinator::State::AnalyzingInitial },
+        { "Decide",   TuneLiveCoordinator::State::WaitingForReasoning },
+        { "Resolve",  TuneLiveCoordinator::State::Resolving },
+        { "Check",    TuneLiveCoordinator::State::Validating },
+        { "Apply",    TuneLiveCoordinator::State::Applying },
+        { "Verify",   TuneLiveCoordinator::State::CapturingVerify },
+        { "Refine",   TuneLiveCoordinator::State::WaitingForRefinement },
     };
     constexpr int kNumLiveSteps = int (sizeof (kLiveSteps) / sizeof (kLiveSteps[0]));
 
-    // Which step the run is on. States that are a continuation of a step (analysing the verify
-    // listen, validating a refinement) report the step they belong to, so nothing flickers.
     int liveStepFor (TuneLiveCoordinator::State s)
     {
         using State = TuneLiveCoordinator::State;
@@ -313,20 +276,20 @@ namespace
 }
 
 // ------------------------------------------------------------------ ListenSheet
-// A macOS sheet: it drops from under the toolbar while DLIVE listens.
+// A card in the middle of the workspace while DLIVE listens: what it is doing, how far it
+// is, what it can hear, and the one way out.
 class MixPage::ListenSheet : public juce::Component
 {
 public:
     explicit ListenSheet (MixController& c) : controller (c)
     {
         addAndMakeVisible (cancel);
+        cancel.setFontPx (13.0f);
+        cancel.setPadX (16);
         cancel.onClick = [this] { controller.abortTuneMix(); };
         setInterceptsMouseClicks (true, true);
     }
 
-    // Called with the page's 30 Hz refresh. The sheet has to be able to say how long the
-    // step it is on has been going: once the listen is finished the ring has no percentage
-    // left to fill, and "working" that never changes is indistinguishable from "hung".
     void tick()
     {
         const auto state = controller.getTuneLive().getState();
@@ -341,50 +304,20 @@ public:
         return int ((juce::Time::getMillisecondCounter() - stepStartedMs) / 1000);
     }
 
-    // The card is as tall as what it holds: the head, a line per group bus, then the foot. It is
-    // computed rather than typed, because the group buses decide it - when SPEECH was added, a
-    // hard-coded height put the fifth line on top of the foot and the Cancel button.
-    static constexpr int kPadX    = 26;
-    static constexpr int kPadY    = 24;
-    static constexpr int kHeadH   = 104;   // the capture ring, and the two lines beside it
-    static constexpr int kHeadGap = 18;
-    static constexpr int kRowH    = 32;
-    static constexpr int kFootGap = 12;
-    static constexpr int kFootH   = 26;
-
-    // A live run lists the steps of its workflow instead of the group buses, and there are
-    // more of them, so the card is sized from whichever list it is showing. Computed rather
-    // than typed for the same reason as before: a hard-coded height puts the last row on top
-    // of the foot and the Cancel button the moment a row is added.
-    static constexpr int sheetHeight (int rows) noexcept
-    {
-        return kPadY + kHeadH + kHeadGap + rows * kRowH + kFootGap + kFootH + kPadY;
-    }
-    int rowCount() const noexcept { return controller.isTuningLive() ? kNumLiveSteps : kGroupBuses; }
+    static constexpr int kCardW = 540, kCardH = 318;
 
     juce::Rectangle<int> sheetBounds() const
     {
-        const int w = juce::jmin (480, getWidth() - 40);
-        return juce::Rectangle<int> ((getWidth() - w) / 2, 0, w, sheetHeight (rowCount()));
+        const int w = juce::jmin (kCardW, getWidth() - 40);
+        return juce::Rectangle<int> (w, juce::jmin (kCardH, getHeight() - 20)).withCentre (getLocalBounds().getCentre());
     }
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (Dine::desk.withAlpha (0.74f));
+        g.fillAll (Dine::desk.withAlpha (0.88f));
+        auto card = sheetBounds();
+        Dine::drawSheet (g, card.toFloat(), 14.0f);
 
-        auto card = sheetBounds().toFloat();
-        juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 40, { 0, 16 }).drawForRectangle (g, card.toNearestInt());
-        {
-            juce::Path p;
-            p.addRoundedRectangle (card.getX(), card.getY() - 12.0f, card.getWidth(), card.getHeight() + 12.0f,
-                                   Dine::Radius::window, Dine::Radius::window, false, false, true, true);
-            g.setColour (Dine::sheet);
-            g.fillPath (p);
-            g.setColour (Dine::edge);
-            g.strokePath (p, juce::PathStrokeType (0.5f));
-        }
-
-        auto r = sheetBounds().reduced (kPadX, kPadY);
         const bool waiting = controller.isWaitingForBand();
         const bool planning = controller.getStage() == MixController::Stage::Planning;
         const float progress = planning ? 1.0f : controller.getListenProgress();
@@ -392,202 +325,150 @@ public:
         const auto liveState = controller.getTuneLive().getState();
         const bool capturing = liveState == TuneLiveCoordinator::State::CapturingInitial
                             || liveState == TuneLiveCoordinator::State::CapturingVerify;
-        // A live run spends most of its time off a listen - measuring, reasoning, resolving,
-        // checking - and there is no percentage to fill during any of it. A ring frozen at
-        // 100 is indistinguishable from a ring that has stopped, so once the listening is
-        // done the ring sweeps instead of filling and the number becomes the one thing the
-        // user actually wants: how long this step has been going.
-        const bool working = live && ! capturing;
-        const float phase = float (juce::Time::getMillisecondCounter() % 1400u) / 1400.0f;
+        const bool working = (live && ! capturing) || planning;
+        const juce::String verb = live ? "TUNE LIVE MIX" : controller.isTuningChannel() ? "TUNE CHANNEL" : "TUNE MIX";
 
-        // ---- the capture ring
-        auto ring = r.removeFromLeft (kHeadH).removeFromTop (kHeadH).toFloat();   // the head is as tall as the ring
-        {
-            const float radius = 48.0f, thickness = 5.0f;
-            auto centre = ring.getCentre();
-            juce::Path track;
-            track.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, 0.0f, juce::MathConstants<float>::twoPi, true);
-            g.setColour (juce::Colours::white.withAlpha (0.12f));
-            g.strokePath (track, juce::PathStrokeType (thickness));
+        auto r = card.reduced (34, 34);
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::caps (12.0f, 0.10f));
+        g.drawText (verb + (working ? " IS WORKING" : waiting ? " IS WAITING" : " IS LISTENING"), r.removeFromTop (14), juce::Justification::centred);
+        r.removeFromTop (12);
 
-            const float sweepFrom = working ? juce::MathConstants<float>::twoPi * phase : 0.0f;
-            const float sweepTo = working ? sweepFrom + juce::MathConstants<float>::twoPi * 0.22f
-                                          : juce::MathConstants<float>::twoPi * juce::jlimit (0.02f, 1.0f, progress);
-            if (working || progress > 0.0f)
-            {
-                juce::Path arc;
-                arc.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, sweepFrom, sweepTo, true);
-                g.setColour (Dine::accent);
-                g.strokePath (arc, juce::PathStrokeType (thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            }
-
-            // The number and its caption both live inside the ring, never over the arc.
-            const int seconds = stepSeconds();
-            g.setColour (Dine::ink);
-            g.setFont (Dine::mono (25.0f, 500));
-            g.drawText (working ? juce::String (seconds)
-                                : waiting ? Glyph::dash() : juce::String (int (std::round (progress * 100.0f))),
-                        ring.withTrimmedBottom (24.0f).toNearestInt(), juce::Justification::centred);
-            g.setColour (Dine::ink2);
-            g.setFont (Dine::text (10.0f));
-            g.drawText (working ? (seconds == 1 ? "second" : "seconds")
-                                : waiting ? "waiting" : "% listened",
-                        ring.withTrimmedTop (ring.getHeight() * 0.5f + 8.0f).withHeight (17.0f).toNearestInt(),
-                        juce::Justification::centred);
-        }
-
-        auto text = sheetBounds().reduced (kPadX, kPadY).withTrimmedLeft (kHeadH + 20).removeFromTop (kHeadH);
+        // The number: seconds left in a listen, per cent through the work.
+        const float seconds = controller.isTuningChannel() ? MixController::channelListen().seconds : 30.0f;
+        const juce::String big = waiting ? juce::String (Glyph::dash())
+                               : working ? juce::String (juce::jmin (99, int (std::round (progress * 100.0f)))) + "%"
+                                         : juce::String (juce::jmax (0, int (std::ceil (seconds * (1.0f - progress))))) + " s";
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (17.0f, 600));
-        g.drawText (live ? "Tuning the live mix"
-                         : planning ? "Building the mix" : waiting ? "Waiting for the band" : "Listening",
-                    text.removeFromTop (22), juce::Justification::topLeft);
-        text.removeFromTop (5);
-        g.setColour (Dine::ink2);
-        g.setFont (Dine::text (12.5f));
-        // What the band is being asked for changes through the run: they play for the two
-        // listens, and between them they only have to stay ready. Telling them to keep
-        // playing while DLIVE is thinking is asking for something it does not need.
-        juce::String liveAsk;
-        if (capturing) liveAsk = " Keep the full band playing.";
-        else if (liveState != TuneLiveCoordinator::State::WaitingForRefinement
-                 && liveState != TuneLiveCoordinator::State::ValidatingRefinement
-                 && liveState != TuneLiveCoordinator::State::ApplyingRefinement)
-            liveAsk = " Stay ready - DLIVE listens again in a moment.";
-        g.drawFittedText (live ? juce::String (controller.getTuneLiveStatus()) + liveAsk
-                               : waiting ? "Have the band play a song the way they normally would. DLIVE starts as soon as it hears them."
-                                         : "Keep playing. Every input is measured at once, then the mix is built around the lead vocal.",
-                          text, juce::Justification::topLeft, 4);
+        g.setFont (Dine::mono (52.0f, 500));
+        g.drawText (big, r.removeFromTop (58), juce::Justification::centred);
+        r.removeFromTop (8);
 
-        // ---- what the run is actually doing, one line per real step
+        juce::String hearing;
         if (live)
         {
-            const int at = liveStepFor (controller.getTuneLive().getState());
-            auto rows = sheetBounds().reduced (kPadX, kPadY).withTrimmedTop (kHeadH + kHeadGap);
-            rows = rows.removeFromTop (kNumLiveSteps * kRowH);
-            Dine::fillRounded (g, rows.toFloat(), juce::Colours::black.withAlpha (0.24f), 8.0f);
+            hearing = juce::String (controller.getTuneLiveStatus());
+            if (capturing) hearing += " Keep the band playing.";
+        }
+        else if (waiting) hearing = "Have the band play a song the way they normally would. DLIVE starts as soon as it hears them.";
+        else if (planning) hearing = "Comparing what it heard against " + juce::String (styleProfileName (controller.getSession().profile)) + ", then checking its own work.";
+        else
+        {
+            juce::StringArray heard;
+            for (int i = 0; i < kGroupBuses; ++i)
+                if (controller.getEngine().isBusUsed (MixBus (i)) && controller.busHeard (MixBus (i)))
+                    heard.add (juce::String (mixBusName (MixBus (i))).toLowerCase());
+            hearing = heard.isEmpty() ? "Listening to every input at once. Keep the band playing."
+                                      : "Hearing " + heard.joinIntoString (", ") + ". Keep the band playing.";
+        }
+        g.setColour (Dine::ink2);
+        g.setFont (Dine::text (13.0f));
+        g.drawFittedText (hearing, r.removeFromTop (40), juce::Justification::centredTop, 2);
+        r.removeFromTop (10);
+
+        auto bar = r.removeFromTop (4);
+        Dine::fillRounded (g, bar.toFloat(), Dine::hair, 2.0f);
+        const float phase = float (juce::Time::getMillisecondCounter() % 1400u) / 1400.0f;
+        if (working && live)
+        {
+            // a sweep, because a bar frozen at full is indistinguishable from a run that stopped
+            const float w = float (bar.getWidth()) * 0.22f;
+            const float x = float (bar.getX()) + (float (bar.getWidth()) - w) * phase;
+            Dine::fillRounded (g, juce::Rectangle<float> (x, float (bar.getY()), w, float (bar.getHeight())), Dine::accent, 2.0f);
+        }
+        else if (progress > 0.0f)
+            Dine::fillRounded (g, bar.toFloat().withWidth (juce::jmax (4.0f, float (bar.getWidth()) * progress)), Dine::accent, 2.0f);
+        r.removeFromTop (18);
+
+        // The steps: the run's real ones, lit as it passes them.
+        auto steps = r.removeFromTop (16);
+        if (live)
+        {
+            const int at = liveStepFor (liveState);
+            const auto font = Dine::caps (11.0f, 0.08f, 500);
+            int total = 0;
+            for (int i = 0; i < kNumLiveSteps; ++i) total += Dine::textWidth (font, juce::String (kLiveSteps[i].label).toUpperCase()) + 16;
+            auto row = steps.withSizeKeepingCentre (juce::jmin (total, steps.getWidth()), steps.getHeight());
             for (int i = 0; i < kNumLiveSteps; ++i)
             {
-                auto row = rows.removeFromTop (kRowH).reduced (12, 0);
-                if (i > 0) Dine::drawRule (g, row.withHeight (1).expanded (12, 0), Dine::hairSoft);
-                const bool done = at > i;
-                const bool now = at == i;
-                // The running step breathes. A cloud model can take twenty seconds to answer,
-                // and a row that never changes in that time reads as a run that has stopped.
-                const float pulse = now ? 0.55f + 0.45f * (0.5f + 0.5f * std::sin (phase * juce::MathConstants<float>::twoPi))
-                                        : 1.0f;
-                Dine::drawIcon (g, done ? Dine::Icon::Check : now ? Dine::Icon::Waveform : Dine::Icon::Target,
-                                row.removeFromLeft (14).toFloat().withSizeKeepingCentre (14.0f, 14.0f),
-                                done ? Dine::ok : now ? Dine::accent.withMultipliedAlpha (pulse) : Dine::ink4);
-                row.removeFromLeft (9);
-                g.setColour (done ? Dine::ink2 : now ? Dine::ink : Dine::ink4);
-                g.setFont (Dine::text (12.5f, now ? 600 : 500));
-                g.drawText (kLiveSteps[i].label, row.removeFromLeft (row.getWidth() - 52), juce::Justification::centredLeft);
-                // How long it has been on this step, on the step itself: the one number that
-                // separates "still working" from "stuck".
-                if (now && stepSeconds() > 0)
-                {
-                    g.setColour (Dine::ink3);
-                    g.setFont (Dine::mono (11.0f));
-                    g.drawText (juce::String (stepSeconds()) + " s", row, juce::Justification::centredRight);
-                }
+                const auto label = juce::String (kLiveSteps[i].label).toUpperCase();
+                const int w = Dine::textWidth (font, label) + 16;
+                g.setColour (at > i ? Dine::accent : at == i ? Dine::ink : Dine::ink4);
+                g.setFont (font);
+                g.drawText (label, row.removeFromLeft (w), juce::Justification::centred);
             }
-            auto liveFoot = sheetBounds().reduced (kPadX, kPadY).removeFromBottom (kFootH);
-            liveFoot.removeFromRight (cancel.getWidth() + 12);      // the sentence never runs under the button
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::text (11.5f));
-            g.drawText (controller.getTuneLive().getProvider()->sendsDataExternally()
-                            ? "Measurements are sent out. No audio ever leaves this machine."
-                            : "All of this happens on this machine.",
-                        liveFoot, juce::Justification::centredLeft, true);
-            return;
         }
-
-        // ---- one line per group, ticked the frame it is heard
-        auto lines = sheetBounds().reduced (kPadX, kPadY).withTrimmedTop (kHeadH + kHeadGap);
-        lines = lines.removeFromTop (kGroupBuses * kRowH);
-        Dine::fillRounded (g, lines.toFloat(), juce::Colours::black.withAlpha (0.24f), 8.0f);
-        for (int i = 0; i < kGroupBuses; ++i)
+        else
         {
-            auto row = lines.removeFromTop (kRowH).reduced (12, 0);
-            if (i > 0) Dine::drawRule (g, row.withHeight (1).expanded (12, 0), Dine::hairSoft);
-            const bool used = controller.getEngine().isBusUsed (kGroupBus[i]);
-            const bool heard = used && controller.busHeard (kGroupBus[i]);
-            Dine::drawIcon (g, kGroupIcons[i], row.removeFromLeft (14).toFloat().withSizeKeepingCentre (14.0f, 14.0f),
-                            ! used ? Dine::ink4 : heard ? Dine::ok : Dine::ink3);
-            row.removeFromLeft (9);
-            g.setColour (! used ? Dine::ink4 : Dine::ink);
-            g.setFont (Dine::text (12.5f, 500));
-            g.drawText (kGroupNames[i], row.removeFromLeft (row.getWidth() / 2), juce::Justification::centredLeft);
-            g.setColour (! used ? Dine::ink4 : heard ? Dine::ok : Dine::ink3);
-            g.setFont (Dine::text (12.0f));
-            g.drawText (! used ? "not in this mix" : heard ? "Heard" : "waiting", row, juce::Justification::centredRight);
+            const char* labels[4] = { "LISTEN", "ANALYSE", "PLAN", "VERIFY" };
+            const int phaseIndex = planning ? 2 : waiting ? -1 : 0;
+            const auto font = Dine::caps (11.0f, 0.08f, 500);
+            auto row = steps.withSizeKeepingCentre (juce::jmin (steps.getWidth(), 4 * 84), steps.getHeight());
+            for (int i = 0; i < 4; ++i)
+            {
+                g.setColour (i <= phaseIndex ? Dine::accent : Dine::ink4);
+                g.setFont (font);
+                g.drawText (labels[i], row.removeFromLeft (84), juce::Justification::centred);
+            }
         }
-
-        auto foot = sheetBounds().reduced (kPadX, kPadY).removeFromBottom (kFootH);
-        foot.removeFromRight (cancel.getWidth() + 12);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (11.5f));
-        g.drawText ("The mix keeps playing while DLIVE listens.", foot, juce::Justification::centredLeft, true);
     }
 
     void resized() override
     {
-        auto foot = sheetBounds().reduced (kPadX, kPadY).removeFromBottom (kFootH);
-        cancel.setBounds (foot.removeFromRight (juce::jmax (80, cancel.idealWidth())).withHeight (Dine::Metric::button));
+        auto card = sheetBounds();
+        const int w = juce::jmax (120, cancel.idealWidth());
+        cancel.setBounds (juce::Rectangle<int> (w, Dine::Metric::button).withCentre ({ card.getCentreX(), card.getBottom() - 34 - 16 }));
+        cancel.setButtonText (controller.isTuningLive() ? "Stop" : "Stop listening");
     }
 
 private:
     MixController& controller;
-    DineButton cancel { "Cancel", DineButton::Style::Standard };
+    DineButton cancel { "Stop listening", DineButton::Style::Standard };
     TuneLiveCoordinator::State lastLiveState = TuneLiveCoordinator::State::Idle;
     juce::uint32 stepStartedMs = 0;
 };
 
 // ------------------------------------------------------------------ ResultSheet
-// What TUNE MIX built, with BEFORE / AFTER, KEEP and REVERT.
+// What the run built: a title, one line per decision with the sentence that explains it,
+// BEFORE / AFTER, TRY ANOTHER MIX, REVERT and KEEP.
 class MixPage::ResultSheet : public juce::Component
 {
 public:
     ResultSheet (MixController& c, MixPage& p) : controller (c), page (p)
     {
-        for (auto* b : { &before, &after, &keep, &revert, &review }) addAndMakeVisible (*b);
+        for (auto* b : { &before, &after, &keep, &revert, &another, &review, &closeButton }) addAndMakeVisible (*b);
         before.setCaps (true); after.setCaps (true); keep.setCaps (true); revert.setCaps (true);
         before.setClickingTogglesState (false); after.setClickingTogglesState (false);
-        before.onClick = [this] { controller.setCompare (MixController::Compare::Before); refresh(); };
-        after.onClick  = [this] { controller.setCompare (MixController::Compare::After); refresh(); };
-        keep.onClick   = [this] { controller.keepPlan(); if (page.onToast) page.onToast ("Kept. This is your mix now; RE-TUNE any time the band changes."); };
-        revert.onClick = [this] { controller.revertPlan(); if (page.onToast) page.onToast ("Reverted to the previous mix."); };
+        for (auto* b : { &before, &after, &keep, &revert, &another }) { b->setFontPx (12.5f); b->setPadX (14); }
+        keep.setPadX (18);
+        before.onClick = [this] { controller.setCompare (MixController::Compare::Before); refresh(); if (page.onToast) page.onToast ("Auditioning BEFORE. Nothing is committed by listening."); };
+        after.onClick  = [this] { controller.setCompare (MixController::Compare::After); refresh(); if (page.onToast) page.onToast ("Auditioning AFTER."); };
+        keep.onClick   = [this] { controller.keepPlan(); if (page.onToast) page.onToast ("Kept. Every value it set is marked TUNED BY DLIVE and can be reverted stage by stage."); };
+        revert.onClick = [this] { controller.revertPlan(); if (page.onToast) page.onToast ("Reverted to the mix you had before this run."); };
+        another.onClick = [this] { controller.tryAnotherMix(); };
         review.onClick = [this] { if (page.onOpenAdvanced) page.onOpenAdvanced(); };
+        closeButton.onClick = [this] { controller.revertPlan(); };
+        review.setFontPx (12.5f);
+        closeButton.setFontPx (13.0f);
         setInterceptsMouseClicks (true, true);
     }
 
     void refresh()
     {
         const bool showingAfter = controller.getCompare() == MixController::Compare::After;
-        before.setToggleState (! showingAfter, juce::dontSendNotification);
-        after.setToggleState (showingAfter, juce::dontSendNotification);
-        resized();      // the card is sized from its bullets, so the buttons follow the content
+        before.setStyle (showingAfter ? DineButton::Style::Standard : DineButton::Style::Filled);
+        after.setStyle (showingAfter ? DineButton::Style::Filled : DineButton::Style::Standard);
+        another.setEnabled (controller.canTryAnotherMix());
+        resized();
         repaint();
     }
 
-    // A line, its explanation, and whether it is something DLIVE did. A refusal or a
-    // "cannot do this" drawn with a tick would read as a change that was made.
     struct Bullet { juce::String what, why; bool done = true; };
 
-    // A line that explains an engineering decision is a sentence, not a label, so a bullet
-    // wraps rather than ending in an ellipsis - and the card is then sized from what it is
-    // actually holding, instead of a typed height that leaves a void under three short lines.
-    static constexpr int kSideX = 26, kSideY = 22;
-    static constexpr int kIconGutter = 24;     // the tick and the gap after it
-    static constexpr int kControlsH = 84;      // the A/B row, the rule and the buttons
+    static constexpr int kPadX = 28, kPadY = 28;
 
-    int bulletWidth() const { return juce::jmin (600, getWidth() - 40) - kSideX * 2 - 14 * 2 - kIconGutter; }
+    int bulletWidth() const { return juce::jmin (900, getWidth() - 80) - kPadX * 2 - 150 - 18 - 18; }
 
-    // How many lines a string really takes at this width. Measured, not estimated from the
-    // unwrapped width: an estimate that is one line short makes drawFittedText squash the
-    // text horizontally to fit, which is why a sentence could come out visibly narrower
-    // than the one under it.
     static int linesNeeded (const juce::Font& font, const juce::String& text, int width)
     {
         if (text.isEmpty() || width < 40) return 1;
@@ -597,43 +478,37 @@ public:
         attributed.setJustification (juce::Justification::topLeft);
         juce::TextLayout layout;
         layout.createLayout (attributed, float (width));
-        return juce::jlimit (1, 4, int (std::ceil (layout.getHeight() / juce::jmax (1.0f, font.getHeight()) - 0.05f)));
+        return juce::jlimit (1, 5, int (std::ceil (layout.getHeight() / juce::jmax (1.0f, font.getHeight()) - 0.05f)));
     }
 
-    // How tall one bullet needs to be, from how many lines its two strings really take.
     int bulletHeight (const Bullet& b) const
     {
         const int avail = juce::jmax (80, bulletWidth());
-        const int whatLines = linesNeeded (Dine::text (13.0f, 600), b.what, avail);
-        const int whyLines = b.why.isEmpty() ? 0 : linesNeeded (Dine::text (12.5f), b.why, avail);
-        return 14 + whatLines * 17 + (whyLines > 0 ? 3 + whyLines * 16 : 0);
+        const int whyLines = b.why.isEmpty() ? 1 : linesNeeded (Dine::text (13.0f), b.why, avail);
+        const int whatLines = linesNeeded (Dine::text (13.0f), b.what, 150);
+        return 16 + juce::jmax (whatLines * 17 + 2, whyLines * 20) + 16;
     }
 
     int listHeight() const
     {
-        int h = 4;
+        int h = 0;
         for (const auto& b : bullets()) h += bulletHeight (b);
         return h;
     }
 
     juce::Rectangle<int> sheetBounds() const
     {
-        const int w = juce::jmin (600, getWidth() - 40);
-        const int content = kSideY + 17 + 8 + 24 + 10 + listHeight() + kControlsH + kSideY;
-        const int h = juce::jlimit (280, juce::jmax (280, getHeight() - 20), content);
-        return juce::Rectangle<int> ((getWidth() - w) / 2, 0, w, h);
+        const int w = juce::jmin (900, getWidth() - 80);
+        const int content = kPadY + 28 + 20 + Dine::Metric::button + 10 + listHeight() + kPadY;
+        const int h = juce::jlimit (240, juce::jmax (240, getHeight() - 40), content);
+        return juce::Rectangle<int> (w, h).withCentre (getLocalBounds().getCentre());
     }
 
-    // The lines the sheet shows: the plan's own notes, then what it decided about
-    // how the sources work together.
     std::vector<Bullet> bullets() const
     {
         std::vector<Bullet> out;
         const auto* plan = controller.getPlan();
         if (plan == nullptr) return out;
-        // A live run explains itself in its own words: what it decided, what it could only
-        // approximate and what it refused to do. That reads better than the plan's notes,
-        // and it is the only place the refusals appear.
         if (controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready)
         {
             using Kind = TuneLiveCoordinator::ReviewLine::Kind;
@@ -644,7 +519,7 @@ public:
                 if (line.kind == Kind::Refused && why.isEmpty()) why = "DLIVE declined this change.";
                 out.push_back ({ juce::String (line.what), why,
                                  line.kind != Kind::NotPossible && line.kind != Kind::Refused });
-                if (out.size() >= 5) return out;
+                if (out.size() >= 6) return out;
             }
             if (! out.empty()) return out;
         }
@@ -657,126 +532,96 @@ public:
         {
             if (rel.changes.empty() && rel.kind != Recommendation::Kind::MixGain) continue;
             out.push_back ({ juce::String (rel.what), juce::String (rel.why), true });
-            if (out.size() >= 5) break;
+            if (out.size() >= 6) break;
         }
         return out;
     }
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (Dine::desk.withAlpha (0.74f));
-        auto card = sheetBounds().toFloat();
-        juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 40, { 0, 16 }).drawForRectangle (g, card.toNearestInt());
-        {
-            juce::Path p;
-            p.addRoundedRectangle (card.getX(), card.getY() - 12.0f, card.getWidth(), card.getHeight() + 12.0f,
-                                   Dine::Radius::window, Dine::Radius::window, false, false, true, true);
-            g.setColour (Dine::sheet);
-            g.fillPath (p);
-            g.setColour (Dine::edge);
-            g.strokePath (p, juce::PathStrokeType (0.5f));
-        }
+        g.fillAll (Dine::desk.withAlpha (0.88f));
+        auto card = sheetBounds();
+        Dine::drawSheet (g, card.toFloat(), 14.0f);
 
         const auto* plan = controller.getPlan();
         if (plan == nullptr) return;
 
-        auto r = sheetBounds().reduced (26, 22);
-        auto head = r.removeFromTop (17);
-        Dine::drawIcon (g, Dine::Icon::Check, head.removeFromLeft (16).toFloat().withSizeKeepingCentre (16.0f, 16.0f), Dine::accent);
-        head.removeFromLeft (8);
-        g.setColour (Dine::accent);
-        g.setFont (Dine::text (11.5f, 600));
-        g.drawText ("The mix is built", head.removeFromLeft (140), juce::Justification::centredLeft);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::mono (11.0f));
-        g.drawText (juce::String (plan->stripsHeard) + " heard  " + Glyph::dot() + "  "
-                        + juce::String (plan->parametersChanged) + " settings  " + Glyph::dot() + "  "
-                        + juce::String (plan->fadersChanged) + " levels",
-                    head, juce::Justification::centredRight);
-
-        r.removeFromTop (8);
+        auto r = card.reduced (kPadX, kPadY);
+        auto head = r.removeFromTop (28);
+        head.removeFromRight (closeButton.getWidth() + 10);
+        const bool live = controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready;
+        const juce::String title = juce::String (live ? "TUNE LIVE MIX" : controller.isTuningChannel() ? "TUNE CHANNEL" : "TUNE MIX") + " is ready";
+        const auto titleFont = Dine::text (22.0f);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (19.0f, 600));
-        g.drawText (juce::String (plan->headline), r.removeFromTop (24), juce::Justification::centredLeft, true);
+        g.setFont (titleFont);
+        g.drawText (title, head.removeFromLeft (Dine::textWidth (titleFont, title)), juce::Justification::centredLeft);
+        head.removeFromLeft (14);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (13.0f));
+        g.drawText (plan->noChangeRequired ? juce::String (plan->headline)
+                                           : "Heard " + juce::String (plan->stripsHeard) + " inputs, proposed "
+                                                 + juce::String (plan->parametersChanged) + " settings and "
+                                                 + juce::String (plan->fadersChanged) + " levels. " + juce::String (plan->headline),
+                    head, juce::Justification::centredLeft, true);
 
-        r.removeFromTop (10);
-        auto list = r.removeFromTop (juce::jmin (juce::jmax (0, r.getHeight() - kControlsH), listHeight()));
-        Dine::fillRounded (g, list.toFloat(), juce::Colours::black.withAlpha (0.20f), 8.0f);
-        auto inner = list.reduced (14, 2);
-        bool first = true;
+        r.removeFromTop (20 + Dine::Metric::button + 10);
         for (const auto& b : bullets())
         {
             const int h = bulletHeight (b);
-            if (inner.getHeight() < h) break;
-            auto row = inner.removeFromTop (h);
-            if (! first) Dine::drawRule (g, row.withHeight (1), Dine::hairSoft);
-            first = false;
-            row = row.reduced (0, 7);
-            Dine::drawIcon (g, b.done ? Dine::Icon::Check : Dine::Icon::Target,
-                            row.removeFromLeft (14).toFloat().withSizeKeepingCentre (13.0f, 13.0f).withY (float (row.getY()) + 1.0f),
-                            b.done ? Dine::accent : Dine::ink3);
-            row.removeFromLeft (10);
-            // Drawn at full width - the last argument keeps JUCE from squeezing the glyphs
-            // to avoid a wrap. A sentence that wraps reads; a sentence that is squashed to
-            // fit one line does not, and it no longer matches the one under it.
-            const int avail = juce::jmax (80, row.getWidth());
-            const int whatLines = linesNeeded (Dine::text (13.0f, 600), b.what, avail);
-            g.setFont (Dine::text (13.0f, 600));
-            g.setColour (b.done ? Dine::ink : Dine::ink2);
-            g.drawFittedText (b.what, row.removeFromTop (whatLines * 17), juce::Justification::topLeft, whatLines, 1.0f);
-            if (b.why.isNotEmpty())
+            if (r.getHeight() < h) break;
+            auto row = r.removeFromTop (h);
+            Dine::drawRule (g, row.withHeight (1), Dine::hairSoft);
+            row = row.reduced (0, 16);
+            auto left = row.removeFromLeft (150);
+            g.setColour (b.done ? Dine::ink : Dine::ink3);
+            g.setFont (Dine::text (13.0f));
+            g.drawFittedText (b.what, left, juce::Justification::topLeft, 5, 1.0f);
+            row.removeFromLeft (18);
+            if (! b.done)
             {
-                row.removeFromTop (3);
-                g.setColour (Dine::ink2);
-                g.setFont (Dine::text (12.5f));
-                g.drawFittedText (b.why, row, juce::Justification::topLeft,
-                                  linesNeeded (Dine::text (12.5f), b.why, avail), 1.0f);
+                auto tag = row.removeFromRight (90);
+                Dine::drawStatusChip (g, tag.withHeight (17).toFloat(), "NOT DONE", Dine::warn);
+                row.removeFromRight (12);
             }
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::text (13.0f));
+            g.drawFittedText (b.why.isEmpty() ? juce::String ("Applied.") : b.why, row, juce::Justification::topLeft, 5, 1.0f);
         }
-
-        // The A/B segment track and its note.
-        auto ab = juce::Rectangle<int> (before.getBounds().getX(), before.getBounds().getY(),
-                                        before.getWidth() + after.getWidth(), before.getHeight()).expanded (2, 2);
-        Dine::fillRounded (g, ab.toFloat(), juce::Colours::white.withAlpha (0.08f), 7.0f);
-        auto note = juce::Rectangle<int> (ab.getRight() + 12, ab.getY(), sheetBounds().getRight() - 26 - ab.getRight() - 12, ab.getHeight());
-        g.setColour (Dine::ink2);
-        g.setFont (Dine::text (11.5f));
-        g.drawText (controller.getCompare() == MixController::Compare::After
-                        ? "AFTER is the proposed mix. Both are level-matched."
-                        : "BEFORE is the mix as it was. Both are level-matched.",
-                    note, juce::Justification::centredLeft, true);
-
-        Dine::drawRule (g, sheetBounds().reduced (26, 0).withY (keep.getBounds().getY() - 14).withHeight (1), Dine::hair);
     }
 
     void resized() override
     {
-        auto r = sheetBounds().reduced (26, 22);
-        auto foot = r.removeFromBottom (Dine::Metric::button);
-        const int kw = juce::jmax (86, keep.idealWidth());
-        keep.setBounds (foot.removeFromRight (kw));
-        foot.removeFromRight (8);
-        const int rw = juce::jmax (86, revert.idealWidth());
-        revert.setBounds (foot.removeFromRight (rw));
-        review.setBounds (foot.removeFromLeft (juce::jmax (70, review.idealWidth())));
-
-        auto ab = r.removeFromBottom (Dine::Metric::control + 14).removeFromTop (Dine::Metric::control);
-        before.setBounds (ab.removeFromLeft (juce::jmax (84, before.idealWidth())));
-        after.setBounds (ab.removeFromLeft (juce::jmax (76, after.idealWidth())));
+        auto card = sheetBounds();
+        auto r = card.reduced (kPadX, kPadY);
+        closeButton.setBounds (r.removeFromTop (28).removeFromRight (juce::jmax (56, closeButton.idealWidth())));
+        r.removeFromTop (20);
+        auto row = r.removeFromTop (Dine::Metric::button);
+        before.setBounds (row.removeFromLeft (juce::jmax (80, before.idealWidth())));
+        row.removeFromLeft (10);
+        after.setBounds (row.removeFromLeft (juce::jmax (80, after.idealWidth())));
+        row.removeFromLeft (10);
+        review.setBounds (row.removeFromLeft (juce::jmax (90, review.idealWidth())));
+        keep.setBounds (row.removeFromRight (juce::jmax (80, keep.idealWidth())));
+        row.removeFromRight (10);
+        revert.setBounds (row.removeFromRight (juce::jmax (90, revert.idealWidth())));
+        row.removeFromRight (10);
+        another.setBounds (row.removeFromRight (juce::jmax (120, another.idealWidth())));
     }
 
 private:
     MixController& controller;
     MixPage& page;
-    DineButton before { "Before", DineButton::Style::Segment }, after { "After", DineButton::Style::Segment };
+    DineButton before { "Before", DineButton::Style::Standard }, after { "After", DineButton::Style::Filled };
     DineButton keep { "Keep", DineButton::Style::Filled }, revert { "Revert", DineButton::Style::Standard };
-    DineButton review { "Review", DineButton::Style::Ghost };
+    DineButton another { "Try another mix", DineButton::Style::Standard };
+    DineButton review { "Review in the Inspector", DineButton::Style::Ghost };
+    DineButton closeButton { "Close", DineButton::Style::Ghost };
 };
 
 // ------------------------------------------------------------------ MixPage
 MixPage::MixPage (MixController& c) : controller (c)
 {
-    for (int i = 0; i < kGroupTiles; ++i) { groups[size_t (i)] = std::make_unique<GroupTile> (i); addAndMakeVisible (*groups[size_t (i)]); }
+    for (int i = 0; i < kGroupTiles; ++i) { groups[size_t (i)] = std::make_unique<GroupTile> (controller, i); addAndMakeVisible (*groups[size_t (i)]); }
     for (int i = 0; i < int (MixMacro::Count); ++i)
     {
         const auto m = MixMacro (i);
@@ -788,19 +633,15 @@ MixPage::MixPage (MixController& c) : controller (c)
     railView.setScrollBarsShown (true, false);
     addAndMakeVisible (railView);
 
-    railTab = std::make_unique<DinePanelTab> (DinePanelTab::Side::Right, "Inputs");
+    railTab = std::make_unique<DinePanelTab> (DinePanelTab::Side::Left, "Inputs");
     railTab->onClick = [this] { setRailShown (! railShown); };
     addAndMakeVisible (*railTab);
 
     listenSheet = std::make_unique<ListenSheet> (controller);
     resultSheet = std::make_unique<ResultSheet> (controller, *this);
     referenceSheet = std::make_unique<ReferenceSheet> (controller);
-    addAndMakeVisible (tuneButton);
-    addAndMakeVisible (liveTuneButton);
-    addAndMakeVisible (referenceButton);
-    addAndMakeVisible (advancedButton);
-    addAndMakeVisible (resetMacrosButton);
-    // The sheets are added last: sibling order is z-order.
+    for (auto* b : { &tuneButton, &liveTuneButton, &referenceButton, &chatButton, &undoButton, &redoButton, &advancedButton, &resetMacrosButton })
+        addAndMakeVisible (*b);
     addChildComponent (*referenceSheet);
     addChildComponent (*resultSheet);
     addChildComponent (*listenSheet);
@@ -809,14 +650,12 @@ MixPage::MixPage (MixController& c) : controller (c)
     referenceSheet->onToast = [this] (const juce::String& t) { if (onToast) onToast (t); };
 
     tuneButton.setCaps (true);
-    tuneButton.setFontPx (19.0f);
-    tuneButton.setIcon (Dine::Icon::Waveform);
+    tuneButton.setFontPx (13.0f);
     tuneButton.onClick = [this] { pressTune(); };
     tuneButton.setTooltip ("Listen to the band and build DLIVE's mix from what it measures. Deterministic: the same "
                            "listen always gives the same mix, and nothing leaves this machine.");
     liveTuneButton.setCaps (true);
-    liveTuneButton.setFontPx (19.0f);
-    liveTuneButton.setIcon (Dine::Icon::Waveform);
+    liveTuneButton.setFontPx (13.0f);
     liveTuneButton.onClick = [this] { pressLiveTune(); };
     liveTuneButton.setTooltip ("The same listen, with a mix engineer's reasoning on top: DLIVE builds its mix, works out "
                                "what this band still needs, applies only what it can do safely, then listens again to "
@@ -825,11 +664,32 @@ MixPage::MixPage (MixController& c) : controller (c)
     referenceButton.onClick = [this] { openReference(); };
     referenceButton.setTooltip ("Aim the mix at a finished recording: DLIVE matches the master's tone, image and density "
                                 "to it. How loud the stream is delivered, and who is loud in the mix, are not copied.");
-    advancedButton.setIcon (Dine::Icon::List);
+    chatButton.setFontPx (12.5f);
+    chatButton.onClick = [this] { if (onOpenChat) onOpenChat(); };
+    chatButton.setTooltip ("Ask for a change in plain words. DLIVE says what it intends to do before anything is yours.");
+    undoButton.setQuiet (true);
+    redoButton.setQuiet (true);
+    undoButton.setFontPx (12.5f);
+    redoButton.setFontPx (12.5f);
+    undoButton.setTooltip ("Step back a whole mix");
+    redoButton.setTooltip ("Step forward a whole mix");
+    undoButton.onClick = [this]
+    {
+        if (! controller.canUndoMix()) { if (onToast) onToast ("There is no earlier mix to step back to in this session."); return; }
+        controller.undoMix();
+        if (onToast) onToast ("Stepped back a whole mix. Every value it set went with it.");
+    };
+    redoButton.onClick = [this]
+    {
+        if (! controller.canRedoMix()) { if (onToast) onToast ("This is the newest mix in this session."); return; }
+        controller.redoMix();
+        if (onToast) onToast ("Stepped forward a whole mix.");
+    };
     advancedButton.setFontPx (12.5f);
     advancedButton.onClick = [this] { if (onOpenAdvanced) onOpenAdvanced(); };
-    resetMacrosButton.setFontPx (11.5f);
+    resetMacrosButton.setFontPx (13.0f);
     resetMacrosButton.onClick = [this] { controller.resetMacros(); for (int i = 0; i < int (MixMacro::Count); ++i) macros[size_t (i)]->setValue (50.0f); };
+    setOpaque (true);
     refresh();
 }
 
@@ -857,10 +717,7 @@ void MixPage::setRailShown (bool shown)
 
 void MixPage::openReference()
 {
-    // A listen or a proposal owns the screen while it is happening: a second sheet over the
-    // first is two things asking for the same decision.
     if (listenSheet->isVisible() || resultSheet->isVisible()) return;
-    // The button is a toggle: pressing it again puts the sheet away, the way every panel does.
     if (referenceSheet->isVisible() && ! referenceSheet->isMeasuring()) { referenceSheet->setVisible (false); repaint(); return; }
     referenceSheet->setVisible (true);
     referenceSheet->toFront (false);
@@ -895,20 +752,13 @@ void MixPage::refreshTuneButton()
     const bool busy = live || stage == MixController::Stage::Listening || stage == MixController::Stage::Planning;
     const bool ready = controller.isPrepared() && controller.getEngine().getNumStrips() > 0;
 
-    // Both buttons keep their place while a run is going - the one that is not running is
-    // disabled, never hidden, so the row does not jump under the pointer mid-press.
     tuneButton.setButtonText (busy && ! live ? "Cancel" : controller.getTuneCount() > 0 ? "Re-tune" : "Tune mix");
     tuneButton.setEnabled (ready && ! live && stage != MixController::Stage::Planning);
-
-    // "RE-TUNE LIVE", not "TUNE LIVE MIX AGAIN": a product verb that does not fit its button
-    // is not a product verb, and the row is sized from these labels below.
     liveTuneButton.setButtonText (live ? "Stop" : controller.getTuneCount() > 0 ? "Re-tune live" : "Tune live mix");
-    liveTuneButton.setStyle (live ? DineButton::Style::Standard : DineButton::Style::Filled);
     liveTuneButton.setEnabled (ready && (live || stage != MixController::Stage::Listening) && stage != MixController::Stage::Planning);
-    // The reference is a target rather than a run, so the button only says whether there is
-    // one; pressing it is safe at any time except while a listen owns the screen.
-    referenceButton.setIcon (controller.hasReference() ? Dine::Icon::Check : Dine::Icon::Waveform);
+    referenceButton.setButtonText (controller.hasReference() ? "Reference " + juce::String (Glyph::check()) : "Reference");
     referenceButton.setEnabled (ready && ! busy);
+    chatButton.setEnabled (ready);
     resized();
 }
 
@@ -922,12 +772,20 @@ void MixPage::rebuildRail()
     {
         const auto& s = graph.strips[size_t (i)];
         auto row = std::make_unique<InputRow> (s.name, s.role, s.inputA + 1, s.icon);
-        row->onTune = [this, i] { if (onTuneStrip) onTuneStrip (i); };
+        row->onTune = [this, i] { selectRow (i); if (onTuneStrip) onTuneStrip (i); };
+        row->onSelect = [this, i] { selectRow (i); };
         railHolder.addAndMakeVisible (*row);
         inputRows.push_back (std::move (row));
     }
     builtRailFor = graph.numStrips();
+    if (selectedRow >= builtRailFor) selectedRow = -1;
     resized();
+}
+
+void MixPage::selectRow (int strip)
+{
+    selectedRow = strip;
+    if (onSelectStrip) onSelectStrip (strip);
 }
 
 void MixPage::refresh()
@@ -935,12 +793,14 @@ void MixPage::refresh()
     const auto& engine = controller.getEngine();
     const auto& graph = engine.getGraph();
     const bool listening = controller.isListening();
+    const auto& kept = controller.getBase();
     for (int i = 0; i < kGroupBuses; ++i)
     {
-        const MixBus bus = kGroupBus[i];
+        const MixBus bus = MixBus (i);
         const bool used = controller.isPrepared() && engine.isBusUsed (bus);
         const auto& m = engine.getBus (bus).getOutputMeter();
-        groups[size_t (i)]->set (used, graph.stripsOnBus (bus), used ? m.consumeMaxPeakDb() : -120.0f, used ? m.getMaxRmsDb() : -120.0f, used && m.hasClipped(),
+        groups[size_t (i)]->set (used, used ? m.consumeMaxPeakDb() : -120.0f, used ? m.getMaxRmsDb() : -120.0f, used && m.hasClipped(),
+                                 kept.buses[size_t (bus)].mute, kept.buses[size_t (bus)].faderDb,
                                  ! used ? 0 : listening ? (controller.busHeard (bus) ? 2 : 1) : 0);
     }
     {
@@ -952,32 +812,25 @@ void MixPage::refresh()
                 const auto& m = engine.getFx (FxSlot (f)).getOutputMeter();
                 peak = juce::jmax (peak, m.consumeMaxPeakDb()); rms = juce::jmax (rms, m.getMaxRmsDb()); clip = clip || m.hasClipped();
             }
-        groups[size_t (kGroupBuses)]->set (returns > 0, returns, peak, rms, clip, 0);
+        groups[size_t (kGroupBuses)]->set (returns > 0, peak, rms, clip, kept.fxMute, kept.fxReturnDb, 0);
     }
 
-    // ---- the input rail
+    // ---- the input rail: the faint / muted marks, re-read a few times a second
     if (controller.isPrepared() && graph.numStrips() != builtRailFor) rebuildRail();
-    if (controller.isPrepared())
+    if (controller.isPrepared() && (adviceTicks++ % 5) == 0)
     {
-        const auto& kept = controller.getBase();
         const auto* plan = controller.getPlan();
         for (int i = 0; i < int (inputRows.size()) && i < graph.numStrips(); ++i)
         {
-            const auto& m = engine.getStrip (i).getOutputMeter();
             const bool faint = plan != nullptr && i < int (plan->strips.size()) && plan->strips[size_t (i)].faint;
-            inputRows[size_t (i)]->set (m.consumeMaxPeakDb(), m.getMaxRmsDb(), m.hasClipped(),
-                                        i < kept.numStrips && kept.strips[size_t (i)].mute, faint);
+            inputRows[size_t (i)]->set (i < kept.numStrips && kept.strips[size_t (i)].mute, faint, i == selectedRow);
         }
     }
 
     health = controller.getMixHealthPercent();
     status = controller.getStatusText();
     const auto stage = controller.getStage();
-    // TUNE CHANNEL has its own sheet over whatever workspace it was started from, so these
-    // two - which are about the whole mix - stay out of its way.
     const bool mixTune = ! controller.isTuningChannel();
-    // A live run keeps the progress sheet up for the whole workflow: the deterministic mix is
-    // audible underneath it, but KEEP and REVERT are not offered until the run has finished.
     const bool live = controller.isTuningLive();
     const bool listenOn = mixTune && (live || stage == MixController::Stage::Listening || stage == MixController::Stage::Planning);
     const bool preview = mixTune && ! live && stage == MixController::Stage::Preview && controller.hasPlan();
@@ -985,193 +838,138 @@ void MixPage::refresh()
     if (referenceSheet->isVisible() || referenceSheet->isMeasuring()) referenceSheet->refresh();
     if (listenSheet->isVisible() != listenOn) { listenSheet->setVisible (listenOn); if (listenOn) listenSheet->toFront (false); }
     if (resultSheet->isVisible() != preview) { resultSheet->setVisible (preview); if (preview) { resultSheet->toFront (false); resized(); } }
-    // The sheet changes height when it swaps the group list for the live workflow's steps,
-    // and that happens without a resize, so the foot is placed again each refresh.
     if (listenOn) { listenSheet->tick(); listenSheet->resized(); listenSheet->repaint(); }
-    if (preview) resultSheet->refresh();
-    // A live run starts and ends without the stage necessarily moving (it finishes in
-    // Preview, where it already was), so the buttons follow the run as well as the stage -
-    // otherwise the primary action is still offering "Stop" after the mix is ready.
+    if (preview && (adviceTicks % 10) == 0) resultSheet->refresh();
     if (stage != lastStage || live != lastLiveRun) { refreshTuneButton(); lastStage = stage; lastLiveRun = live; }
     for (int i = 0; i < int (MixMacro::Count); ++i) macros[size_t (i)]->setValue (controller.getMacros().get (MixMacro (i)));
 
-    // The meters and the rail rows are components that repaint themselves; this page's own
-    // paint is the headline, the status line and the health number. Redrawing all of that
-    // thirty times a second for text that has not changed costs a whole 30 Hz frame on a
-    // large console (dlive_ui_snapshots --frames), so it only happens when it says something
-    // different.
-    const PageLook now { status, health, stage, controller.getTuneCount(), controller.hasReference(),
+    juce::String notes;
+    for (const auto& n : controller.getMixHealthNotes()) notes << juce::String (n) << "|";
+    const PageLook now { status, notes, health, stage, controller.getTuneCount(), controller.hasReference(),
+                         controller.canUndoMix(), controller.canRedoMix(),
                          controller.hasReference() ? juce::String (controller.getReference().name) : juce::String() };
-    if (now != painted) { painted = now; repaint(); }
+    if (now != painted)
+    {
+        painted = now;
+        undoButton.setEnabled (now.canUndo);
+        redoButton.setEnabled (now.canRedo);
+        repaint();
+    }
 }
 
 MixPage::Layout MixPage::layout() const
 {
     Layout l;
     auto b = getLocalBounds();
-    l.rail = b.removeFromRight (railWidth());
-    l.railTab = l.rail.removeFromLeft (Dine::Metric::panelTab);   // the gutter the handle sits in
-    auto left = b.reduced (0, 20).withTrimmedLeft (24).withTrimmedRight (22);
-    auto top = left.removeFromTop (76);
-    // TUNE LIVE MIX is the primary action and sits on the right; the deterministic TUNE MIX
-    // keeps its place beside it. Both are sized from their own labels rather than from a
-    // typed width, because the label changes with the stage ("Tune live mix" / "Re-tune live"
-    // / "Stop") and a truncated product verb reads as a bug.
-    const int liveW = juce::jmax (168, liveTuneButton.idealWidth());
-    const int tuneW = juce::jmax (124, tuneButton.idealWidth());
-    // The reference is a target, not a run, so it sits beside the two verbs as a quiet
-    // control rather than as a third thing of the same weight.
-    const int refW = juce::jmax (112, referenceButton.idealWidth());
-    auto tuneArea = top.removeFromRight (refW + 12 + liveW + 10 + tuneW);
-    l.liveTune = tuneArea.removeFromRight (liveW);
-    tuneArea.removeFromRight (10);
-    l.tune = tuneArea.removeFromRight (tuneW);
-    tuneArea.removeFromRight (12);
-    l.reference = tuneArea.withSizeKeepingCentre (refW, Dine::Metric::button + 8);
-    top.removeFromRight (14);
+    l.rail = b.removeFromLeft (railWidth());
+    l.railTab = railShown ? l.rail.removeFromRight (0) : l.rail;
+    auto main = b.reduced (24, 22);
+    // MIX HEALTH beside the 230 px column of verbs
+    auto top = main.removeFromTop (juce::jmin (230, juce::jmax (150, main.getHeight() / 3)));
+    l.actions = top.removeFromRight (230);
+    top.removeFromRight (22);
     l.health = top;
-    left.removeFromTop (14);
-    // The macros card is as tall as what it holds; the group strips take the spare
-    // height, so a taller window buys taller meters rather than empty card.
-    const int macrosH = 13 + 17 + 16 + kMacroRowH + 14 + Dine::Metric::control + 13;
-    l.groups = left.removeFromTop (juce::jmax (104, left.getHeight() - 14 - macrosH));
-    left.removeFromTop (14);
-    l.macros = left.removeFromTop (macrosH);
+    main.removeFromTop (22);
+    // The macros are as tall as they are; the groups take what is left, down to a floor.
+    const int macrosH = 12 + 12 + 18 + 7 + 14;
+    l.macros = main.removeFromBottom (macrosH);
+    main.removeFromBottom (22);
+    l.groupsCaption = main.removeFromTop (12);
+    main.removeFromTop (12);
+    l.groups = main.withHeight (juce::jlimit (150, kGroupsH + 40, main.getHeight()));
     return l;
 }
 
 void MixPage::paint (juce::Graphics& g)
 {
+    g.fillAll (Dine::window);
     const auto l = layout();
 
-    // ---- mix health
-    Dine::drawCard (g, l.health.toFloat());
+    // ---- MIX HEALTH: the caption and the sentences under it
     {
-        auto r = l.health.reduced (16, 14);
-        const bool known = health > 0;
-        auto figure = r.removeFromLeft (known ? 116 : 96);
-        g.setColour (! known ? Dine::ink3 : health >= 85 ? Dine::ok : health >= 60 ? Dine::warn : Dine::crit);
-        g.setFont (Dine::mono (34.0f, 500));
-        g.drawText (known ? juce::String (health) + "%" : Glyph::dash(), figure.removeFromTop (34), juce::Justification::centredLeft);
-        g.setColour (Dine::ink2);
-        g.setFont (Dine::text (12.0f));
-        g.drawText ("Mix health", figure, juce::Justification::topLeft);
-
-        // The state chip on the right, then the note fills what is left.
-        if (controller.getStage() == MixController::Stage::Mixed || controller.getStage() == MixController::Stage::Ready)
+        auto r = l.health;
+        auto cap = r.removeFromTop (14);
+        Dine::drawSection (g, cap, health > 0 ? "MIX HEALTH  " + juce::String (Glyph::dot()) + "  " + juce::String (health) + "%" : "MIX HEALTH");
+        r.removeFromTop (12);
+        const auto notes = controller.getMixHealthNotes();
+        const auto font = Dine::text (13.0f);
+        int shown = 0;
+        for (const auto& n : notes)
         {
-            const bool tuned = controller.getStage() == MixController::Stage::Mixed;
-            const juce::String label = tuned ? "Tuned" : "Ready";
-            const float w = Dine::pillWidth (label, true);
-            auto chip = r.removeFromRight (int (w)).withSizeKeepingCentre (int (w), 22).toFloat();
-            Dine::drawPill (g, chip, label, tuned ? Dine::ok : Dine::ink2, tuned ? Dine::Icon::Check : Dine::Icon::Target);
-            r.removeFromRight (14);
+            if (shown >= 3 || r.getHeight() < 20) break;
+            const juce::String text (n);
+            const auto lower = text.toLowerCase();
+            const bool bad = lower.contains ("clipping") || lower.contains ("barely") || lower.contains ("not heard");
+            const bool watch = lower.contains ("preamp") || lower.contains ("digital");
+            g.setColour (bad ? Dine::crit : watch ? Dine::warn : Dine::ink2);
+            g.setFont (font);
+            juce::AttributedString a; a.setText (text); a.setFont (font);
+            juce::TextLayout tl; tl.createLayout (a, float (juce::jmin (620, r.getWidth())));
+            const int h = juce::jmin (r.getHeight(), int (std::ceil (tl.getHeight())) + 2);
+            g.drawFittedText (text, r.removeFromTop (h).withWidth (juce::jmin (620, r.getWidth())), juce::Justification::topLeft, 4, 1.0f);
+            r.removeFromTop (10);
+            ++shown;
         }
-
-        // What the mix is aimed at, when it is aimed at a record rather than at the profile.
-        // It sits beside the state chip because it is the same kind of fact about the mix.
-        if (controller.hasReference())
+        if (r.getHeight() >= 18)
         {
-            const juce::String name (controller.getReference().name);
-            const float w = juce::jmin (Dine::pillWidth (name, true), float (r.getWidth()) * 0.42f);
-            if (w > 60.0f)
-            {
-                auto chip = r.removeFromRight (int (w)).withSizeKeepingCentre (int (w), 22).toFloat();
-                Dine::drawPill (g, chip, name, Dine::accent, Dine::Icon::Waveform);
-                r.removeFromRight (10);
-            }
+            g.setColour (Dine::ink3);
+            g.setFont (font);
+            g.drawFittedText (status, r.withWidth (juce::jmin (620, r.getWidth())), juce::Justification::topLeft, 2, 1.0f);
         }
-
-        auto bar = r.removeFromTop (r.getHeight() / 2 + 2).removeFromBottom (5);
-        Dine::fillRounded (g, bar.toFloat(), juce::Colours::white.withAlpha (0.09f), 3.0f);
-        if (known)
-        {
-            g.setColour (health >= 85 ? Dine::ok : health >= 60 ? Dine::warn : Dine::crit);
-            g.fillRoundedRectangle (bar.toFloat().withWidth (float (bar.getWidth()) * float (health) / 100.0f), 3.0f);
-        }
-        r.removeFromTop (7);
-        g.setColour (Dine::ink2);
-        g.setFont (Dine::text (12.0f));
-        g.drawFittedText (status, r, juce::Justification::topLeft, 2);
     }
 
-    // ---- the macros card (the tiles paint themselves)
-    Dine::drawCard (g, l.macros.toFloat());
+    // ---- the stamp under the verbs
     {
-        auto r = l.macros.reduced (16, 13);
-        auto head = r.removeFromTop (17);
-        Dine::drawIcon (g, Dine::Icon::Sliders, head.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f), Dine::glyph);
-        head.removeFromLeft (8);
-        g.setColour (Dine::ink);
-        g.setFont (Dine::text (12.5f, 600));
-        const int w = Dine::textWidth (Dine::text (12.5f, 600), "Shape the mix");
-        g.drawText ("Shape the mix", head.removeFromLeft (w), juce::Justification::centredLeft);
-        head.removeFromLeft (8);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (11.5f));
-        g.drawText (Glyph::dash() + juce::String (" centred means \"as tuned\""), head, juce::Justification::centredLeft, true);
+        auto stamp = l.actions.withTrimmedTop (44 + 9 + 44 + 9 + Dine::Metric::button + 9 + Dine::Metric::button + 9).withHeight (16);
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::text (12.5f));
+        juce::String text = controller.getTuneCount() > 0 ? "Tuned " + juce::String (controller.getTuneCount()) + (controller.getTuneCount() == 1 ? " time" : " times")
+                                                          + " this session" : juce::String ("Not tuned yet");
+        if (controller.hasReference()) text += "  " + Glyph::dot() + "  aimed at " + juce::String (controller.getReference().name);
+        g.drawText (text, stamp, juce::Justification::centredLeft, true);
+    }
 
-        // The footer rule above Open Advanced.
-        auto foot = l.macros.reduced (16, 13).removeFromBottom (Dine::Metric::control);
-        Dine::drawRule (g, foot.withY (foot.getY() - 11).withHeight (1), Dine::hairSoft);
-        auto note = foot.withTrimmedLeft (advancedButton.getWidth() + 9);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (11.5f));
-        g.drawText ("Every channel, every bus, and what TUNE MIX decided. Nothing in there is required.",
-                    note, juce::Justification::centredLeft, true);
+    Dine::drawSection (g, l.groupsCaption, "GROUPS");
+
+    // ---- MACROS
+    {
+        auto r = l.macros;
+        auto cap = r.removeFromTop (12);
+        Dine::drawSection (g, cap, "MACROS  " + juce::String (Glyph::dot()) + "  50 IS THE PLAN");
     }
 
     // ---- the input rail
     if (! railAvailable) return;
     g.setColour (Dine::rail);
     g.fillRect (l.rail.getUnion (l.railTab));
-    g.setColour (Dine::hair);
-    g.fillRect (float (l.railTab.getX()), 0.0f, 0.5f, float (getHeight()));
     if (! railShown) return;
-    auto head = l.rail.reduced (12, 0).withY (12).withHeight (16);
-    g.setColour (Dine::ink);
-    g.setFont (Dine::text (12.0f, 600));
-    g.drawText ("Inputs", head.removeFromLeft (44), juce::Justification::centredLeft);
-    g.setColour (Dine::ink3);
-    g.setFont (Dine::mono (11.0f));
-    g.drawText (juce::String (int (inputRows.size())), head.removeFromLeft (24), juce::Justification::centredLeft);
-    g.setColour (Dine::ink4);
-    g.setFont (Dine::text (10.5f));
-    g.drawText ("click one to tune it", head, juce::Justification::centredRight, true);
+    auto head = l.rail.withHeight (36).reduced (14, 0).withTrimmedTop (12);
+    Dine::drawSection (g, head.withTrimmedRight (20), "INPUTS");
 
     if (inputRows.empty())
     {
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.0f));
-        g.drawFittedText ("Assign inputs to see them here.", l.rail.reduced (14, 40).removeFromTop (40), juce::Justification::centredTop, 2);
+        g.drawFittedText ("Assign inputs to see them here.", l.rail.reduced (14, 50).removeFromTop (40), juce::Justification::topLeft, 2);
     }
 
-    // A faint input is a mic that is off, not a mix problem: say so, and change nothing.
     int faintCount = 0;
     juce::String faintNames;
     for (const auto& r : inputRows)
         if (r->faint) { ++faintCount; faintNames += (faintNames.isEmpty() ? "" : ", ") + r->name; }
     if (faintCount > 0)
     {
-        auto box = l.rail.reduced (8, 0).removeFromBottom (86).withTrimmedBottom (8);
-        Dine::fillRounded (g, box.toFloat(), Dine::warn.withAlpha (0.10f), Dine::Radius::control);
-        Dine::hairlineRounded (g, box.toFloat(), Dine::warn.withAlpha (0.32f), Dine::Radius::control);
-        auto r = box.reduced (12, 11);
-        auto top = r.removeFromTop (16);
-        Dine::drawIcon (g, Dine::Icon::Warn, top.removeFromLeft (14).toFloat().withSizeKeepingCentre (14.0f, 14.0f), Dine::warn);
-        top.removeFromLeft (7);
+        auto box = l.rail.reduced (10, 0).removeFromBottom (92).withTrimmedBottom (10);
+        Dine::fillRounded (g, box.toFloat(), Dine::mix (Dine::warn, 0.14f), Dine::Radius::control);
+        auto r = box.reduced (12, 10);
         g.setColour (Dine::warn);
         g.setFont (Dine::text (12.0f, 600));
-        g.drawText (faintCount == 1 ? "Check this input" : "Check these inputs", top, juce::Justification::centredLeft);
-        r.removeFromTop (5);
-        g.setColour (Dine::ink);
-        g.setFont (Dine::text (12.0f));
-        g.drawFittedText (faintNames + (faintCount == 1 ? " never rose above a whisper." : " never rose above a whisper."),
-                          r.removeFromTop (17), juce::Justification::topLeft, 1);
+        g.drawText (faintCount == 1 ? "Check this input" : "Check these inputs", r.removeFromTop (16), juce::Justification::centredLeft);
+        r.removeFromTop (4);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (11.5f));
-        g.drawFittedText ("Left where it is. A faint input is usually a mic that is off, not a mix problem.",
-                          r, juce::Justification::topLeft, 2);
+        g.drawFittedText (faintNames + " never rose above a whisper. Left where it is - a faint input is usually a mic that is off.",
+                          r, juce::Justification::topLeft, 3);
     }
 }
 
@@ -1179,34 +977,48 @@ void MixPage::resized()
 {
     const auto l = layout();
 
-    tuneButton.setBounds (l.tune);
-    liveTuneButton.setBounds (l.liveTune);
-    referenceButton.setBounds (l.reference);
+    auto col = l.actions;
+    tuneButton.setBounds (col.removeFromTop (44));
+    col.removeFromTop (9);
+    liveTuneButton.setBounds (col.removeFromTop (44));
+    col.removeFromTop (9);
+    {
+        auto row = col.removeFromTop (Dine::Metric::button);
+        referenceButton.setBounds (row.removeFromLeft ((row.getWidth() - 9) / 2));
+        row.removeFromLeft (9);
+        chatButton.setBounds (row);
+    }
+    col.removeFromTop (9);
+    {
+        auto row = col.removeFromTop (Dine::Metric::button);
+        undoButton.setBounds (row.removeFromLeft ((row.getWidth() - 9) / 2));
+        row.removeFromLeft (9);
+        redoButton.setBounds (row);
+    }
+    col.removeFromTop (9 + 16 + 6);
+    advancedButton.setBounds (col.removeFromTop (Dine::Metric::control).withWidth (juce::jmax (120, advancedButton.idealWidth())));
+
     auto groupRow = l.groups;
     const int gap = 10;
     const int w = (groupRow.getWidth() - gap * (kGroupTiles - 1)) / kGroupTiles;
     for (auto& t : groups) { t->setBounds (groupRow.removeFromLeft (w)); groupRow.removeFromLeft (gap); }
 
-    auto card = l.macros.reduced (16, 13);
-    auto head = card.removeFromTop (17);
-    resetMacrosButton.setBounds (head.removeFromRight (juce::jmax (72, resetMacrosButton.idealWidth())).withSizeKeepingCentre (juce::jmax (72, resetMacrosButton.idealWidth()), 22));
-    auto foot = card.removeFromBottom (Dine::Metric::control);
-    advancedButton.setBounds (foot.removeFromLeft (juce::jmax (140, advancedButton.idealWidth())));
-    card.removeFromBottom (11);
-    card.removeFromTop (14);
-
-    auto row = card.removeFromTop (juce::jmin (card.getHeight(), kMacroRowH));
-    const int mgap = 16;
+    auto macroArea = l.macros;
+    auto cap = macroArea.removeFromTop (12);
+    resetMacrosButton.setBounds (cap.removeFromRight (juce::jmax (90, resetMacrosButton.idealWidth())).withSizeKeepingCentre (juce::jmax (90, resetMacrosButton.idealWidth()), 22));
+    macroArea.removeFromTop (12);
+    auto row = macroArea.removeFromTop (kMacroRowH);
+    const int mgap = 14;
     const int mw = (row.getWidth() - mgap * (int (MixMacro::Count) - 1)) / int (MixMacro::Count);
     for (auto& m : macros) { m->setBounds (row.removeFromLeft (mw)); row.removeFromLeft (mgap); }
 
     // ---- rail
-    railTab->setBounds (l.railTab);
+    if (railShown) railTab->setBounds (l.rail.withHeight (36).removeFromRight (30));
+    else railTab->setBounds (l.railTab);
     int faintCount = 0;
     for (const auto& r : inputRows) if (r->faint) ++faintCount;
-    auto rail = l.rail.reduced (8, 0).withTrimmedTop (34);
-    if (faintCount > 0) rail.removeFromBottom (86);
-    else rail.removeFromBottom (8);
+    auto rail = l.rail.withTrimmedTop (36);
+    if (faintCount > 0) rail.removeFromBottom (92);
     railView.setBounds (rail);
     const int total = int (inputRows.size()) * 32;
     railHolder.setSize (rail.getWidth() - (total > rail.getHeight() ? 10 : 0), juce::jmax (total, rail.getHeight()));

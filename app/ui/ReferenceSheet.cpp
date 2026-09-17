@@ -218,7 +218,7 @@ juce::Rectangle<int> ReferenceSheet::cardBounds() const
         case State::Chosen:    h = 22 + 18 + 12 + 26 + 2 + 16 + 12 + kBalanceH + 10 + listHeight() + 14 + Dine::Metric::button + 22; break;
     }
     h = juce::jmin (h, juce::jmax (220, getHeight() - 20));
-    return { (getWidth() - w) / 2, 0, w, h };
+    return juce::Rectangle<int> (w, h).withCentre (getLocalBounds().getCentre());
 }
 
 // The two balances, band by band: what the reference carries and what this mix carries, in
@@ -228,12 +228,12 @@ juce::Rectangle<int> ReferenceSheet::cardBounds() const
 void ReferenceSheet::drawBalance (juce::Graphics& g, juce::Rectangle<int> area) const
 {
     const auto& m = shown;
-    Dine::fillRounded (g, area.toFloat(), juce::Colours::black.withAlpha (0.20f), 8.0f);
+    Dine::fillRounded (g, area.toFloat(), Dine::item, Dine::Radius::control);
     auto inner = area.reduced (14, 12);
     auto legend = inner.removeFromTop (14);
     {
         auto dot = legend.removeFromLeft (9).withSizeKeepingCentre (7, 7);
-        g.setColour (Dine::accent);
+        g.setColour (Dine::monitor);
         g.fillRoundedRectangle (dot.toFloat(), 1.5f);
         legend.removeFromLeft (6);
         g.setColour (Dine::ink2);
@@ -242,7 +242,7 @@ void ReferenceSheet::drawBalance (juce::Graphics& g, juce::Rectangle<int> area) 
         g.drawText ("the reference", legend.removeFromLeft (w1), juce::Justification::centredLeft);
         legend.removeFromLeft (14);
         dot = legend.removeFromLeft (9).withSizeKeepingCentre (7, 7);
-        g.setColour (Dine::ink3);
+        g.setColour (Dine::accent);
         g.fillRoundedRectangle (dot.toFloat(), 1.5f);
         legend.removeFromLeft (6);
         g.setColour (Dine::ink2);
@@ -270,8 +270,8 @@ void ReferenceSheet::drawBalance (juce::Graphics& g, juce::Rectangle<int> area) 
             const int h = juce::jmax (2, int (float (r.getHeight()) * heightOf (value)));
             Dine::fillRounded (g, r.removeFromBottom (h).toFloat(), c, 2.0f);
         };
-        fill (refBar, band.referenceDb, Dine::accent.withAlpha (0.85f));
-        if (controller.hasListened()) fill (mixBar, band.mixDb, juce::Colours::white.withAlpha (0.22f));
+        fill (refBar, band.referenceDb, Dine::monitor.withAlpha (0.85f));
+        if (controller.hasListened()) fill (mixBar, band.mixDb, Dine::accent.withAlpha (0.85f));
 
         // Where a reference asked for more than a reference may have, the aim is drawn as the
         // line the master actually goes to, so "it stopped there" is visible and not only said.
@@ -290,19 +290,10 @@ void ReferenceSheet::drawBalance (juce::Graphics& g, juce::Rectangle<int> area) 
 
 void ReferenceSheet::paint (juce::Graphics& g)
 {
-    g.fillAll (Dine::desk.withAlpha (0.74f));
+    g.fillAll (Dine::desk.withAlpha (0.86f));
 
     auto card = cardBounds().toFloat();
-    juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 40, { 0, 16 }).drawForRectangle (g, card.toNearestInt());
-    {
-        juce::Path p;
-        p.addRoundedRectangle (card.getX(), card.getY() - 12.0f, card.getWidth(), card.getHeight() + 12.0f,
-                               Dine::Radius::window, Dine::Radius::window, false, false, true, true);
-        g.setColour (Dine::sheet);
-        g.fillPath (p);
-        g.setColour (Dine::edge);
-        g.strokePath (p, juce::PathStrokeType (0.5f));
-    }
+    Dine::drawSheet (g, card, 14.0f);
 
     auto r = cardBounds().reduced (26, 22);
     const auto s = state();
@@ -310,11 +301,9 @@ void ReferenceSheet::paint (juce::Graphics& g)
     // ---- who this is about, on every state.
     {
         auto head = r.removeFromTop (18);
-        Dine::drawIcon (g, Dine::Icon::Waveform, head.removeFromLeft (16).toFloat().withSizeKeepingCentre (15.0f, 15.0f), Dine::accent);
-        head.removeFromLeft (8);
-        g.setColour (Dine::accent);
-        g.setFont (Dine::text (11.5f, 700).withExtraKerningFactor (0.08f));
-        g.drawText ("REFERENCE MIX", head.removeFromLeft (124), juce::Justification::centredLeft);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (19.0f, 600));
+        g.drawText ("MATCH TO REFERENCE", head.removeFromLeft (240), juce::Justification::centredLeft);
         if (s == State::Chosen)
         {
             g.setColour (Dine::ink3);
@@ -370,7 +359,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
         r.removeFromTop (10);
 
         auto box = r.removeFromTop (kPromiseH);
-        Dine::fillRounded (g, box.toFloat(), juce::Colours::black.withAlpha (0.20f), 8.0f);
+        Dine::fillRounded (g, box.toFloat(), Dine::item, Dine::Radius::control);
         auto inner = box.reduced (14, 12);
         const char* lines[] = {
             "The master's tone, image and density follow the reference.",
@@ -436,7 +425,6 @@ void ReferenceSheet::paint (juce::Graphics& g)
         g.drawFittedText (juce::String (limit), row, juce::Justification::topLeft, 2);
     }
 
-    Dine::drawRule (g, cardBounds().reduced (26, 0).withY (match.getBounds().getY() - 14).withHeight (1), Dine::hair);
 }
 
 void ReferenceSheet::resized()

@@ -144,8 +144,7 @@ void Tutorial::paint (juce::Graphics& g)
 
     const auto& s = steps()[size_t (step)];
     auto card = cardBounds();
-    juce::DropShadow (juce::Colours::black.withAlpha (0.75f), 44, { 0, 16 }).drawForRectangle (g, card);
-    Dine::drawRaisedCard (g, card.toFloat(), false, Dine::edge);
+    Dine::drawSheet (g, card.toFloat(), 14.0f);
 
     auto inner = card.reduced (22, 18);
     inner.removeFromBottom (kFooterH);          // the buttons place themselves there
@@ -153,7 +152,7 @@ void Tutorial::paint (juce::Graphics& g)
     inner.removeFromBottom (8);
 
     g.setColour (Dine::accent);
-    g.setFont (Dine::text (10.0f, 600).withExtraKerningFactor (0.14f));
+    g.setFont (Dine::caps (10.0f, 0.14f));
     g.drawText (s.eyebrow, inner.removeFromTop (14), juce::Justification::topLeft);
     inner.removeFromTop (6);
     g.setColour (Dine::ink);

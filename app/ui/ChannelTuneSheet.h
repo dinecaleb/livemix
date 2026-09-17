@@ -45,8 +45,8 @@ private:
     bool wasPreviewing = false;
 
     DineButton cancel { "Cancel", DineButton::Style::Standard };
-    DineButton before { "BEFORE", DineButton::Style::Segment };
-    DineButton after  { "AFTER",  DineButton::Style::Segment };
+    DineButton before { "BEFORE", DineButton::Style::Standard };
+    DineButton after  { "AFTER",  DineButton::Style::Standard };
     DineButton keep   { "KEEP",   DineButton::Style::Filled };
     DineButton revert { "REVERT", DineButton::Style::Standard };
     DineButton inspect { "Open in the Inspector", DineButton::Style::Ghost };

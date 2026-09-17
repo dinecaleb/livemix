@@ -69,8 +69,10 @@ private:
     };
 
     void rebuild();
+public:
     void select (int index);
     const Item* selectedItem() const;
+private:
     // Where a session lives, written the way a person would say it: under the home folder
     // it is a ~ path; anywhere else, the last two folders - so the row never fills with a
     // path nobody reads.
@@ -90,7 +92,7 @@ private:
     std::array<std::unique_ptr<DineChip>, 3> chips;
     // One primary action on the screen. Opening the session you picked is what this page is
     // for; starting a new one is the alternative to it, not a second headline.
-    DineButton newButton { "New session", DineButton::Style::Standard };
+    DineButton newButton { "New session", DineButton::Style::Filled };
     DineButton openButton { "Open session", DineButton::Style::Filled };
     DineButton revealButton { "Show in Finder", DineButton::Style::Standard };
 };
@@ -138,7 +140,7 @@ private:
     DineButton backButton { "Back", DineButton::Style::Standard };
     DineButton rescanButton { "Rescan devices", DineButton::Style::Standard };
     DineButton outputsButton { "Set up outputs...", DineButton::Style::Standard };
-    DineButton recordingButton { "Import stems...", DineButton::Style::Standard };
+    DineButton recordingButton { "Import a multitrack folder", DineButton::Style::Standard };
     std::unique_ptr<juce::FileChooser> chooser;
 };
 
@@ -150,6 +152,7 @@ public:
     AssignPage (MixController&, AppServices&);
     ~AssignPage() override;
     std::function<void()> onContinue, onBack;
+    std::function<void()> onSaveMapping, onApplyMapping;   // the patch: saved, or a saved one applied
     void refresh();                       // rebuild rows from the controller's session and the device's channel count
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -230,6 +233,9 @@ private:
     DineButton clearButton { "Clear all", DineButton::Style::Ghost };
     std::array<std::unique_ptr<QuickAction>, 3> quickButtons;
     DineButton showUnusedButton { "Show them", DineButton::Style::Standard };
+    DineButton patchSaveButton { "Save this patch", DineButton::Style::Standard };
+    DineButton patchApplyButton { "Apply a saved patch", DineButton::Style::Standard };
+    DineButton quickButton { "Quick actions", DineButton::Style::Standard };
 };
 
 // STEP 3: purpose (how loud it lands and how hard it may peak) and sound (the character

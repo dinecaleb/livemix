@@ -6,8 +6,8 @@ namespace livemix
 
 namespace
 {
-    constexpr int kRowH = 46;
-    constexpr int kCardW = 780;
+    constexpr int kRowH = 52;
+    constexpr int kCardW = 820;
 
     juce::String db1 (float v)
     {
@@ -18,14 +18,13 @@ namespace
     {
         switch (index)
         {
-            case 0:  return "Main";
-            case 1:  return "Cue";
+            case 0:  return "Broadcast";
+            case 1:  return "Feed 2";
             case 2:  return "Feed 3";
             default: return "Feed 4";
         }
     }
 
-    juce::Colour sourceTint (MixBus b) noexcept { return Dine::busTint (b); }
 }
 
 // ------------------------------------------------------------------ Row
@@ -48,7 +47,9 @@ public:
         levelSlider.setTooltip ("Monitoring level for this output. It never changes the mix.");
         monoButton.setTooltip ("Sum to mono: a single fill speaker, or a phone feed.");
         muteButton.setTooltip ("Silence this output.");
-        removeButton.setTooltip ("Remove this output.");
+        removeButton.setTooltip ("Stop sending this feed");
+        removeButton.setQuiet (true);
+        removeButton.setPadX (4);
 
         levelSlider.setSliderStyle (juce::Slider::LinearHorizontal);
         levelSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -82,16 +83,19 @@ public:
         updating = true;
         feed = f;
         levelSlider.setValue (f.gainDb, juce::dontSendNotification);
-        sourceButton.setValue (f.monitor ? juce::String ("My headphones")
-                                         : (f.source == MixBus::Master ? juce::String ("Main mix") : sentence (mixBusName (f.source))));
+        sourceButton.setValue (f.monitor ? juce::String ("MONITOR BUS")
+                                         : (f.source == MixBus::Master ? juce::String ("MASTER") : juce::String (mixBusName (f.source)).toUpperCase()));
+        sourceButton.setDot (f.monitor ? Dine::monitor : Dine::busTint (f.source));
         pairButton.setValue (sheet.pairName (f.left < 0 ? -1 : f.left / 2));
         monoButton.setStyle (DineButton::Style::Toggle);
         monoButton.setToggleState (f.mono, juce::dontSendNotification);
+        monoButton.setCaps (true); muteButton.setCaps (true);
+        monoButton.setFontPx (10.0f); muteButton.setFontPx (10.0f);
         // A mute is amber wherever it is pressed, so a muted feed reads as muted and not
         // as something DLIVE is doing.
         muteButton.setTint (Dine::keyMute);
         muteButton.setStyle (f.mute ? DineButton::Style::Filled : DineButton::Style::Standard);
-        monoButton.setButtonText (f.mono ? "Mono" : "Stereo");
+        monoButton.setButtonText ("MONO");
         // The broadcast and the engineer's listen are always a real stereo pair, so the switch
         // is not offered on them - a mix that reaches the stream summed to mono is the kind of
         // fault nobody notices until it is on the recording. The extra feeds keep it, because
@@ -100,8 +104,8 @@ public:
         monoButton.setEnabled (! alwaysStereo);
         monoButton.setTooltip (alwaysStereo ? "Always stereo: the broadcast and your own listen are never summed."
                                             : "Sum this output to mono - for a single fill speaker or a feed to a phone.");
-        muteButton.setButtonText (f.mute ? "Muted" : "Mute");
-        removeButton.setButtonText ("Remove");
+        muteButton.setButtonText ("MUTE");
+        removeButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("\xc3\x97")));
         removeButton.setVisible (canRemove);
         updating = false;
         repaint();
@@ -112,51 +116,44 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
-        Dine::drawCard (g, r, feed.mute ? Dine::card.darker (0.2f) : Dine::card);
-
+        Dine::fillRounded (g, r, Dine::item, Dine::Radius::control);
         auto inner = getLocalBounds().reduced (12, 0);
-        g.setColour ((feed.monitor ? Dine::accent : sourceTint (feed.source)).withAlpha (feed.mute ? 0.3f : 0.9f));
-        g.fillRoundedRectangle (float (inner.getX()), float (inner.getY()) + 9.0f, 3.0f,
-                                float (inner.getHeight()) - 18.0f, 1.5f);
-        inner.removeFromLeft (12);
-
         g.setColour (feed.mute ? Dine::ink3 : Dine::ink);
-        g.setFont (Dine::text (12.5f, 600));
-        g.drawText (feedName (feedIndex), inner.removeFromLeft (52), juce::Justification::centredLeft);
+        g.setFont (Dine::text (13.0f));
+        g.drawText (feed.monitor ? juce::String ("Monitor") : juce::String (feedName (feedIndex)), inner.removeFromLeft (150), juce::Justification::centredLeft);
 
         g.setColour (feed.mute ? Dine::ink4 : Dine::ink2);
         g.setFont (Dine::mono (11.0f, 500));
-        g.drawText (db1 (feed.gainDb) + " dB", levelRect.withTrimmedLeft (levelRect.getWidth() - 56),
-                    juce::Justification::centredRight);
+        g.drawText (db1 (feed.gainDb), levelRect.withTrimmedLeft (levelRect.getWidth() - 54), juce::Justification::centredRight);
 
         if (feed.left >= 0 && ! sheet.pairExists (feed.left / 2))
         {
             g.setColour (Dine::warn);
-            g.setFont (Dine::text (10.5f, 600));
-            g.drawText ("not on this device", pairButton.getBounds().withY (pairButton.getBottom() - 2).withHeight (12),
+            g.setFont (Dine::text (10.0f));
+            g.drawText ("not on this device", pairButton.getBounds().withY (pairButton.getBottom()).withHeight (11),
                         juce::Justification::centredLeft);
         }
     }
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced (12, 0).withTrimmedLeft (12 + 52);
+        auto r = getLocalBounds().reduced (12, 0).withTrimmedLeft (150);
         auto line = r.withSizeKeepingCentre (r.getWidth(), Dine::Metric::control);
 
-        removeButton.setBounds (line.removeFromRight (54));
+        removeButton.setBounds (line.removeFromRight (24).withSizeKeepingCentre (24, 24));
         line.removeFromRight (6);
-        muteButton.setBounds (line.removeFromRight (juce::jmax (54, muteButton.idealWidth())));
+        muteButton.setBounds (line.removeFromRight (juce::jmax (48, muteButton.idealWidth())));
         line.removeFromRight (6);
-        monoButton.setBounds (line.removeFromRight (juce::jmax (58, monoButton.idealWidth())));
-        line.removeFromRight (12);
+        monoButton.setBounds (line.removeFromRight (juce::jmax (48, monoButton.idealWidth())));
+        line.removeFromRight (16);
 
-        sourceButton.setBounds (line.removeFromLeft (104));
-        line.removeFromLeft (8);
-        pairButton.setBounds (line.removeFromLeft (118));
+        sourceButton.setBounds (line.removeFromLeft (178));
+        line.removeFromLeft (12);
+        pairButton.setBounds (line.removeFromLeft (158));
         line.removeFromLeft (12);
 
         levelRect = line;
-        levelSlider.setBounds (line.withTrimmedRight (58));
+        levelSlider.setBounds (line.withTrimmedRight (60));
     }
 
 private:
@@ -222,9 +219,9 @@ private:
     juce::Rectangle<int> levelRect;
     DinePopup sourceButton, pairButton;
     juce::Slider levelSlider;
-    DineButton monoButton { "Stereo", DineButton::Style::Standard };
-    DineButton muteButton { "Mute", DineButton::Style::Standard };
-    DineButton removeButton { "-", DineButton::Style::Ghost };
+    DineButton monoButton { "MONO", DineButton::Style::Toggle };
+    DineButton muteButton { "MUTE", DineButton::Style::Standard };
+    DineButton removeButton { "x", DineButton::Style::Standard };
 };
 
 // ------------------------------------------------------------------ OutputsSheet
@@ -418,43 +415,33 @@ void OutputsSheet::chooseDevice()
 juce::Rectangle<int> OutputsSheet::cardBounds() const
 {
     const int count = juce::jlimit (1, kMaxOutputFeeds, controller.getOutputFeeds().count);
-    const int h = 96 + 30 + 32 + count * (kRowH + 8) + 44 + 56;
-    auto r = getLocalBounds().withSizeKeepingCentre (juce::jmin (kCardW, getWidth() - 60),
-                                                     juce::jmin (h, getHeight() - 40));
-    return r.withY (juce::jmax (20, r.getY() - 20));
+    const int h = 26 + 24 + 12 + Dine::Metric::control + 8 + Dine::Metric::control + 16 + 36 + count * (kRowH + 4) + 14 + Dine::Metric::button + 14 + 40 + 26;
+    return getLocalBounds().withSizeKeepingCentre (juce::jmin (kCardW, getWidth() - 60), juce::jmin (h, getHeight() - 40));
 }
 
 void OutputsSheet::paint (juce::Graphics& g)
 {
-    g.fillAll (Dine::desk.withAlpha (0.74f));
+    g.fillAll (Dine::desk.withAlpha (0.84f));
 
     auto card = cardBounds();
-    juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 40, { 0, 16 }).drawForRectangle (g, card);
-    Dine::drawSheet (g, card.toFloat(), Dine::Radius::window);
+    Dine::drawSheet (g, card.toFloat(), 14.0f);
 
-    auto r = card.reduced (26, 22);
+    auto r = card.reduced (26, 26);
     g.setColour (Dine::ink);
-    g.setFont (Dine::text (17.0f, 600));
-    g.drawText ("Outputs", r.removeFromTop (22), juce::Justification::topLeft);
-    r.removeFromTop (4);
-    g.setColour (Dine::ink2);
-    g.setFont (Dine::text (12.5f));
-    g.drawFittedText ("Where the mix leaves this Mac. Each output carries what you choose, at its own level "
-                      + Glyph::dash() + " none of it changes the mix or what you export.",
-                      r.removeFromTop (34), juce::Justification::topLeft, 2);
+    g.setFont (Dine::text (19.0f, 600));
+    g.drawText ("Outputs", r.removeFromTop (24), juce::Justification::centredLeft);
     r.removeFromTop (12);
 
-    // The two choices this sheet exists for, one under the other: where the broadcast goes,
-    // and where the engineer listens. Everything below them is the detail.
+    // The two choices this sheet exists for: where the broadcast goes, and where the engineer listens.
     const int labelW = 96;
     {
         auto line = r.removeFromTop (Dine::Metric::control);
         g.setColour (Dine::ink2);
-        g.setFont (Dine::text (12.0f));
+        g.setFont (Dine::text (13.0f));
         g.drawText ("Broadcast", line.removeFromLeft (labelW), juce::Justification::centredLeft);
         auto after = line.withTrimmedLeft (300 + 12);
         g.setColour (channels >= 2 ? Dine::ink3 : Dine::warn);
-        g.setFont (Dine::text (11.5f));
+        g.setFont (Dine::text (12.0f));
         g.drawText (channels <= 0 ? "no device open"
                                   : juce::String (channels) + (channels == 1 ? " output channel" : " output channels")
                                         + "   " + Glyph::dot() + "   always stereo, on 1-2",
@@ -464,35 +451,48 @@ void OutputsSheet::paint (juce::Graphics& g)
     {
         auto line = r.removeFromTop (Dine::Metric::control);
         g.setColour (Dine::ink2);
-        g.setFont (Dine::text (12.0f));
+        g.setFont (Dine::text (13.0f));
         g.drawText ("Solo", line.removeFromLeft (labelW), juce::Justification::centredLeft);
         auto after = line.withTrimmedLeft (300 + 12);
         const bool set = services.soloOutputDevice().isNotEmpty();
         g.setColour (set ? Dine::ok : Dine::ink4);
-        g.setFont (Dine::text (11.5f));
-        g.drawText (set ? "only you hear this" : "solo has nowhere to go yet",
-                    after, juce::Justification::centredLeft, true);
+        g.setFont (Dine::text (12.0f));
+        g.drawText (set ? "only you hear this" : "solo has nowhere to go yet", after, juce::Justification::centredLeft, true);
+        r.removeFromTop (16);
     }
 
-    // Along the foot: what is set up for the engineer right now, in one sentence. This is the
-    // question somebody actually has open this sheet to answer.
-    auto foot = card.reduced (26, 22).removeFromBottom (Dine::Metric::button);
+    // The table's headings.
+    auto head = r.removeFromTop (36).withTrimmedBottom (10).reduced (12, 0);
+    g.setColour (Dine::ink4);
+    g.setFont (Dine::caps (11.0f, 0.06f, 500));
+    g.drawText ("FEED", head.removeFromLeft (150), juce::Justification::centredLeft);
+    g.drawText ("SOURCE", head.removeFromLeft (190), juce::Justification::centredLeft);
+    g.drawText ("DESTINATION", head.removeFromLeft (170), juce::Justification::centredLeft);
+    g.drawText ("STATE", head.removeFromRight (158), juce::Justification::centredRight);
+    g.drawText ("LEVEL", head, juce::Justification::centredLeft);
+
+    // Along the foot: how many feeds, and what is set up for the engineer, in one sentence.
+    auto foot = card.reduced (26, 26).removeFromBottom (40 + Dine::Metric::button);
+    auto count = foot.removeFromTop (Dine::Metric::button);
+    count.removeFromLeft (juce::jmax (120, addButton.getWidth()) + 12);
+    g.setColour (Dine::ink4);
+    g.setFont (Dine::text (13.0f));
+    g.drawText (juce::String (controller.getOutputFeeds().count) + " of " + juce::String (kMaxOutputFeeds) + " feeds in use", count, juce::Justification::centredLeft);
+    foot.removeFromTop (14);
     const auto headphones = services.headphonesSummary();
-    g.setColour (headphones.isNotEmpty() ? Dine::ok : Dine::ink3);
-    g.setFont (Dine::text (11.5f));
-    g.drawText (headphones.isNotEmpty()
-                    ? headphones
-                    : juce::String ("Pick the device you listen on above. It can be a different box from the "
-                                    "broadcast - DLIVE joins them for you."),
-                foot.withTrimmedRight (juce::jmax (90, doneButton.getWidth()) + 12).withTrimmedLeft (0),
-                juce::Justification::centredLeft, true);
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (12.5f));
+    g.drawFittedText (headphones.isNotEmpty()
+                          ? headphones + " While LIVE SAFE is on the monitor bus cannot be re-routed: the room and the stream never hear it, and it never disappears on you."
+                          : juce::String ("Pick the device you listen on above. It can be a different box from the broadcast - DLIVE joins them for you."),
+                      foot, juce::Justification::topLeft, 2);
 }
 
 void OutputsSheet::resized()
 {
     auto card = cardBounds();
-    auto r = card.reduced (26, 22);
-    r.removeFromTop (22 + 4 + 34 + 12);
+    auto r = card.reduced (26, 26);
+    r.removeFromTop (24 + 12);
 
     const int labelW = 96;
     auto broadcastLine = r.removeFromTop (Dine::Metric::control);
@@ -503,20 +503,19 @@ void OutputsSheet::resized()
     soloLine.removeFromLeft (labelW);
     soloDeviceButton.setBounds (soloLine.removeFromLeft (300));
     r.removeFromTop (16);
+    r.removeFromTop (36);
 
-    auto foot = r.removeFromBottom (Dine::Metric::button);
-    doneButton.setBounds (foot.removeFromRight (juce::jmax (90, doneButton.idealWidth())));
-    r.removeFromBottom (10);
-
-    auto add = r.removeFromBottom (Dine::Metric::control);
-    addButton.setBounds (add.removeFromLeft (juce::jmax (140, addButton.idealWidth())));
-    r.removeFromBottom (10);
+    auto foot = r.removeFromBottom (40 + Dine::Metric::button);
+    auto actions = foot.removeFromTop (Dine::Metric::button);
+    doneButton.setBounds (actions.removeFromRight (juce::jmax (80, doneButton.idealWidth())));
+    addButton.setBounds (actions.removeFromLeft (juce::jmax (120, addButton.idealWidth())));
+    r.removeFromBottom (14);
 
     for (int i = 0; i < kMaxOutputFeeds; ++i)
     {
         if (! rows[size_t (i)]->isVisible()) continue;
         rows[size_t (i)]->setBounds (r.removeFromTop (kRowH));
-        r.removeFromTop (8);
+        r.removeFromTop (4);
     }
 }
 

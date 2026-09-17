@@ -8,9 +8,9 @@ namespace livemix
 namespace
 {
     constexpr int kCardW = 560;
-    constexpr int kListenH = 238;      // the ring, what to play, and Cancel
-    constexpr int kLineH = 30;         // one line of the plan
-    constexpr int kLineWhyH = 54;      // ... and one with its why under it
+    constexpr int kListenH = 290;      // the ring, what to play, and Cancel
+    constexpr int kLineH = 40;         // one line of the plan
+    constexpr int kLineWhyH = 76;      // ... and one with its why beside it
     constexpr int kListMaxH = 152;
 
     juce::String db1 (float v)
@@ -74,10 +74,10 @@ juce::Rectangle<int> ChannelTuneSheet::cardBounds() const
     {
         const auto* plan = controller.getPlan();
         const bool changed = plan != nullptr && ! plan->noChangeRequired;
-        h = (changed ? 210 : 172) + listHeight();
+        h = (changed ? 262 : 224) + listHeight();
     }
     h = juce::jmin (h, juce::jmax (200, getHeight() - 20));
-    return { (getWidth() - w) / 2, 0, w, h };
+    return juce::Rectangle<int> (w, h).withCentre (getLocalBounds().getCentre());
 }
 
 // The sheet follows the controller: while it listens it shows the listen, the frame the
@@ -96,6 +96,11 @@ void ChannelTuneSheet::refresh()
 
 void ChannelTuneSheet::updateControls()
 {
+    {
+        const bool showingAfter = controller.getCompare() == MixController::Compare::After;
+        before.setStyle (showingAfter ? DineButton::Style::Standard : DineButton::Style::Filled);
+        after.setStyle (showingAfter ? DineButton::Style::Filled : DineButton::Style::Standard);
+    }
     const bool preview = previewing();
     const auto* plan = controller.getPlan();
     // Nothing to compare and nothing to put back when the channel was already right: the
@@ -153,34 +158,25 @@ int ChannelTuneSheet::listHeight() const
 
 void ChannelTuneSheet::paint (juce::Graphics& g)
 {
-    g.fillAll (Dine::desk.withAlpha (0.74f));
+    g.fillAll (Dine::desk.withAlpha (0.86f));
 
     auto card = cardBounds().toFloat();
-    juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 40, { 0, 16 }).drawForRectangle (g, card.toNearestInt());
-    {
-        juce::Path p;
-        p.addRoundedRectangle (card.getX(), card.getY() - 12.0f, card.getWidth(), card.getHeight() + 12.0f,
-                               Dine::Radius::window, Dine::Radius::window, false, false, true, true);
-        g.setColour (Dine::sheet);
-        g.fillPath (p);
-        g.setColour (Dine::edge);
-        g.strokePath (p, juce::PathStrokeType (0.5f));
-    }
+    Dine::drawSheet (g, card, 14.0f);
 
     auto r = cardBounds().reduced (26, 22);
 
-    // ---- who this is about, on every state: one channel, named, with its own icon.
+    // ---- who this is about, on every state: one channel, named.
     {
-        auto head = r.removeFromTop (18);
-        Dine::drawIcon (g, icon, head.removeFromLeft (16).toFloat().withSizeKeepingCentre (15.0f, 15.0f), Dine::accent);
-        head.removeFromLeft (8);
-        g.setColour (Dine::accent);
-        g.setFont (Dine::text (11.5f, 700).withExtraKerningFactor (0.08f));
-        g.drawText ("TUNE CHANNEL", head.removeFromLeft (110), juce::Justification::centredLeft);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (11.5f));
-        g.drawText (name, head, juce::Justification::centredRight, true);
+        auto head = r.removeFromTop (24);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (19.0f, 600));
+        g.drawText ("TUNE CHANNEL  " + juce::String (Glyph::dot()) + "  " + name, head.withTrimmedRight (70), juce::Justification::centredLeft, true);
     }
+    r.removeFromTop (10);
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (12.5f));
+    g.drawFittedText ("The console keeps playing behind this sheet. DLIVE listens to this input alone and proposes a chain for it. Nothing is committed by asking.",
+                      r.removeFromTop (36), juce::Justification::topLeft, 2);
     r.removeFromTop (10);
 
     if (! previewing())
@@ -272,48 +268,30 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
 
     r.removeFromTop (10);
     auto list = r.removeFromTop (juce::jmax (0, r.getHeight() - (before.isVisible() ? 84 : 46)));
-    Dine::fillRounded (g, list.toFloat(), juce::Colours::black.withAlpha (0.20f), 8.0f);
-    auto inner = list.reduced (14, 2);
-    bool first = true;
+    auto inner = list;
     for (const auto& line : lines())
     {
         const int h = line.second.isEmpty() ? kLineH : kLineWhyH;
         if (inner.getHeight() < h) break;
-        auto row = inner.removeFromTop (h);
-        if (! first) Dine::drawRule (g, row.withHeight (1), Dine::hairSoft);
-        first = false;
-        row = row.reduced (0, 7);
-        Dine::drawIcon (g, Dine::Icon::Check, row.removeFromLeft (14).toFloat().withSizeKeepingCentre (13.0f, 13.0f).withY (float (row.getY()) + 1.0f), Dine::accent);
-        row.removeFromLeft (10);
+        auto row = inner.removeFromTop (h).withTrimmedBottom (4);
+        Dine::fillRounded (g, row.toFloat(), Dine::item, Dine::Radius::control);
+        row = row.reduced (12, 8);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (13.0f, 600));
-        g.drawText (line.first, row.removeFromTop (16), juce::Justification::topLeft, true);
+        g.setFont (Dine::text (13.0f));
+        g.drawText (line.first, row.removeFromLeft (150), juce::Justification::topLeft, true);
+        row.removeFromLeft (14);
         if (line.second.isNotEmpty())
         {
             g.setColour (Dine::ink2);
             g.setFont (Dine::text (12.5f));
-            g.drawFittedText (line.second, row, juce::Justification::topLeft, 2);
+            g.drawFittedText (line.second, row, juce::Justification::topLeft, 3, 1.0f);
         }
     }
 
-    if (! before.isVisible())
-    {
-        Dine::drawRule (g, cardBounds().reduced (26, 0).withY (keep.getBounds().getY() - 14).withHeight (1), Dine::hair);
-        return;
-    }
+    if (! before.isVisible()) return;
 
-    auto ab = juce::Rectangle<int> (before.getBounds().getX(), before.getBounds().getY(),
-                                    before.getWidth() + after.getWidth(), before.getHeight()).expanded (2, 2);
-    Dine::fillRounded (g, ab.toFloat(), juce::Colours::white.withAlpha (0.08f), 7.0f);
-    auto note = juce::Rectangle<int> (ab.getRight() + 12, ab.getY(), cardBounds().getRight() - 26 - ab.getRight() - 12, ab.getHeight());
-    g.setColour (Dine::ink2);
-    g.setFont (Dine::text (11.5f));
-    g.drawText (controller.getCompare() == MixController::Compare::After
-                    ? "AFTER is this channel as proposed."
-                    : "BEFORE is this channel as it was.",
-                note, juce::Justification::centredLeft, true);
-
-    Dine::drawRule (g, cardBounds().reduced (26, 0).withY (keep.getBounds().getY() - 14).withHeight (1), Dine::hair);
+    auto note = juce::Rectangle<int> (cardBounds().getX() + 26, keep.getBounds().getY(), inspect.getBounds().getRight() - cardBounds().getX() - 26, keep.getHeight());
+    juce::ignoreUnused (note);
 }
 
 void ChannelTuneSheet::resized()

@@ -54,7 +54,6 @@ set(DLIVE_UI_SOURCES
     ui/ChainEditor.cpp
     ui/ChainStrip.cpp
     ui/TransportBar.cpp
-    ui/ChannelRail.cpp
     ui/Tutorial.cpp
     ui/MainView.cpp
     ${CMAKE_SOURCE_DIR}/src/UI/LiveMixLookAndFeel.cpp

@@ -6,10 +6,7 @@ namespace livemix
 
 namespace
 {
-    constexpr int kCardWidth = 620;
-    constexpr int kCardHeight = 560;
     constexpr int kBubblePad = 12;
-    constexpr int kGutter = 20;
 }
 
 // The conversation, drawn rather than built from components: a service's worth of turns is
@@ -65,15 +62,13 @@ public:
             switch (r.kind)
             {
                 case Row::Kind::Engineer:
-                    Dine::fillRounded (g, box, Dine::accent.withAlpha (0.16f), Dine::Radius::card);
-                    Dine::hairlineRounded (g, box, Dine::accent.withAlpha (0.28f), Dine::Radius::card);
+                    Dine::fillRounded (g, box, Dine::control, Dine::Radius::card);
                     break;
                 case Row::Kind::Refused:
-                    Dine::fillRounded (g, box, Dine::warn.withAlpha (0.10f), Dine::Radius::card);
-                    Dine::hairlineRounded (g, box, Dine::warn.withAlpha (0.30f), Dine::Radius::card);
+                    Dine::fillRounded (g, box, Dine::refuse, Dine::Radius::card);
                     break;
                 default:
-                    Dine::drawCard (g, box);
+                    Dine::fillRounded (g, box, Dine::tile, Dine::Radius::card);
                     break;
             }
 
@@ -142,7 +137,7 @@ private:
 
 ChatSheet::ChatSheet (MixController& c) : controller (c)
 {
-    setOpaque (false);
+    setOpaque (true);
     setWantsKeyboardFocus (true);
 
     transcript = std::make_unique<Transcript> (controller);
@@ -157,14 +152,21 @@ ChatSheet::ChatSheet (MixController& c) : controller (c)
     input.setReturnKeyStartsNewLine (false);
     input.setTextToShowWhenEmpty ("Bring the lead vocal forward", Dine::ink4);
     input.setFont (Dine::text (13.5f));
-    input.setColour (juce::TextEditor::backgroundColourId, Dine::card);
-    input.setColour (juce::TextEditor::outlineColourId, Dine::hair);
+    input.setColour (juce::TextEditor::backgroundColourId, Dine::tile);
+    input.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
     input.setColour (juce::TextEditor::focusedOutlineColourId, Dine::accent.withAlpha (0.6f));
     input.setColour (juce::TextEditor::textColourId, Dine::ink);
     input.onReturnKey = [this] { send(); };
 
     for (auto* b : { &sendButton, &keepButton, &revertButton, &compareButton, &undoButton, &redoButton, &close })
         addAndMakeVisible (*b);
+    for (auto* b : { &keepButton, &revertButton, &compareButton, &undoButton, &redoButton })
+    {
+        b->setFontPx (11.0f);
+        b->setPadX (8);
+    }
+    close.setFontPx (12.0f);
+    close.setPadX (10);
 
     sendButton.onClick = [this] { send(); };
     keepButton.setCaps (true);
@@ -196,9 +198,7 @@ void ChatSheet::takeFocus() { input.grabKeyboardFocus(); }
 
 juce::Rectangle<int> ChatSheet::cardBounds() const
 {
-    const int w = juce::jmin (kCardWidth, getWidth() - 2 * kGutter);
-    const int h = juce::jmin (kCardHeight, getHeight() - 2 * kGutter);
-    return getLocalBounds().withSizeKeepingCentre (juce::jmax (320, w), juce::jmax (280, h));
+    return getLocalBounds();
 }
 
 void ChatSheet::send()
@@ -252,55 +252,42 @@ void ChatSheet::refresh()
 
 void ChatSheet::paint (juce::Graphics& g)
 {
-    g.fillAll (Dine::desk.withAlpha (0.74f));
-    auto card = cardBounds().toFloat();
-    Dine::drawSheet (g, card, Dine::Radius::window);
-
-    auto inner = cardBounds().reduced (22, 18);
-    auto head = inner.removeFromTop (44);
+    g.fillAll (Dine::sheet);
+    auto inner = getLocalBounds().reduced (18, 16);
+    auto head = inner.removeFromTop (26);
     g.setColour (Dine::ink);
-    g.setFont (Dine::text (17.0f, 700));
-    g.drawText ("AI MIX CHAT", head.removeFromTop (22), juce::Justification::topLeft);
-    g.setColour (Dine::ink3);
-    g.setFont (Dine::text (11.5f));
-    const auto provider = controller.getTuneLive().getProvider();
-    juce::String who = provider != nullptr ? juce::String (provider->getName()) : juce::String ("DLIVE built-in (offline)");
-    g.drawText (controller.canChat()
-                    ? "Ask for a change and see exactly what it will do before you keep it.  " + juce::String (Glyph::dot()) + "  " + who
-                    : juce::String ("Run TUNE MIX once so DLIVE has heard the band - then ask for anything."),
-                head, juce::Justification::topLeft, true);
+    g.setFont (Dine::text (14.0f));
+    g.drawText ("AI Mix Chat", head.withTrimmedRight (70), juce::Justification::centredLeft);
 
-    // The footer says what the sheet is and is not, once, where it cannot be missed.
-    auto foot = cardBounds().reduced (22, 18).removeFromBottom (16);
+    auto foot = getLocalBounds().reduced (18, 14).removeFromBottom (16);
     g.setColour (Dine::ink4);
     g.setFont (Dine::text (10.5f));
-    g.drawText (controller.isLiveSafe()
-                    ? "LIVE SAFE is on: changes stay small and nothing is applied until you press KEEP."
-                    : "Nothing changes the mix until you press KEEP.",
-                foot, juce::Justification::centredLeft, true);
+    const auto provider = controller.getTuneLive().getProvider();
+    juce::String who = provider != nullptr ? juce::String (provider->getName()) : juce::String ("DLIVE built-in, offline");
+    g.drawText ((controller.isLiveSafe() ? juce::String ("LIVE SAFE is on: changes stay small. ") : juce::String ("Nothing changes until you press KEEP. "))
+                    + who, foot, juce::Justification::centredLeft, true);
 }
 
 void ChatSheet::resized()
 {
-    auto inner = cardBounds().reduced (22, 18);
-    inner.removeFromTop (44 + 10);
-    inner.removeFromBottom (16 + 6);
+    auto inner = cardBounds().reduced (18, 16);
+    inner.removeFromTop (26 + 10);
+    inner.removeFromBottom (16 + 8);
+    close.setBounds (cardBounds().reduced (18, 16).removeFromTop (26).removeFromRight (juce::jmax (56, close.idealWidth())));
 
     auto actions = inner.removeFromBottom (Dine::Metric::button + 4);
-    close.setBounds (actions.removeFromRight (juce::jmax (70, close.idealWidth())).withHeight (Dine::Metric::button));
-    actions.removeFromRight (8);
     if (keepButton.isVisible())
     {
-        keepButton.setBounds (actions.removeFromLeft (juce::jmax (72, keepButton.idealWidth())).withHeight (Dine::Metric::button));
+        keepButton.setBounds (actions.removeFromLeft (juce::jmax (56, keepButton.idealWidth())).withHeight (Dine::Metric::button));
         actions.removeFromLeft (6);
-        revertButton.setBounds (actions.removeFromLeft (juce::jmax (78, revertButton.idealWidth())).withHeight (Dine::Metric::button));
+        revertButton.setBounds (actions.removeFromLeft (juce::jmax (56, revertButton.idealWidth())).withHeight (Dine::Metric::button));
         actions.removeFromLeft (6);
-        compareButton.setBounds (actions.removeFromLeft (juce::jmax (78, compareButton.idealWidth())).withHeight (Dine::Metric::button));
-        actions.removeFromLeft (14);
+        compareButton.setBounds (actions.removeFromLeft (juce::jmax (56, compareButton.idealWidth())).withHeight (Dine::Metric::button));
+        actions.removeFromLeft (10);
     }
-    undoButton.setBounds (actions.removeFromLeft (juce::jmax (62, undoButton.idealWidth())).withHeight (Dine::Metric::button));
-    actions.removeFromLeft (6);
-    redoButton.setBounds (actions.removeFromLeft (juce::jmax (62, redoButton.idealWidth())).withHeight (Dine::Metric::button));
+    redoButton.setBounds (actions.removeFromRight (juce::jmax (48, redoButton.idealWidth())).withHeight (Dine::Metric::button));
+    actions.removeFromRight (6);
+    undoButton.setBounds (actions.removeFromRight (juce::jmax (48, undoButton.idealWidth())).withHeight (Dine::Metric::button));
 
     inner.removeFromBottom (10);
     auto entry = inner.removeFromBottom (32);
@@ -314,11 +301,7 @@ void ChatSheet::resized()
     transcript->layout (scroller->getMaximumVisibleWidth());
 }
 
-void ChatSheet::mouseUp (const juce::MouseEvent& e)
-{
-    // Clicking the scrim dismisses, the way every other sheet in the app does.
-    if (! cardBounds().contains (e.getPosition()) && onClose) onClose();
-}
+void ChatSheet::mouseUp (const juce::MouseEvent&) {}
 
 bool ChatSheet::keyPressed (const juce::KeyPress& k)
 {

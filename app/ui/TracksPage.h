@@ -70,6 +70,8 @@ public:
     int panelWidth() const noexcept { return headerWidth; }
     std::function<void()> onPanelWidthChanged;        // worth saving
 
+    // The chain along the foot belongs to the window now; the page keeps its own for a detached use.
+    void setFootShown (bool);
     void setSnap (bool on);
     bool snapEnabled() const noexcept { return snap; }
     void setFollow (bool on);
@@ -197,7 +199,7 @@ private:
     // the panel and the timeline the way every professional DAW does it: a session full of
     // "Backing Vocal - Stage Right" needs more room than one patched "Kick / Snare / Bass",
     // and the engineer is the only one who knows which they have. Persisted with the session.
-    int headerWidth = 212;
+    int headerWidth = 420;
     int dragStartHeaderWidth = 0;
     bool dividerHot = false;            // the pointer is over the divider: it lights up
 
@@ -213,6 +215,8 @@ private:
     juce::File builtForFolder;
 
     ChainStrip chainStrip;
+    bool footShown = true;
+    int footHeight() const noexcept { return footShown ? ChainStrip::height : 0; }
     std::array<std::unique_ptr<DineButton>, 3> rowTabs;      // S / M / L row height
     std::unique_ptr<DineButton> zoomOutButton, zoomFitButton, zoomInButton;
     std::unique_ptr<DineButton> snapButton, followButton, splitButton, markerButton, recordAllButton;

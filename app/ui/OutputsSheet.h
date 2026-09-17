@@ -53,9 +53,9 @@ private:
 
     std::array<std::unique_ptr<Row>, kMaxOutputFeeds> rows;
     DinePopup deviceButton;
-    DineButton addButton { "Add an output", DineButton::Style::Standard };
+    DineButton addButton { "Add a feed", DineButton::Style::Standard };
     DinePopup soloDeviceButton;
-    DineButton doneButton { "Done", DineButton::Style::Filled };
+    DineButton doneButton { "Close", DineButton::Style::Standard };
     int channels = 0;
 };
 

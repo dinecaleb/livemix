@@ -1949,7 +1949,7 @@ juce::Rectangle<int> SignalPath::chipBounds (int index) const
     const int n = chain.numStages();
     if (n <= 0) return {};
     auto row = getLocalBounds().withTrimmedTop (titleH);
-    const int gap = 10;
+    const int gap = 7;
     const float even = float (row.getWidth() - gap * (n - 1)) / float (n);
     const float w = juce::jmax (float (minChipW), even);
     return juce::Rectangle<int> (row.getX() - scrollX + juce::roundToInt (float (index) * (w + float (gap))),
@@ -1960,7 +1960,7 @@ int SignalPath::contentWidth() const
 {
     const int n = chain.numStages();
     if (n <= 0) return 0;
-    const int gap = 10;
+    const int gap = 7;
     const float even = float (getWidth() - gap * (n - 1)) / float (n);
     const float w = juce::jmax (float (minChipW), even);
     return juce::roundToInt (float (n) * w) + gap * (n - 1);
@@ -1989,31 +1989,24 @@ int SignalPath::chipAt (juce::Point<int> p) const
 void SignalPath::paint (juce::Graphics& g)
 {
     auto title = getLocalBounds().removeFromTop (titleH);
-    g.setColour (Dine::ink3);
-    g.setFont (capsFont (10.0f, 700));
-    const juce::String label = "SIGNAL PATH";
-    g.drawText (label, title.removeFromLeft (Dine::textWidth (capsFont (10.0f, 700), label)), juce::Justification::centredLeft);
-    title.removeFromLeft (14);
-
+    Dine::drawSection (g, title.removeFromLeft (110), "SIGNAL PATH");
     auto legend = [&] (const juce::String& text, juce::Colour c)
     {
         const int w = Dine::textWidth (Dine::text (11.0f), text) + 16;
         auto r = title.removeFromRight (w);
         g.setColour (c);
-        g.fillRect (r.removeFromLeft (7).withSizeKeepingCentre (6, 6));
+        g.fillEllipse (r.removeFromLeft (7).withSizeKeepingCentre (6, 6).toFloat());
         r.removeFromLeft (4);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (11.0f));
         g.drawText (text, r, juce::Justification::centredLeft);
         title.removeFromRight (14);
     };
-    legend ("hand-edited", Dine::warn);
-    legend ("tuned by DINE", Dine::accent);
-
-    g.setColour (Dine::ink3);
+    legend ("hand-edited", Dine::monitor);
+    legend ("tuned by DLIVE", Dine::accent);
+    g.setColour (Dine::ink4);
     g.setFont (Dine::text (12.0f));
-    g.drawText ("Click a stage to work on it. The lamp switches it in and out.", title,
-                juce::Justification::centredLeft, true);
+    g.drawText ("Click a stage to work on it. The lamp switches it in and out.", title, juce::Justification::centredLeft, true);
 
     const auto& views = chain.stageViews();
     juce::Graphics::ScopedSaveState clipToRow (g);
@@ -2025,60 +2018,41 @@ void SignalPath::paint (juce::Graphics& g)
         const bool sel = i == chain.selectedStage();
         auto chip = chipBounds (i);
 
-        Dine::fillRounded (g, chip.toFloat(), sel ? juce::Colours::white.withAlpha (0.09f)
-                                                  : v.on ? juce::Colours::white.withAlpha (hover == i ? 0.07f : 0.035f)
-                                                         : juce::Colours::white.withAlpha (hover == i ? 0.05f : 0.015f),
-                           Dine::Radius::card);
-        Dine::hairlineRounded (g, chip.toFloat(), sel ? Dine::accent.withAlpha (0.85f) : Dine::hair, Dine::Radius::card);
+        // The chip's ground says where its setting came from: tuned, hand-edited, or not used.
+        juce::Colour ground = ! v.on ? Dine::card : v.edited ? Dine::editGround : Dine::soloGround;
+        if (hover == i) ground = ground.brighter (0.06f);
+        Dine::fillRounded (g, chip.toFloat(), ground, Dine::Radius::control);
+        if (sel) Dine::hairlineRounded (g, chip.toFloat(), Dine::accent.withAlpha (0.9f), Dine::Radius::control);
 
-        auto r = chip.reduced (7, 8);
-        auto top = r.removeFromTop (10);
-        auto lamp = top.removeFromLeft (10).withSizeKeepingCentre (8, 8).toFloat();
-        if (v.switchable)
-        {
-            g.setColour (v.on ? Dine::accent : juce::Colours::white.withAlpha (0.16f));
-            g.fillEllipse (lamp);
-        }
-        else
-        {
-            g.setColour (juce::Colours::white.withAlpha (0.16f));
-            g.drawEllipse (lamp.reduced (0.5f), 1.0f);
-        }
+        auto r = chip.reduced (10, 10);
+        auto top = r.removeFromTop (14);
+        auto lamp = top.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat();
+        g.setColour (! v.on ? Dine::ink4 : v.edited ? Dine::monitor : Dine::accent);
+        if (v.switchable || v.on) g.fillEllipse (lamp);
+        else g.drawEllipse (lamp.reduced (0.5f), 1.0f);
+        top.removeFromLeft (6);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (9.0f));
         g.drawText (juce::String (i + 1).paddedLeft ('0', 2), top, juce::Justification::centredRight);
+        top.removeFromRight (18);
+        const juce::String name = v.label.substring (0, 1) + v.label.substring (1).toLowerCase();
+        g.setColour (v.on ? Dine::ink : Dine::ink3);
+        g.setFont (Dine::text (12.0f, 500));
+        g.drawFittedText (name, top, juce::Justification::centredLeft, 1, 0.7f);
 
         r.removeFromTop (5);
-        Dine::drawIcon (g, v.icon, r.removeFromTop (17).toFloat().removeFromLeft (17.0f),
-                        ! v.on ? Dine::ink4 : sel ? Dine::accent : Dine::glyph);
-        r.removeFromTop (4);
-        g.setColour (v.on ? Dine::ink : Dine::ink3);
-        g.setFont (Dine::text (10.0f, 700).withExtraKerningFactor (0.05f));
-        // A long name (TRANSIENT) is squeezed rather than cut: a chip you cannot read is
-        // a chip you cannot pick.
-        g.drawFittedText (v.label, r.removeFromTop (14), juce::Justification::topLeft, 1, 0.62f);
-        g.setColour (v.on ? Dine::ink3 : Dine::ink4);
-        g.setFont (Dine::mono (9.5f));
-        g.drawText (v.value, r.removeFromTop (13), juce::Justification::topLeft, true);
+        g.setColour (v.on ? Dine::ink2 : Dine::ink4);
+        g.setFont (Dine::mono (11.0f, 500));
+        g.drawText (v.value, r.removeFromTop (14), juce::Justification::centredLeft, true);
 
-        // Along the foot: how hard the stage is working, and where its settings came from.
-        auto foot = r.removeFromBottom (3);
-        auto mark = foot.removeFromRight (6);
-        if (v.grDb > 0.05f)
+        // Along the foot: how hard the stage is working.
+        auto bar = r.removeFromBottom (3);
+        Dine::fillRounded (g, bar.toFloat(), Dine::hair, 1.5f);
+        if (v.on)
         {
-            g.setColour (v.grDb > 8.0f ? Dine::warn : Dine::accent);
-            const int w = juce::jlimit (1, foot.getWidth(), juce::roundToInt (foot.getWidth() * juce::jlimit (0.0f, 1.0f, v.grDb / 15.0f)));
-            g.fillRect (foot.removeFromRight (w));
-        }
-        g.setColour (v.edited ? Dine::warn : v.on ? Dine::accent.withAlpha (0.55f) : juce::Colours::white.withAlpha (0.12f));
-        g.fillRect (mark.withSizeKeepingCentre (5, 5));
-
-        if (i + 1 < int (views.size()))
-        {
-            auto arrow = juce::Rectangle<int> (chip.getRight(), chip.getY(), 10, chip.getHeight());
-            g.setColour (v.on ? Dine::accent.withAlpha (0.55f) : Dine::ink4);
-            g.setFont (Dine::text (11.0f));
-            g.drawText (juce::String (juce::CharPointer_UTF8 ("\xe2\x80\xba")), arrow, juce::Justification::centred);
+            const float work = v.grDb > 0.05f ? juce::jlimit (0.0f, 1.0f, v.grDb / 15.0f) : (v.switchable ? 0.25f : 0.5f);
+            Dine::fillRounded (g, bar.toFloat().withWidth (juce::jmax (3.0f, bar.getWidth() * work)),
+                               v.grDb > 8.0f ? Dine::warn : v.edited ? Dine::monitor : Dine::accent, 1.5f);
         }
     }
 

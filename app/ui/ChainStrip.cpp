@@ -132,18 +132,16 @@ void ChainStrip::setNote (const juce::String& text)
 void ChainStrip::paint (juce::Graphics& g)
 {
     auto r = getLocalBounds();
-    g.setColour (Dine::toolbar);
+    g.setColour (Dine::window);
     g.fillRect (r);
-    Dine::drawRule (g, r.withHeight (1), Dine::hair);
 
-    auto row = r.reduced (14, 0);
+    auto row = r.reduced (18, 0);
 
-    // the right-hand note first, so the chain never runs under it
     if (note.isNotEmpty())
     {
-        const auto noteFont = Dine::mono (10.5f);
+        const auto noteFont = Dine::caps (10.0f, 0.08f);
         auto cell = row.removeFromRight (juce::jmin (row.getWidth() / 2, Dine::textWidth (noteFont, note)));
-        g.setColour (Dine::ink3);
+        g.setColour (Dine::warn);
         g.setFont (noteFont);
         g.drawText (note, cell, juce::Justification::centredRight);
         row.removeFromRight (14);
@@ -152,64 +150,37 @@ void ChainStrip::paint (juce::Graphics& g)
     if (! hasSource)
     {
         g.setColour (Dine::ink4);
-        g.setFont (Dine::text (11.5f));
+        g.setFont (Dine::text (12.0f));
         g.drawText (empty, row, juce::Justification::centredLeft, true);
         return;
     }
 
-    g.setColour (tint);
-    g.fillRect (row.removeFromLeft (3).withSizeKeepingCentre (3, 15));
-    row.removeFromLeft (9);
-
-    const auto nameFont = Dine::text (11.5f, 600);
-    g.setColour (Dine::ink);
+    // The name, in the group's colour when it is hovered so the strip reads as one thing
+    // that opens the Inspector.
+    const auto nameFont = Dine::text (13.0f, 600);
+    g.setColour (hover ? Dine::ink : Dine::ink2);
     g.setFont (nameFont);
-    g.drawText (name, row.removeFromLeft (juce::jmin (170, Dine::textWidth (nameFont, name))),
+    g.drawText (name, row.removeFromLeft (juce::jmin (180, Dine::textWidth (nameFont, name))),
                 juce::Justification::centredLeft, true);
-    row.removeFromLeft (10);
+    row.removeFromLeft (8);
 
-    // The chain, stage by stage, with an arrow between. Stages that are off are still shown
-    // - a chain you can read is a chain whose gaps you can see - but they are drawn quiet.
-    const auto labelFont = Dine::text (9.5f, 700).withExtraKerningFactor (0.07f);
-    const auto valueFont = Dine::mono (9.5f);
+    // The chain, stage by stage: a chip per stage on the control plane, 11 px, the value
+    // beside the name. A stage that is off stays in the row, quiet, so the gaps can be read.
+    const auto font = Dine::text (11.0f);
     for (size_t i = 0; i < stages.size(); ++i)
     {
         const auto& s = stages[i];
-        const int labelW = Dine::textWidth (labelFont, s.label);
-        const int valueW = Dine::textWidth (valueFont, s.value);
-        const int chipW = 7 + 4 + 5 + labelW + 5 + valueW + 7;
-        if (chipW + 16 > row.getWidth()) break;
-
-        auto chip = row.removeFromLeft (chipW).withSizeKeepingCentre (chipW, 20);
+        const juce::String label = s.label.substring (0, 1) + s.label.substring (1).toLowerCase();
+        const juce::String textValue = label + " " + s.value;
+        const int chipW = Dine::textWidth (font, textValue) + 18;
+        if (chipW + 8 > row.getWidth()) break;
+        auto chip = row.removeFromLeft (chipW).withSizeKeepingCentre (chipW, 24);
         const bool out = s.label == "OUT";
-        Dine::fillRounded (g, chip.toFloat(), s.active ? (out ? Dine::accent.withAlpha (0.14f)
-                                                              : juce::Colours::white.withAlpha (0.06f))
-                                                       : juce::Colours::white.withAlpha (0.025f),
-                           Dine::Radius::chip);
-        Dine::hairlineRounded (g, chip.toFloat(), s.active ? (out ? Dine::accent.withAlpha (0.4f) : Dine::hair)
-                                                           : Dine::hairSoft, Dine::Radius::chip);
-
-        auto inner = chip.reduced (7, 0);
-        auto dot = inner.removeFromLeft (4).withSizeKeepingCentre (4, 4);
-        g.setColour (s.active ? (out ? Dine::accent : tint) : juce::Colours::white.withAlpha (0.14f));
-        g.fillEllipse (dot.toFloat());
-        inner.removeFromLeft (5);
-
-        g.setColour (s.active ? Dine::ink2 : Dine::ink4);
-        g.setFont (labelFont);
-        g.drawText (s.label, inner.removeFromLeft (labelW), juce::Justification::centredLeft);
-        inner.removeFromLeft (5);
-        g.setColour (s.active ? Dine::ink3 : Dine::ink4);
-        g.setFont (valueFont);
-        g.drawText (s.value, inner, juce::Justification::centredLeft);
-
-        if (i + 1 < stages.size())
-        {
-            auto arrow = row.removeFromLeft (14);
-            g.setColour (juce::Colours::white.withAlpha (0.22f));
-            g.setFont (Dine::text (10.0f));
-            g.drawText (juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92")), arrow, juce::Justification::centred);
-        }
+        Dine::fillRounded (g, chip.toFloat(), Dine::control, Dine::Radius::chip);
+        g.setColour (! s.active ? Dine::ink4 : out ? Dine::accent : Dine::ink2);
+        g.setFont (font);
+        g.drawText (textValue, chip, juce::Justification::centred);
+        row.removeFromLeft (8);
     }
 }
 

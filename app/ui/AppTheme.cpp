@@ -4,58 +4,21 @@ namespace livemix
 {
 
 // ============================================================================ type
-namespace
-{
-    juce::String uiFamily()
-    {
-        static const juce::String name = []
-        {
-            const auto all = juce::Font::findAllTypefaceNames();
-            for (const char* candidate : { "SF Pro Text", "SF Pro", "SF Pro Display", "Helvetica Neue" })
-                if (all.contains (candidate)) return juce::String (candidate);
-            return juce::Font::getDefaultSansSerifFontName();
-        }();
-        return name;
-    }
-
-    juce::String monoFamily()
-    {
-        static const juce::String name = []
-        {
-            const auto all = juce::Font::findAllTypefaceNames();
-            for (const char* candidate : { "SF Mono", "Menlo", "SFMono-Regular" })
-                if (all.contains (candidate)) return juce::String (candidate);
-            return juce::Font::getDefaultMonospacedFontName();
-        }();
-        return name;
-    }
-
-    // Nearest style the installed family actually has ("Semibold" on SF, "Bold" elsewhere).
-    juce::String styleFor (const juce::String& family, int weight)
-    {
-        const auto styles = juce::Font::findAllTypefaceStyles (family);
-        auto pick = [&] (std::initializer_list<const char*> wanted) -> juce::String
-        {
-            for (const char* s : wanted) if (styles.contains (s)) return juce::String (s);
-            return "Regular";
-        };
-        if (weight >= 700) return pick ({ "Bold", "Semibold", "Medium" });
-        if (weight >= 600) return pick ({ "Semibold", "Bold", "Medium" });
-        if (weight >= 500) return pick ({ "Medium", "Semibold", "Regular" });
-        return pick ({ "Regular" });
-    }
-}
-
+// Barlow and IBM Plex Mono, embedded (LiveMixFonts): the same faces the design file loads,
+// so the booth Mac reads exactly like the mock whatever it has installed.
 juce::Font Dine::text (float px, int weight)
 {
-    const auto family = uiFamily();
-    return juce::Font (juce::FontOptions().withName (family).withStyle (styleFor (family, weight)).withPointHeight (px));
+    return LiveMixLookAndFeel::body (px, weight, 0.0f);
 }
 
 juce::Font Dine::mono (float px, int weight)
 {
-    const auto family = monoFamily();
-    return juce::Font (juce::FontOptions().withName (family).withStyle (styleFor (family, weight)).withPointHeight (px));
+    return LiveMixLookAndFeel::mono (px, weight, 0.0f);
+}
+
+juce::Font Dine::caps (float px, float tracking, int weight)
+{
+    return LiveMixLookAndFeel::body (px, weight, 0.0f).withExtraKerningFactor (tracking);
 }
 
 int Dine::textWidth (const juce::Font& f, const juce::String& t)
@@ -76,50 +39,35 @@ void Dine::hairlineRounded (juce::Graphics& g, juce::Rectangle<float> r, juce::C
     g.drawRoundedRectangle (r.reduced (0.25f), radius, 0.5f);
 }
 
-void Dine::drawCard (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour fillColour, juce::Colour edge)
+void Dine::drawCard (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour fillColour, juce::Colour edgeColour)
 {
     fillRounded (g, r, fillColour, Radius::card);
-    hairlineRounded (g, r, edge, Radius::card);
+    // The v2 surfaces carry no outline. An edge is drawn only when a caller gave it a meaning
+    // of its own - a solo, a warning - which is never one of the plain hairlines.
+    if (edgeColour != hair && edgeColour != hairSoft && edgeColour != hairStrong && edgeColour != edge
+        && ! edgeColour.isTransparent())
+        hairlineRounded (g, r, edgeColour, Radius::card);
 }
 
 void Dine::drawWell (juce::Graphics& g, juce::Rectangle<float> r, float radius)
 {
-    // On a black interface a recess is lighter than what surrounds it, not darker - the
-    // site's meter wells and fader slots are all a step up from the panel they sit in -
-    // so the "cut" is drawn with a dark lip rather than with a dark fill.
     fillRounded (g, r, well, radius);
-    g.setColour (juce::Colours::black.withAlpha (0.45f));
-    g.drawRoundedRectangle (r.reduced (0.25f), radius, 0.5f);
 }
 
 void Dine::drawFilled (juce::Graphics& g, juce::Rectangle<float> r, float radius, bool hover, bool down)
 {
-    // The one action on a surface, lit from above: a short lime ramp, a ring of its own
-    // colour and a soft throw under it. It is the only lit object in the window, which is
-    // why the rest of the console can stay flat and still have somewhere to look.
-    const float lift = down ? -0.10f : hover ? 0.06f : 0.0f;
-    juce::ColourGradient grad (accentTopLit.brighter (lift), 0.0f, r.getY(),
-                               accentBotLit.brighter (lift), 0.0f, r.getBottom(), false);
-    g.setGradientFill (grad);
-    g.fillRoundedRectangle (r, radius);
-    g.setColour (accent.withAlpha (0.45f));
-    g.drawRoundedRectangle (r.reduced (0.25f), radius, 0.5f);
+    fillRounded (g, r, down ? accentDeep : hover ? accentHover : accent, radius);
 }
 
 void Dine::drawStandard (juce::Graphics& g, juce::Rectangle<float> r, float radius, bool hover, bool down)
 {
-    fillRounded (g, r, card, radius);
-    fillRounded (g, r, down ? fillHover : hover ? fillSoft : juce::Colours::transparentBlack, radius);
-    hairlineRounded (g, r, hover || down ? hairStrong : hair, radius);
+    fillRounded (g, r, down ? controlOn : hover ? controlHot : control, radius);
 }
 
 void Dine::drawSheet (juce::Graphics& g, juce::Rectangle<float> r, float radius)
 {
-    // The site frames its product with a deep, soft shadow and one bright edge; a sheet
-    // over a workspace is the same object.
-    juce::DropShadow (juce::Colours::black.withAlpha (0.72f), 46, { 0, 18 }).drawForRectangle (g, r.toNearestInt());
+    juce::DropShadow (juce::Colours::black.withAlpha (0.65f), 60, { 0, 28 }).drawForRectangle (g, r.toNearestInt());
     fillRounded (g, r, sheet, radius);
-    hairlineRounded (g, r, edge, radius);
 }
 
 void Dine::drawRule (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour c)
@@ -128,121 +76,91 @@ void Dine::drawRule (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour c)
     g.fillRect (float (r.getX()), float (r.getY()), float (r.getWidth()), 0.5f);
 }
 
-// ---------------------------------------------------------------- the milled bands
-// One helper per band, because the alternative is the same four calls copied into six
-// files and one of them drifting. Each is a short vertical gradient (never over ~120 px:
-// a gradient across a whole console is milliseconds per frame and buys nothing), one
-// inset highlight along the top edge, and the hairline that closes it.
-static void band (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour top, juce::Colour bottom,
-                  float rampEnd, juce::Colour closing, bool closeAtBottom, float highlight)
-{
-    juce::ColourGradient grad (top, 0.0f, float (r.getY()), bottom, 0.0f, float (r.getY()) + float (r.getHeight()) * rampEnd, false);
-    g.setGradientFill (grad);
-    g.fillRect (r);
-    if (highlight > 0.0f)
-    {
-        g.setColour (juce::Colours::white.withAlpha (highlight));
-        g.fillRect (float (r.getX()), float (r.getY()), float (r.getWidth()), 1.0f);
-    }
-    g.setColour (closing);
-    g.fillRect (float (r.getX()), closeAtBottom ? float (r.getBottom()) - 0.5f : float (r.getY()),
-                float (r.getWidth()), 0.5f);
-}
+void Dine::drawChrome (juce::Graphics& g, juce::Rectangle<int> r)      { g.setColour (toolbar); g.fillRect (r); }
+void Dine::drawHeaderBand (juce::Graphics& g, juce::Rectangle<int> r)  { g.setColour (pageBar); g.fillRect (r); }
+void Dine::drawStatusBand (juce::Graphics& g, juce::Rectangle<int> r)  { g.setColour (toolbar); g.fillRect (r); }
+void Dine::drawPanelGround (juce::Graphics& g, juce::Rectangle<int> r) { g.setColour (rail); g.fillRect (r); }
 
-void Dine::drawChrome (juce::Graphics& g, juce::Rectangle<int> r)
+void Dine::drawRaisedCard (juce::Graphics& g, juce::Rectangle<float> r, bool, juce::Colour edgeColour)
 {
-    band (g, r, chromeTop, toolbar, 0.78f, hair, true, 0.06f);
-}
-
-void Dine::drawHeaderBand (juce::Graphics& g, juce::Rectangle<int> r)
-{
-    band (g, r, headerTop, toolbar, 1.0f, hair, true, 0.04f);
-}
-
-void Dine::drawStatusBand (juce::Graphics& g, juce::Rectangle<int> r)
-{
-    band (g, r, footTop, footBottom, 1.0f, hair, false, 0.0f);
-    g.setColour (juce::Colours::white.withAlpha (0.04f));
-    g.fillRect (float (r.getX()), float (r.getY()) + 0.5f, float (r.getWidth()), 1.0f);
-}
-
-void Dine::drawPanelGround (juce::Graphics& g, juce::Rectangle<int> r)
-{
-    // Taller than a band, so the ramp is spent in the first 240 px and the rest is flat:
-    // a rail is usually the height of the window and a full-height gradient is wasted.
-    const float ramp = float (juce::jmin (r.getHeight(), 240));
-    juce::ColourGradient grad (railTop, 0.0f, float (r.getY()), toolbar, 0.0f, float (r.getY()) + ramp, false);
-    g.setGradientFill (grad);
-    g.fillRect (r.withHeight (juce::jmin (r.getHeight(), int (ramp))));
-    if (r.getHeight() > int (ramp))
-    {
-        g.setColour (toolbar);
-        g.fillRect (r.withTrimmedTop (int (ramp)));
-    }
-}
-
-void Dine::drawRaisedCard (juce::Graphics& g, juce::Rectangle<float> r, bool shadow, juce::Colour edgeColour)
-{
-    if (shadow)
-        juce::DropShadow (juce::Colours::black.withAlpha (0.34f), 22, { 0, 10 }).drawForRectangle (g, r.toNearestInt());
-    juce::ColourGradient grad (cardTop, 0.0f, r.getY(), cardBottom, 0.0f, r.getBottom(), false);
-    g.setGradientFill (grad);
-    g.fillRoundedRectangle (r, Radius::window);
-    hairlineRounded (g, r, edgeColour, Radius::window);
-    // The light above: one bright pixel inside the top edge, clipped to the corner radius.
-    juce::Graphics::ScopedSaveState save (g);
-    juce::Path rounded;
-    rounded.addRoundedRectangle (r, Radius::window);
-    g.reduceClipRegion (rounded);
-    g.setColour (juce::Colours::white.withAlpha (0.04f));
-    g.fillRect (r.getX(), r.getY() + 0.5f, r.getWidth(), 1.0f);
+    drawCard (g, r, card, edgeColour);
 }
 
 void Dine::drawInsetWell (juce::Graphics& g, juce::Rectangle<float> r, float radius)
 {
-    fillRounded (g, r, desk, radius);
-    g.setColour (juce::Colours::white.withAlpha (0.06f));
-    g.drawRoundedRectangle (r.reduced (0.25f), radius, 0.5f);
-    g.setColour (juce::Colours::black.withAlpha (0.55f));
-    g.fillRect (r.getX() + radius, r.getY() + 0.5f, juce::jmax (0.0f, r.getWidth() - radius * 2.0f), 1.0f);
+    fillRounded (g, r, well, radius);
 }
 
 void Dine::drawSegmentTrack (juce::Graphics& g, juce::Rectangle<int> r)
 {
-    auto rf = r.toFloat();
-    fillRounded (g, rf, juce::Colours::black.withAlpha (0.42f), 8.0f);
-    hairlineRounded (g, rf, hairSoft, 8.0f);
-    g.setColour (juce::Colours::black.withAlpha (0.45f));
-    g.fillRect (rf.getX() + 8.0f, rf.getY() + 1.0f, juce::jmax (0.0f, rf.getWidth() - 16.0f), 1.0f);
+    fillRounded (g, r.toFloat(), menubar, Radius::control);
+}
+
+void Dine::drawSection (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& label)
+{
+    g.setColour (ink4);
+    g.setFont (caps (12.0f, 0.08f));
+    g.drawText (label, r, juce::Justification::centredLeft, true);
+}
+
+juce::Colour Dine::mix (juce::Colour tint, float amount, juce::Colour over) noexcept
+{
+    return over.overlaidWith (tint.withAlpha (amount));
+}
+
+void Dine::drawStatusChip (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& label, juce::Colour colour, float px)
+{
+    fillRounded (g, r, mix (colour, 0.20f), Radius::chip);
+    g.setColour (colour);
+    g.setFont (caps (px, 0.06f, 500));
+    g.drawText (label, r, juce::Justification::centred, true);
+}
+
+juce::ColourGradient Dine::meterGradient (juce::Rectangle<float> r, bool vertical)
+{
+    // to top: accent 0 -> 66 %, yellow at 84 %, red at 100 %
+    juce::ColourGradient grad (accent, vertical ? r.getX() : r.getX(), vertical ? r.getBottom() : r.getY(),
+                               crit, vertical ? r.getX() : r.getRight(), vertical ? r.getY() : r.getY(), false);
+    grad.addColour (0.66, accent);
+    grad.addColour (0.84, hot);
+    return grad;
+}
+
+void Dine::fillMeter (juce::Graphics& g, juce::Rectangle<float> wellArea, float level, bool vertical, bool muted, float radius)
+{
+    fillRounded (g, wellArea, well, radius);
+    if (level <= 0.001f) return;
+    auto lit = vertical ? wellArea.withTrimmedTop (wellArea.getHeight() * (1.0f - level))
+                        : wellArea.withWidth (juce::jmax (2.0f, wellArea.getWidth() * level));
+    if (muted)
+    {
+        g.setColour (ink4);
+        g.fillRoundedRectangle (lit, radius);
+        return;
+    }
+    // The gradient is fixed to the well, not to the lit part, so the yellow and the red only
+    // appear when the level actually reaches them.
+    g.setGradientFill (meterGradient (wellArea, vertical));
+    g.fillRoundedRectangle (lit, radius);
 }
 
 juce::Colour Dine::levelColour (float db) noexcept
 {
-    // The site's meter, in the site's three bands: the signal is the lime, the last few
-    // dB before the ceiling are yellow, and over it is red.
     return db >= -1.0f ? crit : db >= -6.0f ? hot : accent;
 }
 
 juce::Colour Dine::busTint (MixBus b) noexcept
 {
-    // The hues are the site's own clip colours, lifted enough to hold their identity at
-    // the 2-4 px a band, a clip edge or a dot actually gets. None of them is the lime.
     switch (b)
     {
-        case MixBus::Drums:  return juce::Colour (0xffe09a4b);   // the site's #c8883b
-        case MixBus::Bass:   return juce::Colour (0xff8e80ff);   // the site's violet
-        case MixBus::Music:  return juce::Colour (0xff6eafff);   // the site's blue
-        case MixBus::Vocals: return juce::Colour (0xff56b98d);   // the site's #479a75
-        // Speech is a voice but not a singer, so it takes a hue of its own - close enough to
-        // the vocal green to read as "someone on a microphone", far enough that a glance at a
-        // bank never confuses the pastor with the choir.
-        case MixBus::Speech: return juce::Colour (0xffc98fb0);
-        // The room. A warm neutral, on purpose: ambience is the one group that is meant to sit
-        // behind everything else, and a band of it across a console should read as background
-        // rather than as another instrument competing for attention.
-        case MixBus::Ambience: return juce::Colour (0xff8f9384);
-        case MixBus::Master: return juce::Colour (0xffd7dad5);
-        case MixBus::Count:  break;
+        case MixBus::Drums:    return juce::Colour (0xffe09a4b);
+        case MixBus::Bass:     return juce::Colour (0xff8e80ff);
+        case MixBus::Music:    return juce::Colour (0xff6eafff);
+        case MixBus::Vocals:   return juce::Colour (0xff57b98d);
+        case MixBus::Speech:   return juce::Colour (0xffc98fb0);
+        case MixBus::Ambience: return juce::Colour (0xffa8b0bc);
+        case MixBus::Master:   return juce::Colour (0xffa8b0bc);
+        case MixBus::Count:    break;
     }
     return ink2;
 }
@@ -255,10 +173,6 @@ void Dine::dragOnly (juce::Slider& s)
 
 void Dine::nativeScrolling (juce::Viewport& v)
 {
-    // macOS scales a precise trackpad delta by 0.5/256 before JUCE sees it, and Viewport
-    // then moves 14 x its single step per unit: 14 * 37 * (0.5/256) = 1.0, so the surface
-    // travels exactly as far as the fingers do. At the default step of 16 it travels 0.44
-    // of that, which is why a long console felt like wading.
     v.setSingleStepSizes (37, 37);
 }
 
@@ -517,34 +431,18 @@ void Dine::drawSelectedRow (juce::Graphics& g, juce::Rectangle<int> r)
 {
     g.setColour (selected);
     g.fillRect (r);
-    g.setColour (accent);
-    g.fillRect (float (r.getX()), float (r.getY()) + 2.0f, 2.0f, float (r.getHeight()) - 4.0f);
 }
 
 void Dine::drawCaption (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& label)
 {
-    g.setColour (ink3);
-    g.setFont (text (11.0f, 500).withExtraKerningFactor (0.02f));
-    g.drawText (label, r, juce::Justification::centredLeft, true);
+    drawSection (g, r, label.toUpperCase());
 }
 
 void Dine::drawRadio (juce::Graphics& g, juce::Rectangle<float> r, bool on)
 {
-    auto dot = r.withSizeKeepingCentre (15.0f, 15.0f);
-    if (on)
-    {
-        g.setColour (accent);
-        g.fillEllipse (dot);
-        g.setColour (onAccent);
-        g.fillEllipse (dot.withSizeKeepingCentre (5.0f, 5.0f));
-    }
-    else
-    {
-        g.setColour (well);
-        g.fillEllipse (dot);
-        g.setColour (hairStrong);
-        g.drawEllipse (dot.reduced (0.5f), 1.0f);
-    }
+    auto dot = r.withSizeKeepingCentre (14.0f, 14.0f);
+    g.setColour (on ? accent : panMark);
+    g.fillEllipse (dot);
 }
 
 void Dine::drawStackedBar (juce::Graphics& g, juce::Rectangle<int> r, const std::vector<BarSlice>& slices)
@@ -568,10 +466,20 @@ void Dine::drawStackedBar (juce::Graphics& g, juce::Rectangle<int> r, const std:
     g.restoreState();
 }
 
+void Dine::drawDropChevron (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c)
+{
+    juce::Path p;
+    const float cx = r.getCentreX(), cy = r.getCentreY();
+    p.addTriangle (cx - 4.0f, cy - 2.5f, cx + 4.0f, cy - 2.5f, cx, cy + 2.5f);
+    g.setColour (c);
+    g.fillPath (p);
+}
+
 // ============================================================================ DineChip
 DineChip::DineChip (const juce::String& t, juce::Colour d) : juce::Button (t), label (t), dot (d)
 {
     setClickingTogglesState (false);
+    setWantsKeyboardFocus (false);
 }
 
 int DineChip::idealWidth() const
@@ -581,25 +489,14 @@ int DineChip::idealWidth() const
 
 void DineChip::drawTrack (juce::Graphics& g, juce::Rectangle<int> r)
 {
-    Dine::fillRounded (g, r.toFloat(), Dine::fillSoft, 6.0f);
-    Dine::hairlineRounded (g, r.toFloat(), Dine::hairSoft, 6.0f);
+    Dine::fillRounded (g, r.toFloat(), Dine::menubar, Dine::Radius::control);
 }
 
 void DineChip::paintButton (juce::Graphics& g, bool over, bool)
 {
     const bool on = getToggleState();
-    auto r = getLocalBounds().toFloat().reduced (1.5f);
-    // Chosen is a lit plane with a hairline, never a colour: the lime belongs to what the
-    // mix is doing, not to which filter the list is showing.
-    if (on)
-    {
-        Dine::fillRounded (g, r, Dine::selected, Dine::Radius::chip);
-        Dine::hairlineRounded (g, r, Dine::hair, Dine::Radius::chip);
-    }
-    else if (over)
-    {
-        Dine::fillRounded (g, r, Dine::fillSoft, Dine::Radius::chip);
-    }
+    auto r = getLocalBounds().toFloat();
+    if (on) Dine::fillRounded (g, r, Dine::selected, Dine::Radius::control);
 
     auto inner = getLocalBounds().reduced (dot.isTransparent() ? 10 : 8, 0);
     if (! dot.isTransparent())
@@ -609,49 +506,51 @@ void DineChip::paintButton (juce::Graphics& g, bool over, bool)
         g.fillEllipse (d);
         inner.removeFromLeft (6);
     }
-    g.setColour (on ? Dine::ink : Dine::ink2);
-    g.setFont (Dine::text (12.0f, on ? 500 : 400));
-    g.drawText (label, inner, juce::Justification::centredLeft, true);
+    g.setColour (on || over ? Dine::ink : Dine::ink3);
+    g.setFont (Dine::text (12.0f, 500));
+    g.drawText (label, inner, juce::Justification::centred, true);
 }
 
 // ============================================================================ pills
 float Dine::pillWidth (const juce::String& text, bool withIcon)
 {
-    return float (textWidth (Dine::text (11.0f, 600), text)) + (withIcon ? 37.0f : 18.0f);
+    return float (textWidth (caps (10.0f, 0.06f, 500), text)) + (withIcon ? 37.0f : 16.0f);
 }
 
 void Dine::drawPill (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& label, juce::Colour colour, Icon icon)
 {
-    fillRounded (g, r, colour.withAlpha (0.13f), Radius::pill);
-    hairlineRounded (g, r, colour.withAlpha (0.28f), Radius::pill);
-    auto inner = r.reduced (9.0f, 0.0f);
+    fillRounded (g, r, mix (colour, 0.20f), Radius::pill);
+    auto inner = r.reduced (8.0f, 0.0f);
     if (icon != Icon::None)
     {
         drawIcon (g, icon, inner.removeFromLeft (13.0f).withSizeKeepingCentre (13.0f, 13.0f), colour);
         inner.removeFromLeft (6.0f);
     }
     g.setColour (colour);
-    g.setFont (text (11.0f, 600));
+    g.setFont (caps (10.0f, 0.06f, 500));
     g.drawText (label, inner, juce::Justification::centredLeft);
 }
 
 // ============================================================================ PanBar
 void PanBar::paint (juce::Graphics& g)
 {
-    auto r = getLocalBounds().toFloat().withSizeKeepingCentre (float (getWidth()), 5.0f);
-    Dine::drawWell (g, r, 2.5f);
+    auto r = getLocalBounds().toFloat().withSizeKeepingCentre (float (getWidth()), 4.0f);
+    Dine::fillRounded (g, r, Dine::control, 2.0f);
     const float centre = r.getCentreX();
-    const float x = centre + value * (r.getWidth() * 0.5f - 3.0f);
-    g.setColour (tint.withAlpha (0.85f));
+    const float x = centre + value * (r.getWidth() * 0.5f - 5.5f);
+    g.setColour (Dine::panMark);
+    g.fillRect (centre - 0.5f, r.getY() - 3.0f, 1.0f, r.getHeight() + 6.0f);
     const float lo = juce::jmin (centre, x), hi = juce::jmax (centre, x);
-    if (hi - lo > 0.5f) g.fillRect (juce::Rectangle<float> (lo, r.getY(), hi - lo, r.getHeight()));
-    g.setColour (juce::Colours::white.withAlpha (0.22f));
-    g.fillRect (centre - 0.5f, r.getY() - 2.0f, 1.0f, r.getHeight() + 4.0f);
-    auto knob = juce::Rectangle<float> (x - 3.5f, r.getCentreY() - 5.0f, 7.0f, 10.0f);
-    g.setColour (juce::Colours::black.withAlpha (0.45f));
-    g.fillRoundedRectangle (knob.translated (0.0f, 1.0f), 2.0f);
-    g.setColour (juce::Colour (0xffe6e9e1));
-    g.fillRoundedRectangle (knob, 2.0f);
+    if (hi - lo > 0.5f)
+    {
+        g.setColour (tint);
+        g.fillRoundedRectangle (juce::Rectangle<float> (lo, r.getY(), hi - lo, r.getHeight()), 2.0f);
+    }
+    auto knob = juce::Rectangle<float> (11.0f, 11.0f).withCentre ({ x, r.getCentreY() });
+    g.setColour (juce::Colours::black.withAlpha (0.55f));
+    g.fillEllipse (knob.translated (0.0f, 1.0f));
+    g.setColour (isEnabled() ? Dine::ink : Dine::ink3);
+    g.fillEllipse (knob);
 }
 
 void PanBar::mouseDoubleClick (const juce::MouseEvent&)
@@ -664,9 +563,9 @@ void PanBar::mouseDoubleClick (const juce::MouseEvent&)
 void PanBar::drag (const juce::MouseEvent& e)
 {
     if (! isEnabled()) return;
-    const float half = juce::jmax (1.0f, float (getWidth()) * 0.5f - 3.0f);
+    const float half = juce::jmax (1.0f, float (getWidth()) * 0.5f - 5.5f);
     const float v = juce::jlimit (-1.0f, 1.0f, (float (e.position.x) - float (getWidth()) * 0.5f) / half);
-    setValue (std::fabs (v) < 0.06f ? 0.0f : v);      // a detent at the centre
+    setValue (std::fabs (v) < 0.06f ? 0.0f : v);
     if (onChange) onChange (value);
 }
 
@@ -674,9 +573,12 @@ void PanBar::drag (const juce::MouseEvent& e)
 void DineMeter::setLevels (float peakDb, float holdDb, bool clip)
 {
     if (clip) clipped = true;
-    // Rise instantly, fall ~2 dB per frame: the reading survives a frame with no audio.
-    const float newPeak = juce::jmax (peakDb, peak - 2.0f);
-    const float newHold = juce::jmax (holdDb, hold - 1.0f);
+    // Rise at once, fall at 60 dB a second wherever the frame rate is.
+    const auto now = juce::Time::getMillisecondCounter();
+    const float dt = lastMs == 0 ? 1.0f / 30.0f : juce::jlimit (0.0f, 0.25f, float (now - lastMs) / 1000.0f);
+    lastMs = now;
+    const float newPeak = juce::jmax (peakDb, peak - 60.0f * dt);
+    const float newHold = juce::jmax (holdDb, hold - 30.0f * dt);
     if (std::abs (newPeak - peak) < 0.05f && std::abs (newHold - hold) < 0.05f) return;
     peak = newPeak; hold = newHold;
     repaint();
@@ -693,65 +595,34 @@ void DineMeter::paint (juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
     const bool vertical = b.getHeight() >= b.getWidth();
-    const float radius = juce::jmin (2.5f, juce::jmin (b.getWidth(), b.getHeight()) * 0.5f);
-    Dine::fillRounded (g, b, Dine::well, radius);
+    const float radius = juce::jmin (2.0f, juce::jmin (b.getWidth(), b.getHeight()) * 0.5f);
+    Dine::fillMeter (g, b, norm (peak), vertical, muted, radius);
 
-    const float level = norm (peak);
-    if (level > 0.001f)
-    {
-        if (vertical)
-        {
-            auto lit = b.withTrimmedTop (b.getHeight() * (1.0f - level));
-            if (style == Style::Bar)
-            {
-                g.setColour (muted ? Dine::ink4.withAlpha (0.55f) : Dine::levelColour (peak));
-                g.fillRoundedRectangle (lit, radius);
-            }
-            else
-            {
-                // Segments, coloured by where each one sits on the scale.
-                for (float y = b.getBottom() - 3.0f; y >= lit.getY() - 0.5f; y -= 3.0f)
-                {
-                    const float db = -60.0f + 60.0f * ((b.getBottom() - y) / b.getHeight());
-                    g.setColour (muted ? Dine::ink4.withAlpha (0.55f) : Dine::levelColour (db));
-                    g.fillRect (b.getX(), y, b.getWidth(), 1.8f);
-                }
-            }
-        }
-        else
-        {
-            g.setColour (muted ? Dine::ink4.withAlpha (0.55f) : Dine::levelColour (peak));
-            g.fillRoundedRectangle (b.withWidth (juce::jmax (2.0f, b.getWidth() * level)), radius);
-        }
-    }
-
-    // Peak hold.
     const float h = norm (hold);
-    if (h > 0.001f)
+    if (h > 0.001f && ! muted)
     {
-        g.setColour (muted ? juce::Colours::white.withAlpha (0.25f)
-                           : hold >= -0.2f ? Dine::crit : juce::Colours::white.withAlpha (0.82f));
-        if (vertical) g.fillRect (b.getX(), juce::jmax (b.getY(), b.getBottom() - b.getHeight() * h - 1.5f), b.getWidth(), 1.5f);
-        else          g.fillRect (juce::jmin (b.getRight() - 1.5f, b.getX() + b.getWidth() * h), b.getY(), 1.5f, b.getHeight());
+        g.setColour (hold >= -0.2f ? Dine::crit : juce::Colours::white.withAlpha (0.7f));
+        if (vertical) g.fillRect (b.getX(), juce::jmax (b.getY(), b.getBottom() - b.getHeight() * h - 1.0f), b.getWidth(), 1.0f);
+        else          g.fillRect (juce::jmin (b.getRight() - 1.0f, b.getX() + b.getWidth() * h), b.getY(), 1.0f, b.getHeight());
     }
     if (clipped)
     {
         g.setColour (Dine::crit);
-        if (vertical) g.fillRect (b.getX(), b.getY(), b.getWidth(), 2.5f);
-        else          g.fillRect (b.getRight() - 2.5f, b.getY(), 2.5f, b.getHeight());
+        if (vertical) g.fillRect (b.getX(), b.getY(), b.getWidth(), 2.0f);
+        else          g.fillRect (b.getRight() - 2.0f, b.getY(), 2.0f, b.getHeight());
     }
 }
 
 // ============================================================================ DineButton
 DineButton::DineButton (const juce::String& t, Style s) : juce::Button (t), style (s)
 {
-    setWantsKeyboardFocus (false);   // Space and Return belong to the transport, not to whatever was clicked last
+    setWantsKeyboardFocus (false);
 }
 
 int DineButton::idealWidth() const
 {
-    auto font = Dine::text (fontPx, caps || style == Style::Filled ? 600 : 400);
-    if (caps) font = font.withExtraKerningFactor (0.06f);
+    auto font = Dine::text (fontPx, caps || style == Style::Filled ? 600 : 500);
+    if (caps) font = font.withExtraKerningFactor (0.04f);
     return Dine::textWidth (font, caps ? getButtonText().toUpperCase() : getButtonText())
            + padX * 2 + (icon != Dine::Icon::None ? 21 : 0);
 }
@@ -760,61 +631,45 @@ void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
 {
     auto r = getLocalBounds().toFloat();
     const bool on = getToggleState();
+    const float radius = style == Style::Segment ? Dine::Radius::control : Dine::Radius::control;
 
     switch (style)
     {
         case Style::Filled:
             if (! isEnabled())
-            {
-                // A disabled default button is flat and quiet, never a bright fill.
-                Dine::fillRounded (g, r, tint.withAlpha (0.16f), Dine::Radius::control);
-                Dine::hairlineRounded (g, r, tint.withAlpha (0.22f), Dine::Radius::control);
-            }
-            else if (tint == Dine::accent) Dine::drawFilled (g, r, Dine::Radius::control, over, down);
-            else
-            {
-                // A filled button that means a console state takes that state's colour (a
-                // mute is amber wherever it is pressed), and stays flat: the lit ramp is
-                // the primary action's alone.
-                Dine::fillRounded (g, r, down ? tint.darker (0.18f) : over ? tint.brighter (0.08f) : tint,
-                                   Dine::Radius::control);
-            }
+                Dine::fillRounded (g, r, Dine::mix (tint, 0.22f, Dine::control), radius);
+            else if (tint == Dine::accent) Dine::drawFilled (g, r, radius, over, down);
+            else Dine::fillRounded (g, r, down ? tint.darker (0.18f) : over ? tint.brighter (0.08f) : tint, radius);
             break;
         case Style::Toggle:
-            if (on)
-            {
-                Dine::fillRounded (g, r, Dine::selected, Dine::Radius::control);
-                Dine::hairlineRounded (g, r, tint.withAlpha (0.55f), Dine::Radius::control);
-            }
-            else Dine::drawStandard (g, r, Dine::Radius::control, over, down);
+            if (on) Dine::fillRounded (g, r, down ? Dine::controlHot : Dine::controlOn, radius);
+            else    Dine::fillRounded (g, r, down ? Dine::controlOn : over ? Dine::controlHot : (quiet ? Dine::card : Dine::control), radius);
             break;
         case Style::Standard:
-            Dine::drawStandard (g, r, Dine::Radius::control, over, down);
+            Dine::fillRounded (g, r, down ? Dine::controlOn : over ? Dine::controlHot : (quiet ? Dine::card : Dine::control), radius);
             break;
         case Style::Segment:
-            if (on)
-            {
-                Dine::fillRounded (g, r, Dine::selected, Dine::Radius::chip);
-                Dine::hairlineRounded (g, r, Dine::hair, Dine::Radius::chip);
-            }
+            if (on) Dine::fillRounded (g, r, Dine::selected, radius);
             break;
         case Style::Ghost:
-            if (over) Dine::fillRounded (g, r, Dine::fillSoft, Dine::Radius::chip);
+            if (over || down) Dine::fillRounded (g, r, Dine::fillSoft, radius);
             break;
     }
 
     const bool filled = style == Style::Filled;
-    juce::Colour fg = filled ? (isEnabled() ? (tint.getPerceivedBrightness() > 0.55f ? Dine::onAccent : Dine::ink) : tint)
-                             : style == Style::Toggle ? (on ? Dine::ink : Dine::ink2)
-                             : style == Style::Segment ? (on ? Dine::ink : Dine::ink2)
-                                                       : (over ? Dine::ink : style == Style::Ghost ? Dine::ink2 : Dine::ink);
-    if (! isEnabled()) fg = fg.withAlpha (filled ? 0.75f : Dine::disabled);
+    juce::Colour fg;
+    if (filled)               fg = isEnabled() ? (tint.getPerceivedBrightness() > 0.55f ? Dine::onAccent : Dine::ink) : Dine::ink3;
+    else if (style == Style::Toggle)  fg = on ? Dine::ink : (over ? Dine::ink : Dine::ink2);
+    else if (style == Style::Segment) fg = on ? Dine::ink : (over ? Dine::ink : Dine::ink3);
+    else if (style == Style::Ghost)   fg = over ? Dine::ink : Dine::ink2;
+    else                              fg = over ? Dine::ink : Dine::ink2;
+    if (! isEnabled() && ! filled) fg = fg.withAlpha (Dine::disabled);
 
     auto content = getLocalBounds().reduced (padX, 0);
     const juce::String label = caps ? getButtonText().toUpperCase() : getButtonText();
-    const int weight = filled || caps || (on && (style == Style::Segment || style == Style::Toggle)) ? 600 : 400;
+    const int weight = filled || caps ? 600 : 500;
     auto font = Dine::text (fontPx, weight);
-    if (caps) font = font.withExtraKerningFactor (0.06f);
+    if (caps) font = font.withExtraKerningFactor (0.04f);
     const int textW = Dine::textWidth (font, label);
     const int iconW = icon != Dine::Icon::None ? 21 : 0;
     auto block = content.withSizeKeepingCentre (juce::jmin (content.getWidth(), textW + iconW), content.getHeight());
@@ -829,54 +684,51 @@ void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
 // ============================================================================ DinePopup
 DinePopup::DinePopup() : juce::Button ({})
 {
-    setWantsKeyboardFocus (false);   // Space and Return belong to the transport, not to whatever was clicked last
+    setWantsKeyboardFocus (false);
 }
 
 int DinePopup::idealWidth() const
 {
-    return Dine::textWidth (Dine::text (12.5f), value) + 40;
+    return Dine::textWidth (Dine::text (12.5f), value) + 40 + (dot.isTransparent() ? 0 : 15);
 }
 
 void DinePopup::paintButton (juce::Graphics& g, bool over, bool down)
 {
     auto r = getLocalBounds().toFloat();
-    Dine::fillRounded (g, r, Dine::card, Dine::Radius::control);
-    if (down || over) Dine::fillRounded (g, r, Dine::fillSoft, Dine::Radius::control);
-    Dine::hairlineRounded (g, r, down || over ? Dine::hairStrong : Dine::hair, Dine::Radius::control);
-    auto inner = getLocalBounds().reduced (8, 0);
-    Dine::drawIcon (g, Dine::Icon::UpDown, inner.removeFromRight (13).toFloat().withSizeKeepingCentre (13.0f, 13.0f), Dine::ink2);
-    inner.removeFromRight (4);
-    g.setColour (isEnabled() ? Dine::ink : Dine::ink3);
-    g.setFont (Dine::text (12.5f));
+    Dine::fillRounded (g, r, down ? Dine::controlOn : over ? Dine::controlHot : Dine::control, Dine::Radius::control);
+    auto inner = getLocalBounds().reduced (10, 0);
+    Dine::drawDropChevron (g, inner.removeFromRight (10).toFloat(), over ? Dine::ink : Dine::ink2);
+    inner.removeFromRight (6);
+    if (! dot.isTransparent())
+    {
+        g.setColour (dot);
+        g.fillEllipse (inner.removeFromLeft (7).toFloat().withSizeKeepingCentre (7.0f, 7.0f));
+        inner.removeFromLeft (8);
+    }
+    g.setColour (! isEnabled() ? Dine::ink4 : over ? Dine::ink : Dine::ink2);
+    g.setFont (Dine::text (12.5f, 500));
     g.drawText (value, inner, juce::Justification::centredLeft, true);
 }
 
 // ============================================================================ DineNavItem
 DineNavItem::DineNavItem (const juce::String& l, Dine::Icon i) : juce::Button (l), label (l), icon (i)
 {
-    setWantsKeyboardFocus (false);   // Space and Return belong to the transport, not to whatever was clicked last
+    setWantsKeyboardFocus (false);
 }
 
 void DineNavItem::paintButton (juce::Graphics& g, bool over, bool)
 {
     auto r = getLocalBounds().toFloat();
-    if (selected)
+    if (selected)                     Dine::fillRounded (g, r, Dine::selected, Dine::Radius::control);
+    else if (over && isEnabled())     Dine::fillRounded (g, r, Dine::card, Dine::Radius::control);
+
+    auto inner = getLocalBounds().reduced (10, 0);
+    const juce::Colour fg = ! isEnabled() ? Dine::ink4 : selected || over ? Dine::ink : Dine::ink3;
+    if (icon != Dine::Icon::None)
     {
-        Dine::fillRounded (g, r, Dine::selected, Dine::Radius::control);
-        Dine::hairlineRounded (g, r, Dine::hairSoft, Dine::Radius::control);
-        // The marker on the leading edge: the one piece of lime a sidebar is allowed, and
-        // the thing that says which workspace you are in from the other side of the booth.
-        g.setColour (Dine::accent);
-        g.fillRoundedRectangle (r.getX() + 1.0f, r.getCentreY() - 8.0f, 2.0f, 16.0f, 1.0f);
+        Dine::drawIcon (g, icon, inner.removeFromLeft (16).toFloat().withSizeKeepingCentre (16.0f, 16.0f), fg);
+        inner.removeFromLeft (8);
     }
-    else if (over && isEnabled()) Dine::fillRounded (g, r, Dine::fillSoft, Dine::Radius::control);
-
-    auto inner = getLocalBounds().reduced (8, 0);
-    const juce::Colour fg = ! isEnabled() ? Dine::ink4 : selected ? Dine::ink : Dine::ink2;
-    Dine::drawIcon (g, icon, inner.removeFromLeft (16).toFloat().withSizeKeepingCentre (16.0f, 16.0f),
-                    ! isEnabled() ? Dine::ink4 : selected ? Dine::ink : Dine::glyph);
-    inner.removeFromLeft (9);
-
     auto right = inner;
     if (done)
     {
@@ -885,14 +737,14 @@ void DineNavItem::paintButton (juce::Graphics& g, bool over, bool)
     }
     else if (meta.isNotEmpty())
     {
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::mono (11.0f));
-        const int w = Dine::textWidth (Dine::mono (11.0f), meta);
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::mono (10.5f));
+        const int w = Dine::textWidth (Dine::mono (10.5f), meta);
         g.drawText (meta, right.removeFromRight (w), juce::Justification::centredRight);
         right.removeFromRight (4);
     }
     g.setColour (fg);
-    g.setFont (Dine::text (13.0f, selected ? 600 : 450));
+    g.setFont (Dine::text (12.5f, 500));
     g.drawText (label, right, juce::Justification::centredLeft, true);
 }
 
@@ -919,23 +771,13 @@ void DineKey::setLetter (const juce::String& l)
 
 void DineKey::paintButton (juce::Graphics& g, bool over, bool down)
 {
-    auto r = getLocalBounds().toFloat().reduced (0.5f);
-    const float radius = juce::jmin (4.0f, r.getHeight() * 0.28f);
-    if (on)
-    {
-        Dine::fillRounded (g, r, tint.withAlpha (down ? 0.82f : 1.0f), radius);
-        Dine::hairlineRounded (g, r, juce::Colours::black.withAlpha (0.30f), radius);
-    }
-    else
-    {
-        Dine::fillRounded (g, r, juce::Colours::white.withAlpha (down ? 0.14f : over ? 0.10f : 0.045f), radius);
-        Dine::hairlineRounded (g, r, Dine::hairSoft, radius);
-    }
+    auto r = getLocalBounds().toFloat();
+    const float radius = juce::jmin (Dine::Radius::chip, r.getHeight() * 0.3f);
+    if (on) Dine::fillRounded (g, r, down ? tint.darker (0.15f) : tint, radius);
+    else    Dine::fillRounded (g, r, down ? Dine::controlOn : over ? Dine::controlHot : Dine::control, radius);
 
-    g.setColour (! isEnabled() ? Dine::ink4.withAlpha (0.6f)
-                               : on ? Dine::onAccent
-                                    : over ? Dine::ink : Dine::ink3);
-    g.setFont (Dine::text (juce::jlimit (8.5f, 11.5f, float (getHeight()) * 0.58f), on ? 800 : 600));
+    g.setColour (! isEnabled() ? Dine::ink4 : on ? Dine::onAccent : over ? Dine::ink : Dine::ink2);
+    g.setFont (Dine::text (juce::jlimit (9.0f, 11.0f, float (getHeight()) * 0.5f), 600));
     g.drawText (letter, getLocalBounds(), juce::Justification::centred, false);
 }
 
@@ -959,47 +801,43 @@ void DinePanelTab::setCollapsed (bool c)
 void DinePanelTab::updateTooltip()
 {
     setTooltip (collapsed ? "Show " + name.toLowerCase() + "."
-                          : "Hide " + name.toLowerCase() + " and give the width to the middle of the workspace.");
+                          : "Fold " + name.toLowerCase() + " away and give the width to the middle of the workspace.");
 }
 
 void DinePanelTab::paintButton (juce::Graphics& g, bool over, bool down)
 {
     auto r = getLocalBounds().toFloat();
-    if (over || down)
-        g.fillAll (juce::Colours::white.withAlpha (down ? 0.10f : 0.05f));
+    g.setColour (collapsed ? (over || down ? Dine::toolbar : Dine::menubar) : (over || down ? Dine::hairSoft : juce::Colours::transparentBlack));
+    g.fillRect (r);
 
-    // The grip, then the chevron: it points the way this click moves the panel.
-    auto grip = juce::Rectangle<float> (r.getCentreX() - 4.0f, r.getCentreY() - 17.0f, 8.0f, 34.0f);
-    Dine::fillRounded (g, grip, juce::Colours::white.withAlpha (over ? 0.13f : 0.06f), 4.0f);
-
-    const bool pointsRight = (side == Side::Right) != collapsed;
-    auto box = juce::Rectangle<float> (r.getCentreX() - 6.0f, r.getCentreY() - 6.0f, 12.0f, 12.0f);
+    if (! collapsed)
     {
-        juce::Graphics::ScopedSaveState save (g);
-        if (! pointsRight)
-            g.addTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::pi,
-                                                             box.getCentreX(), box.getCentreY()));
-        Dine::drawIcon (g, Dine::Icon::Chevron, box, over ? Dine::ink : Dine::ink3, 1.2f);
+        // Open: three dots, the way the design folds a panel ("···").
+        g.setColour (over ? Dine::ink : Dine::ink3);
+        const float cy = 18.0f;
+        for (int i = -1; i <= 1; ++i)
+            g.fillEllipse (r.getCentreX() - 1.0f, cy + float (i) * 4.0f - 1.0f, 2.0f, 2.0f);
+        return;
     }
 
-    // A closed panel says what it is, down the gutter, so nothing is ever hidden without a name.
-    if (collapsed && r.getHeight() > 190.0f)
+    // Folded: the panel's name, written down the gutter.
+    if (r.getHeight() > 80.0f)
     {
         juce::Graphics::ScopedSaveState save (g);
-        const float length = r.getHeight() - 110.0f;
-        g.addTransform (juce::AffineTransform::rotation (-juce::MathConstants<float>::halfPi)
-                            .translated (0.0f, r.getHeight() - 24.0f));
-        g.setColour (over ? Dine::ink2 : Dine::ink4);
-        g.setFont (Dine::text (10.0f, 600).withExtraKerningFactor (0.10f));
-        g.drawText (name.toUpperCase(), juce::Rectangle<float> (0.0f, 0.0f, length, r.getWidth()),
-                    juce::Justification::centredLeft, false);
+        g.addTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::halfPi)
+                            .translated (r.getWidth(), 0.0f));
+        g.setColour (over ? Dine::ink2 : Dine::ink3);
+        g.setFont (Dine::caps (10.0f, 0.14f, 500));
+        g.drawText (name.toUpperCase(), juce::Rectangle<float> (0.0f, 0.0f, r.getHeight(), r.getWidth()),
+                    juce::Justification::centred, false);
     }
+    juce::ignoreUnused (side);
 }
 
 // ============================================================================ DineSwitch
 DineSwitch::DineSwitch (const juce::String& on, const juce::String& off) : juce::Button (on), onText (on), offText (off)
 {
-    setWantsKeyboardFocus (false);   // Space and Return belong to the transport, not to whatever was clicked last
+    setWantsKeyboardFocus (false);
 }
 
 void DineSwitch::paintButton (juce::Graphics& g, bool over, bool)
@@ -1007,8 +845,7 @@ void DineSwitch::paintButton (juce::Graphics& g, bool over, bool)
     const bool on = getToggleState();
     auto r = getLocalBounds();
     auto track = r.removeFromLeft (28).withSizeKeepingCentre (28, 16).toFloat();
-    Dine::fillRounded (g, track, on ? Dine::accent : juce::Colours::white.withAlpha (over ? 0.18f : 0.12f), 8.0f);
-    Dine::hairlineRounded (g, track, on ? juce::Colours::black.withAlpha (0.3f) : Dine::hair, 8.0f);
+    Dine::fillRounded (g, track, on ? Dine::accent : (over ? Dine::controlHot : Dine::control), 8.0f);
     auto knob = juce::Rectangle<float> (on ? track.getRight() - 14.5f : track.getX() + 1.5f, track.getY() + 1.5f, 13.0f, 13.0f);
     g.setColour (juce::Colours::black.withAlpha (0.35f));
     g.fillEllipse (knob.translated (0.0f, 1.0f));
@@ -1025,27 +862,26 @@ DineLookAndFeel::DineLookAndFeel()
 {
     setColour (juce::ResizableWindow::backgroundColourId, Dine::window);
     setColour (juce::DocumentWindow::backgroundColourId, Dine::window);
-    setColour (juce::TooltipWindow::outlineColourId, Dine::hairStrong);
+    setColour (juce::TooltipWindow::outlineColourId, juce::Colours::transparentBlack);
     setColour (juce::Label::textColourId, Dine::ink);
-    setColour (juce::Slider::thumbColourId, juce::Colours::white);
+    setColour (juce::Slider::thumbColourId, Dine::ink2);
     setColour (juce::Slider::trackColourId, Dine::ink2);
     setColour (juce::Slider::backgroundColourId, Dine::well);
-    setColour (juce::TextEditor::backgroundColourId, Dine::well);
+    setColour (juce::TextEditor::backgroundColourId, Dine::card);
     setColour (juce::TextEditor::textColourId, Dine::ink);
     setColour (juce::TextEditor::highlightColourId, Dine::accent.withAlpha (0.28f));
     setColour (juce::TextEditor::highlightedTextColourId, Dine::ink);
-    setColour (juce::TextEditor::outlineColourId, Dine::hair);
-    setColour (juce::TextEditor::focusedOutlineColourId, Dine::accent);
+    setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+    setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
     setColour (juce::CaretComponent::caretColourId, Dine::accent);
-    // Transparent so MenuWindow can be non-opaque (JUCE otherwise fillsAll white
-    // under rounded chrome and leaves bright corner triangles).
     setColour (juce::PopupMenu::backgroundColourId, juce::Colours::transparentBlack);
-    setColour (juce::PopupMenu::textColourId, Dine::ink);
-    setColour (juce::PopupMenu::highlightedBackgroundColourId, Dine::selected);
+    setColour (juce::PopupMenu::textColourId, Dine::ink2);
+    setColour (juce::PopupMenu::highlightedBackgroundColourId, Dine::control);
     setColour (juce::PopupMenu::highlightedTextColourId, Dine::ink);
+    setColour (juce::PopupMenu::headerTextColourId, Dine::ink4);
     setColour (juce::AlertWindow::backgroundColourId, Dine::sheet);
     setColour (juce::AlertWindow::textColourId, Dine::ink);
-    setColour (juce::AlertWindow::outlineColourId, Dine::hairStrong);
+    setColour (juce::AlertWindow::outlineColourId, juce::Colours::transparentBlack);
     setColour (juce::TooltipWindow::backgroundColourId, Dine::popover);
     setColour (juce::TooltipWindow::textColourId, Dine::ink);
     setColour (juce::ScrollBar::thumbColourId, juce::Colours::white.withAlpha (0.14f));
@@ -1055,13 +891,11 @@ void DineLookAndFeel::setBipolar (juce::Slider& s, bool on) { s.getProperties().
 
 juce::Typeface::Ptr DineLookAndFeel::getTypefaceForFont (const juce::Font& f)
 {
-    // The application uses the system face by name; only the defaults fall back to
-    // the embedded family the plug-in ships with.
     return LiveMixLookAndFeel::getTypefaceForFont (f);
 }
 
-juce::Font DineLookAndFeel::getPopupMenuFont()           { return Dine::text (13.0f); }
-juce::Font DineLookAndFeel::getAlertWindowTitleFont()    { return Dine::text (15.0f, 600); }
+juce::Font DineLookAndFeel::getPopupMenuFont()           { return Dine::text (12.5f); }
+juce::Font DineLookAndFeel::getAlertWindowTitleFont()    { return Dine::text (16.0f, 600); }
 juce::Font DineLookAndFeel::getAlertWindowMessageFont()  { return Dine::text (13.0f); }
 juce::Font DineLookAndFeel::getAlertWindowFont()         { return Dine::text (12.5f); }
 juce::Font DineLookAndFeel::getTextButtonFont (juce::TextButton&, int) { return Dine::text (13.0f, 500); }
@@ -1072,107 +906,72 @@ void DineLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w, 
     const bool vertical = style == juce::Slider::LinearVertical;
     const bool bipolar = bool (s.getProperties().getWithDefault ("dineBipolar", false));
     const bool consoleFader = bool (s.getProperties().getWithDefault ("dineFader", false));
-    // A parameter is not a signal. The lime belongs to what the audio is doing - meters,
-    // gain reduction, loudness, the analysis - so a slider that sets a number fills with
-    // the same pale metal its cap is made of, and a console reads as black, white and one
-    // colour rather than as a wall of green.
-    const juce::Colour fillColour = s.isEnabled() ? Dine::ink2 : Dine::ink4;
+    auto full = juce::Rectangle<float> (float (x), float (y), float (w), float (h));
+    const juce::Colour capColour = s.isEnabled() ? Dine::ink2 : Dine::ink4;
 
-    // A console fader: a milled slot cut into the strip and a moulded cap wide enough to
-    // grab. The slot stays dark - on a desk the meter is the lit thing and the caps are
-    // read as a line across the bank, so a fader that filled with colour would make a wall
-    // of it. The cap never leaves the slot, so the ends read as the ends.
+    // The design's fader: a 2 px line and a flat cap (24 x 9 standing, 9 x 14 lying). The
+    // line never fills - a bank of faders reads as a row of caps, not a wall of colour.
     if (consoleFader)
     {
-        auto full = juce::Rectangle<float> (float (x), float (y), float (w), float (h));
-        const float capLong = 11.0f;
-        const float capShort = juce::jlimit (16.0f, 30.0f, float (vertical ? w : h) - 2.0f);
-        const float slotWide = juce::jlimit (4.0f, 7.0f, (vertical ? full.getWidth() : full.getHeight()) * 0.22f);
-        auto slot = vertical ? full.withSizeKeepingCentre (slotWide, full.getHeight())
-                             : full.withSizeKeepingCentre (full.getWidth(), slotWide);
-        Dine::drawWell (g, slot, slotWide * 0.5f);
-        g.setColour (juce::Colours::black.withAlpha (0.35f));
-        g.drawRoundedRectangle (slot.reduced (0.25f), slotWide * 0.5f, 0.5f);
-        if (! s.isEnabled())
+        if (vertical)
         {
-            g.setColour (Dine::window.withAlpha (0.35f));
-            g.fillRoundedRectangle (slot, slotWide * 0.5f);
+            g.setColour (Dine::hairStrong);
+            g.fillRect (full.getCentreX() - 1.0f, full.getY(), 2.0f, full.getHeight());
+            const float capH = 9.0f, capW = juce::jlimit (16.0f, 26.0f, full.getWidth());
+            const float cy = juce::jlimit (full.getY() + capH * 0.5f, full.getBottom() - capH * 0.5f, sliderPos);
+            g.setColour (capColour);
+            g.fillRoundedRectangle (full.getCentreX() - capW * 0.5f, cy - capH * 0.5f, capW, capH, 3.0f);
         }
-
-        const float centre = vertical ? juce::jlimit (full.getY() + capLong * 0.5f, full.getBottom() - capLong * 0.5f, sliderPos)
-                                      : juce::jlimit (full.getX() + capLong * 0.5f, full.getRight() - capLong * 0.5f, sliderPos);
-        auto cap = vertical ? juce::Rectangle<float> (full.getCentreX() - capShort * 0.5f, centre - capLong * 0.5f, capShort, capLong)
-                            : juce::Rectangle<float> (centre - capLong * 0.5f, full.getCentreY() - capShort * 0.5f, capLong, capShort);
-        // The cap is the lit thing. On the site a fader is a dark line with a pale cap
-        // across it, and a bank of them reads as a row of marks at a glance - which is
-        // exactly what a console fader is for.
-        g.setColour (juce::Colours::black.withAlpha (0.6f));
-        g.fillRoundedRectangle (cap.translated (0.0f, 1.5f), 2.5f);
-        const float dim = s.isEnabled() ? 0.0f : -0.45f;
-        juce::ColourGradient capFill (juce::Colour (0xffdfe2da).brighter (dim), cap.getCentreX(), cap.getY(),
-                                      juce::Colour (0xff9aa096).brighter (dim), cap.getCentreX(), cap.getBottom(), false);
-        if (! vertical) capFill = juce::ColourGradient (juce::Colour (0xffdfe2da).brighter (dim), cap.getX(), cap.getCentreY(),
-                                                        juce::Colour (0xff9aa096).brighter (dim), cap.getRight(), cap.getCentreY(), false);
-        g.setGradientFill (capFill);
-        g.fillRoundedRectangle (cap, 2.5f);
-        g.setColour (juce::Colours::black.withAlpha (0.38f));
-        if (vertical) g.fillRect (cap.getX() + 2.0f, cap.getCentreY() - 0.5f, cap.getWidth() - 4.0f, 1.0f);
-        else          g.fillRect (cap.getCentreX() - 0.5f, cap.getY() + 2.0f, 1.0f, cap.getHeight() - 4.0f);
+        else
+        {
+            g.setColour (Dine::hairStrong);
+            g.fillRect (full.getX(), full.getCentreY() - 1.0f, full.getWidth(), 2.0f);
+            const float capW = 9.0f, capH = juce::jlimit (10.0f, 14.0f, full.getHeight());
+            const float cx = juce::jlimit (full.getX() + capW * 0.5f, full.getRight() - capW * 0.5f, sliderPos);
+            g.setColour (capColour);
+            g.fillRoundedRectangle (cx - capW * 0.5f, full.getCentreY() - capH * 0.5f, capW, capH, 3.0f);
+        }
         return;
     }
 
     if (! vertical)
     {
-        auto track = juce::Rectangle<float> (float (x), float (y) + float (h) * 0.5f - 2.0f, float (w), 4.0f);
-        Dine::drawWell (g, track, 2.0f);
-        const float centre = track.getCentreX();
-        g.setColour (fillColour);
+        auto track = juce::Rectangle<float> (full.getX(), full.getCentreY() - 1.0f, full.getWidth(), 2.0f);
+        g.setColour (Dine::hairStrong);
+        g.fillRect (track);
         if (bipolar)
         {
-            const float lo = juce::jmin (centre, sliderPos), hi = juce::jmax (centre, sliderPos);
-            g.fillRect (juce::Rectangle<float> (lo, track.getY(), hi - lo, track.getHeight()));
-            // Centre detent, above and below the track.
-            g.setColour (juce::Colours::white.withAlpha (0.28f));
-            g.fillRect (centre - 0.5f, track.getY() - 4.0f, 1.0f, 4.0f);
-            g.fillRect (centre - 0.5f, track.getBottom(), 1.0f, 4.0f);
+            // The centre mark: "as tuned" is the middle, and the cap says how far from it.
+            g.setColour (Dine::edge);
+            g.fillRect (track.getCentreX() - 0.5f, full.getY(), 1.0f, full.getHeight());
         }
         else
         {
-            g.fillRoundedRectangle (juce::Rectangle<float> (track.getX(), track.getY(), sliderPos - track.getX(), track.getHeight()), 2.0f);
+            g.setColour (capColour.withAlpha (0.55f));
+            g.fillRect (juce::Rectangle<float> (track.getX(), track.getY(), juce::jmax (0.0f, sliderPos - track.getX()), track.getHeight()));
         }
-        auto knob = juce::Rectangle<float> (sliderPos - 7.5f, track.getCentreY() - 7.5f, 15.0f, 15.0f);
-        g.setColour (juce::Colours::black.withAlpha (0.45f));
-        g.fillEllipse (knob.translated (0.0f, 1.0f).expanded (0.5f));
-        juce::ColourGradient knobFill (juce::Colour (0xfff6f8f2), knob.getCentreX(), knob.getY(),
-                                       juce::Colour (0xffc9cdc4), knob.getCentreX(), knob.getBottom(), false);
-        g.setGradientFill (knobFill);
-        g.fillEllipse (knob);
+        const float capW = 9.0f, capH = juce::jlimit (10.0f, 14.0f, full.getHeight());
+        const float cx = juce::jlimit (full.getX() + capW * 0.5f, full.getRight() - capW * 0.5f, sliderPos);
+        g.setColour (capColour);
+        g.fillRoundedRectangle (cx - capW * 0.5f, full.getCentreY() - capH * 0.5f, capW, capH, 3.0f);
         return;
     }
 
-    auto track = juce::Rectangle<float> (float (x) + float (w) * 0.5f - 2.0f, float (y), 4.0f, float (h));
-    Dine::drawWell (g, track, 2.0f);
-    g.setColour (fillColour);
-    g.fillRoundedRectangle (juce::Rectangle<float> (track.getX(), sliderPos, track.getWidth(), track.getBottom() - sliderPos), 2.0f);
-    auto knob = juce::Rectangle<float> (track.getCentreX() - 5.5f, sliderPos - 10.0f, 11.0f, 20.0f);
-    g.setColour (juce::Colours::black.withAlpha (0.5f));
-    g.fillRoundedRectangle (knob.translated (0.0f, 1.0f), 3.0f);
-    juce::ColourGradient knobFill (juce::Colour (0xfff6f8f2), knob.getCentreX(), knob.getY(),
-                                   juce::Colour (0xffc3c7bf), knob.getCentreX(), knob.getBottom(), false);
-    g.setGradientFill (knobFill);
-    g.fillRoundedRectangle (knob, 3.0f);
+    auto track = juce::Rectangle<float> (full.getCentreX() - 1.0f, full.getY(), 2.0f, full.getHeight());
+    g.setColour (Dine::hairStrong);
+    g.fillRect (track);
+    const float capH = 9.0f, capW = juce::jlimit (16.0f, 24.0f, full.getWidth());
+    const float cy = juce::jlimit (full.getY() + capH * 0.5f, full.getBottom() - capH * 0.5f, sliderPos);
+    g.setColour (capColour);
+    g.fillRoundedRectangle (full.getCentreX() - capW * 0.5f, cy - capH * 0.5f, capW, capH, 3.0f);
 }
 
 void DineLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int w, int h)
 {
-    // When semi-transparent windows aren't available, JUCE still paints the opaque
-    // peer white first — cover that before the rounded chrome.
     if (! juce::Desktop::canUseSemiTransparentWindows())
         g.fillAll (Dine::popover);
-
     auto r = juce::Rectangle<float> (0.0f, 0.0f, float (w), float (h));
-    Dine::fillRounded (g, r, Dine::popover, 8.0f);
-    Dine::hairlineRounded (g, r, Dine::hairStrong, 8.0f);
+    Dine::fillRounded (g, r, Dine::popover, Dine::Radius::card);
 }
 
 void DineLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area, bool isSeparator,
@@ -1186,16 +985,15 @@ void DineLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectangl
         return;
     }
 
-    auto r = area.reduced (5, 1);
+    auto r = area.reduced (6, 1);
     if (isHighlighted && isActive)
-        Dine::fillRounded (g, r.toFloat(), Dine::accent.withAlpha (0.35f), Dine::Radius::chip);
+        Dine::fillRounded (g, r.toFloat(), Dine::control, Dine::Radius::chip);
 
-    auto content = r.reduced (7, 0);
-    auto tick = content.removeFromLeft (16);
+    auto content = r.reduced (10, 0);
+    auto tick = content.removeFromLeft (14);
     if (isTicked)
-        Dine::drawIcon (g, Dine::Icon::Check, tick.toFloat().withSizeKeepingCentre (12.0f, 12.0f),
-                        isHighlighted ? juce::Colours::white : Dine::accent);
-    content.removeFromLeft (5);
+        Dine::drawIcon (g, Dine::Icon::Check, tick.toFloat().withSizeKeepingCentre (12.0f, 12.0f), Dine::accent);
+    content.removeFromLeft (4);
 
     if (hasSubMenu)
     {
@@ -1205,22 +1003,29 @@ void DineLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectangl
     }
     if (shortcutKeyText.isNotEmpty())
     {
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.0f));
-        const int w = Dine::textWidth (Dine::text (12.0f), shortcutKeyText) + 6;
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::mono (11.0f));
+        const int w = Dine::textWidth (Dine::mono (11.0f), shortcutKeyText) + 6;
         g.drawText (shortcutKeyText, content.removeFromRight (w), juce::Justification::centredRight);
     }
 
-    g.setColour (! isActive ? Dine::ink4 : isHighlighted ? juce::Colours::white : Dine::ink);
-    g.setFont (Dine::text (13.0f));
+    g.setColour (! isActive ? Dine::ink4 : isHighlighted ? Dine::ink : isTicked ? Dine::accent : Dine::ink2);
+    g.setFont (Dine::text (12.5f));
     g.drawText (text, content, juce::Justification::centredLeft, true);
+}
+
+void DineLookAndFeel::drawPopupMenuSectionHeader (juce::Graphics& g, const juce::Rectangle<int>& area, const juce::String& name)
+{
+    g.setColour (Dine::ink4);
+    g.setFont (Dine::caps (10.0f, 0.10f));
+    g.drawText (name.toUpperCase(), area.reduced (16, 0), juce::Justification::centredLeft, true);
 }
 
 void DineLookAndFeel::getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int, int& idealWidth, int& idealHeight)
 {
     if (isSeparator) { idealWidth = 60; idealHeight = 9; return; }
-    idealHeight = 26;
-    idealWidth = Dine::textWidth (Dine::text (13.0f), text) + 62;
+    idealHeight = 28;
+    idealWidth = Dine::textWidth (Dine::text (12.5f), text) + 62;
 }
 
 void DineLookAndFeel::drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y, int w, int h, bool vertical,
@@ -1235,11 +1040,9 @@ void DineLookAndFeel::drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x,
 
 void DineLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text, int w, int h)
 {
-    // TooltipWindow is always opaque; cover the peer so rounded chrome has no white corners.
     g.fillAll (Dine::popover);
     auto r = juce::Rectangle<float> (0.0f, 0.0f, float (w), float (h));
-    Dine::fillRounded (g, r, Dine::popover, 8.0f);
-    Dine::hairlineRounded (g, r, Dine::hairStrong, 8.0f);
+    Dine::fillRounded (g, r, Dine::popover, Dine::Radius::control);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (12.0f));
     g.drawFittedText (text, r.reduced (10.0f, 6.0f).toNearestInt(), juce::Justification::centredLeft, 4);
@@ -1247,31 +1050,25 @@ void DineLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text, 
 
 void DineLookAndFeel::fillTextEditorBackground (juce::Graphics& g, int w, int h, juce::TextEditor& e)
 {
-    // Honour the editor's own colour: rows in a table stay transparent until focused.
     const auto c = e.findColour (juce::TextEditor::backgroundColourId);
     if (c.isTransparent()) return;
     Dine::fillRounded (g, juce::Rectangle<float> (0.0f, 0.0f, float (w), float (h)),
-                       e.isEnabled() ? c : c.withMultipliedAlpha (0.4f), Dine::Radius::chip);
+                       e.isEnabled() ? c : c.withMultipliedAlpha (0.4f), Dine::Radius::control);
 }
 
 void DineLookAndFeel::drawTextEditorOutline (juce::Graphics& g, int w, int h, juce::TextEditor& e)
 {
-    auto r = juce::Rectangle<float> (0.0f, 0.0f, float (w), float (h));
-    if (e.hasKeyboardFocus (true))
-    {
-        Dine::fillRounded (g, r, juce::Colours::black.withAlpha (0.45f), Dine::Radius::chip);
-        g.setColour (Dine::focusRing.withAlpha (0.8f));
-        g.drawRoundedRectangle (r.reduced (0.75f), Dine::Radius::chip, 1.5f);
-    }
-    else if (! e.findColour (juce::TextEditor::backgroundColourId).isTransparent())
-        Dine::hairlineRounded (g, r, Dine::hairStrong, Dine::Radius::chip);
+    if (! e.hasKeyboardFocus (true)) return;
+    const auto c = e.findColour (juce::TextEditor::focusedOutlineColourId);
+    if (c.isTransparent()) return;
+    g.setColour (c);
+    g.drawRoundedRectangle (juce::Rectangle<float> (0.0f, 0.0f, float (w), float (h)).reduced (0.75f), Dine::Radius::control, 1.0f);
 }
 
 void DineLookAndFeel::drawAlertBox (juce::Graphics& g, juce::AlertWindow& w, const juce::Rectangle<int>& textArea, juce::TextLayout& layout)
 {
-    auto r = w.getLocalBounds().toFloat().reduced (1.0f);
-    Dine::fillRounded (g, r, Dine::sheet, 12.0f);
-    Dine::hairlineRounded (g, r, Dine::hairStrong, 12.0f);
+    auto r = w.getLocalBounds().toFloat();
+    Dine::fillRounded (g, r, Dine::sheet, Dine::Radius::window);
     layout.draw (g, textArea.toFloat());
 }
 

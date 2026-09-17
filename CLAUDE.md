@@ -202,34 +202,49 @@
   (`Look` / `PageLook` / `InspectorLook`) and repaints only when that changed; TRACKS repaints the meter strips it
   has to (`meterCell`) and the lanes only when the playhead moved. When adding anything to a page's `paint`, add it
   to that page's `Look` too, or it will draw stale.
-- **THE 2026-09 DESKTOP REVAMP** (the Claude Design file `DLIVE Desktop.dc.html`). The window used to carry two
-  navigations for one thing - a 224 px sidebar of setup steps that was permanently in the way once setup was
-  done, and a row of workspace tabs in the toolbar. **The tabs won.** There is now exactly one navigation:
-  `SETUP TRACKS MIXER CHANNEL TUNE LIVE` in the middle of the toolbar (`MainView::kWorkspaceTabs` = 6, Cmd-1..6
-  left to right). What takes the sidebar's place is not navigation at all but the session: `app/ui/ChannelRail`,
-  **the channel list beside every workspace** - every channel under its group, searchable, filtered All / Inputs /
-  Groups, with a live meter and the gain-staging flag, folding to a named 17 px handle (`Ctrl-Cmd-S`, `[`,
-  View > Channels). It is the *only* channel list: `AdvancedPage::setRailAvailable (false)` and
-  `MixPage::setRailAvailable (false)` switch the Inspector's and TUNE's own rails off for good rather than
-  leaving two lists of the same channels on one screen, and TUNE CHANNEL moved onto the shared list's menu.
-  Setup is a workspace rather than a mode: `MainView::isSetupPage` plus a 212 px `SetupNav` (Sessions / Audio
-  device / Inputs / Purpose and sound, ticked as they are done), and the session button's popover is the same
-  four steps with their current values. **A 28 px status foot** (`MainView::StatusBar`) is always on screen -
-  engine, drops, disk, what is recording, the broadcast's LUFS against its target, what the engineer's own ears
-  are on, LIVE SAFE - painted, compared before repainting (`Look`), and the disk asked once a second because it
-  is a syscall. LIVE SAFE moved out of the LIVE page into the toolbar beside BYPASS, because it is a policy about
-  the whole desk. A 2 px strip along the very top lights while the mix is going out.
-  **The materials are milled now**: `Dine::drawChrome` / `drawHeaderBand` / `drawStatusBand` / `drawPanelGround` /
-  `drawRaisedCard` / `drawInsetWell` / `drawSegmentTrack` are the one place a band's gradient, its inset top
-  highlight and its closing hairline are decided. Keep every gradient short - never taller than ~120 px, and
-  never over a whole console: `drawPanelGround` spends its ramp in the first 240 px and goes flat after it,
-  because a full-height gradient is milliseconds a frame and buys nothing. The single exception to "buttons are
-  flat" is the one primary action on a surface, which is lit from above (`Dine::drawFilled`, `accentTopLit` to
-  `accentBotLit` with a ring of its own colour); a `Filled` button carrying a console state (`setTint`) stays flat.
-  Performance rules are unchanged and the revamp obeys them: the rail is one painted component rather than
-  forty-eight children, its 30 Hz tick repaints only the meter cells that moved, and `getInputAdvice` (which
-  builds sentences) is re-read twice a second and immediately when a tune lands - never per frame. Check with
-  `dlive_ui_snapshots --frames 48 120` (a tick is ~1.25 ms per workspace) and `--sizes`.
+- **THE V2 DESKTOP (2026-09-17, the Claude Design file `DLIVE Desktop v2.dc.html`, project
+  `8592889b-694f-4bb0-8f28-598c057014f5`).** The window is the design, one to one. Top to bottom: a 52 px
+  **title row** (`Dine::Metric::titleRow` - the sidebar switch, the session's name with its popover in the
+  middle, "N inputs / N to record" and AI MIX CHAT on the right), the 56 px **toolbar** (the transport in its
+  own pill with the clock, the five tabs `TRACKS MIXER TUNE LIVE INSPECTOR` centred - `MainView::kWorkspaceTabs`
+  = 5, Cmd-1..5 - then BYPASS, LIVE SAFE ON/OFF and the output popup), then the body. Down the left is the
+  184 px **sidebar** (`MainView::Sidebar`: LIBRARY > Sessions; SET-UP > Audio device / Inputs / Purpose and
+  sound; WORKSPACE > the five tabs again as rows; the device, its rate and its dropped buffers along the foot),
+  folding to a 17 px handle (`Ctrl-Cmd-S`, View > Show/Hide Sidebar). Beside it the workspace, then the
+  picked-out channel's **chain along a 48 px foot** on every workspace (`MainView::chainFoot`, reading
+  `selectedChannel()` or the last channel picked anywhere - TRACKS and MIXER no longer carry their own,
+  `setFootShown (false)`), then the 50 px **status foot** (`StatusBar`: Engine, CPU - `AppServices::cpuLoad` -
+  Disk, Recording, Broadcast, Monitor, Dropped, Live safe). Setup is not a mode: the four setup screens are
+  rows in the sidebar, and the session popover lists the same four steps with their values.
+  A workspace's own side panels belong to the workspace: TUNE's INPUTS rail (198 px, left, a name and
+  TUNE CHANNEL per row - clicking the row picks the channel out for the chain foot) and the Inspector's
+  CHANNELS rail (200 px) and WHAT DLIVE DID column (280 px), each folding to a named handle with `[` / `]`.
+  The window-wide channel list (`ChannelRail`) is gone: the design has one navigation and per-page rails, and
+  two lists of the same channels on one screen was the thing it removed.
+  **The palette and type are the design's, not the site's.** The desk is `#070809`, the application panel
+  `#0e1014` (`Dine::window`), the toolbar / rails / status foot `#13161c`, a page's tool row `#10131a`, a
+  card `#1a1e26`, a row `#1c212b`, what is chosen `#222830`, a resting control `#2a303a` (hover `#3e4656`, a
+  setting that is on `#4e5664`), an item inside a card `#161a22`; ink `#f4f5f7` / `#a8b0bc` / `#6b7380` /
+  `#4e5664`; the accent is the **teal `#6db8a8`** (hover `#8ed0c2`, near-black type on it) and it is spent on
+  the primary action, the active tab, what is selected or soloed, what DLIVE tuned, and the meters; ok
+  `#57b98d`, hot `#cbbf6a`, warn `#e0a85c`, crit `#e06a64`, monitor blue `#6eafff`; the buses keep their
+  colours (`Dine::busTint`). **Every surface is flat**: no gradients, no glows, no outlines - `drawCard`
+  ignores the plain hairlines and only draws an edge that carries a meaning (a solo, a warning). Radii are
+  12 / 10 / 8 / 6. Type is **Barlow** for words and **IBM Plex Mono** for every number, both embedded
+  (`Dine::text` / `Dine::mono` / `Dine::caps` go through `LiveMixLookAndFeel::body` / `mono`), so the booth
+  Mac reads like the mock whatever it has installed. A fader is a 2 px line and a flat pale cap (24 x 9
+  standing, 9 x 14 lying); a meter is a translucent well and **one gradient fill** (accent to two thirds,
+  yellow, red - `Dine::fillMeter`), never segments; a console key is `#2a303a` off and its own colour with
+  dark type on; a chip is a 20 % tint of its colour (`Dine::drawStatusChip`, `Dine::mix`); a modal sheet is
+  `Dine::drawSheet` centred over a `#070809` scrim at 0.86-0.88; the chat is a 380 px panel down the right of
+  the workspace column, not a modal. The "lime is the signal" rule survives with the teal in its place.
+  Colour literals still do not belong outside `AppTheme`.
+  **The mixer's frame budget** is the design's problem as much as its look, and the v2 rebuild fixed the
+  console that crawled at 48 channels: a strip re-reads only atomics every tick (meters, mute, solo, fader),
+  re-reads its inserts when a hash of its `ChannelParameters` changes (`chainHash`, via `forEachDspField`),
+  re-reads the gain advice twice a second (`MixerPage::tick`), and a meter is one fill whatever its height.
+  The bank is opaque so a scroll never repaints the page under it. `dlive_ui_snapshots --frames 48 120`: a
+  full repaint of MIXER went from 38 ms to 6.5 ms, TRACKS 61 to 10, INSPECTOR 68 to 23 (a 30 Hz frame is 33).
 - **GETTING STARTED** (`app/ui/Tutorial`) is what DLIVE says to somebody who has never opened it: seven sentences
   in the order a Sunday happens - name the inputs, press record, let DLIVE listen, keep or undo what it did, lock
   the desk - each one putting the workspace it is talking about on screen and ringing the control it means
@@ -285,30 +300,15 @@
   and the `after` LUFS line (target -23, within ~1 LU) when touching gain, fader, bus or master rules. Inputs below
   `faintInputDb` at the device are "faint": flagged, never tuned or raised.
   The app is `app/` (`MixController` no JUCE, `DawEngine` the timeline, `AudioHost` the device, `ui/` pages).
-  **The app's look is the marketing site, translated** (`dlive-audio.dinecaleb.chatgpt.site`, source
-  `dist/index.html`): tokens, icons, widgets and look-and-feel in `app/ui/AppTheme.{h,cpp}` (`Dine::`), a
-  **one** toolbar shell in `MainView` (the sidebar is gone - see the revamp note below), sheets for TUNE MIX
-  and its result. The site's own values
-  are the tokens - the ground is the brand black `#080909` (`window`), the chrome `#0b0d0b`, a panel
-  `#101310`, a tile inside one `#151815`, what is chosen `#20231f`, hairlines at 0.08 / 0.12 / 0.20 / 0.30
-  of white, ink that is faintly green rather than blue (`#f3f4ef` down to `#5c625b`) and the electric lime
-  `#c8ff3d`. **The lime is the signal, never the chrome**, and that is the one rule to keep: it is spent on
-  the primary action, the active workspace, what is selected or soloed, what DLIVE tuned, and on meters,
-  gain reduction and loudness - *what the audio is doing*. Everything the engineer **sets** - faders, knobs,
-  parameter bars, slider tracks, fader caps - is the pale metal `ink2`, which is why a bank of twenty-four
-  channels reads as black, white and one colour instead of a wall of green. A setting that is on or off is
-  `DineButton::Style::Toggle` (a lit plane with a lime hairline), never `Filled`; `Filled` is the one primary
-  action on a surface, and takes `setTint` when it means a console state instead (a mute is amber). A chosen
-  row in any table or list is `Dine::drawSelectedRow` - a lit plane and a lime marker on its leading edge,
-  never a bar of colour with the text knocked out of it. Buttons are flat: the site has no gradients and no
-  glow. Caps only in the product verbs (TUNE MIX / RE-TUNE / KEEP / REVERT / BEFORE / AFTER / BYPASS /
-  LIVE SAFE), at the site's 0.06 em; the plug-in keeps `Tokens` in `src/UI` and is unaffected.
-  Colour literals do not belong outside `AppTheme`; if a page needs a new value, the token is what is new.
+  **The app's look is the v2 desktop design** (see THE V2 DESKTOP above): tokens, icons, widgets and
+  look-and-feel in `app/ui/AppTheme.{h,cpp}` (`Dine::`), the chrome in `MainView`, sheets for TUNE MIX and
+  its result. Caps only in the product verbs and the section labels (`Dine::caps`); the plug-in keeps
+  `Tokens` in `src/UI` and is unaffected.
   MIXER (`app/ui/MixerPage`) is one `Strip` component laid out two ways - STRIPS (a vertical bank at three widths)
   and LIST (a row per source) - with a filter (All / Inputs / Groups), pan and R/A/M/S. The bank is **one console
-  surface, not a row of cards**: a column is flat, carries its group's colour along its top edge and a hairline
-  down its right, the groups are separated by a gap with the family's colour drawn over them (`Bank::Band`, 4 px,
-  no label), and the master is pinned to the right. A STRIPS column reads top to bottom the way a console does:
+  surface, not a row of cards**: a column is a flat `#13161c` plane 3 px apart from the next, carries its
+  group's colour as a 3 px band along its top (5 px when picked out), and the master is pinned to the right as
+  a 150 px column with LUFS-I / Short / True pk / Limiter / Target under its fader. A STRIPS column reads top to bottom the way a console does:
   number and name, the gain-staging chip, INSERTS (the chain stages that are actually on, from `activeChainStages`),
   SENDS (the used FX slots, a readout - sends are edited in the Inspector), PAN, then the fader and meter, the level
   and peak, the keys, and the bus it feeds. **The slots are fixed** - three inserts, two sends, and the gain and pan

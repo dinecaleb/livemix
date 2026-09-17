@@ -96,6 +96,7 @@ namespace
         double sampleRate() override { return host.getSampleRate(); }
         int bufferSize() override { return host.getBufferSize(); }
         int xrunCount() override { return host.getXRunCount(); }
+        double cpuLoad() override { return host.isOpen() ? host.getDeviceManager().getCpuUsage() : -1.0; }
         bool deviceStopped() override { return host.deviceStoppedUnexpectedly(); }
         void reconfigure() override
         {

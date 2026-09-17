@@ -14,9 +14,9 @@ namespace livemix
 
 class ReferenceSheet;
 
-// The screen after setup: mix health and TUNE MIX, the five group strips with their
-// meters, the five macros, and every input on a rail down the right. While DLIVE
-// listens, and again when the plan is ready, a sheet drops from under the toolbar.
+// TUNE: the mix's health and the verbs that build it, the group buses with their faders and
+// meters, the five macros, and every input on a rail down the left. While DLIVE listens, and
+// again when the plan is ready, a sheet drops over the workspace.
 class MixPage : public juce::Component
 {
 public:
@@ -26,29 +26,22 @@ public:
     std::function<void()> onOpenAdvanced;
     std::function<void (int strip)> onTuneStrip;      // TUNE CHANNEL, from the input rail
     std::function<void (const juce::String&)> onToast;
+    std::function<void()> onOpenChat;                 // AI Mix Chat, from the action column
+    std::function<void (int strip)> onSelectStrip;    // a row on the rail was picked out
+    int selectedStrip() const noexcept { return selectedRow; }
 
     void refresh();                    // 30 Hz: meters, stage, health
 
-    // The input rail folds away when the mix, not the list, is what you are working on.
     void setRailShown (bool);
     bool isRailShown() const noexcept { return railShown; }
-    // The window carries a channel list beside every workspace now, so TUNE's own list of
-    // inputs is switched off entirely rather than folded to a handle - two lists of the same
-    // channels on one screen is worse than one. TUNE CHANNEL is on the shared list's menu.
     void setRailAvailable (bool);
     bool isRailAvailable() const noexcept { return railAvailable; }
 
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    // REFERENCE MIX: the sheet that adds a finished recording for the mix to be aimed at.
-    // Also opened from the File and Mix menus, which is why it is not private.
     void openReference();
-
-    // Programmatic equivalents of the user's actions (also used by the snapshot tool).
     void pressTune();
-    // TUNE LIVE MIX: the same listen with a mix engineer's reasoning on top, then a second
-    // listen to check what it did. The deterministic TUNE MIX beside it is unchanged.
     void pressLiveTune();
     void setMacroValue (MixMacro m, float v);
 
@@ -61,18 +54,19 @@ private:
 
     struct Layout
     {
-        juce::Rectangle<int> health, reference, tune, liveTune, groups, macros, rail, railTab;
+        juce::Rectangle<int> health, actions, groupsCaption, groups, macrosCaption, macros, rail, railTab;
     };
     Layout layout() const;
     int railWidth() const noexcept
     {
-        return ! railAvailable ? 0 : railShown ? Dine::Metric::rail : Dine::Metric::panelTab;
+        return ! railAvailable ? 0 : railShown ? Dine::Metric::tuneRail : Dine::Metric::panelTab;
     }
     void refreshTuneButton();
     void rebuildRail();
+    void selectRow (int strip);
 
     MixController& controller;
-    // One tile per group bus, then the FX returns: DRUMS BASS MUSIC VOCALS SPEECH FX.
+    // One tile per group bus, then the FX returns: DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE FX.
     std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 1> groups;
     std::array<std::unique_ptr<MacroSlider>, int (MixMacro::Count)> macros;
     std::unique_ptr<ListenSheet> listenSheet;
@@ -83,36 +77,37 @@ private:
     juce::Component railHolder;
     std::unique_ptr<DinePanelTab> railTab;
     bool railShown = true, railAvailable = true;
-    DineButton tuneButton { "TUNE MIX", DineButton::Style::Standard };
-    DineButton liveTuneButton { "TUNE LIVE MIX", DineButton::Style::Filled };
+    DineButton tuneButton { "TUNE MIX", DineButton::Style::Filled };
+    DineButton liveTuneButton { "TUNE LIVE MIX", DineButton::Style::Standard };
     DineButton referenceButton { "Reference", DineButton::Style::Standard };
-    DineButton advancedButton { "Open Advanced", DineButton::Style::Standard };
-    DineButton resetMacrosButton { "Reset all", DineButton::Style::Ghost };
+    DineButton chatButton { "AI Mix Chat", DineButton::Style::Standard };
+    DineButton undoButton { "Undo mix", DineButton::Style::Standard };
+    DineButton redoButton { "Redo mix", DineButton::Style::Standard };
+    DineButton advancedButton { "Open the Inspector", DineButton::Style::Ghost };
+    DineButton resetMacrosButton { "Reset macros", DineButton::Style::Ghost };
     int health = 0;
-    // Everything this page's own paint reads. A frame that would draw the same thing is
-    // skipped: the meters and the rail rows are components that repaint themselves, and a
-    // full repaint of a page on a large console costs a whole 30 Hz frame
-    // (dlive_ui_snapshots --frames).
     struct PageLook
     {
-        juce::String status;
+        juce::String status, notes;
         int health = -1;
         MixController::Stage stage = MixController::Stage::Setup;
         int tunes = -1;
-        bool hasReference = false;
+        bool hasReference = false, canUndo = false, canRedo = false;
         juce::String referenceName;
         bool operator== (const PageLook& o) const
         {
-            return status == o.status && health == o.health && stage == o.stage && tunes == o.tunes
-                && hasReference == o.hasReference && referenceName == o.referenceName;
+            return status == o.status && notes == o.notes && health == o.health && stage == o.stage && tunes == o.tunes
+                && hasReference == o.hasReference && referenceName == o.referenceName && canUndo == o.canUndo && canRedo == o.canRedo;
         }
         bool operator!= (const PageLook& o) const { return ! (*this == o); }
     };
     PageLook painted;
     int builtRailFor = -1;
+    int selectedRow = -1;
     juce::String status;
     MixController::Stage lastStage = MixController::Stage::Setup;
     bool lastLiveRun = false;
+    int adviceTicks = 0;
 };
 
 } // namespace livemix
