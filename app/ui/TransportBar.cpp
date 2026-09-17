@@ -46,14 +46,11 @@ public:
 
         if (glyph == Glyph::Play)
         {
-            // Play carries the accent whether it is running or waiting: it is the key
-            // an operator hits without looking.
-            juce::ColourGradient grad (lit ? Dine::accentTop : Dine::fill, r.getX(), r.getY(),
-                                       lit ? Dine::accentBottom : Dine::fill, r.getX(), r.getBottom(), false);
-            g.setGradientFill (grad);
-            juce::Path p;
-            p.addRoundedRectangle (r, Dine::Radius::chip);
-            g.fillPath (p);
+            // Play is the one white key on the transport, running or waiting: it is what an
+            // operator hits without looking, and white on black is louder than any colour.
+            // The lime is not spent here - it belongs to the mix, not to the tape machine.
+            Dine::fillRounded (g, r, Dine::ink.withAlpha (! isEnabled() ? 0.28f : lit || over ? 1.0f : 0.86f),
+                               Dine::Radius::chip);
         }
         else if (lit)
         {
@@ -67,10 +64,12 @@ public:
         }
 
         juce::Colour ink = Dine::ink2;
-        if (glyph == Glyph::Play)        ink = lit ? Dine::onAccent : Dine::ink;
-        else if (glyph == Glyph::Record) ink = lit ? Dine::onAccent : Dine::ink2;
-        else if (glyph == Glyph::Loop)   ink = lit ? Dine::accent.brighter (0.35f) : Dine::ink2;
-        if (! isEnabled()) ink = Dine::ink4;
+        if (glyph == Glyph::Play)        ink = Dine::onAccent;
+        // The record key is red before it is pressed as well as after it: a transport says
+        // which button records without anyone having to learn the shape.
+        else if (glyph == Glyph::Record) ink = lit ? Dine::onAccent : Dine::keyRec.withAlpha (0.85f);
+        else if (glyph == Glyph::Loop)   ink = lit ? Dine::accent : Dine::ink2;
+        if (! isEnabled()) ink = glyph == Glyph::Play ? Dine::onAccent.withAlpha (0.5f) : Dine::ink4;
 
         auto c = r.getCentre();
         const float s = 6.0f;

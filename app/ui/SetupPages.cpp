@@ -206,11 +206,11 @@ public:
         const auto& it = page.items[size_t (index)];
         const bool on = getToggleState();
         auto b = getLocalBounds();
-        g.setColour (on ? Dine::accentDeep : over ? juce::Colours::white.withAlpha (0.05f) : juce::Colours::transparentBlack);
-        g.fillRect (b);
+        if (on) Dine::drawSelectedRow (g, b);
+        else if (over) { g.setColour (Dine::fillSoft); g.fillRect (b); }
         Dine::drawRule (g, b.removeFromBottom (1), Dine::hairSoft);
 
-        const juce::Colour body = on ? juce::Colours::white.withAlpha (0.9f) : Dine::ink2;
+        const juce::Colour body = on ? Dine::ink2 : Dine::ink3;
         auto r = getLocalBounds().reduced (12, 0);
         auto when = r.removeFromRight (kWhenW);
         auto count = r.removeFromRight (kCountW);
@@ -219,7 +219,7 @@ public:
 
         Dine::drawIcon (g, it.summary.tracks > 0 ? Dine::Icon::Waveform : Dine::Icon::List,
                         r.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f),
-                        on ? Dine::onAccent : Dine::ink4);
+                        on ? Dine::accent : Dine::ink4);
         r.removeFromLeft (8);
 
         auto name = r.removeFromTop (r.getHeight() / 2 + 2).withTrimmedTop (3);
@@ -232,15 +232,15 @@ public:
             // The name comes first, so the pill is placed after it is measured.
             const int nameW = juce::jmin (Dine::textWidth (Dine::text (13.0f, 500), it.listing.name), name.getWidth());
             pill = name.withX (name.getX() + nameW + 8).withWidth (w).withSizeKeepingCentre (w, 15);
-            Dine::fillRounded (g, pill.toFloat(), on ? juce::Colours::white.withAlpha (0.22f)
-                                                     : juce::Colour (0xff8fa2d8).withAlpha (0.16f), Dine::Radius::pill);
-            g.setColour (on ? Dine::onAccent : juce::Colour (0xff8fa2d8));
+            const auto tagTint = tag == "Open" ? Dine::accent : Dine::busTint (MixBus::Music);
+            Dine::fillRounded (g, pill.toFloat(), tagTint.withAlpha (0.14f), Dine::Radius::pill);
+            g.setColour (tagTint);
             g.setFont (Dine::text (10.5f, 500));
             g.drawText (tag, pill, juce::Justification::centred);
             name = name.withWidth (nameW);
         }
-        g.setColour (on ? Dine::onAccent : Dine::ink);
-        g.setFont (Dine::text (13.0f, 500));
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (13.0f, on ? 600 : 500));
         g.drawText (it.listing.name, name, juce::Justification::centredLeft, true);
         g.setColour (on ? juce::Colours::white.withAlpha (0.7f) : Dine::ink4);
         g.setFont (Dine::text (11.0f));
@@ -556,8 +556,10 @@ public:
     {
         const bool on = getToggleState();
         auto b = getLocalBounds();
-        g.setColour (on ? Dine::accent.withAlpha (0.13f) : over ? juce::Colours::white.withAlpha (0.05f) : juce::Colours::transparentBlack);
-        g.fillRect (b);
+        // The same "this is the one" a table row uses, so a chosen device and a chosen
+        // session are recognised by the same mark.
+        if (on) Dine::drawSelectedRow (g, b);
+        else if (over) { g.setColour (Dine::fillSoft); g.fillRect (b); }
         if (! first) Dine::drawRule (g, b.withHeight (1), Dine::hairSoft);
 
         auto r = b.reduced (12, 0);
@@ -617,8 +619,8 @@ public:
     {
         const bool on = getToggleState();
         auto b = getLocalBounds();
-        if (on || over)
-            Dine::fillRounded (g, b.toFloat(), on ? Dine::accent.withAlpha (0.13f) : juce::Colours::white.withAlpha (0.06f), Dine::Radius::chip);
+        if (on)        Dine::drawSelectedRow (g, b);
+        else if (over) Dine::fillRounded (g, b.toFloat(), Dine::fillSoft, Dine::Radius::chip);
         auto r = b.reduced (8, 0);
         Dine::drawRadio (g, r.removeFromLeft (15).toFloat(), on);
         r.removeFromLeft (9);
@@ -874,7 +876,7 @@ void DevicePage::paint (juce::Graphics& g)
         auto card = col.importCard;
         Dine::drawCard (g, card.toFloat());
         auto r = card.reduced (13, 0);
-        Dine::drawIcon (g, Dine::Icon::Waveform, r.removeFromLeft (19).toFloat().withSizeKeepingCentre (19.0f, 19.0f), juce::Colour (0xff8fa2d8));
+        Dine::drawIcon (g, Dine::Icon::Waveform, r.removeFromLeft (19).toFloat().withSizeKeepingCentre (19.0f, 19.0f), Dine::busTint (MixBus::Music));
         r.removeFromLeft (13);
         r.removeFromRight (recordingButton.getWidth() + 12);
         auto title = r.removeFromTop (r.getHeight() / 2 + 2).withTrimmedTop (8);
@@ -1035,13 +1037,12 @@ public:
         const auto& e = page.entries[size_t (input)];
         const auto tint = e.assigned ? busColour (mixBusForRole (e.role)) : juce::Colours::white.withAlpha (0.2f);
         auto b = getLocalBounds();
-        g.setColour (e.selected ? Dine::accentDeep : isMouseOver (true) ? juce::Colours::white.withAlpha (0.045f)
-                                                                        : juce::Colours::transparentBlack);
-        g.fillRect (b);
+        if (e.selected) Dine::drawSelectedRow (g, b);
+        else if (isMouseOver (true)) { g.setColour (Dine::fillSoft); g.fillRect (b); }
         Dine::drawRule (g, b.removeFromBottom (1), Dine::hairSoft);
 
         auto r = getLocalBounds().reduced (12, 0);
-        g.setColour (e.selected ? juce::Colours::white.withAlpha (0.9f) : e.assigned ? Dine::ink3 : Dine::ink4);
+        g.setColour (e.selected ? Dine::ink2 : e.assigned ? Dine::ink3 : Dine::ink4);
         g.setFont (Dine::mono (12.0f));
         g.drawText (e.linkedToNext ? juce::String (input + 1) + Glyph::minus() + juce::String (input + 2) : juce::String (input + 1),
                     r.removeFromLeft (kNumW), juce::Justification::centredLeft);
@@ -1049,7 +1050,7 @@ public:
 
         Dine::drawIcon (g, e.assigned ? Dine::iconFor (e.icon, e.role) : Dine::Icon::Dash,
                         r.removeFromLeft (kIconW).toFloat().withSizeKeepingCentre (16.0f, 16.0f),
-                        e.selected ? Dine::onAccent : e.assigned ? tint : Dine::ink4);
+                        e.assigned ? tint : Dine::ink4);
 
         // The signal column: what is arriving on this channel right now.
         auto meter = getLocalBounds().reduced (12, 0);
@@ -1116,7 +1117,7 @@ public:
     void paintButton (juce::Graphics& g, bool over, bool) override
     {
         auto b = getLocalBounds();
-        g.setColour (over ? juce::Colour (0xff32353a) : juce::Colour (0xff2a2c30));
+        g.setColour (over ? Dine::selected : Dine::raised);
         g.fillRect (b);
         Dine::drawRule (g, b.removeFromBottom (1), Dine::hairSoft);
         auto r = getLocalBounds().reduced (12, 0);
@@ -1943,8 +1944,18 @@ public:
     {
         const bool on = getToggleState();
         auto b = getLocalBounds().toFloat();
-        Dine::fillRounded (g, b, on ? Dine::accent.withAlpha (0.13f) : over ? juce::Colour (0xff2a2c30) : Dine::card, Dine::Radius::card);
-        Dine::hairlineRounded (g, b, on ? Dine::accent.withAlpha (0.75f) : Dine::hair, Dine::Radius::card);
+        // The chosen card is a lit plane with a lime rule along its top, not a lime box:
+        // three of these on one page outlined in colour is a landing page, not a setting.
+        Dine::fillRounded (g, b, on ? Dine::selected : over ? Dine::raised : Dine::card, Dine::Radius::card);
+        Dine::hairlineRounded (g, b, on ? Dine::hairStrong : Dine::hair, Dine::Radius::card);
+        if (on)
+        {
+            juce::Graphics::ScopedSaveState save (g);
+            juce::Path clip; clip.addRoundedRectangle (b, Dine::Radius::card);
+            g.reduceClipRegion (clip);
+            g.setColour (Dine::accent);
+            g.fillRect (b.getX(), b.getY(), b.getWidth(), 2.0f);
+        }
 
         auto r = getLocalBounds().reduced (13, 12);
         auto top = r.removeFromTop (18);

@@ -191,6 +191,10 @@
 - **The TRACKS channel panel is resizable** (`TracksPage::setPanelWidth`, the divider at `headerWidth`): the
   standard DAW drag, one width inherited by every row, persisted with the session (`Document::trackPanelWidth`).
   `kHeaderWidth` is gone - everything on that page measures from the member.
+- **Desk sizes.** `build/app/dlive_ui_snapshots --sizes [dir]` renders every workspace at 1280x800, 1440x900
+  and 1920x1080 - the three screens a booth actually has - so a layout that only holds together at the
+  developer's window is caught before a Sunday. `dlive_ui_snapshots <dir>` (no flag) is still the full set of
+  states, and `21`-`25` are the smallest window DLIVE allows.
 - **UI frame budget.** `build/app/dlive_ui_snapshots --frames [channels=48] [frames=120]` builds a realistically
   large console and reports, per workspace, the cost of one `refresh()` and the cost of a full repaint. A full
   repaint is 30-130 ms at 48 channels, so **no page may call `repaint()` on itself from its 30 Hz tick** - that
@@ -245,10 +249,24 @@
   and the `after` LUFS line (target -23, within ~1 LU) when touching gain, fader, bus or master rules. Inputs below
   `faintInputDb` at the device are "faint": flagged, never tuned or raised.
   The app is `app/` (`MixController` no JUCE, `DawEngine` the timeline, `AudioHost` the device, `ui/` pages).
-  The app's look is the DLIVE v2
-  design: tokens, icons, widgets and look-and-feel in `app/ui/AppTheme.{h,cpp}` (`Dine::`), a vibrancy sidebar +
-  unified toolbar shell in `MainView`, sheets for TUNE MIX and its result. Caps only in the product verbs
-  (TUNE MIX / RE-TUNE / KEEP / REVERT / BEFORE / AFTER / BYPASS); the plug-in keeps `Tokens` in `src/UI` and is unaffected.
+  **The app's look is the marketing site, translated** (`dlive-audio.dinecaleb.chatgpt.site`, source
+  `dist/index.html`): tokens, icons, widgets and look-and-feel in `app/ui/AppTheme.{h,cpp}` (`Dine::`), a
+  sidebar + unified toolbar shell in `MainView`, sheets for TUNE MIX and its result. The site's own values
+  are the tokens - the ground is the brand black `#080909` (`window`), the chrome `#0b0d0b`, a panel
+  `#101310`, a tile inside one `#151815`, what is chosen `#20231f`, hairlines at 0.08 / 0.12 / 0.20 / 0.30
+  of white, ink that is faintly green rather than blue (`#f3f4ef` down to `#5c625b`) and the electric lime
+  `#c8ff3d`. **The lime is the signal, never the chrome**, and that is the one rule to keep: it is spent on
+  the primary action, the active workspace, what is selected or soloed, what DLIVE tuned, and on meters,
+  gain reduction and loudness - *what the audio is doing*. Everything the engineer **sets** - faders, knobs,
+  parameter bars, slider tracks, fader caps - is the pale metal `ink2`, which is why a bank of twenty-four
+  channels reads as black, white and one colour instead of a wall of green. A setting that is on or off is
+  `DineButton::Style::Toggle` (a lit plane with a lime hairline), never `Filled`; `Filled` is the one primary
+  action on a surface, and takes `setTint` when it means a console state instead (a mute is amber). A chosen
+  row in any table or list is `Dine::drawSelectedRow` - a lit plane and a lime marker on its leading edge,
+  never a bar of colour with the text knocked out of it. Buttons are flat: the site has no gradients and no
+  glow. Caps only in the product verbs (TUNE MIX / RE-TUNE / KEEP / REVERT / BEFORE / AFTER / BYPASS /
+  LIVE SAFE), at the site's 0.06 em; the plug-in keeps `Tokens` in `src/UI` and is unaffected.
+  Colour literals do not belong outside `AppTheme`; if a page needs a new value, the token is what is new.
   MIXER (`app/ui/MixerPage`) is one `Strip` component laid out two ways - STRIPS (a vertical bank at three widths)
   and LIST (a row per source) - with a filter (All / Inputs / Groups), pan and R/A/M/S. The bank is **one console
   surface, not a row of cards**: a column is flat, carries its group's colour along its top edge and a hairline

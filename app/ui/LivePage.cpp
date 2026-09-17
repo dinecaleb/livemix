@@ -368,11 +368,14 @@ void LivePage::refreshMonitor()
     const bool inPlace = m.mode == SoloMode::InPlace;
     soloModeButton.setValue (inPlace ? "Everyone hears it" : "Only I hear it");
     soloPointButton.setButtonText (m.point == SoloPoint::PFL ? "On its own" : "In the mix");
-    soloPointButton.setStyle (m.point == SoloPoint::PFL ? DineButton::Style::Filled : DineButton::Style::Standard);
-    dimButton.setStyle (m.dim ? DineButton::Style::Filled : DineButton::Style::Standard);
+    soloPointButton.setStyle (DineButton::Style::Toggle);
+    soloPointButton.setToggleState (m.point == SoloPoint::PFL, juce::dontSendNotification);
+    dimButton.setStyle (DineButton::Style::Toggle);
+    dimButton.setToggleState (m.dim, juce::dontSendNotification);
     soloCount = controller.numSoloed();
     clearSoloButton.setEnabled (soloCount > 0);
-    clearSoloButton.setStyle (soloCount > 0 ? DineButton::Style::Filled : DineButton::Style::Standard);
+    clearSoloButton.setStyle (DineButton::Style::Toggle);
+    clearSoloButton.setToggleState (soloCount > 0, juce::dontSendNotification);
     monitorRouted = controller.hasMonitorOutput();
     if (std::fabs (monitorLevel.getValue() - double (m.gainDb)) > 0.01)
         monitorLevel.setValue (m.gainDb, juce::dontSendNotification);

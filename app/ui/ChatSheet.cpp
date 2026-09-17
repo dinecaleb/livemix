@@ -224,8 +224,9 @@ void ChatSheet::updateControls()
     revertButton.setVisible (previewing);
     compareButton.setVisible (previewing);
     compareButton.setButtonText (controller.getCompare() == MixController::Compare::Before ? "AFTER" : "BEFORE");
-    compareButton.setStyle (controller.getCompare() == MixController::Compare::Before
-                                ? DineButton::Style::Filled : DineButton::Style::Standard);
+    compareButton.setStyle (DineButton::Style::Toggle);
+    compareButton.setToggleState (controller.getCompare() == MixController::Compare::Before,
+                                  juce::dontSendNotification);
 
     undoButton.setEnabled (controller.canUndoMix());
     redoButton.setEnabled (controller.canRedoMix());
@@ -251,7 +252,7 @@ void ChatSheet::refresh()
 
 void ChatSheet::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colours::black.withAlpha (0.45f));
+    g.fillAll (Dine::desk.withAlpha (0.74f));
     auto card = cardBounds().toFloat();
     Dine::drawSheet (g, card, Dine::Radius::window);
 

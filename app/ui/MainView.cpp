@@ -108,7 +108,7 @@ public:
         }
         else Dine::drawStandard (g, r, Dine::Radius::control, over, down);
 
-        g.setColour (on ? juce::Colour (0xff1b1c1e) : Dine::ink2);
+        g.setColour (on ? Dine::onAccent : Dine::ink2);
         g.setFont (Dine::text (12.0f, 600).withExtraKerningFactor (0.05f));
         g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
     }
@@ -764,6 +764,8 @@ void MainView::tuneChannel (int strip, const MixController::ListenSettings& sett
     resized();
     channelSheet->toFront (true);
 }
+
+void MainView::showChat() { openChat(); }
 
 // AI MIX CHAT. It opens over the workspace rather than taking one of its own: the mix is the
 // thing being discussed, and it should stay visible and audible while it is.
@@ -1471,7 +1473,8 @@ void MainView::paint (juce::Graphics& g)
     {
         auto track = tabs[0]->getBounds();
         for (int i = 1; i < kWorkspaceTabs; ++i) track = track.getUnion (tabs[size_t (i)]->getBounds());
-        Dine::fillRounded (g, track.expanded (2, 2).toFloat(), juce::Colours::white.withAlpha (0.07f), 7.0f);
+        Dine::fillRounded (g, track.expanded (2, 2).toFloat(), Dine::fillSoft, 7.0f);
+        Dine::hairlineRounded (g, track.expanded (2, 2).toFloat(), Dine::hairSoft, 7.0f);
     }
 }
 
@@ -1483,24 +1486,34 @@ void MainView::paintSidebar (juce::Graphics& g)
     g.setColour (Dine::hair);
     g.fillRect (float (sidebar.getRight()) - 0.5f, 0.0f, 0.5f, float (getHeight()));
 
+    // The lockup the site uses: the house quietly, the product in full. Same two weights,
+    // same tracking, so the application is recognisably the thing the website was selling.
     auto brand = sidebar.withHeight (46).reduced (14, 0);
+    const auto houseFont = Dine::text (13.0f, 450).withExtraKerningFactor (0.10f);
+    const auto markFont = Dine::text (13.0f, 700).withExtraKerningFactor (0.02f);
+    g.setColour (Dine::ink3);
+    g.setFont (houseFont);
+    const int houseW = Dine::textWidth (houseFont, "DAUDIO");
+    g.drawText ("DAUDIO", brand.removeFromLeft (houseW), juce::Justification::centredLeft);
+    brand.removeFromLeft (7);
     g.setColour (Dine::ink);
-    g.setFont (Dine::text (14.0f, 700).withExtraKerningFactor (0.10f));
+    g.setFont (markFont);
     g.drawText ("DLIVE", brand, juce::Justification::centredLeft);
 
     walkSidebar (Dine::Metric::sidebar,
                  [] (juce::Component*, juce::Rectangle<int>) {},
                  [&g] (juce::Rectangle<int> r, const char* t)
                  {
-                     g.setColour (Dine::ink3);
-                     g.setFont (Dine::text (11.0f, 600));
+                     g.setColour (Dine::ink4);
+                     g.setFont (Dine::text (10.5f, 600).withExtraKerningFactor (0.05f));
                      g.drawText (t, r.reduced (10, 0), juce::Justification::centredLeft);
                  },
                  &sessionsItem, setupItems, workspaceItems);
 
     // ---- the device's state, at the foot of the sidebar
     auto status = juce::Rectangle<int> (8, getHeight() - 8 - 74, Dine::Metric::sidebar - 16, 74);
-    Dine::fillRounded (g, status.toFloat(), juce::Colours::white.withAlpha (0.05f), Dine::Radius::card);
+    Dine::fillRounded (g, status.toFloat(), Dine::card, Dine::Radius::card);
+    Dine::hairlineRounded (g, status.toFloat(), Dine::hairSoft, Dine::Radius::card);
     auto inner = status.reduced (11, 10);
     auto line = inner.removeFromTop (15);
     const bool running = services.isAudioRunning();

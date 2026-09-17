@@ -48,6 +48,7 @@ public:
 
     void openMixerWindow();
     void showOutputs();                   // the Outputs sheet: where the sound leaves this Mac
+    void showChat();                      // MIX CHAT: ask for a change in words (Mix > AI Mix Chat...)
     void closeSheets();                   // dismiss whatever sheet is over the workspace
 
     // TUNE CHANNEL: one source listened to and tuned on its own, from wherever it was

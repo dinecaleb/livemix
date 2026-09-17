@@ -83,6 +83,7 @@ scripts/test.sh                                     # ctest (unit + plugin integ
 build/app/dlive_app_tests                           # DLIVE: controller, transport, recorder, timeline, documents
 build/tests/livemix_tests                           # engine unit tests
 build/app/dlive_ui_snapshots out/                   # every workspace and state as PNGs — look at them
+build/app/dlive_ui_snapshots --sizes out-sizes/     # every workspace at 1280x800, 1440x900 and 1920x1080
 build/app/dlive_mix_stems "<stems folder>" 30 out/  # TUNE MIX on a real multitrack; exit 0 = a re-tune changed nothing
 build/app/dlive_device_check 3                      # a real CoreAudio device
 scripts/validate_au.sh                              # auval over every Dine AU

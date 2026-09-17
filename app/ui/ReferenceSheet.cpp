@@ -290,7 +290,7 @@ void ReferenceSheet::drawBalance (juce::Graphics& g, juce::Rectangle<int> area) 
 
 void ReferenceSheet::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff0c0d0e).withAlpha (0.55f));
+    g.fillAll (Dine::desk.withAlpha (0.74f));
 
     auto card = cardBounds().toFloat();
     juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 40, { 0, 16 }).drawForRectangle (g, card.toNearestInt());
@@ -300,7 +300,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
                                Dine::Radius::window, Dine::Radius::window, false, false, true, true);
         g.setColour (Dine::sheet);
         g.fillPath (p);
-        g.setColour (Dine::hairStrong);
+        g.setColour (Dine::edge);
         g.strokePath (p, juce::PathStrokeType (0.5f));
     }
 

@@ -13,64 +13,92 @@ namespace livemix
 {
 
 // ---------------------------------------------------------------------------
-// DLIVE v2 look: native macOS, dark. Materials are flat (desk / window / card /
-// sidebar), edges are half-pixel hairlines, radii are 5-11, controls are 24-26 px
-// and type is the system face at Mac sizes. Letterspaced caps survive only in the
-// product verbs (TUNE MIX, RE-TUNE, KEEP, REVERT, BEFORE, AFTER).
+// The DLIVE look, taken from the marketing site (dlive-audio.dinecaleb.chatgpt.site).
+//
+// The site's ground is a true black (#080909) and its depth comes from black on black:
+// #0d0f0d for the chrome, #101310 for a panel, #151815 for a tile inside one, with
+// hairlines at a tenth of white and one electric lime (#c8ff3d) that is spent only on
+// what matters - the primary action, the active workspace, what is selected, what is
+// soloed into the engineer's headphones, what DLIVE tuned, and the signal itself.
+// Nothing else in the application is allowed to be that colour.
+//
+// The application is denser than the site on purpose: a page is read from a booth
+// during a service, not from a sofa, so the gutters are tighter, the controls are
+// 24-28 px, every number is tabular and the type carries the site's tracking rather
+// than its size. Letterspaced caps survive only in the product verbs (TUNE MIX,
+// RE-TUNE, KEEP, REVERT, BEFORE, AFTER, BYPASS, LIVE SAFE).
+//
 // These tokens belong to the application; the plug-in keeps `Tokens` in src/UI.
 // ---------------------------------------------------------------------------
 namespace Dine
 {
-    // Materials
-    inline const juce::Colour desk        { 0xff101113 };   // behind the window / dim
-    inline const juce::Colour window      { 0xff1b1c1e };   // window content
-    inline const juce::Colour card        { 0xff232528 };   // card / grouped box
-    inline const juce::Colour sidebar     { 0xff26282c };   // sidebar vibrancy
-    inline const juce::Colour toolbar     { 0xff1e1f22 };   // unified toolbar
-    inline const juce::Colour sheet       { 0xff2c2e32 };   // sheet material
-    inline const juce::Colour popover     { 0xff34363a };   // menus, HUD
-    inline const juce::Colour rail        { 0xff1f2023 };   // inspector rail beside the mix
+    // Materials. The ramp is deliberately shallow - eight levels of value between the
+    // canvas and an elevated tile - because the hierarchy is carried by hairlines,
+    // alignment and type, not by grey boxes stacked on each other.
+    inline const juce::Colour desk        { 0xff050605 };   // behind the window / dim
+    inline const juce::Colour window      { 0xff080909 };   // the brand black: the workspace ground
+    inline const juce::Colour toolbar     { 0xff0a0c0a };   // unified toolbar
+    inline const juce::Colour sidebar     { 0xff0b0d0b };   // sidebar - under the content, never over it
+    inline const juce::Colour rail        { 0xff0a0c0a };   // a panel at the edge of a workspace
+    inline const juce::Colour console     { 0xff0d0f0d };   // a console column, a timeline header
+    inline const juce::Colour card        { 0xff101310 };   // panel / strip / grouped box
+    inline const juce::Colour raised      { 0xff151815 };   // a tile inside a card (a readout, a well)
+    inline const juce::Colour selected    { 0xff20231f };   // the row or segment that is chosen
+    inline const juce::Colour sheet       { 0xff121512 };   // sheet material
+    inline const juce::Colour popover     { 0xff171916 };   // menus, HUD
 
-    // Edges and fills (the design's rgba(255,255,255,x) over these grounds)
-    inline const juce::Colour hair        { 0x1affffff };
-    inline const juce::Colour hairSoft    { 0x0dffffff };
-    inline const juce::Colour hairStrong  { 0x26ffffff };
-    inline const juce::Colour fill        { 0x1affffff };   // control background
-    inline const juce::Colour fillHover   { 0x28ffffff };
-    inline const juce::Colour fillSoft    { 0x12ffffff };
-    inline const juce::Colour well        { 0x66000000 };   // slider tracks, meters, search fields
+    // Edges and fills. Translucent white, so one hairline reads the same over every
+    // material above: 0.08 / 0.12 / 0.20 / 0.30 of white is the site's #1b1e1b,
+    // #252925, #3b3f3a and #50554f over the brand black.
+    inline const juce::Colour hairSoft    { 0x14ffffff };
+    inline const juce::Colour hair        { 0x1fffffff };
+    inline const juce::Colour hairStrong  { 0x33ffffff };
+    inline const juce::Colour edge        { 0x4dffffff };   // a product frame: a sheet, a window
+    inline const juce::Colour fill        { 0x12ffffff };   // control background
+    inline const juce::Colour fillHover   { 0x1effffff };
+    inline const juce::Colour fillSoft    { 0x0bffffff };
+    inline const juce::Colour well        { 0x12ffffff };   // slider slots, meters, fields: cut, and lighter
 
-    // Ink
-    inline const juce::Colour ink         { 0xfff2f3f5 };
-    inline const juce::Colour ink2        { 0xffa0a5ad };
-    inline const juce::Colour ink3        { 0xff7e838c };
-    inline const juce::Colour ink4        { 0xff5b606a };
-    inline const juce::Colour glyph       { 0xff8b9099 };   // resting icon
+    // Ink. The site's neutrals are faintly green rather than blue, which is most of
+    // what keeps a black interface from reading as the usual charcoal DAW.
+    inline const juce::Colour ink         { 0xfff3f4ef };
+    inline const juce::Colour ink2        { 0xffb4b9b1 };
+    inline const juce::Colour ink3        { 0xff868c84 };
+    inline const juce::Colour ink4        { 0xff5c625b };
+    inline const juce::Colour glyph       { 0xff8b9189 };   // resting icon
 
-    // Roles
-    inline const juce::Colour accent      { 0xff4db8a4 };
-    inline const juce::Colour accentDeep  { 0xff2f8d7a };
-    inline const juce::Colour accentTop   { 0xff3aa08c };   // filled button gradient
-    inline const juce::Colour accentBottom{ 0xff2f8d7a };
-    inline const juce::Colour ok          { 0xff4cc98a };
-    inline const juce::Colour warn        { 0xfff0a33f };
-    inline const juce::Colour crit        { 0xffe5645e };
-    inline const juce::Colour onAccent    { 0xffffffff };
+    // Roles. The lime is the signal; it is never chrome.
+    inline const juce::Colour accent      { 0xffc8ff3d };
+    inline const juce::Colour accentDeep  { 0xffa4d62f };   // pressed
+    inline const juce::Colour accentTop   { 0xffc8ff3d };   // filled buttons are flat: the site has no gradients
+    inline const juce::Colour accentBottom{ 0xffc8ff3d };
+    inline const juce::Colour onAccent    { 0xff0a0c09 };   // a lime button carries near-black type
+    inline const juce::Colour ok          { 0xff57b98d };   // heard, healthy, done - green, so the lime stays rare
+    inline const juce::Colour hot         { 0xffe1d54b };   // the meter's middle band
+    inline const juce::Colour warn        { 0xffefaa52 };
+    inline const juce::Colour crit        { 0xfff0655d };
 
     // The console keys keep their own colours, so a key says which key it is before it says
-    // it is on: mute amber, solo teal, record red, monitoring blue.
-    inline const juce::Colour keyMute     { 0xfff0a33f };
-    inline const juce::Colour keySolo     { 0xff4db8a4 };
-    inline const juce::Colour keyRec      { 0xffe5645e };
-    inline const juce::Colour keyMon      { 0xff6ea8e0 };
+    // it is on: mute amber, solo lime (it is the one thing going to the engineer's own ears),
+    // record red, monitoring blue.
+    inline const juce::Colour keyMute     { 0xffefaa52 };
+    inline const juce::Colour keySolo     { 0xffc8ff3d };
+    inline const juce::Colour keyRec      { 0xfff0655d };
+    inline const juce::Colour keyMon      { 0xff6eafff };
 
+    // Focus and disablement, named once so every control agrees.
+    inline const juce::Colour focusRing   { 0xffc8ff3d };
+    inline constexpr float    disabled    = 0.38f;
+
+    // Corners. The site frames its product at 13-20 px and everything inside it at 4-8:
+    // the application only ever draws the inside, so it stays in the small half.
     namespace Radius
     {
-        inline constexpr float window  = 11.0f;
-        inline constexpr float card    = 9.0f;
+        inline constexpr float window  = 10.0f;
+        inline constexpr float card    = 8.0f;
         inline constexpr float control = 6.0f;
-        inline constexpr float chip    = 5.0f;
-        inline constexpr float pill    = 11.0f;
+        inline constexpr float chip    = 4.0f;
+        inline constexpr float pill    = 5.0f;
     }
 
     namespace Metric
@@ -80,8 +108,8 @@ namespace Dine
         inline constexpr int footer    = 52;
         inline constexpr int rail      = 274;   // the mix inspector
         inline constexpr int setupRail = 252;   // the column of small cards beside a setup page
-        inline constexpr int padX      = 30;    // page gutter
-        inline constexpr int padY      = 26;
+        inline constexpr int padX      = 24;    // page gutter - tighter than the site: this is a workstation
+        inline constexpr int padY      = 20;
         inline constexpr int control   = 24;    // popups, rows, segments
         inline constexpr int button    = 26;    // default and filled buttons
         inline constexpr int panelTab  = 15;    // the gutter a collapsible side panel is opened by
@@ -130,6 +158,11 @@ namespace Dine
     const std::vector<RoleGroup>& roleGroups();
     juce::String friendlyRoleName (ChannelRole);
 
+    // The one way a row in a table or a list says it is the chosen one: a lit plane and a
+    // lime marker on its leading edge, never a bar of colour with the text knocked out of
+    // it. A selected row still has to be read - it is data, not a button.
+    void drawSelectedRow (juce::Graphics&, juce::Rectangle<int>);
+
     // A section caption over a card or a list: 11 px, 600, quiet. Every setup page's
     // right-hand column and every grouped box is introduced by one of these.
     void drawCaption (juce::Graphics&, juce::Rectangle<int>, const juce::String&);
@@ -177,11 +210,18 @@ namespace Dine
 class DineButton : public juce::Button
 {
 public:
-    enum class Style { Filled, Standard, Ghost, Segment };
+    // Filled  - the primary action on the surface. Lime, near-black type, one per surface.
+    // Toggle   - a setting that is on or off. On is a lit plane with a lime hairline, never
+    //            a lime fill: the fill belongs to the action you are being asked to take.
+    // Standard - everything else. Segment - one of a row inside a chip track. Ghost - bare.
+    enum class Style { Filled, Standard, Ghost, Segment, Toggle };
 
     DineButton (const juce::String& text, Style s = Style::Standard);
 
     void setStyle (Style s)                 { if (s != style) { style = s; repaint(); } }
+    // A filled button that means a console state rather than an action takes that state's
+    // colour (a mute is amber wherever it is pressed), so the lime keeps its one meaning.
+    void setTint (juce::Colour c)           { tint = c; repaint(); }
     void setIcon (Dine::Icon i)             { if (i != icon) { icon = i; repaint(); } }
     void setFontPx (float px)               { fontPx = px; repaint(); }
     void setPadX (int px)                   { padX = px; }
@@ -192,6 +232,7 @@ public:
 
 private:
     Style style;
+    juce::Colour tint { Dine::accent };
     Dine::Icon icon = Dine::Icon::None;
     float fontPx = 13.0f;
     int padX = 13;

@@ -240,6 +240,7 @@ public:
             if (sel.bus != MixBus::Master)
             {
                 const bool on = kept.buses[size_t (sel.bus)].solo;
+                soloButton.setTint (Dine::keySolo);
                 soloButton.setStyle (on ? DineButton::Style::Filled : DineButton::Style::Standard);
             }
         }
@@ -249,6 +250,8 @@ public:
             gain.setValue (st.inputGainDb, juce::dontSendNotification);
             fader.setValue (st.faderDb, juce::dontSendNotification);
             pan.setValue (st.pan);
+            muteButton.setTint (Dine::keyMute);
+            soloButton.setTint (Dine::keySolo);
             muteButton.setStyle (st.mute ? DineButton::Style::Filled : DineButton::Style::Standard);
             soloButton.setStyle (st.solo ? DineButton::Style::Filled : DineButton::Style::Standard);
         }

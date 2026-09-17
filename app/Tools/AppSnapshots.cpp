@@ -321,9 +321,77 @@ static int measureFrames (int channels, int frames)
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// DESK SIZES
+//
+// A booth is whatever screen the church already owns. This renders every workspace at the
+// three that actually turn up - a 13" laptop, a 15" laptop and a 1080p monitor - so a
+// layout that only holds together at the developer's window is caught before a Sunday.
+//
+//   dlive_ui_snapshots --sizes <dir>
+// ---------------------------------------------------------------------------
+static int renderSizes (const juce::File& dir)
+{
+    dir.createDirectory();
+    Rig rig;
+    auto& view = *rig.view;
+    rig.services.openDevices ("Dante Virtual Soundcard", "Dante Virtual Soundcard");
+    view.showPage (MainView::Page::Assign);
+    auto& assign = view.getAssignPage();
+    assign.assign (0, ChannelRole::KickIn, "Kick");
+    assign.assign (1, ChannelRole::SnareTop, "Snare");
+    assign.assign (2, ChannelRole::RackTom, "Rack Tom");
+    assign.assign (3, ChannelRole::FloorTom, "Floor Tom");
+    assign.assign (4, ChannelRole::Overhead, "OH", true);
+    assign.assign (6, ChannelRole::Room, "Room");
+    assign.assign (7, ChannelRole::BassDI, "Bass");
+    assign.assign (8, ChannelRole::Piano, "Keys", true);
+    assign.assign (10, ChannelRole::LeadVocal, "Lead");
+    assign.assign (11, ChannelRole::BackingVocal, "BGV 1");
+    assign.assign (12, ChannelRole::BackingVocal, "BGV 2");
+    assign.assign (13, ChannelRole::BackingVocal, "BGV 3");
+    assign.assign (14, ChannelRole::Speech, "Pastor");
+    view.showPage (MainView::Page::Purpose);
+    view.getPurposePage().onContinue();
+    rig.feed (1.0);
+    rig.recordSyntheticTake (dir.getChildFile ("take"), 6.0);
+    view.getTracksPage().rebuild();
+    view.getTracksPage().zoomToFit();
+    rig.controller.startTuneMix ({ 4.0f, -45.0f, 5.0f });
+    rig.feed (5.5);
+    for (int i = 0; i < 100 && rig.controller.getStage() != MixController::Stage::Preview; ++i) { rig.controller.poll(); rig.pump (10); }
+    rig.controller.keepPlan();
+    rig.feed (0.5);
+
+    for (const auto& size : { std::pair<int, int> { 1280, 800 }, { 1440, 900 }, { 1920, 1080 } })
+    {
+        rig.view->setSize (size.first, size.second);
+        const juce::String tag = juce::String (size.first) + "x" + juce::String (size.second);
+        for (const auto& page : { std::pair<MainView::Page, const char*> { MainView::Page::Sessions,  "sessions" },
+                                  { MainView::Page::Device,    "device" },
+                                  { MainView::Page::Assign,    "inputs" },
+                                  { MainView::Page::Purpose,   "purpose" },
+                                  { MainView::Page::Tracks,    "tracks" },
+                                  { MainView::Page::Mixer,     "mixer" },
+                                  { MainView::Page::Tune,      "tune" },
+                                  { MainView::Page::Live,      "live" },
+                                  { MainView::Page::Inspector, "inspector" } })
+        {
+            view.showPage (page.first);
+            rig.feed (0.4);
+            rig.snap (dir, tag + "-" + page.second);
+        }
+    }
+    rig.view.reset();
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+    if (argc > 1 && juce::String (argv[1]) == "--sizes")
+        return renderSizes (juce::File (argc > 2 ? juce::String (argv[2])
+                                                 : juce::File::getCurrentWorkingDirectory().getChildFile ("app-sizes").getFullPathName()));
     if (argc > 1 && juce::String (argv[1]) == "--frames")
         return measureFrames (argc > 2 ? juce::String (argv[2]).getIntValue() : 48,
                               argc > 3 ? juce::String (argv[3]).getIntValue() : 120);
@@ -710,6 +778,25 @@ int main (int argc, char** argv)
     view.showOutputs();
     rig.feed (0.4);
     rig.snap (dir, "18-outputs");
+
+    // MIX CHAT: a change asked for in words. It works with no account and no network - with no
+    // cloud model configured the sentence is read by DLIVE's own parser, which is deterministic
+    // and offline - so these two shots are of the built-in reasoning, which is what a church
+    // booth with no internet actually gets. The empty sheet says what it can be asked; the
+    // answered one shows the sentence, what DLIVE decided line by line, and the same
+    // BEFORE / AFTER / KEEP / REVERT the rest of the app decides a plan with.
+    view.closeSheets();
+    view.showPage (MainView::Page::Mixer);
+    view.showChat();
+    rig.feed (0.4);
+    rig.snap (dir, "27-chat");
+    rig.controller.sendChatRequest ("bring the lead vocal forward and take some boom out of the kick");
+    for (int i = 0; i < 900 && rig.controller.isChatBusy(); ++i) { rig.controller.poll(); rig.feed (0.05); }
+    rig.feed (0.6);
+    rig.snap (dir, "27b-chat-answered");
+    rig.controller.revertPlan();
+    view.closeSheets();
+    rig.feed (0.3);
 
     // ---- the smallest window DLIVE allows (MainWindow::setResizeLimits). A workspace that
     // only works at the developer's resolution is a workspace that breaks on a laptop at the

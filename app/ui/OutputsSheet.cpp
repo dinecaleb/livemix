@@ -85,7 +85,11 @@ public:
         sourceButton.setValue (f.monitor ? juce::String ("My headphones")
                                          : (f.source == MixBus::Master ? juce::String ("Main mix") : sentence (mixBusName (f.source))));
         pairButton.setValue (sheet.pairName (f.left < 0 ? -1 : f.left / 2));
-        monoButton.setStyle (f.mono ? DineButton::Style::Filled : DineButton::Style::Standard);
+        monoButton.setStyle (DineButton::Style::Toggle);
+        monoButton.setToggleState (f.mono, juce::dontSendNotification);
+        // A mute is amber wherever it is pressed, so a muted feed reads as muted and not
+        // as something DLIVE is doing.
+        muteButton.setTint (Dine::keyMute);
         muteButton.setStyle (f.mute ? DineButton::Style::Filled : DineButton::Style::Standard);
         monoButton.setButtonText (f.mono ? "Mono" : "Stereo");
         // The broadcast and the engineer's listen are always a real stereo pair, so the switch
@@ -422,7 +426,7 @@ juce::Rectangle<int> OutputsSheet::cardBounds() const
 
 void OutputsSheet::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff0c0d0e).withAlpha (0.55f));
+    g.fillAll (Dine::desk.withAlpha (0.74f));
 
     auto card = cardBounds();
     juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 40, { 0, 16 }).drawForRectangle (g, card);

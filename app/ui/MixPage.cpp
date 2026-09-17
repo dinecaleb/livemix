@@ -370,7 +370,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (juce::Colour (0xff0c0d0e).withAlpha (0.55f));
+        g.fillAll (Dine::desk.withAlpha (0.74f));
 
         auto card = sheetBounds().toFloat();
         juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 40, { 0, 16 }).drawForRectangle (g, card.toNearestInt());
@@ -380,7 +380,7 @@ public:
                                    Dine::Radius::window, Dine::Radius::window, false, false, true, true);
             g.setColour (Dine::sheet);
             g.fillPath (p);
-            g.setColour (Dine::hairStrong);
+            g.setColour (Dine::edge);
             g.strokePath (p, juce::PathStrokeType (0.5f));
         }
 
@@ -664,7 +664,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (juce::Colour (0xff0c0d0e).withAlpha (0.55f));
+        g.fillAll (Dine::desk.withAlpha (0.74f));
         auto card = sheetBounds().toFloat();
         juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 40, { 0, 16 }).drawForRectangle (g, card.toNearestInt());
         {
@@ -673,7 +673,7 @@ public:
                                    Dine::Radius::window, Dine::Radius::window, false, false, true, true);
             g.setColour (Dine::sheet);
             g.fillPath (p);
-            g.setColour (Dine::hairStrong);
+            g.setColour (Dine::edge);
             g.strokePath (p, juce::PathStrokeType (0.5f));
         }
 

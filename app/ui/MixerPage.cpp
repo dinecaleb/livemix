@@ -447,9 +447,12 @@ public:
     void paintColumnGround (juce::Graphics& g)
     {
         auto r = getLocalBounds().toFloat();
-        juce::Colour ground = kind == Kind::Master ? juce::Colour (0xff262a2e)
-                            : kind == Kind::Bus    ? juce::Colour (0xff212429)
-                                                   : juce::Colour (0xff1c1e21);
+        // Three planes of black, a few levels apart: the channels, then the groups, then
+        // the master. The separation is carried by the hairline between columns and by the
+        // group's colour along the top, not by boxing each strip in its own grey.
+        juce::Colour ground = kind == Kind::Master ? Dine::raised
+                            : kind == Kind::Bus    ? Dine::card
+                                                   : Dine::console;
         if (mute)      ground = ground.darker (0.55f);
         else if (solo) ground = ground.overlaidWith (Dine::accent.withAlpha (0.07f));
         if (selected)  ground = ground.brighter (0.09f);
@@ -582,14 +585,17 @@ public:
             {
                 auto row = col.insertRows[i];
                 const bool used = i < insertList.size();
-                Dine::fillRounded (g, row.toFloat(), used ? Dine::accent.withAlpha (mute ? 0.06f : 0.13f)
-                                                          : juce::Colours::white.withAlpha (0.025f), 3.0f);
+                // A used slot is a lit plane with one small lime lamp on it. Thirteen strips
+                // of three inserts is thirty-nine of these, so the colour is spent on the
+                // lamp and nothing else - the label stays ink.
+                Dine::fillRounded (g, row.toFloat(), used ? juce::Colours::white.withAlpha (mute ? 0.03f : 0.055f)
+                                                          : juce::Colours::white.withAlpha (0.02f), 3.0f);
                 auto inner = row.reduced (4, 0);
                 auto dot = inner.removeFromLeft (4).withSizeKeepingCentre (4, 4);
-                g.setColour (used ? Dine::accent : juce::Colours::white.withAlpha (0.12f));
+                g.setColour (used ? Dine::accent.withAlpha (mute ? 0.45f : 1.0f) : juce::Colours::white.withAlpha (0.12f));
                 g.fillEllipse (dot.toFloat());
                 inner.removeFromLeft (4);
-                g.setColour (used ? (mute ? Dine::ink3 : juce::Colour (0xff7fd6c5)) : Dine::ink4.withAlpha (0.7f));
+                g.setColour (used ? (mute ? Dine::ink4 : Dine::ink2) : Dine::ink4.withAlpha (0.7f));
                 g.setFont (Dine::text (9.5f, used ? 700 : 500).withExtraKerningFactor (0.02f));
                 g.drawText (used ? insertList[i].label : Glyph::dash(), inner, juce::Justification::centredLeft, true);
             }
@@ -616,7 +622,7 @@ public:
                 const float t = juce::jlimit (0.0f, 1.0f, (sendList[i].db + 40.0f) / 46.0f);
                 if (t > 0.001f)
                 {
-                    g.setColour (Dine::accent.withAlpha (mute ? 0.4f : 0.9f));
+                    g.setColour (Dine::accent.withAlpha (mute ? 0.35f : 0.8f));
                     g.fillRect (bar.toFloat().withWidth (juce::jmax (1.5f, float (bar.getWidth()) * t)));
                 }
                 g.setColour (Dine::ink3);
@@ -925,7 +931,7 @@ public:
         else r.removeFromRight (76);
 
         auto meterArea = r.removeFromLeft (juce::jmax (90, (r.getWidth() * 2) / 5)).withTrimmedBottom (12);
-        meter.setBounds (meterArea.withSizeKeepingCentre (meterArea.getWidth(), 8).translated (0, 3));
+        meter.setBounds (meterArea.withSizeKeepingCentre (meterArea.getWidth(), 6).translated (0, 3));
         r.removeFromLeft (16);
         fader.setBounds (r.withSizeKeepingCentre (juce::jmax (80, r.getWidth()), 22));
     }
@@ -1334,7 +1340,10 @@ void MixerPage::updateControls()
         resized();
     }
     windowButton.setVisible (windowButtonWanted);
-    sendsButton.setStyle (showSends ? DineButton::Style::Filled : DineButton::Style::Standard);
+    // A view toggle is a selection, never a primary action: it lights as a chosen segment
+    // rather than filling with the lime, which belongs to what the mix is doing.
+    sendsButton.setStyle (showSends ? DineButton::Style::Segment : DineButton::Style::Standard);
+    sendsButton.setToggleState (showSends, juce::dontSendNotification);
     if (sendsButton.isVisible() != (view == View::Strips))
     {
         sendsButton.setVisible (view == View::Strips);
@@ -1347,7 +1356,7 @@ void MixerPage::paint (juce::Graphics& g)
 {
     // The sub-toolbar: what this is and how much of it there is, then the controls.
     auto head = getLocalBounds().removeFromTop (kHeaderH);
-    g.setColour (juce::Colour (0xff18191c));
+    g.setColour (Dine::toolbar);
     g.fillRect (head);
     Dine::drawRule (g, head.removeFromBottom (1), Dine::hairSoft);
 

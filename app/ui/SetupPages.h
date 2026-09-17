@@ -88,7 +88,9 @@ private:
     juce::Component listHolder;
     juce::TextEditor search;
     std::array<std::unique_ptr<DineChip>, 3> chips;
-    DineButton newButton { "New session", DineButton::Style::Filled };
+    // One primary action on the screen. Opening the session you picked is what this page is
+    // for; starting a new one is the alternative to it, not a second headline.
+    DineButton newButton { "New session", DineButton::Style::Standard };
     DineButton openButton { "Open session", DineButton::Style::Filled };
     DineButton revealButton { "Show in Finder", DineButton::Style::Standard };
 };

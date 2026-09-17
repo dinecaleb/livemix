@@ -1032,7 +1032,7 @@ void TracksPage::paint (juce::Graphics& g)
     {
         juce::Graphics::ScopedSaveState save (g);
         g.reduceClipRegion (lanes);
-        g.setColour (juce::Colour (0xff17191c));
+        g.setColour (Dine::window);
         g.fillRect (lanes);
 
         if (project.loopEnabled && project.loopEnd > project.loopStart)
@@ -1145,7 +1145,7 @@ void TracksPage::paint (juce::Graphics& g)
     // can see from the far side of the room.
     {
         const int px = sampleToX (services.daw().getTransport().getPosition());
-        const auto colour = services.daw().isRecording() ? Dine::crit : juce::Colour (0xffe8ebee);
+        const auto colour = services.daw().isRecording() ? Dine::crit : Dine::ink;
         if (px >= lanes.getX() - 1 && px <= lanes.getRight() + 1)
         {
             juce::Graphics::ScopedSaveState save (g);
@@ -1206,7 +1206,7 @@ void TracksPage::paint (juce::Graphics& g)
 void TracksPage::paintToolbar (juce::Graphics& g)
 {
     auto area = toolbarArea();
-    g.setColour (juce::Colour (0xff18191c));
+    g.setColour (Dine::toolbar);
     g.fillRect (area);
     Dine::drawRule (g, area.removeFromBottom (1), Dine::hairSoft);
 
@@ -1275,7 +1275,7 @@ void TracksPage::paintRuler (juce::Graphics& g)
 {
     auto area = rulerArea();
     auto all = getLocalBounds().withTrimmedTop (kToolbarHeight).withHeight (kRulerHeight);
-    g.setColour (juce::Colour (0xff1e2023));
+    g.setColour (Dine::card);
     g.fillRect (all);
 
     // The header column of the ruler says what the lanes below it are.
@@ -1381,7 +1381,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
     const bool selected = selection.track == track;
     const auto tint = laneColourFor (input.role);
 
-    g.setColour (selected ? juce::Colour (0xff23272c) : Dine::window);
+    g.setColour (selected ? Dine::selected : Dine::console);
     g.fillRect (area);
     g.setColour (Dine::hairSoft);
     g.fillRect (float (area.getX()), float (area.getBottom()) - 0.5f, float (area.getWidth()), 0.5f);
@@ -1462,7 +1462,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
         // name rather than floating off to the right, so the two read as one thing.
         const bool wrongName = nameMismatch (track);
         const auto nameFont = Dine::text (12.5f, selected ? 700 : 500);
-        g.setColour (dim ? Dine::ink3 : wrongName ? Dine::warn : selected ? Dine::ink : juce::Colour (0xffdfe3e8));
+        g.setColour (dim ? Dine::ink3 : wrongName ? Dine::warn : selected ? Dine::ink : Dine::ink.withAlpha (0.88f));
         g.setFont (nameFont);
         const int room = row.getWidth() - (wrongName ? 15 : 0);
         g.drawText (juce::String (input.name),
@@ -1481,8 +1481,11 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
         const float unity = faderRange().convertTo0to1 (0.0f);
         Dine::drawWell (g, cell.toFloat(), cell.getHeight() * 0.5f);
         auto lit = cell.toFloat().withWidth (juce::jmax (2.0f, cell.getWidth() * norm));
-        g.setColour (controller.isBypassed() ? Dine::ink4
-                                             : dim ? Dine::ink4 : faderDb > 0.5f ? Dine::warn : tint.withAlpha (0.85f));
+        // Pale metal, not the group's colour: a filled colour bar beside a lime meter reads
+        // as a second meter. The group is already said by the stripe at the head of the row.
+        // Above unity it goes amber, because that is a fact about the mix, not a decoration.
+        g.setColour (controller.isBypassed() || dim ? Dine::ink4
+                                                    : faderDb > 0.5f ? Dine::warn : Dine::ink2.withAlpha (0.55f));
         g.fillRoundedRectangle (lit, cell.getHeight() * 0.5f);
         g.setColour (juce::Colours::white.withAlpha (0.16f));                       // where unity sits
         g.fillRect (cell.getX() + cell.getWidth() * unity, float (cell.getY()), 1.0f, float (cell.getHeight()));
@@ -1538,7 +1541,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
             Dine::fillRounded (g, r, juce::Colours::white.withAlpha (0.05f), 4.0f);
             Dine::hairlineRounded (g, r, Dine::hairSoft, 4.0f);
         }
-        g.setColour (on ? juce::Colour (0xff16171a) : Dine::ink3);
+        g.setColour (on ? Dine::onAccent : Dine::ink3);
         g.setFont (Dine::text (9.5f, on ? 800 : 600));
         g.drawText (label, cell, juce::Justification::centred);
     };
@@ -1593,18 +1596,21 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
         if (selected)
             juce::DropShadow (juce::Colours::black.withAlpha (0.45f), 8, { 0, 2 }).drawForRectangle (g, box);
 
-        Dine::fillRounded (g, box.toFloat(), tint.withMultipliedSaturation (dim ? 0.0f : 0.85f)
-                                                 .withAlpha (selected ? 0.3f : 0.19f), Dine::Radius::chip);
+        // The body stays close to the black of the lane so a full timeline reads as a
+        // session rather than as a wall of colour; the name bar and the waveform are where
+        // the group's colour is actually spent.
+        Dine::fillRounded (g, box.toFloat(), tint.withMultipliedSaturation (dim ? 0.0f : 0.9f)
+                                                 .withAlpha (selected ? 0.22f : 0.13f), Dine::Radius::chip);
         if (named)
         {
             // A title bar the width of the clip: the name never sits on top of the waveform.
             juce::Path head;
             head.addRoundedRectangle (float (box.getX()), float (box.getY()), float (box.getWidth()), 14.0f,
                                       Dine::Radius::chip, Dine::Radius::chip, true, true, false, false);
-            g.setColour (tint.withAlpha (selected ? 0.62f : 0.42f));
+            g.setColour (tint.withAlpha (dim ? 0.28f : selected ? 0.92f : 0.62f));
             g.fillPath (head);
         }
-        Dine::hairlineRounded (g, box.toFloat(), selected ? tint.withAlpha (0.95f) : tint.withAlpha (0.5f),
+        Dine::hairlineRounded (g, box.toFloat(), tint.withAlpha (selected ? 0.9f : 0.42f),
                                Dine::Radius::chip);
 
         auto wave = box.reduced (2, 3).withTrimmedTop (named ? 12 : 0);
@@ -1616,13 +1622,15 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
             juce::Graphics::ScopedSaveState save (g);
             g.reduceClipRegion (wave);
             g.setColour (dim ? juce::Colours::white.withAlpha (0.16f)
-                             : colour.brighter (0.45f).withAlpha (selected ? 0.95f : 0.72f));
+                             : colour.brighter (0.55f).withAlpha (selected ? 0.98f : 0.85f));
             thumb->drawChannels (g, wave, from, to, 0.95f);
         }
 
         if (named)
         {
-            g.setColour (selected && ! dim ? juce::Colour (0xff12161a) : juce::Colour (0xffeef1f4));
+            // Dark type on the group's own colour, the way the brand sets type on a colour
+            // plane anywhere else.
+            g.setColour (dim ? Dine::ink2 : Dine::onAccent);
             g.setFont (Dine::text (9.5f, 600).withExtraKerningFactor (0.03f));
             g.drawText (clip.name.isEmpty() ? juce::String (session.inputs[size_t (track)].name) : clip.name,
                         box.reduced (5, 0).withHeight (14), juce::Justification::centredLeft, true);
@@ -1650,9 +1658,15 @@ void TracksPage::updateToolbar()
 {
     for (int i = 0; i < 3; ++i)
         rowTabs[size_t (i)]->setToggleState (int (rowHeight) == i, juce::dontSendNotification);
-    snapButton->setStyle (snap ? DineButton::Style::Filled : DineButton::Style::Standard);
-    followButton->setStyle (follow ? DineButton::Style::Filled : DineButton::Style::Standard);
-    recordAllButton->setStyle (allSetToRecord() ? DineButton::Style::Filled : DineButton::Style::Standard);
+    // Snap, Follow and "All to record" are settings, not the action the page is asking
+    // for: they light as a chosen plane with a lime hairline rather than filling with it.
+    snapButton->setStyle (DineButton::Style::Toggle);
+    snapButton->setToggleState (snap, juce::dontSendNotification);
+    followButton->setStyle (DineButton::Style::Toggle);
+    followButton->setToggleState (follow, juce::dontSendNotification);
+    recordAllButton->setStyle (DineButton::Style::Toggle);
+    recordAllButton->setTint (Dine::keyRec);
+    recordAllButton->setToggleState (allSetToRecord(), juce::dontSendNotification);
     repaint (toolbarArea());
 }
 

@@ -132,7 +132,7 @@ void ChainStrip::setNote (const juce::String& text)
 void ChainStrip::paint (juce::Graphics& g)
 {
     auto r = getLocalBounds();
-    g.setColour (juce::Colour (0xff181a1c));
+    g.setColour (Dine::toolbar);
     g.fillRect (r);
     Dine::drawRule (g, r.withHeight (1), Dine::hair);
 

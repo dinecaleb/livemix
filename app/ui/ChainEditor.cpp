@@ -668,13 +668,15 @@ public:
         Field f;
         f.label = "Freq"; f.min = 20.0; f.max = 20000.0; f.step = 1.0; f.mid = 630.0; f.fmt = Fmt::Hz;
         f.get = [] (const ChannelParameters&) { return 630.0; };
-        knobs[0] = std::make_unique<Knob> (f, [edit] (double v) { edit (0, v); }, Dine::accent, true);
+        // Pale, like every other control: what the engineer sets is metal, what the audio
+        // does is lime. The curve above these knobs is the lime part.
+        knobs[0] = std::make_unique<Knob> (f, [edit] (double v) { edit (0, v); }, Dine::ink2, true);
         f.label = "Gain"; f.min = -18.0; f.max = 18.0; f.step = 0.1; f.mid = 0.0; f.fmt = Fmt::Db;
         f.get = [] (const ChannelParameters&) { return 0.0; };
-        knobs[1] = std::make_unique<Knob> (f, [edit] (double v) { edit (1, v); }, Dine::accent, true);
+        knobs[1] = std::make_unique<Knob> (f, [edit] (double v) { edit (1, v); }, Dine::ink2, true);
         f.label = "Q"; f.min = 0.1; f.max = 10.0; f.step = 0.01; f.mid = 1.0; f.fmt = Fmt::Q;
         f.get = [] (const ChannelParameters&) { return 1.0; };
-        knobs[2] = std::make_unique<Knob> (f, [edit] (double v) { edit (2, v); }, Dine::accent, true);
+        knobs[2] = std::make_unique<Knob> (f, [edit] (double v) { edit (2, v); }, Dine::ink2, true);
         for (auto& k : knobs) addAndMakeVisible (*k);
 
         type.setValue (filterTypeName (shape));
@@ -1108,7 +1110,7 @@ private:
                 g.setColour (juce::Colours::white.withAlpha (0.75f));
                 g.drawEllipse (c, 1.5f);
             }
-            g.setColour (n.on && sel ? juce::Colour (0xff0f1a18) : Dine::ink);
+            g.setColour (n.on && sel ? Dine::onAccent : Dine::ink);
             g.setFont (Dine::text (9.5f, 600));
             g.drawText (n.label, c, juce::Justification::centred);
         }
@@ -1304,7 +1306,7 @@ private:
             Dine::drawWell (g, bar.toFloat(), 3.0f);
             const float x0 = bar.getX() + bar.getWidth() * float (juce::jmin (zero, t));
             const float w = juce::jmax (1.0f, bar.getWidth() * float (std::fabs (t - zero)));
-            g.setColour (isEnabled() ? (v < 0.0 && f.min < 0.0 ? Dine::warn : Dine::accent) : Dine::ink4);
+            g.setColour (isEnabled() ? (v < 0.0 && f.min < 0.0 ? Dine::warn : Dine::ink2) : Dine::ink4);
             g.fillRect (juce::Rectangle<float> (x0, bar.getY() + 2.0f, w, bar.getHeight() - 4.0f));
             if (f.min < 0.0)
             {
@@ -1373,7 +1375,7 @@ private:
             Dine::drawWell (g, bar.toFloat(), 3.0f);
             if (! off)
             {
-                g.setColour (Dine::accent);
+                g.setColour (Dine::ink2);
                 g.fillRect (bar.toFloat().reduced (0.0f, 2.0f).withWidth (bar.getWidth() * juce::jlimit (0.0f, 1.0f, (s.second + 60.0f) / 66.0f)));
             }
         }
@@ -1585,7 +1587,7 @@ void ChainEditor::buildControls()
                 auto knob = std::make_unique<Knob> (f, [this, f] (double v)
                 {
                     commit ([&f, v] (ChannelParameters& p) { f.set (p, v); });
-                }, Dine::accent);
+                }, Dine::ink2);
                 controlsHolder.addAndMakeVisible (*knob);
                 controls.push_back (std::move (knob));
             }
