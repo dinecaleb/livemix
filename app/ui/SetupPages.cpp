@@ -239,6 +239,7 @@ SessionsPage::SessionsPage (MixController& c, AppServices& s) : controller (c), 
     addAndMakeVisible (viewport);
 
     search.setFont (Dine::text (12.5f));
+    search.setJustification (juce::Justification::centredLeft);   // one line, centred in its box
     search.setTextToShowWhenEmpty ("Search", Dine::ink4);
     search.setIndents (24, 0);
     search.setBorder (juce::BorderSize<int> (0));
@@ -820,6 +821,7 @@ public:
     {
         addAndMakeVisible (name);
         name.setFont (Dine::text (13.0f));
+        name.setJustification (juce::Justification::centredLeft);
         name.setIndents (6, 0);
         name.setBorder (juce::BorderSize<int> (0));
         name.setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
@@ -1015,6 +1017,7 @@ AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), serv
     addAndMakeVisible (viewport);
 
     search.setFont (Dine::text (12.5f));
+    search.setJustification (juce::Justification::centredLeft);   // one line, centred in its box
     search.setTextToShowWhenEmpty ("Search", Dine::ink4);
     search.setIndents (24, 0);
     search.setBorder (juce::BorderSize<int> (0));

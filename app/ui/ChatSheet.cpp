@@ -149,6 +149,7 @@ ChatSheet::ChatSheet (MixController& c) : controller (c)
 
     addAndMakeVisible (input);
     input.setMultiLine (false, false);
+    input.setJustification (juce::Justification::centredLeft);
     input.setReturnKeyStartsNewLine (false);
     input.setTextToShowWhenEmpty ("Bring the lead vocal forward", Dine::ink4);
     input.setFont (Dine::text (13.5f));
