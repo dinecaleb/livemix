@@ -396,7 +396,8 @@ LivePage::Layout LivePage::layout() const
     auto lower = r.withHeight (juce::jlimit (190, 260, r.getHeight()));
     l.safe = lower.removeFromRight (kSafeW);
     lower.removeFromRight (kGap);
-    l.monitor = lower;
+    // The monitor card is as tall as what it holds (caption, chips, level, sentence); LIVE SAFE keeps the band's height for its rules.
+    l.monitor = lower.withHeight (juce::jmin (lower.getHeight(), 18 + 14 + Dine::Metric::control + 18 + Dine::Metric::control + 12 + 18 + 18));
     return l;
 }
 
@@ -445,14 +446,15 @@ void LivePage::paint (juce::Graphics& g)
         Dine::fillRounded (g, l.monitor.toFloat(), Dine::tile, Dine::Radius::card);
         auto inner = l.monitor.reduced (18, 18);
         Dine::drawSection (g, inner.removeFromTop (14), "ENGINEER MONITORING  " + juce::String (Glyph::dot()) + "  THE ROOM AND THE STREAM DO NOT HEAR THIS");
-        auto levelRow = inner.withTrimmedTop (14 + Dine::Metric::control + 18).withHeight (Dine::Metric::control);
+        // The same rows resized() gives the chips and the slider: the caption is already taken off `inner`.
+        auto levelRow = inner.withTrimmedTop (Dine::Metric::control + 18).withHeight (Dine::Metric::control);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
         g.drawText ("Monitor level", levelRow.removeFromLeft (110), juce::Justification::centredLeft);
         g.setColour (Dine::ink2);
         g.setFont (Dine::mono (12.0f, 500));
         g.drawText (dbText (look.monitorDb), levelRow.removeFromRight (58), juce::Justification::centredRight);
-        auto note = inner.withTrimmedTop (14 + Dine::Metric::control + 18 + Dine::Metric::control + 12).withHeight (18);
+        auto note = inner.withTrimmedTop (Dine::Metric::control + 18 + Dine::Metric::control + 12).withHeight (18);
         g.setColour (look.inPlace || ! look.routed ? Dine::warn : look.soloCount > 0 ? Dine::accent : Dine::ink3);
         g.setFont (Dine::text (12.5f));
         g.drawText (look.monitorNote, note, juce::Justification::centredLeft, true);
