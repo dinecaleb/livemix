@@ -6,8 +6,9 @@
 namespace livemix
 {
 
-// Nothing opens by itself in the headless snapshot tool (MainView::setAutoTutorial).
-namespace { bool gAutoTutorial = true; }
+// Nothing opens by itself in the headless snapshot tool (MainView::setAutoTutorial), and it
+// renders from the design rather than from this Mac's chosen theme (setStoredThemeUsed).
+namespace { bool gAutoTutorial = true; bool gUseStoredTheme = true; }
 
 // ---------------------------------------------------------------- toast
 // A sentence at the foot of the workspace, never a banner: nothing in the layout moves. A
@@ -585,6 +586,24 @@ public:
                                     + juce::String (juce::CharPointer_UTF8 ("\xe2\x8c\x83\xe2\x8c\x98")) + "S");
                 m.addItem (615, "Show/Hide the two side panels");
                 m.addSeparator();
+                {
+                    // Every theme, DLIVE's own then yours, the chosen one ticked; then the sheet.
+                    juce::PopupMenu appearance;
+                    view.themeMenuNames.clear();
+                    bool mine = false;
+                    for (const auto& t : ThemeStore::all())
+                    {
+                        if (! t.builtIn && ! mine) { mine = true; appearance.addSeparator(); }
+                        appearance.addItem (640 + view.themeMenuNames.size(), t.name, true, t.name.equalsIgnoreCase (Dine::currentThemeName()));
+                        view.themeMenuNames.add (t.name);
+                    }
+                    appearance.addSeparator();
+                    appearance.addItem (620, "Customise Appearance" + juce::String (Glyph::ellip()));
+                    appearance.addItem (621, "Import a Theme" + juce::String (Glyph::ellip()));
+                    appearance.addItem (622, "Show Themes Folder");
+                    m.addSubMenu ("Appearance", appearance);
+                }
+                m.addSeparator();
                 m.addItem (605, "Zoom In");
                 m.addItem (606, "Zoom Out");
                 m.addItem (607, "Zoom to Fit");
@@ -607,6 +626,9 @@ private:
 // ---------------------------------------------------------------- MainView
 MainView::MainView (MixController& c, AppServices& s) : controller (c), services (s)
 {
+    // The theme first, before a single page reads a token.
+    if (gUseStoredTheme) Dine::applyTheme (ThemeStore::find (ThemeStore::chosenTheme()));
+    lookAndFeel.applyPalette();
     juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
     setLookAndFeel (&lookAndFeel);
 
@@ -794,6 +816,7 @@ MainView::~MainView()
     stopTimer();
     mixerWindow.reset();
     outputsSheet.reset();
+    themeSheet.reset();
     channelSheet.reset();
     chatSheet.reset();
     controller.onMessage = nullptr;
@@ -1031,6 +1054,7 @@ juce::Rectangle<int> MainView::spotlight (const juce::String& what) const
 }
 
 void MainView::setAutoTutorial (bool on) { gAutoTutorial = on; }
+void MainView::setStoredThemeUsed (bool on) { gUseStoredTheme = on; }
 
 void MainView::closeTutorial() { tutorial.reset(); }
 
@@ -1121,10 +1145,38 @@ void MainView::setBypass (bool on)
 void MainView::closeSheets()
 {
     outputsSheet.reset();
+    themeSheet.reset();
     channelSheet.reset();
     chatSheet.reset();
     updateChrome();
     resized();
+}
+
+void MainView::showThemes()
+{
+    if (themeSheet != nullptr) { themeSheet->refresh(); return; }
+    themeSheet = std::make_unique<ThemeSheet> (gUseStoredTheme);
+    themeSheet->onToast = [this] (const juce::String& t) { showToast (t); };
+    themeSheet->onThemeChanged = [this] { updateChrome(); };
+    themeSheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->themeSheet.reset(); safe->updateChrome(); } });
+    };
+    addAndMakeVisible (*themeSheet);
+    resized();
+    themeSheet->toFront (true);
+}
+
+void MainView::applyThemeNamed (const juce::String& name)
+{
+    if (themeSheet != nullptr) { themeSheet->chooseTheme (name); return; }
+    const auto theme = ThemeStore::find (name);
+    Dine::applyTheme (theme);
+    if (gUseStoredTheme) ThemeStore::setChosenTheme (theme.name);
+    Dine::refreshAllWindows();
+    updateChrome();
+    showToast ("Appearance: " + theme.name);
 }
 
 void MainView::showOutputs()
@@ -1447,6 +1499,7 @@ void MainView::showToast (const juce::String& text)
 // ---------------------------------------------------------------- commands
 void MainView::handleCommand (int id)
 {
+    if (id >= 640 && id < 640 + themeMenuNames.size()) { applyThemeNamed (themeMenuNames[id - 640]); return; }
     switch (id)
     {
         case 100: newSession(); break;
@@ -1592,6 +1645,9 @@ void MainView::handleCommand (int id)
         case 607: tracksPage->zoomToFit(); break;
         case 608: openMixerWindow(); break;
         case 609: showOutputs(); break;
+        case 620: showThemes(); break;
+        case 621: showThemes(); if (themeSheet != nullptr) themeSheet->importTheme(); break;
+        case 622: ThemeStore::folder().createDirectory(); ThemeStore::folder().revealToUser(); break;
         case 610: setSidebarShown (! sidebarShown); break;
         case 611: togglePanel (true); break;
         case 612: togglePanel (false); break;
@@ -1664,7 +1720,7 @@ bool MainView::keyPressed (const juce::KeyPress& key)
     if (code == 'M')                       { handleCommand (203); return true; }
     if (code == '[')                       { handleCommand (611); return true; }
     if (code == ']')                       { handleCommand (612); return true; }
-    if (code == juce::KeyPress::escapeKey) { if (chatSheet != nullptr || outputsSheet != nullptr) { closeSheets(); return true; } }
+    if (code == juce::KeyPress::escapeKey) { if (chatSheet != nullptr || outputsSheet != nullptr || themeSheet != nullptr) { closeSheets(); return true; } }
     if (code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey)
     {
         if (page == Page::Tracks) { handleCommand (202); return true; }
@@ -2033,7 +2089,8 @@ void MainView::resized()
 
     // A sheet covers the workspace column; the chat is a panel down the right of it.
     auto column = columnBounds();
-    for (juce::Component* sheetComponent : { (juce::Component*) outputsSheet.get(), (juce::Component*) channelSheet.get() })
+    for (juce::Component* sheetComponent : { (juce::Component*) outputsSheet.get(), (juce::Component*) themeSheet.get(),
+                                             (juce::Component*) channelSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)
     {

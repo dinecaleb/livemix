@@ -232,6 +232,11 @@ Listening to the church stems showed the first plan landing at -27.2 LUFS and a 
   its own `Tokens` in `src/UI`. The shell is sidebar (Library / Set up / Mix + the device's state) + unified toolbar
   (setup name and its menu, Mix | Advanced, output) + one page; TUNE MIX and its result arrive as sheets from under
   the toolbar, and the mix page carries an input rail with a meter per input.
+- **Themes (2026-09-17).** Every `Dine::` colour is a token a theme may set; View > Appearance picks one for
+  the whole app and remembers it on this Mac, and the Appearance sheet edits, saves, imports and exports one.
+  The document, the built-ins and the folder are `app/native/ThemeStore` (JUCE-core, tested); the tokens'
+  rebinding, `Dine::applyTheme` and `Dine::refreshAllWindows` are in `AppTheme`; the sheet is
+  `app/ui/ThemeSheet`. `docs/THEMES.md` has the file format, the built-in list and the rules for new widgets.
 
 Known limits of the prediction: it is a model, fitted to one recording (numbers in `MixProfileData.cpp`); EQ ahead of
 the compressor, transient shaping and saturation are not modelled. The exact answer would be to keep the raw listen

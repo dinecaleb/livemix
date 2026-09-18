@@ -153,16 +153,106 @@ juce::Colour Dine::busTint (MixBus b) noexcept
 {
     switch (b)
     {
-        case MixBus::Drums:    return juce::Colour (0xffe09a4b);
-        case MixBus::Bass:     return juce::Colour (0xff8e80ff);
-        case MixBus::Music:    return juce::Colour (0xff6eafff);
-        case MixBus::Vocals:   return juce::Colour (0xff57b98d);
-        case MixBus::Speech:   return juce::Colour (0xffc98fb0);
-        case MixBus::Ambience: return juce::Colour (0xffa8b0bc);
-        case MixBus::Master:   return juce::Colour (0xffa8b0bc);
+        case MixBus::Drums:    return busDrums;
+        case MixBus::Bass:     return busBass;
+        case MixBus::Music:    return busMusic;
+        case MixBus::Vocals:   return busVocals;
+        case MixBus::Speech:   return busSpeech;
+        case MixBus::Ambience: return busAmbience;
+        case MixBus::Master:   return busMaster;
         case MixBus::Count:    break;
     }
     return ink2;
+}
+
+// ============================================================================ themes
+namespace
+{
+    juce::String activeThemeName { ThemeStore::kDefaultName };
+
+    void followParents()
+    {
+        // The flat design keeps the old gradient names as aliases; they follow their parents.
+        Dine::chromeTop = Dine::footTop = Dine::footBottom = Dine::railTop = Dine::toolbar;
+        Dine::headerTop = Dine::pageBar;
+        Dine::cardTop = Dine::cardBottom = Dine::card;
+        Dine::sheetTop = Dine::sheetBottom = Dine::sheet;
+        Dine::accentTop = Dine::accentBottom = Dine::accentTopLit = Dine::accentBotLit = Dine::accent;
+    }
+}
+
+const std::vector<Dine::ThemeBinding>& Dine::themeBindings()
+{
+    static const std::vector<ThemeBinding> table = {
+        { "desk", &desk }, { "window", &window }, { "toolbar", &toolbar }, { "title", &title }, { "menubar", &menubar },
+        { "sidebar", &sidebar }, { "rail", &rail }, { "pageBar", &pageBar }, { "console", &console }, { "tile", &tile },
+        { "card", &card }, { "raised", &raised }, { "item", &item }, { "selected", &selected }, { "control", &control },
+        { "controlHot", &controlHot }, { "controlOn", &controlOn }, { "sheet", &sheet }, { "popover", &popover },
+        { "refuse", &refuse }, { "recGround", &recGround }, { "soloGround", &soloGround }, { "editGround", &editGround },
+        { "hairSoft", &hairSoft }, { "hair", &hair }, { "hairStrong", &hairStrong }, { "edge", &edge }, { "fill", &fill },
+        { "fillHover", &fillHover }, { "fillSoft", &fillSoft }, { "well", &well },
+        { "ink", &ink }, { "ink2", &ink2 }, { "ink3", &ink3 }, { "ink4", &ink4 }, { "glyph", &glyph }, { "panMark", &panMark },
+        { "accent", &accent }, { "accentHover", &accentHover }, { "accentDeep", &accentDeep }, { "onAccent", &onAccent },
+        { "focusRing", &focusRing },
+        { "ok", &ok }, { "hot", &hot }, { "warn", &warn }, { "crit", &crit }, { "monitor", &monitor },
+        { "keyMute", &keyMute }, { "keySolo", &keySolo }, { "keyRec", &keyRec }, { "keyMon", &keyMon },
+        { "busDrums", &busDrums }, { "busBass", &busBass }, { "busMusic", &busMusic }, { "busVocals", &busVocals },
+        { "busSpeech", &busSpeech }, { "busAmbience", &busAmbience }, { "busMaster", &busMaster },
+    };
+    return table;
+}
+
+void Dine::applyTheme (const Theme& theme)
+{
+    const auto palette = ThemeStore::resolve (theme);
+    for (const auto& b : themeBindings())
+    {
+        const auto it = palette.find (b.key);
+        if (it != palette.end()) *b.colour = juce::Colour (it->second);
+    }
+    followParents();
+    activeThemeName = theme.name;
+}
+
+void Dine::setThemeColour (const juce::String& key, juce::Colour c)
+{
+    for (const auto& b : themeBindings())
+        if (key == b.key) { *b.colour = c; followParents(); return; }
+}
+
+std::map<juce::String, juce::uint32> Dine::currentColours()
+{
+    std::map<juce::String, juce::uint32> out;
+    for (const auto& b : themeBindings()) out[b.key] = b.colour->getARGB();
+    return out;
+}
+
+const juce::String& Dine::currentThemeName() { return activeThemeName; }
+
+void Dine::refreshWindow (juce::Component& root)
+{
+    if (auto* laf = dynamic_cast<DineLookAndFeel*> (&root.getLookAndFeel())) laf->applyPalette();
+    if (auto* doc = dynamic_cast<juce::DocumentWindow*> (&root)) doc->setBackgroundColour (desk);
+    root.sendLookAndFeelChange();     // every child: lookAndFeelChanged() and a repaint, which also drops a cached image
+}
+
+void Dine::refreshAllWindows()
+{
+    auto& desktop = juce::Desktop::getInstance();
+    for (int i = 0; i < desktop.getNumComponents(); ++i)
+        if (auto* top = desktop.getComponent (i)) refreshWindow (*top);
+}
+
+void Dine::styleTextEditor (juce::TextEditor& e, juce::Colour ground, bool softFocusRing)
+{
+    e.setColour (juce::TextEditor::backgroundColourId, ground);
+    e.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+    e.setColour (juce::TextEditor::focusedOutlineColourId, softFocusRing ? accent.withAlpha (0.6f) : accent);
+    e.setColour (juce::TextEditor::textColourId, ink);
+    e.setColour (juce::TextEditor::highlightedTextColourId, ink);
+    e.setColour (juce::TextEditor::highlightColourId, accent.withAlpha (0.28f));
+    e.setColour (juce::CaretComponent::caretColourId, accent);
+    e.applyColourToAllText (ink, true);
 }
 
 // ============================================================================ gestures
@@ -543,7 +633,7 @@ void PanBar::paint (juce::Graphics& g)
     const float lo = juce::jmin (centre, x), hi = juce::jmax (centre, x);
     if (hi - lo > 0.5f)
     {
-        g.setColour (tint);
+        g.setColour (tint.value_or (Dine::accent));
         g.fillRoundedRectangle (juce::Rectangle<float> (lo, r.getY(), hi - lo, r.getHeight()), 2.0f);
     }
     auto knob = juce::Rectangle<float> (11.0f, 11.0f).withCentre ({ x, r.getCentreY() });
@@ -637,9 +727,9 @@ void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
     {
         case Style::Filled:
             if (! isEnabled())
-                Dine::fillRounded (g, r, Dine::mix (tint, 0.22f, Dine::control), radius);
-            else if (tint == Dine::accent) Dine::drawFilled (g, r, radius, over, down);
-            else Dine::fillRounded (g, r, down ? tint.darker (0.18f) : over ? tint.brighter (0.08f) : tint, radius);
+                Dine::fillRounded (g, r, Dine::mix (tintOr(), 0.22f, Dine::control), radius);
+            else if (! tint.has_value() || *tint == Dine::accent) Dine::drawFilled (g, r, radius, over, down);
+            else Dine::fillRounded (g, r, down ? tint->darker (0.18f) : over ? tint->brighter (0.08f) : *tint, radius);
             break;
         case Style::Toggle:
             if (on) Dine::fillRounded (g, r, down ? Dine::controlHot : Dine::controlOn, radius);
@@ -658,7 +748,7 @@ void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
 
     const bool filled = style == Style::Filled;
     juce::Colour fg;
-    if (filled)               fg = isEnabled() ? (tint.getPerceivedBrightness() > 0.55f ? Dine::onAccent : Dine::ink) : Dine::ink3;
+    if (filled)               fg = isEnabled() ? (tintOr().getPerceivedBrightness() > 0.55f ? Dine::onAccent : Dine::ink) : Dine::ink3;
     else if (style == Style::Toggle)  fg = on ? Dine::ink : (over ? Dine::ink : Dine::ink2);
     else if (style == Style::Segment) fg = on ? Dine::ink : (over ? Dine::ink : Dine::ink3);
     else if (style == Style::Ghost)   fg = over ? Dine::ink : Dine::ink2;
@@ -864,6 +954,11 @@ void DineSwitch::paintButton (juce::Graphics& g, bool over, bool)
 // ============================================================================ DineLookAndFeel
 DineLookAndFeel::DineLookAndFeel()
 {
+    applyPalette();
+}
+
+void DineLookAndFeel::applyPalette()
+{
     setColour (juce::ResizableWindow::backgroundColourId, Dine::window);
     setColour (juce::DocumentWindow::backgroundColourId, Dine::window);
     setColour (juce::TooltipWindow::outlineColourId, juce::Colours::transparentBlack);
@@ -888,7 +983,7 @@ DineLookAndFeel::DineLookAndFeel()
     setColour (juce::AlertWindow::outlineColourId, juce::Colours::transparentBlack);
     setColour (juce::TooltipWindow::backgroundColourId, Dine::popover);
     setColour (juce::TooltipWindow::textColourId, Dine::ink);
-    setColour (juce::ScrollBar::thumbColourId, juce::Colours::white.withAlpha (0.14f));
+    setColour (juce::ScrollBar::thumbColourId, Dine::hairStrong);
 }
 
 void DineLookAndFeel::setBipolar (juce::Slider& s, bool on) { s.getProperties().set ("dineBipolar", on); }

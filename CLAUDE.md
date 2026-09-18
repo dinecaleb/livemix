@@ -269,6 +269,23 @@
   re-reads the gain advice twice a second (`MixerPage::tick`), and a meter is one fill whatever its height.
   The bank is opaque so a scroll never repaints the page under it. `dlive_ui_snapshots --frames 48 120`: a
   full repaint of MIXER went from 38 ms to 6.5 ms, TRACKS 61 to 10, INSPECTOR 68 to 23 (a 30 Hz frame is 33).
+- **THEMES** (2026-09-17, `docs/THEMES.md`). The look is a table of named colours and a theme is that table
+  written down: pick one under View > Appearance and every window follows; nothing about the session or the
+  mix depends on it. `app/native/ThemeStore` (JUCE-core, tested in `ThemeTests.cpp`) is the document
+  (`~/Music/DLIVE/Themes/<name>.dlivetheme.json`, schema 1, a *partial* map of key -> `#rrggbb`/`#aarrggbb`
+  resolved over its `basedOn` built-in over Studio Teal), the five built-ins (Studio Teal = the design, Lime
+  Desk, Slate, Tape, Daylight) and the preference (`~/Music/DLIVE/preferences.json`, `theme`). The `Dine::`
+  tokens are now mutable `inline` variables with the design as their initial values; `Dine::applyTheme`
+  writes them through `Dine::themeBindings()` (the one key -> token table), `Dine::refreshAllWindows()` /
+  `refreshWindow` re-applies the look-and-feel and `sendLookAndFeelChange`s every window (a repaint drops the
+  strips' cached images). **Nothing captures a token at construction unless it re-reads it in
+  `lookAndFeelChanged()`**: `DineButton` / `PanBar` hold an optional tint, text editors go through
+  `Dine::styleTextEditor` from the constructor and from `lookAndFeelChanged()`, `DineKey::setTint`. The
+  Appearance sheet (`app/ui/ThemeSheet`) is the editor: a swatch per token with a live picker, a built-in is
+  never overwritten (editing one saves a theme of your own with only the diff), Import reads before it copies,
+  Export writes a complete file. The snapshot tool checks the bindings and that `AppTheme.h` equals the Studio
+  Teal preset, renders `30-theme-*` / `31-appearance`, takes `--theme <name>` for the whole set, and never
+  writes the preference (`MainView::setStoredThemeUsed (false)`, `ThemeSheet (persisting = false)`).
 - **GETTING STARTED** (`app/ui/Tutorial`) is what DLIVE says to somebody who has never opened it: seven sentences
   in the order a Sunday happens - name the inputs, press record, let DLIVE listen, keep or undo what it did, lock
   the desk - each one putting the workspace it is talking about on screen and ringing the control it means

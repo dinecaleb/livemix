@@ -243,10 +243,7 @@ SessionsPage::SessionsPage (MixController& c, AppServices& s) : controller (c), 
     search.setTextToShowWhenEmpty ("Search", Dine::ink4);
     search.setIndents (24, 0);
     search.setBorder (juce::BorderSize<int> (0));
-    search.setColour (juce::TextEditor::backgroundColourId, Dine::control);
-    search.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
-    search.setColour (juce::TextEditor::focusedOutlineColourId, Dine::accent);
-    search.setColour (juce::TextEditor::textColourId, Dine::ink);
+    Dine::styleTextEditor (search, Dine::control);
     search.setTextToShowWhenEmpty ("Search sessions", Dine::ink4);
     search.setIndents (12, 0);
     search.onTextChange = [this] { rebuild(); };
@@ -817,6 +814,8 @@ void DevicePage::resized()
 class AssignPage::Row : public juce::Component
 {
 public:
+    void lookAndFeelChanged() override { Dine::styleTextEditor (name, juce::Colours::transparentBlack); }
+
     Row (AssignPage& owner, int index) : page (owner), input (index)
     {
         addAndMakeVisible (name);
@@ -824,11 +823,7 @@ public:
         name.setJustification (juce::Justification::centredLeft);
         name.setIndents (6, 0);
         name.setBorder (juce::BorderSize<int> (0));
-        name.setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
-        name.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
-        name.setColour (juce::TextEditor::focusedOutlineColourId, Dine::accent);
-        name.setColour (juce::TextEditor::textColourId, Dine::ink);
-        name.setColour (juce::TextEditor::highlightedTextColourId, Dine::ink);
+        Dine::styleTextEditor (name, juce::Colours::transparentBlack);
         name.setTextToShowWhenEmpty ("Untitled", Dine::ink4);
         name.setSelectAllWhenFocused (true);
         name.onTextChange = [this] { page.entries[size_t (input)].name = name.getText(); resized(); };
@@ -1021,10 +1016,7 @@ AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), serv
     search.setTextToShowWhenEmpty ("Search", Dine::ink4);
     search.setIndents (24, 0);
     search.setBorder (juce::BorderSize<int> (0));
-    search.setColour (juce::TextEditor::backgroundColourId, Dine::control);
-    search.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
-    search.setColour (juce::TextEditor::focusedOutlineColourId, Dine::accent);
-    search.setColour (juce::TextEditor::textColourId, Dine::ink);
+    Dine::styleTextEditor (search, Dine::control);
     search.setIndents (12, 0);
     search.onTextChange = [this] { query = search.getText(); rebuild(); };
     addAndMakeVisible (search);
@@ -1930,3 +1922,7 @@ void PurposePage::resized()
 }
 
 } // namespace livemix
+
+// A theme change: the editors' colours are set on them, so they are set again.
+void livemix::SessionsPage::lookAndFeelChanged() { Dine::styleTextEditor (search, Dine::control); }
+void livemix::AssignPage::lookAndFeelChanged()   { Dine::styleTextEditor (search, Dine::control); }

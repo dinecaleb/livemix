@@ -149,7 +149,6 @@ public:
             repaint (layout == Layout::Column ? col.level : valueRect);
         };
 
-        pan.setTint (Dine::accent);
         pan.setTooltip ("Balance " + Glyph::dot() + " drag left or right " + Glyph::dot() + " centre is C");
         pan.onChange = [this] (float v)
         {

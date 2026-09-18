@@ -10,6 +10,7 @@
 #include "OutputsSheet.h"
 #include "ChannelTuneSheet.h"
 #include "ChatSheet.h"
+#include "ThemeSheet.h"
 #include "MixPage.h"
 #include "LivePage.h"
 #include "AdvancedPage.h"
@@ -65,6 +66,13 @@ public:
     void showOutputs();
     void showChat();
     void closeSheets();
+
+    // Appearance: View > Appearance lists the themes and opens the sheet. The chosen theme is
+    // applied before the pages are built and remembered on this Mac (ThemeStore); the headless
+    // snapshot tool switches the stored choice off so every render starts from the design.
+    void showThemes();
+    void applyThemeNamed (const juce::String& name);
+    static void setStoredThemeUsed (bool);
 
     void tuneChannel (int strip, const MixController::ListenSettings& listen = MixController::channelListen());
     int selectedChannel() const;          // the channel the current workspace has picked out, or -1
@@ -136,6 +144,8 @@ private:
     std::unique_ptr<TracksPage> tracksPage;
     std::unique_ptr<MixerPage> mixerPage;
     std::unique_ptr<OutputsSheet> outputsSheet;
+    std::unique_ptr<ThemeSheet> themeSheet;
+    juce::StringArray themeMenuNames;      // the View > Appearance list, as it was last built
     std::unique_ptr<ChannelTuneSheet> channelSheet;
     std::unique_ptr<ChatSheet> chatSheet;
     void openChat();

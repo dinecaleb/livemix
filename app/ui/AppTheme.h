@@ -8,6 +8,8 @@
 #include "Core/ChannelRole.h"
 #include "Mix/MixSession.h"
 #include "UI/LiveMixLookAndFeel.h"
+#include "native/ThemeStore.h"
+#include <map>
 
 namespace livemix
 {
@@ -27,89 +29,106 @@ namespace livemix
 // embedded, so a booth Mac with no fonts installed reads exactly like the design.
 //
 // These tokens belong to the application; the plug-in keeps `Tokens` in src/UI.
+//
+// THEMES (2026-09-17). The values below are the design's - "Studio Teal", the default - and
+// they are the tokens' *initial* values, not constants: a theme (`app/native/ThemeStore`, a
+// named table of the same colours) is written into them by `Dine::applyTheme`, and every
+// page reads the token at paint time, so one call changes the whole app. Nothing captures a
+// token at construction unless it re-reads it in `lookAndFeelChanged()`, and
+// `Dine::refreshAllWindows()` is what a theme change calls to make that happen. The colour
+// literals still belong here and nowhere else; a theme is the one thing allowed to move them.
 // ---------------------------------------------------------------------------
 namespace Dine
 {
     // Materials. Named for what they are used for; several share a value on purpose, so a
     // page that asks for "the rail" and one that asks for "the toolbar" read as one thing.
-    inline const juce::Colour desk        { 0xff070809 };   // behind the window, the sidebar ground
-    inline const juce::Colour window      { 0xff0e1014 };   // the application panel: every workspace ground
-    inline const juce::Colour toolbar     { 0xff13161c };   // the toolbar, the status foot, a side rail
-    inline const juce::Colour title       { 0xff0c0e12 };   // the title row under the traffic lights
-    inline const juce::Colour menubar     { 0xff0a0c10 };   // the menu row, the transport pill, a segment track
-    inline const juce::Colour sidebar     { 0xff0c0e12 };   // the sidebar: the same plane as the title row above it
-    inline const juce::Colour rail        { 0xff13161c };   // a panel at the edge of a workspace
-    inline const juce::Colour pageBar     { 0xff10131a };   // a workspace's own tool row
-    inline const juce::Colour console     { 0xff13161c };   // a console column, a timeline row
-    inline const juce::Colour tile        { 0xff10131a };   // a tile inside a workspace (a group, the stage device)
-    inline const juce::Colour card        { 0xff1a1e26 };   // a card, a sheet, a selected column
-    inline const juce::Colour raised      { 0xff1c212b };   // a row in a list, a popover
-    inline const juce::Colour item        { 0xff161a22 };   // a row inside a card
-    inline const juce::Colour selected    { 0xff222830 };   // the row or segment that is chosen
-    inline const juce::Colour control     { 0xff2a303a };   // a resting button
-    inline const juce::Colour controlHot  { 0xff3e4656 };   // ... under the pointer
-    inline const juce::Colour controlOn   { 0xff4e5664 };   // a setting that is on (a monitor chip, MONO)
-    inline const juce::Colour sheet       { 0xff1a1e26 };   // sheet material
-    inline const juce::Colour popover     { 0xff1c212b };   // menus, HUD, tooltips
-    inline const juce::Colour refuse      { 0xff231d17 };   // a refusal's ground (amber on it)
-    inline const juce::Colour recGround   { 0xff241618 };   // a card that is recording / clipping
+    inline juce::Colour desk        { 0xff070809 };   // behind the window, the sidebar ground
+    inline juce::Colour window      { 0xff0e1014 };   // the application panel: every workspace ground
+    inline juce::Colour toolbar     { 0xff13161c };   // the toolbar, the status foot, a side rail
+    inline juce::Colour title       { 0xff0c0e12 };   // the title row under the traffic lights
+    inline juce::Colour menubar     { 0xff0a0c10 };   // the menu row, the transport pill, a segment track
+    inline juce::Colour sidebar     { 0xff0c0e12 };   // the sidebar: the same plane as the title row above it
+    inline juce::Colour rail        { 0xff13161c };   // a panel at the edge of a workspace
+    inline juce::Colour pageBar     { 0xff10131a };   // a workspace's own tool row
+    inline juce::Colour console     { 0xff13161c };   // a console column, a timeline row
+    inline juce::Colour tile        { 0xff10131a };   // a tile inside a workspace (a group, the stage device)
+    inline juce::Colour card        { 0xff1a1e26 };   // a card, a sheet, a selected column
+    inline juce::Colour raised      { 0xff1c212b };   // a row in a list, a popover
+    inline juce::Colour item        { 0xff161a22 };   // a row inside a card
+    inline juce::Colour selected    { 0xff222830 };   // the row or segment that is chosen
+    inline juce::Colour control     { 0xff2a303a };   // a resting button
+    inline juce::Colour controlHot  { 0xff3e4656 };   // ... under the pointer
+    inline juce::Colour controlOn   { 0xff4e5664 };   // a setting that is on (a monitor chip, MONO)
+    inline juce::Colour sheet       { 0xff1a1e26 };   // sheet material
+    inline juce::Colour popover     { 0xff1c212b };   // menus, HUD, tooltips
+    inline juce::Colour refuse      { 0xff231d17 };   // a refusal's ground (amber on it)
+    inline juce::Colour recGround   { 0xff241618 };   // a card that is recording / clipping
     // A soloed tile, a tuned chip: a lifted neutral plane. Green is not a brand colour, so a chosen or
     // tuned state is said by the teal lamp / hairline on a neutral ground, never by a green ground.
-    inline const juce::Colour soloGround  { 0xff222830 };
-    inline const juce::Colour editGround  { 0xff15202b };   // a hand-edited chip
+    inline juce::Colour soloGround  { 0xff222830 };
+    inline juce::Colour editGround  { 0xff15202b };   // a hand-edited chip
 
     // Kept for the few callers that name them; the v2 surfaces are flat, so they are the
     // flat value the band used to ramp to.
-    inline const juce::Colour chromeTop   { 0xff13161c };
-    inline const juce::Colour headerTop   { 0xff10131a };
-    inline const juce::Colour footTop     { 0xff13161c };
-    inline const juce::Colour footBottom  { 0xff13161c };
-    inline const juce::Colour cardTop     { 0xff1a1e26 };
-    inline const juce::Colour cardBottom  { 0xff1a1e26 };
-    inline const juce::Colour sheetTop    { 0xff1a1e26 };
-    inline const juce::Colour sheetBottom { 0xff1a1e26 };
-    inline const juce::Colour railTop     { 0xff13161c };
-    inline const juce::Colour accentTopLit{ 0xff6db8a8 };
-    inline const juce::Colour accentBotLit{ 0xff6db8a8 };
+    inline juce::Colour chromeTop   { 0xff13161c };
+    inline juce::Colour headerTop   { 0xff10131a };
+    inline juce::Colour footTop     { 0xff13161c };
+    inline juce::Colour footBottom  { 0xff13161c };
+    inline juce::Colour cardTop     { 0xff1a1e26 };
+    inline juce::Colour cardBottom  { 0xff1a1e26 };
+    inline juce::Colour sheetTop    { 0xff1a1e26 };
+    inline juce::Colour sheetBottom { 0xff1a1e26 };
+    inline juce::Colour railTop     { 0xff13161c };
+    inline juce::Colour accentTopLit{ 0xff6db8a8 };
+    inline juce::Colour accentBotLit{ 0xff6db8a8 };
 
     // Edges and fills: translucent white, so one hairline reads the same over every material.
-    inline const juce::Colour hairSoft    { 0x0fffffff };   // .06
-    inline const juce::Colour hair        { 0x14ffffff };   // .08
-    inline const juce::Colour hairStrong  { 0x1fffffff };   // .12
-    inline const juce::Colour edge        { 0x33ffffff };   // .20
-    inline const juce::Colour fill        { 0x1effffff };   // control background on a plane
-    inline const juce::Colour fillHover   { 0x2affffff };
-    inline const juce::Colour fillSoft    { 0x0fffffff };
-    inline const juce::Colour well        { 0x0fffffff };   // meter wells, slider tracks: .06 of white
+    inline juce::Colour hairSoft    { 0x0fffffff };   // .06
+    inline juce::Colour hair        { 0x14ffffff };   // .08
+    inline juce::Colour hairStrong  { 0x1fffffff };   // .12
+    inline juce::Colour edge        { 0x33ffffff };   // .20
+    inline juce::Colour fill        { 0x1effffff };   // control background on a plane
+    inline juce::Colour fillHover   { 0x2affffff };
+    inline juce::Colour fillSoft    { 0x0fffffff };
+    inline juce::Colour well        { 0x0fffffff };   // meter wells, slider tracks: .06 of white
 
     // Ink.
-    inline const juce::Colour ink         { 0xfff4f5f7 };
-    inline const juce::Colour ink2        { 0xffa8b0bc };
-    inline const juce::Colour ink3        { 0xff6b7380 };
-    inline const juce::Colour ink4        { 0xff4e5664 };
-    inline const juce::Colour glyph       { 0xff6b7380 };   // resting icon
-    inline const juce::Colour panMark     { 0xff556070 };   // the centre mark of a balance, a resting radio
+    inline juce::Colour ink         { 0xfff4f5f7 };
+    inline juce::Colour ink2        { 0xffa8b0bc };
+    inline juce::Colour ink3        { 0xff6b7380 };
+    inline juce::Colour ink4        { 0xff4e5664 };
+    inline juce::Colour glyph       { 0xff6b7380 };   // resting icon
+    inline juce::Colour panMark     { 0xff556070 };   // the centre mark of a balance, a resting radio
 
     // Roles.
-    inline const juce::Colour accent      { 0xff6db8a8 };
-    inline const juce::Colour accentHover { 0xff8ed0c2 };
-    inline const juce::Colour accentDeep  { 0xff5aa393 };   // pressed
-    inline const juce::Colour accentTop   { 0xff6db8a8 };
-    inline const juce::Colour accentBottom{ 0xff6db8a8 };
-    inline const juce::Colour onAccent    { 0xff070809 };   // an accent button carries near-black type
-    inline const juce::Colour ok          { 0xff57b98d };
-    inline const juce::Colour hot         { 0xffcbbf6a };   // the meter's middle band
-    inline const juce::Colour warn        { 0xffe0a85c };
-    inline const juce::Colour crit        { 0xffe06a64 };
+    inline juce::Colour accent      { 0xff6db8a8 };
+    inline juce::Colour accentHover { 0xff8ed0c2 };
+    inline juce::Colour accentDeep  { 0xff5aa393 };   // pressed
+    inline juce::Colour accentTop   { 0xff6db8a8 };
+    inline juce::Colour accentBottom{ 0xff6db8a8 };
+    inline juce::Colour onAccent    { 0xff070809 };   // an accent button carries near-black type
+    inline juce::Colour ok          { 0xff57b98d };
+    inline juce::Colour hot         { 0xffcbbf6a };   // the meter's middle band
+    inline juce::Colour warn        { 0xffe0a85c };
+    inline juce::Colour crit        { 0xffe06a64 };
 
     // The console keys keep their own colours.
-    inline const juce::Colour keyMute     { 0xffe0a85c };
-    inline const juce::Colour keySolo     { 0xff6db8a8 };
-    inline const juce::Colour keyRec      { 0xffe06a64 };
-    inline const juce::Colour keyMon      { 0xff6eafff };
-    inline const juce::Colour monitor     { 0xff6eafff };   // the engineer's own ears
+    inline juce::Colour keyMute     { 0xffe0a85c };
+    inline juce::Colour keySolo     { 0xff6db8a8 };
+    inline juce::Colour keyRec      { 0xffe06a64 };
+    inline juce::Colour keyMon      { 0xff6eafff };
+    inline juce::Colour monitor     { 0xff6eafff };   // the engineer's own ears
 
-    inline const juce::Colour focusRing   { 0xff6db8a8 };
+    // The group buses, in `MixBus` order; `busTint` reads them.
+    inline juce::Colour busDrums    { 0xffe09a4b };
+    inline juce::Colour busBass     { 0xff8e80ff };
+    inline juce::Colour busMusic    { 0xff6eafff };
+    inline juce::Colour busVocals   { 0xff57b98d };
+    inline juce::Colour busSpeech   { 0xffc98fb0 };
+    inline juce::Colour busAmbience { 0xffa8b0bc };
+    inline juce::Colour busMaster   { 0xffa8b0bc };
+
+    inline juce::Colour focusRing   { 0xff6db8a8 };
     inline constexpr float    disabled    = 0.38f;
 
     // Corners: 12 for the window, 10 for a card or tile, 8 for a control, 6 for a chip.
@@ -220,6 +239,25 @@ namespace Dine
     juce::Colour levelColour (float db) noexcept;
     juce::Colour busTint (MixBus) noexcept;
 
+    // ---- Themes. `applyTheme` resolves the document (its own colours over its base over
+    // the default) and writes every token; the legacy gradient aliases follow their parents.
+    // `currentColours` reads the tokens back as a complete palette, which is what the
+    // Appearance sheet edits and saves. `themeBindings` is the one table joining a theme
+    // key to its token; the snapshot tool checks it against `ThemeStore::tokens()`.
+    struct ThemeBinding { const char* key; juce::Colour* colour; };
+    const std::vector<ThemeBinding>& themeBindings();
+    void applyTheme (const Theme&);
+    void setThemeColour (const juce::String& key, juce::Colour);
+    std::map<juce::String, juce::uint32> currentColours();
+    const juce::String& currentThemeName();
+    // Every open window re-reads the tokens: the look-and-feel's colours, each component's
+    // `lookAndFeelChanged()`, a full repaint, and the desk behind each document window.
+    void refreshAllWindows();
+    void refreshWindow (juce::Component& root);   // one window (the headless snapshot tool's view is on no desktop)
+    // A text editor's colours are set on it, not read at paint time, so the components that
+    // own one call this from their constructor *and* from `lookAndFeelChanged()`.
+    void styleTextEditor (juce::TextEditor&, juce::Colour ground, bool softFocusRing = false);
+
     // Gestures --------------------------------------------------------------
     void dragOnly (juce::Slider&);
     void nativeScrolling (juce::Viewport&);
@@ -253,7 +291,9 @@ public:
 
 private:
     Style style;
-    juce::Colour tint { Dine::accent };
+    // Unset = the accent, read when painted, so a theme change reaches a button built before it.
+    std::optional<juce::Colour> tint;
+    juce::Colour tintOr() const noexcept { return tint.value_or (Dine::accent); }
     Dine::Icon icon = Dine::Icon::None;
     float fontPx = 12.0f;
     int padX = 12;
@@ -325,6 +365,7 @@ public:
     void setOn (bool);
     bool isOn() const noexcept { return on; }
     void setLetter (const juce::String&);
+    void setTint (juce::Colour c) { if (c != tint) { tint = c; repaint(); } }   // a theme change re-reads the key's token
 
     void paintButton (juce::Graphics&, bool over, bool down) override;
 
@@ -378,7 +419,7 @@ private:
     void drag (const juce::MouseEvent&);
 
     float value = 0.0f;
-    juce::Colour tint { Dine::accent };
+    std::optional<juce::Colour> tint;    // unset = the accent, read when painted
 };
 
 // A level meter: a translucent well and one gradient bar (accent, yellow, red), rounded.
@@ -410,6 +451,9 @@ class DineLookAndFeel : public LiveMixLookAndFeel
 {
 public:
     DineLookAndFeel();
+
+    // JUCE's own colour ids from the tokens; called by the constructor and by every theme change.
+    void applyPalette();
 
     static void setBipolar (juce::Slider&, bool);
 

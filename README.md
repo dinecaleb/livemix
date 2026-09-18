@@ -73,9 +73,11 @@ app/                 DLIVE, the application
   native/            Project (tracks, clips, markers), Transport, Recorder (raw WAV per armed track),
                      ClipSource + TimelinePlayer (clips -> audio), DawEngine (device -> record / play / mix),
                      MixController (the mix, no JUCE), AudioHost (CoreAudio), SessionStore (versioned JSON),
-                     MultitrackImport, MixBounce (offline stereo bounce)
+                     MultitrackImport, MixBounce (offline stereo bounce), ThemeStore (themes: the document,
+                     the built-ins, the folder, the preference - see docs/THEMES.md)
   ui/                MainView (sidebar + toolbar + workspace + transport), TracksPage, MixerPage, MixPage (TUNE),
-                     LivePage, AdvancedPage (the Channel Inspector), TransportBar, AppTheme (DLIVE v2 tokens)
+                     LivePage, AdvancedPage (the Channel Inspector), TransportBar, AppTheme (DLIVE v2 tokens,
+                     themeable), ThemeSheet (View > Appearance: pick, edit, save, import, export a theme)
   Tools/             dlive_mix_stems, dlive_ui_snapshots, dlive_device_check
   Tests/             dlive_app_tests (controller, DAW, documents, import, bounce)
 tests/               unit tests (custom header-only framework), plugin integration tests, benchmark,

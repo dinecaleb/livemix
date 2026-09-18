@@ -29,6 +29,7 @@ set(DLIVE_APP_SOURCES
     ${CMAKE_SOURCE_DIR}/src/Intelligence/HttpJson.cpp
     native/SessionStore.cpp
     native/InputMapStore.cpp
+    native/ThemeStore.cpp
     native/MonitorDevicePick.cpp
     native/MixBounce.cpp
     native/ClipSource.cpp
@@ -49,6 +50,7 @@ set(DLIVE_UI_SOURCES
     ui/ChannelTuneSheet.cpp
     ui/ReferenceSheet.cpp
     ui/ChatSheet.cpp
+    ui/ThemeSheet.cpp
     ui/LivePage.cpp
     ui/AdvancedPage.cpp
     ui/ChainEditor.cpp
@@ -98,6 +100,7 @@ if (LIVEMIX_BUILD_TESTS)
     add_executable(dlive_app_tests
         Tests/AppTests.cpp
         Tests/DawTests.cpp
+        Tests/ThemeTests.cpp
         ${DLIVE_APP_SOURCES}
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp)
     target_include_directories(dlive_app_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)

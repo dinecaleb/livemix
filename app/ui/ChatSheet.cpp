@@ -153,10 +153,7 @@ ChatSheet::ChatSheet (MixController& c) : controller (c)
     input.setReturnKeyStartsNewLine (false);
     input.setTextToShowWhenEmpty ("Bring the lead vocal forward", Dine::ink4);
     input.setFont (Dine::text (13.5f));
-    input.setColour (juce::TextEditor::backgroundColourId, Dine::tile);
-    input.setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
-    input.setColour (juce::TextEditor::focusedOutlineColourId, Dine::accent.withAlpha (0.6f));
-    input.setColour (juce::TextEditor::textColourId, Dine::ink);
+    Dine::styleTextEditor (input, Dine::tile, true);
     input.onReturnKey = [this] { send(); };
 
     for (auto* b : { &sendButton, &keepButton, &revertButton, &compareButton, &undoButton, &redoButton, &close })
@@ -332,3 +329,5 @@ bool ChatSheet::keyPressed (const juce::KeyPress& k)
 }
 
 } // namespace livemix
+
+void livemix::ChatSheet::lookAndFeelChanged() { Dine::styleTextEditor (input, Dine::tile, true); }

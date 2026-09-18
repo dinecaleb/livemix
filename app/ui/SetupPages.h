@@ -57,6 +57,7 @@ public:
     void refresh();
     void paint (juce::Graphics&) override;
     void resized() override;
+    void lookAndFeelChanged() override;
 
 private:
     class Row;
@@ -156,6 +157,7 @@ public:
     void refresh();                       // rebuild rows from the controller's session and the device's channel count
     void paint (juce::Graphics&) override;
     void resized() override;
+    void lookAndFeelChanged() override;
 
     // Programmatic equivalents of the user's edits (also used by the snapshot tool).
     void assign (int input, ChannelRole role, const juce::String& name, bool linkWithNext = false);

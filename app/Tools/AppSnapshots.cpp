@@ -7,6 +7,8 @@
 #include "native/DawEngine.h"
 #include "native/MixController.h"
 #include "ui/MainView.h"
+#include "native/ThemeStore.h"
+#include <iostream>
 #include <cstdio>
 #include <random>
 #include <chrono>
@@ -103,6 +105,7 @@ namespace
             // Nothing may open by itself here: every state in this tool is a state somebody
             // asked for, and a first-run coach over the console would be in all of them.
             MainView::setAutoTutorial (false);
+            MainView::setStoredThemeUsed (false);   // every render starts from the design, whatever this Mac chose
             view = std::make_unique<MainView> (controller, services);
             view->setSize (1520, 960);
             view->setVisible (true);
@@ -391,6 +394,37 @@ static int renderSizes (const juce::File& dir)
 
 int main (int argc, char** argv)
 {
+    // The theme table and the token table must agree, and the design in AppTheme.h must be
+    // exactly the built-in default - otherwise a fresh build and "Studio Teal" would differ.
+    {
+        int problems = 0;
+        for (const auto& t : ThemeStore::tokens())
+        {
+            bool bound = false;
+            for (const auto& b : Dine::themeBindings()) if (juce::String (b.key) == t.key) bound = true;
+            if (! bound) { std::cerr << "theme key without a Dine:: binding: " << t.key << "\n"; ++problems; }
+        }
+        for (const auto& b : Dine::themeBindings())
+            if (! ThemeStore::isToken (b.key)) { std::cerr << "Dine:: binding without a theme key: " << b.key << "\n"; ++problems; }
+        const auto design = Dine::currentColours();
+        for (const auto& kv : ThemeStore::resolve (ThemeStore::builtIn().front()))
+            if (design.count (kv.first) == 0 || design.at (kv.first) != kv.second)
+            {
+                std::cerr << "AppTheme.h and the Studio Teal preset disagree on " << kv.first << ": "
+                          << ThemeStore::hex (design.count (kv.first) ? design.at (kv.first) : 0) << " vs " << ThemeStore::hex (kv.second) << "\n";
+                ++problems;
+            }
+        if (problems > 0) return 2;
+    }
+
+    // --theme <name> renders the whole set under one of the built-in (or saved) themes.
+    juce::String themeName;
+    std::vector<char*> args (argv, argv + argc);
+    for (size_t a = 1; a + 1 < args.size(); ++a)
+        if (juce::String (args[a]) == "--theme") { themeName = args[a + 1]; args.erase (args.begin() + long (a), args.begin() + long (a) + 2); break; }
+    argc = int (args.size());
+    argv = args.data();
+
     juce::ScopedJuceInitialiser_GUI juceInit;
     if (argc > 1 && juce::String (argv[1]) == "--sizes")
         return renderSizes (juce::File (argc > 2 ? juce::String (argv[2])
@@ -404,6 +438,12 @@ int main (int argc, char** argv)
 
     Rig rig;
     auto& view = *rig.view;
+    if (themeName.isNotEmpty())
+    {
+        Dine::applyTheme (ThemeStore::find (themeName));
+        Dine::refreshWindow (view);
+        std::cout << "theme: " << Dine::currentThemeName() << "\n";
+    }
 
     // ---- SESSIONS: the library. Real documents on disk, so the table shows what each
     // session sounds like, what it was for and how its inputs fall across the groups.
@@ -825,6 +865,29 @@ int main (int argc, char** argv)
     rig.feed (0.3);
     rig.snap (dir, "28-getting-started");
     view.closeTutorial();
+
+    // ---- APPEARANCE: every built-in theme on the console, and the sheet itself. A theme
+    // that breaks a page shows here before it reaches a booth.
+    if (themeName.isEmpty())
+    {
+        view.closeTutorial();
+        view.closeSheets();
+        view.showPage (MainView::Page::Mixer);
+        for (const auto& t : ThemeStore::builtIn())
+        {
+            Dine::applyTheme (t);
+            Dine::refreshWindow (view);
+            rig.pump (60);
+            rig.snap (dir, "30-theme-" + juce::File::createLegalFileName (t.name.toLowerCase().replaceCharacter (' ', '-')));
+        }
+        Dine::applyTheme (ThemeStore::builtIn().front());
+        Dine::refreshWindow (view);
+        view.showThemes();
+        rig.pump (60);
+        rig.snap (dir, "31-appearance");
+        view.closeSheets();
+    }
+
 
     std::printf ("stage %d, health %d%%\n", int (rig.controller.getStage()), rig.controller.getMixHealthPercent());
     rig.view.reset();

@@ -123,6 +123,12 @@ flattened bundle is one of the ways an app arrives on the other Mac as "damaged"
 
 ### What the tester will see, and what to tell them
 
+DLIVE has themes: **View > Appearance** lists them (Studio Teal is the default; Lime Desk, Slate, Tape and
+Daylight ship with it) and **Customise Appearance…** lets the tester change any colour, save the result under
+their own name, and export the file to send back. A theme is a preference of their Mac
+(`~/Music/DLIVE/Themes`, `~/Music/DLIVE/preferences.json`) and never touches a session, so it is safe to play
+with mid-test. See `docs/THEMES.md`.
+
 There is no Developer ID certificate on this machine, so the app is signed **ad-hoc**. That is a complete,
 valid signature — the Info.plist is bound and the resources are sealed — it is simply not one Apple has
 vouched for. The distinction matters, because it is the difference between two very different messages:
