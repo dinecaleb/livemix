@@ -54,7 +54,7 @@ private:
 
     struct Layout
     {
-        juce::Rectangle<int> health, actions, groupsCaption, groups, macrosCaption, macros, rail, railTab;
+        juce::Rectangle<int> health, actions, groupsCaption, groups, master, macrosCaption, macros, rail, railTab;
     };
     Layout layout() const;
     int railWidth() const noexcept
@@ -62,6 +62,7 @@ private:
         return ! railAvailable ? 0 : railShown ? Dine::Metric::tuneRail : Dine::Metric::panelTab;
     }
     void refreshTuneButton();
+    void refreshMaster();              // the loudness readout and the two pickers, a few times a second
     void rebuildRail();
     void selectRow (int strip);
 
@@ -85,6 +86,12 @@ private:
     DineButton redoButton { "Redo mix", DineButton::Style::Standard };
     DineButton advancedButton { "Open the Inspector", DineButton::Style::Ghost };
     DineButton resetMacrosButton { "Reset macros", DineButton::Style::Ghost };
+    // MASTER: how loud the finished mix should be, one press to get there, and who it is for.
+    DinePopup loudnessTargetButton;
+    DineButton raiseButton { "Raise loudness to target", DineButton::Style::Standard };
+    DinePopup voicingButton;
+    juce::String masterNote;
+    bool raisePossible = false;
     int health = 0;
     struct PageLook
     {
@@ -93,11 +100,12 @@ private:
         MixController::Stage stage = MixController::Stage::Setup;
         int tunes = -1;
         bool hasReference = false, canUndo = false, canRedo = false;
-        juce::String referenceName;
+        juce::String referenceName, masterNote;
         bool operator== (const PageLook& o) const
         {
             return status == o.status && notes == o.notes && health == o.health && stage == o.stage && tunes == o.tunes
-                && hasReference == o.hasReference && referenceName == o.referenceName && canUndo == o.canUndo && canRedo == o.canRedo;
+                && hasReference == o.hasReference && referenceName == o.referenceName && canUndo == o.canUndo && canRedo == o.canRedo
+                && masterNote == o.masterNote;
         }
         bool operator!= (const PageLook& o) const { return ! (*this == o); }
     };

@@ -29,6 +29,10 @@ namespace MixMacros
 
     // The plan with the macros applied. apply (base, neutral) == base.
     MixParameters apply (const MixParameters& base, const MixMacroValues& values, const RoutingGraph& graph, StyleProfileId profile);
+
+    // The master's voicing on top of that: a bounded tilt for the listener, on the master's
+    // tone EQ and saturator only. applyVoicing (base, Neutral) == base.
+    MixParameters applyVoicing (const MixParameters& base, MasterVoicing voicing, StyleProfileId profile);
 }
 
 } // namespace livemix

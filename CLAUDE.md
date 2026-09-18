@@ -169,6 +169,20 @@
   as the -23 mix, and RE-TUNE still says NO CHANGE REQUIRED. `MixController::getMasterLoudness()` is the one place
   the master's LUFS-I / short-term / true peak / limiter reduction / target / headroom are read, so no two pages can
   disagree. Check with `dlive_mix_stems "<stems>" 30 <out> gospel -1 broadcast:-14`.
+- **RAISE LOUDNESS and MASTER SOUND** (2026-09-17, the MASTER band on TUNE and the Mix menu). *Raise loudness to
+  target* (`MixController::raiseLoudnessToTarget`, previewed by `previewLoudnessMove`) gets the master to the delivery
+  target (YouTube / Facebook / Spotify = -14 LUFS) in one move without re-tuning: the move is the gap between the
+  master's integrated (or short-term) LUFS and the target, clamped by `MixProfile::loudnessLift()` (+12 / -6 dB, and
+  capped so the true peak asks the limiter for no more than `maxLimiterGrDb`), written to the master's output trim
+  in the kept mix as an undoable mix change, with the master limiter turned on at the delivery ceiling so it cannot
+  clip. It refuses with its reason (nothing played, BYPASS, already there), and LIVE SAFE limits it like the master
+  fader. The integrated meter is reset afterwards so the readout measures the new level. *Master sound*
+  (`MasterVoicing`: As tuned / Warm / Bright / Voice first / Phone speakers / Earbuds / Car / TV-soundbar,
+  `MixSession::voicing`, saved as `voicing`) is a compose-time layer like the macros:
+  `MixMacros::applyVoicing` (numbers in `MixProfile::voicing (profile, voicing)`, tone shelves + a presence bell +
+  a touch of saturation, gains clamped to +/-6 dB) is applied on top of `MixMacros::apply` in `MixController::compose`,
+  so it never touches the kept mix, the plan or idempotency, and "As tuned" is exactly what TUNE MIX built.
+  Verify with the `MixController: the master's voicing ...` app test and the `07` / `16` snapshots.
 - **AMBIENCE is the sixth group bus** (`MixBus::Ambience`, before MASTER) and `SessionStore` is **version 4**, which
   remaps a version <= 3 document's bus slots (`busFromStoredIndex` + `storedBusCount`: the last stored slot has
   always been the master, wherever it sat). `ChannelRole::CrowdMic` / `AmbienceMic` / `AmbienceBus` and

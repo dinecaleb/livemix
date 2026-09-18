@@ -265,5 +265,52 @@ const MacroRanges& macroRanges (StyleProfileId profile)
     return profile == StyleProfileId::ModernWorship ? worship : gospel;
 }
 
+const Voicing& voicing (StyleProfileId profile, MasterVoicing which)
+{
+    (void) profile;      // one table for both profiles today; the seam is here for when they differ
+    static const std::array<Voicing, int (MasterVoicing::Count)> table = []
+    {
+        std::array<Voicing, int (MasterVoicing::Count)> t {};
+        auto& warm = t[size_t (MasterVoicing::Warm)];
+        warm.lowShelfHz = 180.0f;  warm.lowShelfDb = 1.5f;
+        warm.highShelfHz = 8000.0f; warm.highShelfDb = -1.5f;
+        auto& bright = t[size_t (MasterVoicing::Bright)];
+        bright.lowShelfHz = 150.0f; bright.lowShelfDb = -1.0f;
+        bright.presenceHz = 3000.0f; bright.presenceDb = 1.0f; bright.presenceQ = 0.8f;
+        bright.highShelfHz = 6500.0f; bright.highShelfDb = 1.5f;
+        auto& voice = t[size_t (MasterVoicing::VoiceFirst)];
+        voice.lowShelfHz = 160.0f; voice.lowShelfDb = -1.5f;
+        voice.presenceHz = 2600.0f; voice.presenceDb = 2.0f; voice.presenceQ = 0.9f;
+        voice.highShelfHz = 9000.0f; voice.highShelfDb = -1.0f;
+        auto& phone = t[size_t (MasterVoicing::PhoneSpeakers)];
+        phone.lowShelfHz = 120.0f; phone.lowShelfDb = -2.5f;
+        phone.presenceHz = 2400.0f; phone.presenceDb = 1.5f; phone.presenceQ = 0.8f;
+        phone.highShelfHz = 7000.0f; phone.highShelfDb = 1.0f;
+        phone.satDrive = 0.08f;
+        auto& buds = t[size_t (MasterVoicing::Earbuds)];
+        buds.lowShelfHz = 140.0f; buds.lowShelfDb = 1.0f;
+        buds.presenceHz = 3500.0f; buds.presenceDb = -0.8f; buds.presenceQ = 1.0f;
+        buds.highShelfHz = 10000.0f; buds.highShelfDb = -0.8f;
+        auto& car = t[size_t (MasterVoicing::Car)];
+        car.lowShelfHz = 110.0f; car.lowShelfDb = 2.0f;
+        car.presenceHz = 2800.0f; car.presenceDb = 1.0f; car.presenceQ = 0.9f;
+        car.highShelfHz = 7000.0f; car.highShelfDb = 1.0f;
+        car.satDrive = 0.06f;
+        auto& tv = t[size_t (MasterVoicing::TvSoundbar)];
+        tv.lowShelfHz = 90.0f; tv.lowShelfDb = -1.5f;
+        tv.presenceHz = 2500.0f; tv.presenceDb = 1.2f; tv.presenceQ = 0.9f;
+        tv.highShelfHz = 9000.0f; tv.highShelfDb = -0.5f;
+        return t;
+    }();
+    const int i = int (which);
+    return table[size_t (i >= 0 && i < int (MasterVoicing::Count) ? i : 0)];
+}
+
+const LoudnessLift& loudnessLift()
+{
+    static const LoudnessLift lift;
+    return lift;
+}
+
 } // namespace MixProfile
 } // namespace livemix

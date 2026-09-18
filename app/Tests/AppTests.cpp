@@ -306,6 +306,67 @@ TEST_CASE ("MixController: the Inspector's chain edits live on the kept mix, rea
     CHECK (f.outputPeak() > 0.001f);
 }
 
+TEST_CASE ("MixController: the master's voicing rides on top of the kept mix; the loudness lift raises the master under the limiter")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    const MixParameters kept = c.getKept();
+
+    // Neutral is exactly the kept mix; a voicing touches the master and nothing else, and is
+    // never written into the kept mix.
+    CHECK (c.getVoicing() == MasterVoicing::Neutral);
+    CHECK (MixPlanner::countParameterChanges (c.getRunning(), kept) == 0);
+    c.setVoicing (MasterVoicing::Warm);
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), kept) == 0);
+    const auto& warm = c.getRunning().master().channel;
+    CHECK (warm.toneEqEnabled);
+    CHECK (warm.toneBands[0].gainDb > kept.master().channel.toneBands[0].gainDb);
+    CHECK (warm.toneBands[3].gainDb < kept.master().channel.toneBands[3].gainDb);
+    MixParameters onlyMaster = kept;
+    onlyMaster.master() = c.getRunning().master();
+    CHECK (MixPlanner::countParameterChanges (c.getRunning(), onlyMaster) == 0);
+    c.setVoicing (MasterVoicing::PhoneSpeakers);
+    CHECK (c.getRunning().master().channel.toneBands[0].gainDb < kept.master().channel.toneBands[0].gainDb);
+    c.setVoicing (MasterVoicing::Neutral);
+    CHECK (MixPlanner::countParameterChanges (c.getRunning(), kept) == 0);
+
+    // Nothing has played: the lift says so and does nothing.
+    CHECK (! c.previewLoudnessMove().possible);
+    const float trimBefore = c.getKept().master().channel.outputTrimDb;
+    c.raiseLoudnessToTarget();
+    CHECK (c.getKept().master().channel.outputTrimDb == trimBefore);
+
+    // The band plays under the YouTube target: one press raises the master toward it, the
+    // limiter is on at the delivery ceiling, and UNDO takes it back.
+    c.setDelivery (DeliveryLoudness::StreamingLoud);
+    f.play (3.0);
+    const auto move = c.previewLoudnessMove();
+    REQUIRE (move.possible);
+    CHECK (move.moveDb > 0.0f);
+    CHECK_NEAR (move.targetLufs, -14.0f, 0.01f);
+    c.raiseLoudnessToTarget();
+    CHECK (c.getKept().master().channel.outputTrimDb > trimBefore);
+    CHECK (c.getKept().master().channel.limiterEnabled);
+    CHECK (c.getKept().master().channel.limiterCeilingDb <= -1.0f);
+    CHECK (c.getRunning().master().channel.outputTrimDb == c.getKept().master().channel.outputTrimDb);
+    f.play (1.0);
+    CHECK (f.outputPeak() <= 1.0f);                   // the limiter's promise
+    REQUIRE (c.canUndoMix());
+    c.undoMix();
+    CHECK (c.getKept().master().channel.outputTrimDb == trimBefore);
+
+    // LIVE SAFE limits the step the way it limits the master fader, and says so.
+    c.setLiveSafe (true);
+    std::string last;
+    c.onMessage = [&last] (const std::string& m) { last = m; };
+    c.raiseLoudnessToTarget();
+    CHECK (c.getKept().master().channel.outputTrimDb - trimBefore <= c.getLiveSafePolicy().maxMasterStepDb + 0.01f);
+    CHECK (! last.empty());
+    c.setLiveSafe (false);
+}
+
 TEST_CASE ("MixController: TUNE CHANNEL tunes one source and leaves the rest of the mix exactly where it is")
 {
     MixController c;
@@ -599,6 +660,7 @@ TEST_CASE ("SessionStore: a session document survives the JSON round trip")
     d.session.profile = StyleProfileId::ModernWorship;
     d.inputDevice = "Dante Virtual Soundcard";
     d.outputDevice = "Dante Virtual Soundcard";
+    d.session.voicing = MasterVoicing::Car;
     d.macros.set (MixMacro::Space, 70.0f);
     d.macros.set (MixMacro::Drums, 35.0f);
     d.hasMix = true;
@@ -613,6 +675,7 @@ TEST_CASE ("SessionStore: a session document survives the JSON round trip")
     CHECK_NEAR (back.mix.tempoBpm, 96.0f, 0.01f);   // ... and it comes back, or the delays fall out of time
     CHECK (back.session.purpose == MixPurpose::Livestream);
     CHECK (back.session.profile == StyleProfileId::ModernWorship);
+    CHECK (back.session.voicing == MasterVoicing::Car);      // who the mix is for comes back with it
     REQUIRE (back.session.inputs.size() == 5);
     CHECK (back.session.inputs[2].name == "Keys");
     CHECK (back.session.inputs[2].role == ChannelRole::Piano);

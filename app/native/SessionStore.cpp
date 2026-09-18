@@ -360,6 +360,7 @@ juce::var toVar (const Document& d)
     obj->setProperty ("profile", int (d.session.profile));
     obj->setProperty ("purpose", int (d.session.purpose));
     obj->setProperty ("delivery", int (d.session.delivery));   // how loud the finished mix should be
+    obj->setProperty ("voicing", int (d.session.voicing));     // who the finished mix is for
     if (d.trackPanelWidth > 0) obj->setProperty ("trackPanelWidth", d.trackPanelWidth);
     obj->setProperty ("inputDevice", d.inputDevice);
     obj->setProperty ("outputDevice", d.outputDevice);
@@ -422,6 +423,9 @@ bool fromVar (const juce::var& v, Document& d)
     // sessions did: an older mix opens aiming where it always aimed.
     const int delivery = obj->hasProperty ("delivery") ? int (obj->getProperty ("delivery")) : 0;
     d.session.delivery = delivery > 0 && delivery < int (DeliveryLoudness::Count) ? DeliveryLoudness (delivery) : DeliveryLoudness::FromPurpose;
+    // Absent before the master had a voicing; Neutral is what those sessions sounded like.
+    const int voicing = obj->hasProperty ("voicing") ? int (obj->getProperty ("voicing")) : 0;
+    d.session.voicing = voicing > 0 && voicing < int (MasterVoicing::Count) ? MasterVoicing (voicing) : MasterVoicing::Neutral;
     d.trackPanelWidth = int (obj->getProperty ("trackPanelWidth"));
     d.inputDevice = obj->getProperty ("inputDevice").toString();
     d.outputDevice = obj->getProperty ("outputDevice").toString();

@@ -252,6 +252,29 @@ namespace MixProfile
         float energyPolishedSatDrive = 0.08f;
     };
     const MacroRanges& macroRanges (StyleProfileId profile);
+
+    // The master's voicing: a bounded tilt for the listener. Every field is a delta on top of
+    // the tuned master - 0 everywhere is exactly "as tuned" - and the whole table is small on
+    // purpose: a voicing that could be heard as a re-mix is not a voicing.
+    struct Voicing
+    {
+        float lowShelfHz = 150.0f,  lowShelfDb = 0.0f;
+        float presenceHz = 2800.0f, presenceDb = 0.0f, presenceQ = 0.9f;
+        float highShelfHz = 8000.0f, highShelfDb = 0.0f;
+        float satDrive = 0.0f;                 // added density, 0..0.5 on the saturator
+    };
+    const Voicing& voicing (StyleProfileId profile, MasterVoicing which);
+
+    // Raising the loudness to the delivery target from where the master is actually reading:
+    // how far one press may move the master, and below what move it says "already there".
+    struct LoudnessLift
+    {
+        float maxRaiseDb = 12.0f;              // one press never adds more than this
+        float maxCutDb = 6.0f;                 // ... nor takes more than this away
+        float atTargetToleranceDb = 0.4f;      // closer than this is "at the target"
+        float maxLimiterGrDb = 6.0f;           // a lift that would ask the limiter for more than this is a squash, and is capped
+    };
+    const LoudnessLift& loudnessLift();
 }
 
 } // namespace livemix

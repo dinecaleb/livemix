@@ -151,5 +151,31 @@ MixParameters apply (const MixParameters& base, const MixMacroValues& values, co
     return p;
 }
 
+MixParameters applyVoicing (const MixParameters& base, MasterVoicing voicing, StyleProfileId profile)
+{
+    if (voicing == MasterVoicing::Neutral) return base;
+    MixParameters p = base;
+    const auto& V = MixProfile::voicing (profile, voicing);
+    auto& c = p.master().channel;
+
+    // The tilt: the low shelf on band 0 and the high shelf on band 3, the way the macros use
+    // them; the presence band on band 2, added to whatever the plan put there.
+    if (V.lowShelfDb != 0.0f || V.highShelfDb != 0.0f || V.presenceDb != 0.0f) c.toneEqEnabled = true;
+    if (V.lowShelfDb != 0.0f)  shelf (c.toneBands[0], FilterType::LowShelf, V.lowShelfHz, V.lowShelfDb);
+    if (V.highShelfDb != 0.0f) shelf (c.toneBands[3], FilterType::HighShelf, V.highShelfHz, V.highShelfDb);
+    if (V.presenceDb != 0.0f)
+    {
+        auto& band = c.toneBands[2];
+        if (! band.enabled) band = { true, FilterType::Peak, V.presenceHz, 0.0f, V.presenceQ };
+        band.gainDb = clamp (band.gainDb + V.presenceDb, -6.0f, 6.0f);
+    }
+    if (V.satDrive > 0.0f)
+    {
+        c.satEnabled = true;
+        c.satDrive = clamp (c.satDrive + V.satDrive, 0.0f, 0.5f);
+    }
+    return p;
+}
+
 } // namespace MixMacros
 } // namespace livemix

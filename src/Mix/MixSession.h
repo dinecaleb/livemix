@@ -119,7 +119,7 @@ enum class DeliveryLoudness : int
 
 inline constexpr std::array<const char*, int (DeliveryLoudness::Count)> kDeliveryLoudnessNames {
     "Match the purpose", "Broadcast (EBU R128)", "Broadcast (ATSC A/85)", "Podcast / archive",
-    "Streaming", "Streaming (loud)", "As loud as it goes"
+    "Streaming", "YouTube / Facebook / Spotify", "As loud as it goes"
 };
 
 inline constexpr const char* deliveryLoudnessName (DeliveryLoudness d) noexcept
@@ -162,6 +162,57 @@ inline const char* deliveryLoudnessHint (DeliveryLoudness d) noexcept
     }
 }
 
+// ---------------------------------------------------------------------------
+// The master's voicing: who the finished mix is for.
+//
+// A stream is heard on a phone speaker, on earbuds, in a car and on a television, and none
+// of them hears the same balance. A voicing is a small, bounded tilt on the master - a low
+// shelf, a presence band, a high shelf and a touch of density - chosen for the listener
+// rather than for the room. It sits on top of the tuned mix the way a macro does: applied
+// when the parameters are composed, never written into the kept mix, so TUNE MIX and REVERT
+// are untouched by it and switching it is instant and reversible. Neutral is exactly the
+// tuned mix. The numbers live in MixProfileData (MixProfile::voicing).
+// ---------------------------------------------------------------------------
+enum class MasterVoicing : int
+{
+    Neutral = 0,     // as tuned
+    Warm,            // fuller low end, a softer top: living rooms, hi-fi, older ears
+    Bright,          // more air and presence: laptops and small monitors that lack it
+    VoiceFirst,      // the words first: a sermon, a podcast, a spoken service
+    PhoneSpeakers,   // what a phone can reproduce, made to carry
+    Earbuds,         // earbuds are bright and close: a little body, a little less edge
+    Car,             // road noise takes the quiet parts: weight and presence
+    TvSoundbar,      // a television or a soundbar: clear speech, no boom
+    Count
+};
+
+inline constexpr std::array<const char*, int (MasterVoicing::Count)> kMasterVoicingNames {
+    "As tuned", "Warm", "Bright", "Voice first", "Phone speakers", "Earbuds", "Car", "TV / soundbar"
+};
+
+inline constexpr const char* masterVoicingName (MasterVoicing v) noexcept
+{
+    const int i = int (v);
+    return (i >= 0 && i < int (MasterVoicing::Count)) ? kMasterVoicingNames[size_t (i)] : "?";
+}
+
+inline const char* masterVoicingHint (MasterVoicing v) noexcept
+{
+    switch (v)
+    {
+        case MasterVoicing::Warm:          return "Fuller low end and a softer top. For living rooms, hi-fi and older ears.";
+        case MasterVoicing::Bright:        return "More air and presence. For laptops and small speakers that have none of their own.";
+        case MasterVoicing::VoiceFirst:    return "The words come first. For a sermon, a podcast or a spoken service.";
+        case MasterVoicing::PhoneSpeakers: return "What a phone can actually reproduce, made to carry. The low end it cannot play is taken out of its way.";
+        case MasterVoicing::Earbuds:       return "Earbuds are bright and close. A little more body, a little less edge.";
+        case MasterVoicing::Car:           return "Road noise eats the quiet parts. Weight underneath and presence on top.";
+        case MasterVoicing::TvSoundbar:    return "Clear speech and no boom, for a television or a soundbar.";
+        case MasterVoicing::Neutral:
+        case MasterVoicing::Count:
+        default:                           return "Exactly the mix TUNE MIX built.";
+    }
+}
+
 // Everything the user decided: which inputs are what, what the mix is for, which sound.
 struct MixSession
 {
@@ -172,6 +223,9 @@ struct MixSession
     // which is what every session made before this setting existed had, so nothing about an
     // old session changes when it is opened.
     DeliveryLoudness delivery = DeliveryLoudness::FromPurpose;
+    // Who the finished mix is for. Neutral is the tuned mix untouched, which is what every
+    // session made before this setting existed had.
+    MasterVoicing voicing = MasterVoicing::Neutral;
     std::vector<InputAssignment> inputs;    // at most kMaxStrips are used
 
     ChannelRole masterRole() const noexcept { return masterRoleFor (purpose); }

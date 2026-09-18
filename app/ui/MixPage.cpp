@@ -1,6 +1,7 @@
 #include "MixPage.h"
 #include "ReferenceSheet.h"
 #include "Core/DbUtils.h"
+#include "Profiles/Profile.h"
 
 namespace livemix
 {
@@ -691,6 +692,61 @@ MixPage::MixPage (MixController& c) : controller (c)
     advancedButton.onClick = [this] { if (onOpenAdvanced) onOpenAdvanced(); };
     resetMacrosButton.setFontPx (13.0f);
     resetMacrosButton.onClick = [this] { controller.resetMacros(); for (int i = 0; i < int (MixMacro::Count); ++i) macros[size_t (i)]->setValue (50.0f); };
+
+    // ---- MASTER: the target, the lift and the sound
+    addAndMakeVisible (loudnessTargetButton);
+    addAndMakeVisible (raiseButton);
+    addAndMakeVisible (voicingButton);
+    loudnessTargetButton.setTooltip ("How loud the finished mix should be. YouTube, Facebook and Spotify normalise to about -14 LUFS; "
+                                     "a television broadcast to -23. TUNE MIX fits the whole gain structure to it, and Raise loudness gets "
+                                     "the master there without re-tuning.");
+    raiseButton.setTooltip ("Raises the master to the loudness target in one move, under the master limiter, so it cannot clip. "
+                            "Undo with Undo mix.");
+    voicingButton.setTooltip ("Who the mix is for. A voicing sits on the master's tone on top of the kept mix and never changes it: "
+                              "switch back to \"as tuned\" and it is exactly what TUNE MIX built.");
+    loudnessTargetButton.onClick = [this]
+    {
+        juce::PopupMenu m;
+        const auto current = controller.getDelivery();
+        const auto purposeTarget = Profiles::targets (controller.getSession().profile, masterRoleFor (controller.getSession().purpose));
+        m.addItem (1, juce::String (deliveryLoudnessName (DeliveryLoudness::FromPurpose)) + "   (" + juce::String (purposeTarget.targetLufs, 0) + " LUFS)",
+                   true, current == DeliveryLoudness::FromPurpose);
+        m.addSeparator();
+        for (int i = 1; i < int (DeliveryLoudness::Count); ++i)
+        {
+            const auto d = DeliveryLoudness (i);
+            m.addItem (i + 1, juce::String (deliveryLoudnessName (d)) + "   " + juce::String (deliveryLoudnessLufs (d), 0) + " LUFS", true, current == d);
+        }
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (loudnessTargetButton).withMinimumWidth (300),
+                         [this] (int id) { if (id > 0) { controller.setDelivery (DeliveryLoudness (id - 1)); refreshMaster(); resized(); repaint(); } });
+    };
+    raiseButton.onClick = [this]
+    {
+        const auto said = controller.raiseLoudnessToTarget();
+        if (onToast) onToast (juce::String (said));
+        refreshMaster(); repaint();
+    };
+    voicingButton.onClick = [this]
+    {
+        juce::PopupMenu m;
+        const auto current = controller.getVoicing();
+        for (int i = 0; i < int (MasterVoicing::Count); ++i)
+        {
+            const auto v = MasterVoicing (i);
+            m.addItem (i + 1, juce::String (masterVoicingName (v)) + "   " + Glyph::dot() + "   " + juce::String (masterVoicingHint (v)), true, current == v);
+            if (i == 0) m.addSeparator();
+        }
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (voicingButton).withMinimumWidth (300),
+                         [this] (int id)
+                         {
+                             if (id <= 0) return;
+                             controller.setVoicing (MasterVoicing (id - 1));
+                             if (onToast) onToast (MasterVoicing (id - 1) == MasterVoicing::Neutral ? juce::String ("Master back to exactly what TUNE MIX built.")
+                                                                                                    : "Master voiced for " + juce::String (masterVoicingName (MasterVoicing (id - 1))).toLowerCase() + ". The kept mix is untouched.");
+                             refreshMaster(); resized(); repaint();
+                         });
+    };
+    refreshMaster();
     setOpaque (true);
     refresh();
 }
@@ -844,12 +900,13 @@ void MixPage::refresh()
     if (preview && (adviceTicks % 10) == 0) resultSheet->refresh();
     if (stage != lastStage || live != lastLiveRun) { refreshTuneButton(); lastStage = stage; lastLiveRun = live; }
     for (int i = 0; i < int (MixMacro::Count); ++i) macros[size_t (i)]->setValue (controller.getMacros().get (MixMacro (i)));
+    if ((adviceTicks % 6) == 0) refreshMaster();
 
     juce::String notes;
     for (const auto& n : controller.getMixHealthNotes()) notes << juce::String (n) << "|";
     const PageLook now { status, notes, health, stage, controller.getTuneCount(), controller.hasReference(),
                          controller.canUndoMix(), controller.canRedoMix(),
-                         controller.hasReference() ? juce::String (controller.getReference().name) : juce::String() };
+                         controller.hasReference() ? juce::String (controller.getReference().name) : juce::String(), masterNote };
     if (now != painted)
     {
         painted = now;
@@ -857,6 +914,27 @@ void MixPage::refresh()
         redoButton.setEnabled (now.canRedo);
         repaint();
     }
+}
+
+void MixPage::refreshMaster()
+{
+    const auto lufs = [] (float v) { return juce::String (std::round (v * 10.0f) / 10.0f, 1) + " LUFS"; };
+    const auto delivery = controller.getDelivery();
+    const float target = controller.getMasterLoudness().targetLufs;
+    loudnessTargetButton.setValue ((delivery == DeliveryLoudness::FromPurpose ? juce::String ("From the purpose")
+                                                                              : juce::String (deliveryLoudnessName (delivery)))
+                                   + "  " + Glyph::dot() + "  " + lufs (target));
+    voicingButton.setValue (controller.getVoicing() == MasterVoicing::Neutral ? juce::String ("Sound: as tuned")
+                                                                              : "Sound: " + juce::String (masterVoicingName (controller.getVoicing())));
+    const auto move = controller.previewLoudnessMove();
+    raisePossible = move.possible;
+    raiseButton.setEnabled (move.possible && ! controller.isLiveSafe());
+    if (move.possible)
+        masterNote = "Now " + lufs (move.fromLufs) + ", aiming at " + lufs (move.targetLufs) + ": "
+                     + (move.moveDb > 0 ? "+" : "") + juce::String (move.moveDb, 1) + " dB on the master, under the limiter so it cannot clip.";
+    else
+        masterNote = controller.isLiveSafe() ? juce::String ("LIVE SAFE is on: the master stays where it is until it is off.")
+                                             : juce::String (move.why);
 }
 
 MixPage::Layout MixPage::layout() const
@@ -875,7 +953,10 @@ MixPage::Layout MixPage::layout() const
     // The macros are as tall as they are; the groups take what is left, down to a floor.
     const int macrosH = 12 + 12 + 18 + 7 + 14;
     l.macros = main.removeFromBottom (macrosH);
-    main.removeFromBottom (22);
+    main.removeFromBottom (20);
+    // MASTER: a caption, then one row of the target, the lift and the sound, with its sentence beside them.
+    l.master = main.removeFromBottom (12 + 8 + Dine::Metric::control);
+    main.removeFromBottom (20);
     l.groupsCaption = main.removeFromTop (12);
     main.removeFromTop (12);
     l.groups = main.withHeight (juce::jlimit (150, kGroupsH + 40, main.getHeight()));
@@ -934,6 +1015,21 @@ void MixPage::paint (juce::Graphics& g)
     }
 
     Dine::drawSection (g, l.groupsCaption, "GROUPS");
+
+    // ---- MASTER: the sentence beside the controls says what the lift would do, or why not
+    {
+        auto r = l.master;
+        Dine::drawSection (g, r.removeFromTop (12), "MASTER  " + juce::String (Glyph::dot()) + "  HOW LOUD, AND FOR WHOM");
+        r.removeFromTop (8);
+        const int used = loudnessTargetButton.getRight() > 0 ? voicingButton.getRight() - r.getX() : 0;
+        auto note = r.withTrimmedLeft (used + 16);
+        if (note.getWidth() > 120 && masterNote.isNotEmpty())
+        {
+            g.setColour (raisePossible ? Dine::ink2 : Dine::ink3);
+            g.setFont (Dine::text (12.0f));
+            g.drawFittedText (masterNote, note, juce::Justification::centredLeft, 2, 1.0f);
+        }
+    }
 
     // ---- MACROS
     {
@@ -1006,6 +1102,15 @@ void MixPage::resized()
     const int gap = 10;
     const int w = (groupRow.getWidth() - gap * (kGroupTiles - 1)) / kGroupTiles;
     for (auto& t : groups) { t->setBounds (groupRow.removeFromLeft (w)); groupRow.removeFromLeft (gap); }
+
+    {
+        auto row = l.master.withTrimmedTop (12 + 8);
+        loudnessTargetButton.setBounds (row.removeFromLeft (juce::jmin (row.getWidth() / 3, juce::jmax (150, loudnessTargetButton.idealWidth()))));
+        row.removeFromLeft (8);
+        raiseButton.setBounds (row.removeFromLeft (juce::jmax (120, raiseButton.idealWidth())));
+        row.removeFromLeft (8);
+        voicingButton.setBounds (row.removeFromLeft (juce::jmin (row.getWidth() / 2, juce::jmax (140, voicingButton.idealWidth()))));
+    }
 
     auto macroArea = l.macros;
     auto cap = macroArea.removeFromTop (12);

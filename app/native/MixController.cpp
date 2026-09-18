@@ -71,6 +71,84 @@ void MixController::setDelivery (DeliveryLoudness d)
     if (onMixChanged) onMixChanged();
 }
 
+void MixController::setVoicing (MasterVoicing v)
+{
+    if (session.voicing == v) return;
+    session.voicing = v;
+    publish();
+    if (onMessage)
+        onMessage (v == MasterVoicing::Neutral ? std::string ("Master sound: as tuned.")
+                                               : std::string ("Master sound: ") + masterVoicingName (v) + ". " + masterVoicingHint (v));
+    if (onMixChanged) onMixChanged();
+}
+
+MixController::LoudnessMove MixController::previewLoudnessMove() const
+{
+    LoudnessMove m;
+    const auto loud = getMasterLoudness();
+    m.targetLufs = loud.targetLufs;
+    if (! prepared || engine.getNumStrips() == 0) { m.why = "Assign your inputs first: there is no mix to raise yet."; return m; }
+    if (bypassed) { m.why = "BYPASS is on: switch it off to raise the mix."; return m; }
+    // The integrated reading is the honest one; the short-term one stands in until it exists.
+    const float from = loud.integratedLufs > -60.0f ? loud.integratedLufs
+                     : loud.shortTermLufs > -60.0f ? loud.shortTermLufs : -120.0f;
+    if (from <= -100.0f) { m.why = "Nothing has played yet. Have the band play for a few seconds, then press it."; return m; }
+    const auto& L = MixProfile::loudnessLift();
+    m.fromLufs = from;
+    m.moveDb = clamp (loud.targetLufs - from, -L.maxCutDb, L.maxRaiseDb);
+    // A lift the limiter would have to hold down is a squash, not a lift: it is capped so
+    // the limiter is asked for no more than a few dB even at the loudest moment.
+    const float peakAfter = loud.truePeakDb + m.moveDb;
+    if (peakAfter > loud.ceilingDb + L.maxLimiterGrDb) m.moveDb = loud.ceilingDb + L.maxLimiterGrDb - loud.truePeakDb;
+    if (std::abs (m.moveDb) < L.atTargetToleranceDb)
+    {
+        m.why = "Already at " + std::to_string (int (std::round (loud.targetLufs))) + " LUFS: nothing to raise.";
+        return m;
+    }
+    m.possible = true;
+    return m;
+}
+
+std::string MixController::raiseLoudnessToTarget()
+{
+    auto m = previewLoudnessMove();
+    if (! m.possible) { if (onMessage) onMessage (m.why); return m.why; }
+
+    auto& c = kept.master().channel;
+    liveSafe::Verdict v;
+    const float wantTrim = liveSafe::limitStepDb (safety, LiveAction::MasterFader, c.outputTrimDb,
+                                                  clamp (c.outputTrimDb + m.moveDb, -24.0f, 24.0f), v);
+    const float applied = wantTrim - c.outputTrimDb;
+    if (std::abs (applied) < 0.05f)
+    {
+        const std::string why = v.limited ? v.reason : std::string ("The master's trim is already at its limit.");
+        if (onMessage) onMessage (why);
+        return why;
+    }
+
+    markMixChange ("loudness " + std::string (applied > 0.0f ? "+" : "") + std::to_string (int (std::round (applied))) + " dB");
+    // The ceiling the delivery asks for: -1 dBTP for a stream, -1.5 for a broadcast feed. The
+    // limiter is what makes the promise "without clipping" true, so it is switched on here.
+    const auto loud = getMasterLoudness();
+    c.outputTrimDb = wantTrim;
+    c.limiterEnabled = true;
+    c.limiterCeilingDb = std::min (c.limiterCeilingDb, loud.ceilingDb);
+    if (plan && stage == Stage::Preview) plan->proposed.master().channel = c;
+    // The integrated reading starts again, so the meter shows what the lift did rather than
+    // an average that still remembers the level before it.
+    engine.getBus (MixBus::Master).getLoudness().resetIntegrated();
+    publish();
+    if (onMixChanged) onMixChanged();
+
+    char buf[200];
+    std::snprintf (buf, sizeof (buf), "Master %s%.1f dB: from %.1f LUFS toward %d LUFS, limited at %.1f dBTP so it cannot clip.%s",
+                   applied > 0.0f ? "+" : "", applied, m.fromLufs, int (std::round (loud.targetLufs)), c.limiterCeilingDb,
+                   v.limited ? " LIVE SAFE kept the step small: press again for more." : "");
+    const std::string sentence (buf);
+    if (onMessage) onMessage (sentence);
+    return sentence;
+}
+
 // Everything about the master's level in one answer. The target comes from the session's own
 // delivery setting when it has one, and from the delivery role's standard when it does not,
 // so what the meter is measured against is always the thing TUNE MIX aimed at.
@@ -174,7 +252,8 @@ MixParameters MixController::compose() const
         raw.monitor = base.monitor;      // the engineer's listen is not part of the mix being bypassed
         return raw;
     }
-    return MixMacros::apply (base, macros, engine.getGraph(), session.profile);
+    return MixMacros::applyVoicing (MixMacros::apply (base, macros, engine.getGraph(), session.profile),
+                                    session.voicing, session.profile);
 }
 
 void MixController::setOutputFeeds (const OutputFeeds& f)

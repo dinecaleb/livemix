@@ -51,6 +51,23 @@ public:
     void setDelivery (DeliveryLoudness d);
     DeliveryLoudness getDelivery() const noexcept { return session.delivery; }
 
+    // Who the finished mix is for. Applied when the parameters are composed, like a macro:
+    // instant, reversible, never written into the kept mix, saved with the session.
+    void setVoicing (MasterVoicing v);
+    MasterVoicing getVoicing() const noexcept { return session.voicing; }
+
+    // Raise (or trim) the master to the delivery target from where it is actually reading,
+    // now, without waiting for a TUNE MIX - and without clipping: the move goes into the
+    // master's output trim ahead of the limiter, which is switched on at the delivery
+    // ceiling, so the true peak can never pass it. The move is bounded (MixProfile::
+    // loudnessLift), LIVE SAFE limits it the way it limits the master fader, and it is an
+    // ordinary edit on the kept mix: UNDO takes it back and the next TUNE MIX refits it.
+    // Returns the sentence that says what happened, or why nothing did.
+    std::string raiseLoudnessToTarget();
+    // What one press would do right now, for the button and the sentence beside it.
+    struct LoudnessMove { bool possible = false; float fromLufs = -120.0f, targetLufs = -23.0f, moveDb = 0.0f; std::string why; };
+    LoudnessMove previewLoudnessMove() const;
+
     // ---- Engine lifecycle (AudioHost calls these with the device stopped) ----
     void prepare (double sampleRate, int maxBlockSize);   // builds the graph for the session, clears any plan
     // Does the engine have a graph it can run? This is what the audio callback asks before it

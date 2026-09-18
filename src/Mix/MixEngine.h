@@ -87,6 +87,7 @@ public:
     // Meters (any thread).
     const ChannelProcessor& getStrip (int index) const noexcept { return strips[size_t (index)]->processor; }
     const ChannelProcessor& getBus (MixBus bus) const noexcept { return buses[size_t (bus)].processor; }
+    ChannelProcessor& getBus (MixBus bus) noexcept { return buses[size_t (bus)].processor; }
     const FxChain& getFx (FxSlot slot) const noexcept { return fx[size_t (slot)].chain; }
     bool isBusUsed (MixBus b) const noexcept { return graph.busUsed[size_t (b)]; }
     // Is anything soloed into the engineer's listen? (Audio-thread view; display only.)

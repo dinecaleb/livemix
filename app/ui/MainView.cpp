@@ -532,6 +532,27 @@ public:
                                     : juce::String ("Redo Mix"),
                            view.controller.canRedoMix());
                 m.addSeparator();
+                {
+                    const auto move = view.controller.previewLoudnessMove();
+                    m.addItem (420, move.possible ? "Raise Loudness to Target   (" + juce::String (move.moveDb > 0 ? "+" : "") + juce::String (move.moveDb, 1) + " dB)"
+                                                  : juce::String ("Raise Loudness to Target"),
+                               move.possible && ! view.controller.isLiveSafe());
+                    juce::PopupMenu target;
+                    const auto current = view.controller.getDelivery();
+                    for (int i = 0; i < int (DeliveryLoudness::Count); ++i)
+                    {
+                        const auto d = DeliveryLoudness (i);
+                        target.addItem (430 + i, d == DeliveryLoudness::FromPurpose ? juce::String (deliveryLoudnessName (d))
+                                                                                    : juce::String (deliveryLoudnessName (d)) + "   " + juce::String (deliveryLoudnessLufs (d), 0) + " LUFS",
+                                        true, current == d);
+                    }
+                    m.addSubMenu ("Loudness Target", target);
+                    juce::PopupMenu sound;
+                    for (int i = 0; i < int (MasterVoicing::Count); ++i)
+                        sound.addItem (450 + i, masterVoicingName (MasterVoicing (i)), true, view.controller.getVoicing() == MasterVoicing (i));
+                    m.addSubMenu ("Master Sound", sound);
+                }
+                m.addSeparator();
                 m.addItem (401, "Reset Macros");
                 m.addItem (402, view.controller.numSoloed() > 0
                                     ? "Clear Solo (" + juce::String (view.controller.numSoloed()) + ")"
@@ -1528,6 +1549,15 @@ void MainView::handleCommand (int id)
             tracksPage->moveSelectedTrack (id == 305 ? -1 : 1);
             break;
         case 401: controller.resetMacros(); showToast ("Macros back to the plan."); break;
+        case 420: showToast (juce::String (controller.raiseLoudnessToTarget())); break;
+        case 430: case 431: case 432: case 433: case 434: case 435: case 436:
+            controller.setDelivery (DeliveryLoudness (id - 430));
+            break;
+        case 450: case 451: case 452: case 453: case 454: case 455: case 456: case 457:
+            controller.setVoicing (MasterVoicing (id - 450));
+            showToast (MasterVoicing (id - 450) == MasterVoicing::Neutral ? juce::String ("Master back to exactly what TUNE MIX built.")
+                                                                          : "Master voiced for " + juce::String (masterVoicingName (MasterVoicing (id - 450))).toLowerCase() + ".");
+            break;
         case 402: controller.clearSolos(); showToast ("Solo cleared."); break;
         case 403: setBypass (! controller.isBypassed()); break;
         case 406:
