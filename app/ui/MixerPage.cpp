@@ -329,7 +329,7 @@ public:
             const auto mode = strip >= 0 && strip < int (project.tracks.size()) ? project.tracks[size_t (strip)].monitor
                                                                                 : MonitorMode::Auto;
             armButton.setOn (isArmed);
-            monitorButton.setLetter (mode == MonitorMode::Off ? "A" : mode == MonitorMode::Input ? "A" : "A");
+            monitorButton.setLetter (mode == MonitorMode::Input ? "I" : "A");
             monitorButton.setOn (mode != MonitorMode::Off);
         }
 

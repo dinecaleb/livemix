@@ -342,20 +342,27 @@ void LivePage::refresh()
     next.outputNote = ! running ? juce::String ("No audio device open")
                      : services.outputDisplayName().isEmpty() ? juce::String ("No output chosen") : services.outputDisplayName();
 
-    // Clipping: the inputs the last listen found clipping at the preamp, named.
-    int clipping = 0;
-    juce::String names;
-    if (controller.isPrepared())
-        for (int i = 0; i < controller.getEngine().getNumStrips(); ++i)
-        {
-            const auto a = controller.getInputAdvice (i);
-            if (a.level != MixController::InputAdvice::Level::Clipping) continue;
-            if (clipping < 2) names += (clipping == 0 ? "" : ", ") + juce::String (controller.getGraph().strips[size_t (i)].name);
-            ++clipping;
-        }
-    next.anyClip = clipping > 0;
-    next.clipping = clipping == 0 ? "None" : juce::String (clipping) + (clipping == 1 ? " input" : " inputs");
-    next.clippingNote = clipping == 0 ? "Nothing is clipping at the preamp" : names + " " + Glyph::dash() + " fix it at the console";
+    // Clipping: the inputs the last listen found clipping at the preamp, named. The advice
+    // builds sentences, so it is re-read twice a second rather than every frame.
+    if ((++adviceTicks % 15) == 1 || look.clipping.isEmpty())
+    {
+        int clipping = 0;
+        juce::String names;
+        if (controller.isPrepared())
+            for (int i = 0; i < controller.getEngine().getNumStrips(); ++i)
+            {
+                const auto a = controller.getInputAdvice (i);
+                if (a.level != MixController::InputAdvice::Level::Clipping) continue;
+                if (clipping < 2) names += (clipping == 0 ? "" : ", ") + juce::String (controller.getGraph().strips[size_t (i)].name);
+                ++clipping;
+            }
+        clipText = clipping == 0 ? "None" : juce::String (clipping) + (clipping == 1 ? " input" : " inputs");
+        clipNote = clipping == 0 ? "Nothing is clipping at the preamp" : names + " " + Glyph::dash() + " fix it at the console";
+        anyClipping = clipping > 0;
+    }
+    next.anyClip = anyClipping;
+    next.clipping = clipText;
+    next.clippingNote = clipNote;
 
     const auto loud = controller.getMasterLoudness();
     if (controller.isPrepared()) headroomDb = -controller.getEngine().getBus (MixBus::Master).getOutputMeter().getMaxPeakDb();

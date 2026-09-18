@@ -65,8 +65,10 @@ private:
     Look look;
     void refreshMonitor();
     void updateDiskNote();
-    int diskTicks = 0;
+    int diskTicks = 0, adviceTicks = 0;
     double secondsFree = 0.0;
+    juce::String clipText, clipNote;
+    bool anyClipping = false;
     float headroomDb = 0.0f;
 };
 

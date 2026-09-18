@@ -1930,9 +1930,17 @@ void MainView::resized()
     // ---- the toolbar: the right cluster, the transport, then the tabs in the middle
     auto bar = getLocalBounds().withTrimmedTop (Dine::Metric::titleRow).removeFromTop (Dine::Metric::toolbar).reduced (18, 0);
     auto right = bar;
+    // What the tabs need, so the right cluster can give way before they overlap it.
+    int tabsNeed = 0;
+    for (int i = 0; i < kWorkspaceTabs; ++i) tabsNeed += tabs[size_t (i)]->idealWidth();
+    tabsNeed += 18 * (kWorkspaceTabs - 1);
+    const int transportNeed = transportBar->isVisible() ? transportBar->keysOnlyWidth() + 16 : 0;
+    const int clusterNeed = (bypassButton->isVisible() ? bypassButton->idealWidth() + 16 : 0)
+                          + (liveSafeButton->isVisible() ? liveSafeButton->idealWidth() + 10 : 0);
     if (outputButton.isVisible())
     {
-        const int w = juce::jlimit (120, 220, outputButton.idealWidth());
+        const int room = bar.getWidth() - transportNeed - tabsNeed - clusterNeed - 24;
+        const int w = juce::jlimit (60, 220, juce::jmin (outputButton.idealWidth(), room));
         outputButton.setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
         right.removeFromRight (10);
     }

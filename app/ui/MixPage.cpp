@@ -204,10 +204,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        auto b = getLocalBounds().toFloat();
         if (selected)   g.fillAll (Dine::card);
         else if (hover) g.fillAll (Dine::tile);
-        juce::ignoreUnused (b);
 
         auto r = getLocalBounds().reduced (14, 0);
         const auto verbFont = Dine::caps (10.0f, 0.06f);
@@ -447,7 +445,11 @@ public:
         revert.onClick = [this] { controller.revertPlan(); if (page.onToast) page.onToast ("Reverted to the mix you had before this run."); };
         another.onClick = [this] { controller.tryAnotherMix(); };
         review.onClick = [this] { if (page.onOpenAdvanced) page.onOpenAdvanced(); };
-        closeButton.onClick = [this] { controller.revertPlan(); };
+        closeButton.onClick = [this]
+        {
+            controller.revertPlan();
+            if (page.onToast) page.onToast ("Closed without keeping: the mix is as it was. TUNE MIX again to propose it again.");
+        };
         review.setFontPx (12.5f);
         closeButton.setFontPx (13.0f);
         setInterceptsMouseClicks (true, true);
@@ -910,7 +912,9 @@ void MixPage::paint (juce::Graphics& g)
             r.removeFromTop (10);
             ++shown;
         }
-        if (r.getHeight() >= 18)
+        bool statusIsNote = false;
+        for (const auto& n : notes) if (juce::String (n) == status) statusIsNote = true;
+        if (r.getHeight() >= 18 && ! statusIsNote && status.isNotEmpty())
         {
             g.setColour (Dine::ink3);
             g.setFont (font);

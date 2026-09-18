@@ -795,7 +795,11 @@ void DevicePage::resized()
         outs.removeFromTop (8);
         outputsButton.setBounds (outs.removeFromTop (Dine::Metric::control));
     }
-    else for (auto& r : outputRows) r->setBounds (0, 0, 0, 0);
+    else
+    {
+        for (auto& r : outputRows) r->setBounds (0, 0, 0, 0);
+        outputsButton.setBounds (0, 0, 0, 0);
+    }
 
     auto footer = L.footer.reduced (Dine::Metric::padX, 0);
     const int cw = juce::jmax (110, continueButton.idealWidth());
@@ -1091,7 +1095,7 @@ AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), serv
         m.addItem (2, "Select every input not used");
         m.addItem (3, "Pair every L and R");
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&quickButton).withMinimumWidth (260),
-                         [this] (int r) { if (r >= 1 && r <= 3) quickButtons[size_t (r - 1)]->triggerClick(); });
+                         [this] (int r) { if (r >= 1 && r <= 3 && quickButtons[size_t (r - 1)]->onClick) quickButtons[size_t (r - 1)]->onClick(); });
     };
     addAndMakeVisible (quickButton);
 

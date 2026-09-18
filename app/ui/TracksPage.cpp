@@ -12,7 +12,7 @@ namespace
     // ticks along its foot - so a moment, a loop and a bar line are read in one place.
     // The channel panel's width is now the engineer's, not a constant (see TracksPage.h):
     // these are only what it may be set to. 212 is what it used to be and is still the default.
-    constexpr int kMinHeaderWidth = 300;
+    constexpr int kMinHeaderWidth = 340;
     constexpr int kMaxHeaderWidth = 640;
     constexpr int kDividerGrip = 4;        // how close the pointer has to be to grab it
     constexpr int kToolbarHeight = 46;
@@ -1435,7 +1435,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
         g.drawText (label, cell, juce::Justification::centred);
     };
     key (keyCell (track, 0), "R", state.armed, Dine::keyRec);
-    key (keyCell (track, 1), "A", monitoring, Dine::keyMon);
+    key (keyCell (track, 1), state.monitor == MonitorMode::Input ? "I" : "A", monitoring, Dine::keyMon);
     key (keyCell (track, 2), "M", mute, Dine::keyMute);
     key (keyCell (track, 3), "S", solo, Dine::keySolo);
 

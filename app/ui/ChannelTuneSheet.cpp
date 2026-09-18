@@ -290,8 +290,7 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
 
     if (! before.isVisible()) return;
 
-    auto note = juce::Rectangle<int> (cardBounds().getX() + 26, keep.getBounds().getY(), inspect.getBounds().getRight() - cardBounds().getX() - 26, keep.getHeight());
-    juce::ignoreUnused (note);
+
 }
 
 void ChannelTuneSheet::resized()
