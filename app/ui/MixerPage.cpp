@@ -1313,7 +1313,8 @@ void MixerPage::layoutStrips()
             x += s->columnWidth() + kStripGap;
         }
     }
-    bank->setSize (juce::jmax (x, viewport.getWidth()), juce::jmax (stripH, viewport.getMaximumVisibleHeight()));
+    // No trailing gap: a bank that exactly fits must not grow a scrollbar for the gap after its last strip.
+    bank->setSize (juce::jmax (x > 0 ? x - kStripGap : 0, viewport.getWidth()), juce::jmax (stripH, viewport.getMaximumVisibleHeight()));
 }
 
 void MixerPage::layoutList()

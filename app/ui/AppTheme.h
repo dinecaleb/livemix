@@ -37,7 +37,7 @@ namespace Dine
     inline const juce::Colour toolbar     { 0xff13161c };   // the toolbar, the status foot, a side rail
     inline const juce::Colour title       { 0xff0c0e12 };   // the title row under the traffic lights
     inline const juce::Colour menubar     { 0xff0a0c10 };   // the menu row, the transport pill, a segment track
-    inline const juce::Colour sidebar     { 0xff070809 };   // the sidebar - the desk showing through
+    inline const juce::Colour sidebar     { 0xff0c0e12 };   // the sidebar: the same plane as the title row above it
     inline const juce::Colour rail        { 0xff13161c };   // a panel at the edge of a workspace
     inline const juce::Colour pageBar     { 0xff10131a };   // a workspace's own tool row
     inline const juce::Colour console     { 0xff13161c };   // a console column, a timeline row
@@ -53,7 +53,9 @@ namespace Dine
     inline const juce::Colour popover     { 0xff1c212b };   // menus, HUD, tooltips
     inline const juce::Colour refuse      { 0xff231d17 };   // a refusal's ground (amber on it)
     inline const juce::Colour recGround   { 0xff241618 };   // a card that is recording / clipping
-    inline const juce::Colour soloGround  { 0xff16241f };   // a soloed tile, a tuned chip
+    // A soloed tile, a tuned chip: a lifted neutral plane. Green is not a brand colour, so a chosen or
+    // tuned state is said by the teal lamp / hairline on a neutral ground, never by a green ground.
+    inline const juce::Colour soloGround  { 0xff222830 };
     inline const juce::Colour editGround  { 0xff15202b };   // a hand-edited chip
 
     // Kept for the few callers that name them; the v2 surfaces are flat, so they are the

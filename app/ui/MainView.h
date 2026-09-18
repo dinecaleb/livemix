@@ -90,6 +90,7 @@ private:
     class SessionButton;
     class Menu;
     class ToolbarToggle;
+    static constexpr int kWordmarkW = 58;   // "DLIVE" at the right end of the title row
     class SidebarButton;
     class MixerWindow;
     class StatusBar;

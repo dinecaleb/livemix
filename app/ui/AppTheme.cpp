@@ -810,28 +810,32 @@ void DinePanelTab::paintButton (juce::Graphics& g, bool over, bool down)
     g.setColour (collapsed ? (over || down ? Dine::toolbar : Dine::menubar) : (over || down ? Dine::hairSoft : juce::Colours::transparentBlack));
     g.fillRect (r);
 
-    if (! collapsed)
-    {
-        // Open: three dots, the way the design folds a panel ("···").
-        g.setColour (over ? Dine::ink : Dine::ink3);
-        const float cy = 18.0f;
-        for (int i = -1; i <= 1; ++i)
-            g.fillEllipse (r.getCentreX() - 1.0f, cy + float (i) * 4.0f - 1.0f, 2.0f, 2.0f);
-        return;
-    }
+    // The handle: a small key with a chevron pointing the way the panel will move - in when it
+    // is open (fold it away), out when it is folded (bring it back).
+    const bool pointsLeft = (side == Side::Left) != collapsed;
+    auto key = juce::Rectangle<float> (r.getCentreX() - 7.0f, 10.0f, 14.0f, 22.0f);
+    Dine::fillRounded (g, key, over || down ? Dine::controlHot : Dine::control, 4.0f);
+    juce::Path chevron;
+    const float cx = key.getCentreX(), cy = key.getCentreY(), w = 2.5f, h = 4.0f;
+    if (pointsLeft) { chevron.startNewSubPath (cx + w, cy - h); chevron.lineTo (cx - w, cy); chevron.lineTo (cx + w, cy + h); }
+    else            { chevron.startNewSubPath (cx - w, cy - h); chevron.lineTo (cx + w, cy); chevron.lineTo (cx - w, cy + h); }
+    g.setColour (over ? Dine::ink : Dine::ink2);
+    g.strokePath (chevron, juce::PathStrokeType (1.6f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
 
-    // Folded: the panel's name, written down the gutter.
-    if (r.getHeight() > 80.0f)
+    if (! collapsed) return;
+
+    // Folded: the panel's name, written down the gutter under the key.
+    if (r.getHeight() > 120.0f)
     {
         juce::Graphics::ScopedSaveState save (g);
+        auto below = r.withTrimmedTop (key.getBottom() + 8.0f);
         g.addTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::halfPi)
-                            .translated (r.getWidth(), 0.0f));
+                            .translated (r.getWidth(), below.getY()));
         g.setColour (over ? Dine::ink2 : Dine::ink3);
         g.setFont (Dine::caps (10.0f, 0.14f, 500));
-        g.drawText (name.toUpperCase(), juce::Rectangle<float> (0.0f, 0.0f, r.getHeight(), r.getWidth()),
+        g.drawText (name.toUpperCase(), juce::Rectangle<float> (0.0f, 0.0f, below.getHeight(), r.getWidth()),
                     juce::Justification::centred, false);
     }
-    juce::ignoreUnused (side);
 }
 
 // ============================================================================ DineSwitch
@@ -1032,10 +1036,10 @@ void DineLookAndFeel::drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x,
                                      int thumbStart, int thumbSize, bool mouseOver, bool down)
 {
     if (thumbSize <= 0) return;
-    auto thumb = vertical ? juce::Rectangle<float> (float (x) + float (w) * 0.5f - 2.5f, float (thumbStart) + 2.0f, 5.0f, float (thumbSize) - 4.0f)
-                          : juce::Rectangle<float> (float (thumbStart) + 2.0f, float (y) + float (h) * 0.5f - 2.5f, float (thumbSize) - 4.0f, 5.0f);
-    g.setColour (juce::Colours::white.withAlpha (down ? 0.34f : mouseOver ? 0.26f : 0.16f));
-    g.fillRoundedRectangle (thumb, 2.5f);
+    auto thumb = vertical ? juce::Rectangle<float> (float (x) + float (w) * 0.5f - 2.0f, float (thumbStart) + 2.0f, 4.0f, float (thumbSize) - 4.0f)
+                          : juce::Rectangle<float> (float (thumbStart) + 2.0f, float (y) + float (h) * 0.5f - 2.0f, float (thumbSize) - 4.0f, 4.0f);
+    g.setColour (juce::Colours::white.withAlpha (down ? 0.26f : mouseOver ? 0.18f : 0.09f));
+    g.fillRoundedRectangle (thumb, 2.0f);
 }
 
 void DineLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text, int w, int h)

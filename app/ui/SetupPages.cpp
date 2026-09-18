@@ -829,7 +829,7 @@ public:
         name.setColour (juce::TextEditor::highlightedTextColourId, Dine::ink);
         name.setTextToShowWhenEmpty ("Untitled", Dine::ink4);
         name.setSelectAllWhenFocused (true);
-        name.onTextChange = [this] { page.entries[size_t (input)].name = name.getText(); };
+        name.onTextChange = [this] { page.entries[size_t (input)].name = name.getText(); resized(); };
         name.onReturnKey = [this] { name.giveAwayKeyboardFocus(); page.commit(); };
         name.onFocusLost = [this] { page.commit(); };
 
@@ -900,7 +900,7 @@ public:
         // the bus, in its colour, right of the source popup
         auto right = b.reduced (12, 0);
         right.removeFromRight (kPairW + kGap);
-        auto busCell = right.removeFromRight (kBusW);
+        auto busCell = right.removeFromRight (kBusW).withTrimmedLeft (kGap);
         g.setColour (tint);
         g.setFont (Dine::caps (11.0f, 0.06f, 500));
         g.drawText (e.assigned ? juce::String (mixBusName (bus)).toUpperCase() : "NOT USED", busCell, juce::Justification::centredLeft, true);
@@ -927,12 +927,14 @@ public:
         r.removeFromRight (kBusW);
         source.setBounds (r.removeFromRight (kSourceW).withSizeKeepingCentre (kSourceW, Dine::Metric::control));
         r.removeFromRight (kGap);
+        // The name takes what is left up to its width; the suggestions chevron sits right after the text, not in the middle of the row.
         r = r.removeFromLeft (juce::jmin (r.getWidth(), kNameW));
-        suggest.setBounds (r.removeFromRight (20).withSizeKeepingCentre (20, 20));
-        name.setBounds (r.withSizeKeepingCentre (r.getWidth(), 22));
+        const int textW = juce::jlimit (120, r.getWidth() - 24, Dine::textWidth (Dine::text (13.0f), name.getText().isEmpty() ? juce::String ("Untitled") : name.getText()) + 14);
+        name.setBounds (r.removeFromLeft (textW).withSizeKeepingCentre (textW, 22));
+        suggest.setBounds (r.removeFromLeft (20).withSizeKeepingCentre (20, 20));
     }
 
-    static constexpr int kNumW = 34, kGap = 12, kIconW = 24, kNameW = 230, kSignalW = 70, kSourceW = 200, kPairW = 80, kBusW = 110;
+    static constexpr int kNumW = 34, kGap = 12, kIconW = 24, kNameW = 230, kSignalW = 70, kSourceW = 200, kPairW = 80, kBusW = 124;
 
     AssignPage& page;
     int input;

@@ -317,7 +317,10 @@ public:
     {
         const bool running = services.isAudioRunning();
         juce::String state = recording ? "Recording" : running ? "Running" : "Not running";
-        juce::String name = running && services.currentInputDevice().isNotEmpty() ? services.currentInputDevice() : "No audio device";
+        // The input device, or the output one when the engine is running on outputs alone (playback into a monitor).
+        juce::String name = ! running ? juce::String ("No audio device")
+                          : services.currentInputDevice().isNotEmpty() ? services.currentInputDevice()
+                          : services.currentOutputDevice().isNotEmpty() ? services.currentOutputDevice() : juce::String ("No audio device");
         juce::String spec = running ? juce::String (services.sampleRate() / 1000.0, 0) + " kHz " + Glyph::dot() + " "
                                           + juce::String (services.bufferSize()) + " " + Glyph::dot() + " "
                                           + juce::String (1000.0 * services.bufferSize() / juce::jmax (1.0, services.sampleRate()), 1) + " ms"
@@ -334,11 +337,7 @@ public:
         g.setColour (Dine::sidebar);
         g.fillRect (r);
         if (collapsed) return;
-
-        // the wordmark
-        g.setColour (Dine::accent);
-        g.setFont (Dine::caps (13.0f, 0.16f));
-        g.drawText ("DLIVE", r.removeFromTop (kHeadH).reduced (14, 0).withTrimmedTop (10), juce::Justification::centredLeft);
+        r.removeFromTop (kHeadH);   // the wordmark lives in the title row now, where it is always on screen
 
         // the captions over each group of rows
         for (const auto& c : captions)
@@ -397,7 +396,7 @@ public:
     }
 
 private:
-    static constexpr int kHeadH = 40, kFootH = 96;
+    static constexpr int kHeadH = 14, kFootH = 96;
     static int indexOf (Page p) noexcept
     {
         switch (p)
@@ -1932,6 +1931,11 @@ void MainView::paint (juce::Graphics& g)
         if (! session.inputs.empty())
             counts = juce::String (int (session.inputs.size())) + " inputs      " + juce::String (armed) + " to record";
         auto cell = titleRow.reduced (18, 0);
+        // the wordmark, at the right end of the title row so it is on screen whatever the sidebar does
+        g.setColour (Dine::accent);
+        g.setFont (Dine::caps (13.0f, 0.16f));
+        g.drawText ("DLIVE", cell.removeFromRight (kWordmarkW), juce::Justification::centredRight);
+        cell.removeFromRight (18);
         if (chatButton->isVisible()) cell.removeFromRight (chatButton->getWidth() + 14);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
@@ -1946,6 +1950,7 @@ void MainView::resized()
     auto titleRow = getLocalBounds().removeFromTop (Dine::Metric::titleRow).reduced (18, 0);
     sidebarButton->setBounds (titleRow.removeFromLeft (26).withSizeKeepingCentre (26, 22));
     auto titleRight = titleRow;
+    titleRight.removeFromRight (kWordmarkW + 18);
     if (chatButton->isVisible())
     {
         const int w = chatButton->idealWidth();
