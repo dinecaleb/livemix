@@ -82,7 +82,7 @@ private:
 };
 
 // ---------------------------------------------------------------- toolbar toggle
-// BYPASS, LIVE SAFE ON / OFF and AI MIX CHAT: the accent when on, the control plane when
+// BYPASS, LIVE SAFE ON / OFF and MIX BUDDY: the accent when on, the control plane when
 // not, tracked caps either way.
 class MainView::ToolbarToggle : public juce::Button
 {
@@ -519,7 +519,7 @@ public:
                                     ? "Reference: " + juce::String (view.controller.getReference().name) + juce::String (Glyph::ellip())
                                     : "Add a Reference Mix...");
                 m.addSeparator();
-                m.addItem (409, "AI Mix Chat" + juce::String (Glyph::ellip()));
+                m.addItem (409, "Mix Buddy" + juce::String (Glyph::ellip()));
                 m.addItem (410, "Try Another Mix", view.controller.canTryAnotherMix());
                 m.addSeparator();
                 m.addItem (411, view.controller.canUndoMix()
@@ -667,8 +667,9 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     sidebarButton->onClick = [this] { setSidebarShown (! sidebarShown); };
     addAndMakeVisible (*sidebarButton);
 
-    chatButton = std::make_unique<ToolbarToggle> ("AI MIX CHAT", 11.0f, 0.06f);
-    chatButton->setTooltip ("Open or close AI Mix Chat: ask for a change in words. It proposes; you keep.");
+    chatButton = std::make_unique<ToolbarToggle> ("MIX BUDDY", 11.0f, 0.06f);
+    chatButton->setTooltip ("Open or close Mix Buddy, DLIVE's mix engineer in plain words: ask for a change to the mix - "
+                            "a source, a level, a tone. It proposes; you keep.");
     chatButton->onClick = [this] { if (chatSheet != nullptr) closeSheets(); else showChat(); };
     addChildComponent (*chatButton);
 
@@ -2016,6 +2017,10 @@ void MainView::resized()
     auto body = getLocalBounds().withTrimmedTop (Dine::Metric::titleRow + Dine::Metric::toolbar);
     sidebar->setBounds (body.removeFromLeft (sidebar->width()));
     statusBar->setBounds (body.removeFromBottom (Dine::Metric::status));
+    // The requests panel is a column beside the workspace, never over it: the pages and the chain foot
+    // give up its width, so a sheet a page opens stays whole and the panel stays readable.
+    const int panelW = chatSheet != nullptr ? juce::jmin (kRequestsW, body.getWidth() / 2) : 0;
+    body.removeFromRight (panelW);
     if (chainFoot->isVisible()) chainFoot->setBounds (body.removeFromBottom (Dine::Metric::chainFoot));
 
     auto content = body;
@@ -2032,7 +2037,7 @@ void MainView::resized()
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)
     {
-        chatSheet->setBounds (column.removeFromRight (juce::jmin (380, column.getWidth())));
+        chatSheet->setBounds (column.removeFromRight (panelW).withTrimmedBottom (Dine::Metric::status));
         chatSheet->toFront (false);
     }
 

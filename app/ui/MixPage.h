@@ -26,7 +26,7 @@ public:
     std::function<void()> onOpenAdvanced;
     std::function<void (int strip)> onTuneStrip;      // TUNE CHANNEL, from the input rail
     std::function<void (const juce::String&)> onToast;
-    std::function<void()> onOpenChat;                 // AI Mix Chat, from the action column
+    std::function<void()> onOpenChat;                 // Mix Buddy, from the action column
     std::function<void (int strip)> onSelectStrip;    // a row on the rail was picked out
     int selectedStrip() const noexcept { return selectedRow; }
 
@@ -81,7 +81,7 @@ private:
     DineButton tuneButton { "TUNE MIX", DineButton::Style::Filled };
     DineButton liveTuneButton { "TUNE LIVE MIX", DineButton::Style::Standard };
     DineButton referenceButton { "Reference", DineButton::Style::Standard };
-    DineButton chatButton { "AI Mix Chat", DineButton::Style::Standard };
+    DineButton chatButton { "Mix Buddy", DineButton::Style::Standard };
     DineButton undoButton { "Undo mix", DineButton::Style::Standard };
     DineButton redoButton { "Redo mix", DineButton::Style::Standard };
     DineButton advancedButton { "Open the Inspector", DineButton::Style::Ghost };

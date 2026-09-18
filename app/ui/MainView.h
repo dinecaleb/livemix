@@ -23,7 +23,7 @@ namespace livemix
 // The window, after the v2 design (DLIVE Desktop v2, 2026-09-17).
 //
 // Top to bottom: a 52 px title row (the sidebar switch, the session's name with its popover,
-// how many inputs and how many are set to record, AI MIX CHAT), the 56 px toolbar (the
+// how many inputs and how many are set to record, MIX BUDDY), the 56 px toolbar (the
 // transport in its pill with the clock, the five workspace tabs in the middle, BYPASS /
 // LIVE SAFE / the output on the right), then the body. Down the left of the body is the
 // sidebar - LIBRARY, SET-UP and WORKSPACE, with the device along its foot - which folds to a
@@ -90,7 +90,8 @@ private:
     class SessionButton;
     class Menu;
     class ToolbarToggle;
-    static constexpr int kWordmarkW = 58;   // "DLIVE" at the right end of the title row
+    static constexpr int kWordmarkW = 58;
+    static constexpr int kRequestsW = 380;   // the Mix Buddy panel down the right of the workspace   // "DLIVE" at the right end of the title row
     class SidebarButton;
     class MixerWindow;
     class StatusBar;

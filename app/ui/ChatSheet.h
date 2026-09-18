@@ -11,7 +11,7 @@ namespace livemix
 {
 
 // ---------------------------------------------------------------------------
-// AI MIX CHAT: "bring the lead vocal forward"
+// MIX BUDDY (the panel the user sees as "Mix Buddy"): "bring the lead vocal forward"
 //
 // A place to say what you want in the words you would use to a person, and have the mix
 // change. It is not a second mixing engine and it does not have opinions of its own: every
@@ -67,6 +67,7 @@ private:
     DineButton close { "Close", DineButton::Style::Standard };
     size_t shownTurns = 0;
     bool wasBusy = false;
+    static constexpr int kNoteH = 96;   // the what-it-is-for note under the head
 };
 
 } // namespace livemix

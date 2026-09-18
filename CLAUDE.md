@@ -151,7 +151,11 @@
   reading: `LiveTuneSettings::variation` 1, 2, 3 ... - asked for by name, and itself repeatable -
   and it works from the listen DLIVE already has (`reuseListen`), so two readings are compared against the same
   performance. Verify with the `Repeatability: ...` tests, which pin a deliberately drifting provider.
-- **AI MIX CHAT** (`app/ui/ChatSheet`, `MixController::sendChatRequest`) is not a second mixing engine: a sentence
+- **MIX BUDDY** (the user-facing name since 2026-09-17 - "DLIVE's mix engineer, in plain words"; never "chat" or
+  "AI chat", so nobody types a request that is not about the mix, and the panel carries a permanent note saying
+  what it is for and what it cannot touch; `app/ui/ChatSheet`, `MixController::sendChatRequest`) is a **panel beside the
+  workspace**, never over it (`MainView::kRequestsW`; the pages and the chain foot give up its width, so a
+  page's own sheet stays whole next to it). It is not a second mixing engine: a sentence
   goes through the same pipeline as TUNE LIVE MIX - intent, `CapabilityResolver`, `MixSafetyValidator` - and comes
   out as an ordinary `MixPlan`, so BEFORE / AFTER, KEEP, REVERT and the Inspector work on it unchanged and nothing
   typed into a chat can reach a parameter by a path the reasoning layer could not. With no cloud model configured

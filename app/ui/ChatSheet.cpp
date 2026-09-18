@@ -28,7 +28,7 @@ public:
             // real sentences that are guaranteed to work rather than a blinking caret.
             Row intro;
             intro.kind = Row::Kind::Intro;
-            intro.text = "Say what you want and DLIVE will change the mix.";
+            intro.text = "Say what you want and Mix Buddy will change the mix. For example:";
             intro.lines = mixRequestExamples();
             intro.bounds = { 0, y, width, 42 + int (intro.lines.size()) * 20 };
             y += intro.bounds.getHeight() + 8;
@@ -254,11 +254,32 @@ void ChatSheet::refresh()
 void ChatSheet::paint (juce::Graphics& g)
 {
     g.fillAll (Dine::sheet);
+    g.setColour (Dine::hairSoft);
+    g.fillRect (getLocalBounds().removeFromLeft (1));   // the panel's edge against the workspace
     auto inner = getLocalBounds().reduced (18, 16);
     auto head = inner.removeFromTop (26);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (14.0f));
-    g.drawText ("AI Mix Chat", head.withTrimmedRight (70), juce::Justification::centredLeft);
+    g.drawText ("Mix Buddy", head.withTrimmedRight (70), juce::Justification::centredLeft);
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (11.5f));
+    g.drawText ("DLIVE's mix engineer, in plain words", head.withTrimmedLeft (86).withTrimmedRight (70), juce::Justification::centredLeft, true);
+
+    // What it is for and what it is not, always on screen - so nobody types a request it cannot honour.
+    {
+        auto note = inner.withTrimmedTop (10).removeFromTop (kNoteH);
+        Dine::fillRounded (g, note.toFloat(), Dine::item, Dine::Radius::control);
+        auto r = note.reduced (12, 9);
+        g.setFont (Dine::text (11.5f));
+        g.setColour (Dine::ink2);
+        g.drawFittedText ("Ask about the mix: a source louder or quieter, forward or back, brighter, warmer, less boom, "
+                          "less harsh, more or less room, the master louder without clipping.",
+                          r.removeFromTop (r.getHeight() / 2), juce::Justification::topLeft, 3, 1.0f);
+        g.setColour (Dine::ink3);
+        g.drawFittedText ("Not for anything else: it cannot touch the recording, the routing, the device or a preamp, "
+                          "and it never keeps a change - you press KEEP.",
+                          r, juce::Justification::topLeft, 3, 1.0f);
+    }
 
     auto foot = getLocalBounds().reduced (18, 14).removeFromBottom (16);
     g.setColour (Dine::ink4);
@@ -272,7 +293,7 @@ void ChatSheet::paint (juce::Graphics& g)
 void ChatSheet::resized()
 {
     auto inner = cardBounds().reduced (18, 16);
-    inner.removeFromTop (26 + 10);
+    inner.removeFromTop (26 + 10 + kNoteH + 10);
     inner.removeFromBottom (16 + 8);
     close.setBounds (cardBounds().reduced (18, 16).removeFromTop (26).removeFromRight (juce::jmax (56, close.idealWidth())));
 
