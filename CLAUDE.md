@@ -236,8 +236,8 @@
   The window-wide channel list (`ChannelRail`) is gone: the design has one navigation and per-page rails, and
   two lists of the same channels on one screen was the thing it removed.
   **Since 2026-09-17 (the client's review):** the sidebar is the same plane as the title row (`Dine::sidebar` =
-  `Dine::title`, never the black desk), the DLIVE wordmark sits at the right end of the title row
-  (`MainView::kWordmarkW`) so it is on screen whatever the sidebar does, a panel handle (`DinePanelTab`) is a
+  `Dine::title`, never the black desk), the DLIVE wordmark sits at the left end of the title row, after
+  the sidebar switch (`MainView::kWordmarkW`) so it is on screen whatever the sidebar does, a panel handle (`DinePanelTab`) is a
   small key with a chevron pointing the way the panel will move (never three dots), and **green is not a brand
   colour**: a soloed tile or a tuned chip sits on the neutral lifted plane (`soloGround` = `selected`) with the
   teal lamp / hairline saying what it is - `Dine::ok` is only ever a status chip's colour.

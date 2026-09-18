@@ -1931,11 +1931,11 @@ void MainView::paint (juce::Graphics& g)
         if (! session.inputs.empty())
             counts = juce::String (int (session.inputs.size())) + " inputs      " + juce::String (armed) + " to record";
         auto cell = titleRow.reduced (18, 0);
-        // the wordmark, at the right end of the title row so it is on screen whatever the sidebar does
+        // the wordmark, at the left end of the title row after the sidebar switch, on screen whatever the sidebar does
         g.setColour (Dine::accent);
         g.setFont (Dine::caps (13.0f, 0.16f));
-        g.drawText ("DLIVE", cell.removeFromRight (kWordmarkW), juce::Justification::centredRight);
-        cell.removeFromRight (18);
+        cell.removeFromLeft (26 + 14);
+        g.drawText ("DLIVE", cell.removeFromLeft (kWordmarkW), juce::Justification::centredLeft);
         if (chatButton->isVisible()) cell.removeFromRight (chatButton->getWidth() + 14);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
@@ -1950,7 +1950,6 @@ void MainView::resized()
     auto titleRow = getLocalBounds().removeFromTop (Dine::Metric::titleRow).reduced (18, 0);
     sidebarButton->setBounds (titleRow.removeFromLeft (26).withSizeKeepingCentre (26, 22));
     auto titleRight = titleRow;
-    titleRight.removeFromRight (kWordmarkW + 18);
     if (chatButton->isVisible())
     {
         const int w = chatButton->idealWidth();
