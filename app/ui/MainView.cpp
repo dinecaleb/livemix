@@ -1157,7 +1157,11 @@ void MainView::showThemes()
     if (themeSheet != nullptr) { themeSheet->refresh(); return; }
     themeSheet = std::make_unique<ThemeSheet> (gUseStoredTheme);
     themeSheet->onToast = [this] (const juce::String& t) { showToast (t); };
-    themeSheet->onThemeChanged = [this] { updateChrome(); };
+    themeSheet->onThemeChanged = [this]
+    {
+        updateChrome();
+        if (menu != nullptr) menu->menuItemsChanged();   // the tick in View > Appearance follows
+    };
     themeSheet->onClose = [this]
     {
         juce::Component::SafePointer<MainView> safe (this);
@@ -1176,6 +1180,7 @@ void MainView::applyThemeNamed (const juce::String& name)
     if (gUseStoredTheme) ThemeStore::setChosenTheme (theme.name);
     Dine::refreshAllWindows();
     updateChrome();
+    if (menu != nullptr) menu->menuItemsChanged();       // the macOS menu is cached until the model says it changed
     showToast ("Appearance: " + theme.name);
 }
 
