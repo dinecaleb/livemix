@@ -1,640 +1,106 @@
-# Dine (repo name LiveMix / Calive) — notes for Claude Code
+# Dine / DLIVE (repo LiveMix / Calive) — notes for Claude Code
 
-- Build: `export PATH="$HOME/.local/bin:$PATH"` (cmake/ninja from `uv tool`), then `scripts/build.sh`.
-  The app on its own (the fast loop, no plug-ins): `scripts/dlive.sh` builds DLIVE and opens it;
-  `--build` builds only, `--tests` runs the app + engine tests, `--shots [dir]` renders the UI snapshots,
-  `--debug` uses `build-debug`.
-  A build to hand someone else: `scripts/package.sh` (`--universal` for Intel too, `--no-build`, `--out <dir>`) writes
-  `dist/DLIVE-<version>-<date>.zip` + `dist/NOTES.txt` — send both; the signature is ad-hoc, so the tester opens it
-  once by right-click > Open. Every build/run/share command, and what to tell the tester: `BUILD-RUN-SHARE.md`.
-  Engine-only iteration (fast, no JUCE): `cmake -S . -B build-engine -G Ninja -DLIVEMIX_BUILD_PLUGIN=OFF && cmake --build build-engine && build-engine/tests/livemix_tests`.
-- `src/` must stay JUCE-free. JUCE-dependent code lives in `src/State/ParameterLayout|Bridge`, `src/UI`, `modules/`.
-- Products: Dine Drums / Vocals / Keys / Master / Guitar / Bass are ONE shared plugin (`modules/Common/ChannelPlugin{Processor,Editor}`)
-  parameterised by `ProductDefinition` (`src/Core/ProductDefinition.h`, data in `src/Profiles/ProductData.cpp`: sources,
-  five knobs with plain-language labels/tooltips, chain stages, wording). `modules/<Product>/` is a thin
-  `ChannelPluginProcessor (Product::X)` + CMake (`modules/Common/DineChannelProduct.cmake`). Dine FX is separate (`src/FX`).
-- Wording rule: anything a volunteer sees in Simple view is plain language (WARMTH, CLARITY, SMOOTH, STEADY, CLEAN-UP, LOUD...);
-  engineer terms (gate, comp, de-ess) appear only in Advanced and as small subtitles. Tune explains WHAT then WHY in sentences.
-- AI assistance is switched off on purpose (`src/Intelligence/AIFeature.h`, `kAIAssistAvailable = false`): no provider,
-  no AI button / menu, Standard Tune only. Keep the code paths; do not re-enable without the user asking.
-- Real-time rules: nothing in `process()`/`processBlock()` may allocate, lock, log, or build strings.
-  `tests/AllocationTracker` enforces this in `ChannelProcessorTests` and `PluginStateTests`.
-- Parameters are defined once in `src/State/ParameterSpecs.cpp` (one table per product via `channelParameterSpecs (Product)`,
-  `usesStage` decides which DSP stages a product exposes; hidden fields stay at struct defaults) and visited in one order by
-  `forEachDspField` (`src/DSP/ChannelParameters.h`). Adding a DSP parameter = add the struct field, the ParamID, the spec,
-  and the visitor line; `ParameterSpecTests` / `ProductTuneTests` catch mismatches. Chain order: ChannelProcessor (Input,
-  filters, gate, corrective EQ, de-esser, comp, transient, tone EQ, saturation, width, output trim, [limiter], [loudness meter]).
-- Never rename a released parameter ID (sessions/automation depend on them).
-- Tune (`src/Tune`): `TuneEngine` = analysis + `Profiles::targets (profile, role)` + `strategyFor(family)`
-  (`DrumStrategies`, `VocalStrategies`, `KeysStrategies`, `MasterStrategy`, `GuitarStrategies`, `BassStrategies`). Strategies edit a `ChannelParameters` inside
-  `TuneDecisions::move()`; changes are recorded by diffing, so never hand-write `ParameterChange` lists. Every numeric
-  target/safe range belongs in `src/Profiles/ProfileData.cpp`, not in a strategy. Tune must stay idempotent (re-tune with
-  the same capture -> NO CHANGE REQUIRED; tested): cut rules compute from the profile template, never from the current
-  value. A high-pass never goes above 0.8 x the measured fundamental. Sustained sources never get an expander.
-- Real stems for listening/offline checks: `/Users/calebwork/Downloads/stems recording` (church multitracks). Run
-  `build/modules/Drums/livemix_tune_stems "<Source>" <file.aif> [seconds] [gospel|worship]` to see measurements + decisions.
-- User-facing wording is TUNE / RE-TUNE / TUNE KIT (internal names like `AnalysisEngine`, `startAnalyze` stay).
-- AI is optional: default Off, explicit user action only, `SafetyValidator` on every path, Standard
-  fallback on any failure, AI items never enter the proposed parameters, nothing AI-related on the audio thread.
-- Profiles: Modern Gospel is the default; Modern Worship is a documented delta. Do not add profiles that
-  cannot be tuned by listening.
-- Verify UI changes with `cmake --build build --target livemix_ui_snapshots && build/modules/Drums/livemix_ui_snapshots <dir>`
-  (Drums) and `build/modules/<Vocals|Keys|Master|Guitar|Bass>/livemix_<vocals|keys|master|guitar|bass>_ui_snapshots <dir>` and look at the PNGs;
-  regression references are regenerated only when baselines change on purpose. Plugin tests per product:
-  `build/modules/<P>/livemix_<p>_plugin_tests` (+ `livemix_plugin_tests` for Drums kit/AI-parsing specifics).
-  AU ids: Drums `Lmdr`, Vocals `Lmvo`, Keys `Lmky`, Master `Lmma`, Guitar `Lmgt`, Bass `Lmba`, FX `Lmfx` (manufacturer `Lvmx`); `auval -v aufx <code> Lvmx`.
-- Dine FX (`src/FX`, `modules/FX`): parameters in `src/FX/FxParameterSpecs.cpp` visited by `forEachFxField`
-  (`src/FX/FxParameters.h`); numbers only in `src/FX/FxProfiles.cpp`; macros in `FxMacroMapping` (50 = baseline, tested
-  idempotent). Verify with `build/tests/livemix_tests Reverb|Delay|FxChain`, `build/modules/FX/livemix_fx_plugin_tests`,
-  `auval -v aufx Lmfx Lvmx` and `build/modules/FX/livemix_fx_ui_snapshots <dir>`.
-- **TUNE LIVE MIX** (the AI Mix Engineer, 2026-09-12; see `docs/ARCHITECTURE-DLIVE-AI.md`) is a reasoning layer
-  **above** `MixPlanner`, never instead of it. The deterministic plan is built first and always, so a dead network,
-  a timeout or a malformed reply leaves the user with a professional mix and a sentence. Everything is JUCE-free in
-  `src/MixAI` (+ `src/Core/Json`): `RelationshipEngine` (measures, never decides - masking, hierarchy, low-end
-  ownership, kit balance, what reaches the master), `MixContext` (schema v1: the session as a versioned serialisable
-  document, with `MixCaptureAdequacy` refusing a listen that is not worth mixing from), `MixIntent` (schema v1:
-  sonic outcomes with a signed strength, never parameters), `DspCapabilityRegistry` (generated from the real
-  parameter tables and from how `MixEngine` configures each stage - the limiter is master-only because that is
-  where the stage is turned on; an unavailable processor is reported **with its reason**, never silently missing),
-  `CapabilityResolver` (intent -> `ProcessingPlan`, deterministic, as deltas on the deterministic plan; every action
-  carries EXACT / APPROXIMATED / SUBSTITUTED / UNSUPPORTED - a spring reverb is built from the plate and says what
-  it will not have, a gated reverb is refused), `MixSafetyValidator` (refuses rather than reinterprets: capture gain
-  is the console's, a gate never goes on a sustained source, the master keeps its headroom; a refused EQ gain takes
-  its band with it and every refusal keeps its reason for REVIEW CHANGES) and `TuneLiveCoordinator` (the whole
-  state machine, one worker, polled). Numbers live in `MixProfile::aiRanges` / `aiBounds` (`MixProfileData.cpp`),
-  versioned. `MixReasoningProvider` is the seam: `LocalMixReasoningProvider` is the default - deterministic,
-  offline, reasons from the measured relationships, and is what every test runs against; `OpenAiMixProvider`
-  (`app/native`) is opt-in, strict JSON schema, and sends the MixContext and the capability list and **never audio**.
-  The result is an ordinary `MixPlan`, so BEFORE / AFTER, KEEP, REVERT, the mixer, the chain strips and the
-  Inspector work on it unchanged - one source of truth. `MixController::startTuneLiveMix` drives it; the verify
-  listen keeps the applied mix audible (`liveVerifying`); LIVE SAFE blocks it like any re-tune. The session stores
-  the run's record under `tuneLive` next to the kept mix, so **reopening a session never contacts a provider**.
-  Verify with `build-engine/tests/livemix_tests`, `build/app/dlive_app_tests` and the `08b` / `09b` UI snapshots.
-- **REFERENCE MIX** ("make it sound like this") aims the mix at a finished recording. The engine half is
-  JUCE-free in `src/Mix/ReferenceMix.{h,cpp}`: `ReferenceProfile` (schema v1 - the tonal balance, crest,
-  loudness, correlation and tempo of a record, stored with the session so reopening never re-reads the file),
-  `Reference::adequacy` (a four-second clip, a silence or an unreadable file is refused **with its reason**)
-  and `Reference::targets`, which is the whole decision: it returns the master's `SourceTargets` aimed at the
-  reference instead of at the profile's own. Nothing there writes a parameter - `MasterStrategy` does the work
-  it always did - so every bound, every sentence and the idempotency rule come along unchanged. The seam is
-  `TuneContext::targetsOverride` (null = the profile), set only by `MixPlanner` and only for the master:
-  a reference is a finished stereo record, so the master is the only thing in a plan it can honestly be
-  compared with. Band energy is measured relative to the whole, which is why a -9 LUFS master and a -23 LUFS
-  live mix are directly comparable and why the plan's fader moves do not disturb the comparison.
-  What a reference is **not** allowed to do is the other half of the feature and is reported, never silent:
-  it never sets the delivery loudness (that belongs to the broadcast), never moves a source, a fader or a
-  group (`MixPlanner` proves this in `ReferenceMixTests`), and never pulls one band target further than
-  `MixProfile::referenceBounds` allows (3 dB), nor the master image or glue past their own bounds. Each
-  refusal keeps its sentence in `MixPlan::reference` (`ReferenceMatch`), which is what the sheet and the plan
-  notes read. The app half: `app/native/ReferenceAudio` decodes and measures the file (up to 4 minutes, on a
-  thread of its own), `MixController::setReference` / `clearReference` / `startReferenceMatch` own it, and the
-  listen is kept (`getLastListen`) so MATCH TO REFERENCE re-plans from what the band already played instead of
-  asking them to play again - the result is an ordinary `MixPlan`, so BEFORE / AFTER, KEEP and REVERT are
-  unchanged. The UI is `app/ui/ReferenceSheet` (the Reference button on TUNE, File > Add a Reference Mix...,
-  Mix > MATCH TO REFERENCE), which draws the two balances against each other and prints what matching will aim
-  for and what it refuses to copy *before* the button is pressed. `SessionStore` stores the measurement under
-  `reference`; a document from a schema this build does not know is ignored rather than half-read. Verify with
-  `build-engine/tests/livemix_tests` (`Reference*`), `build/app/dlive_app_tests`, the `07c` / `07d` snapshots
-  and `build/app/dlive_mix_stems "<stems>" 30 <outdir> gospel -1 broadcast <reference.wav>` (the REFERENCE MIX
-  block, and RE-TUNE still saying NO CHANGE REQUIRED).
-- **THE MONITOR (SOLO) BUS** (2026-09-16, `src/Mix/MonitorBus.h`). Pressing S never changes what the room and the
-  stream hear. Solo feeds a stereo accumulator that sits beside the master and never into it (`MixEngine::Monitor`),
-  and it leaves by an output feed with `monitor = true` (`OutputFeeds.h`) - headphones, a pair of nearfields, an
-  Aggregate Device. `MonitorState` (in `MixParameters`, so solo flags and the monitor are applied in one breath)
-  carries the mode, the tap point, the level, dim, mute and what the monitor follows when nothing is soloed.
-  `SoloMode::Monitor` is the default and the whole point; `SoloMode::InPlace` is the old destructive behaviour, kept
-  because it is right for mixing a recording, never the default, and said out loud on the LIVE page when it is on.
-  `SoloPoint::PFL` taps before the fader (a muted channel is still audible - that is what a pre-fade listen is for),
-  `AFL` after it. Strips, group buses and FX returns can all be soloed (`FxSlotParameters::solo`). The whole monitor
-  path is skipped when no feed carries it, so a session that never uses it costs nothing; solo with nowhere to go is
-  said once rather than silently doing nothing (`MixController::hasMonitorOutput`). Verify with the `MixEngine: solo
-  ...` / `MixEngine: PFL ...` tests and `Monitor: solo is monitoring ...` in `dlive_app_tests`.
-  **From the user's side the whole feature is two pickers** on the Outputs sheet - "Broadcast"
-  and "Solo" - and everything under them is DLIVE's problem, because macOS opens exactly one
-  audio device at a time. Two different devices makes `app/native/MonitorDevice` build the
-  combined CoreAudio device itself: **unstacked** (a *stacked* aggregate is a Multi-Output
-  Device, which mirrors one bus to every device in it - which is precisely why a private solo
-  was impossible before), with the broadcast as clock master and **drift correction on the
-  solo device**, because Dante and a USB interface do not share a clock. The same device with
-  four or more outputs needs no aggregate at all: solo takes its outputs 3-4. Choosing
-  "nowhere" removes what DLIVE made and puts the Mac back. The words "Aggregate Device" never
-  reach the user; a device the *user* built is never touched (only ours carries our UID). The
-  picking rules live apart from CoreAudio in `MonitorDevicePick.cpp` so they are tested
-  without a device - the one that matters is "never suggest the laptop speaker when a real
-  interface is plugged in".
-  **The broadcast and the engineer's listen are always a real stereo pair**, enforced by
-  `normaliseOutputs` at the single chokepoint every routing passes through
-  (`MixController::setOutputFeeds`), never at the call sites: a mix that reaches the stream
-  summed to mono, or on one leg because a pair was half-chosen, is the kind of fault nobody
-  notices until it is on the recording. The optional extra feeds keep their mono switch,
-  because that is what it is for (one fill speaker, a feed to a phone).
-  **The words are the volunteer's, not the engineer's**: WHAT I HEAR, "Only I hear it" /
-  "Everyone hears it", "In the mix" / "On its own", "My headphones". The engineer's terms
-  (monitor bus, solo in place, AFL, PFL, aggregate device) survive once each, in tooltips -
-  the same plain-language-on-the-surface rule the rest of the app follows.
-- **SOLO ON A SECOND DEVICE, WITH DANTE (2026-09-18, the QUEENSVIEW session).** Broadcast on Dante Virtual Soundcard
-  and solo on a Scarlett went silent. Two causes, both in the machinery under the two pickers: the built device put
-  the Scarlett's pair *after* sixty-four Dante outputs (channel 64-65) and `AudioHost` opened the first `kMaxOutputs`
-  (16) channels, so the solo pair was never open; and the console was opened twice - as the input device, and again
-  inside the built device for its outputs - glued together by JUCE's own `AudioIODeviceCombiner`. Now
-  `MonitorDevice::layoutFor (broadcast, headphones, input)` (JUCE-core, `MonitorDevicePick.cpp`, tested in
-  `DawTests`) decides the pieces of the built device in channel order - **the console's input device first** so
-  channel 1 stays channel 1, then the broadcast, then the headphones, each once - and `combine` builds exactly that
-  and reports `carriesInput`; the host then opens the built device **once, for both directions**, with
-  `MonitorDevice::outputChannelsToOpen` choosing the pairs (the solo pair always, as much of the broadcast device as
-  fits beside it) passed to `AudioHost::open (..., outputChannels)`. The engine and the feeds address the *open*
-  channels packed in device order (`slotForOutputChannel`, and `getOutputChannelNames()` lists them the same way),
-  so a pair at 64-65 is slot 14-15 and never falls off the engine. `HostServices::consoleInput()` is the console's
-  device while the built one carries it; nothing outside `Main.cpp` ever sees "DLIVE Monitoring" as an input. The
-  session stores `inputDevice` / `outputDevice` as the devices the user chose plus `soloDevice`, and
-  `restoreSolo` rebuilds the pairing on opening, so a Mac that lost the built device comes back right. A failed
-  join waits for the console device to be republished before reopening it and says if that failed too, instead
-  of leaving the desk silent.
-- **WHAT A MICROPHONE HEARS BETWEEN THE SOUNDS (2026-09-18, from the QUEENSVIEW recording).** Three balance faults
-  found on a real 21-input service, all in `MixPlanner` / the analysis, all with the numbers in `MixProfileData`:
-  (1) a vocal microphone nobody was really singing into (active -43 dBFS, floor -48) was lifted 30 dB to reach the
-  vocal level and became the loudest cymbals in the mix. `Rules::spillBelowTargetDb` (16): a voice or a close drum
-  microphone (`isSpillProneMic`) is lifted (gain + fader, absolute) only until its between-the-sounds floor would
-  land that far under its mix level; only ever a limit on a lift; the strip is `spillLimited`, says "mostly hears
-  the stage", and is never the lead the rest of the band follows down. Keys, pads, DIs, overheads and room
-  microphones are exempt: the floor of a held chord is the chord. (2) `AnalysisResult::musicalPeakDb` was capped
-  12 dB over the 95th-percentile *frame* level, which on a sparse close mic (a snare on the backbeat) is the decay
-  tails - so every real hit looked like an isolated click and the gain staging drove the snare's chain input to
-  +3 dBFS. The detected events (`eventLevelDb`, `kSpikeEventsMin` 8) now set the cap too. (3) the close-mic budget
-  `maxCloseMicRaiseDb` counted only a positive gain, so a hot hi-hat pulled down 12 dB could not get its fader back:
-  it now counts the net lift (gain + fader) whichever way the gain went. Also the master's loudness move per Tune is
-  bounded at 18 dB (was 12): a live sum at -22 LUFS asked for a -14 stream is a 15 dB move, and stopping short left
-  RE-TUNE with something to say. Measured on four 40 s windows of the recording: the vocal spill mics went from
-  +30/+37 dB to +14/+18, the snare's gain from +13 to 0, and the toms from a 5 dB spread to 1 dB. The recording is
-  `~/Music/DLIVE/QUEEENSVIEW WIRED/Audio Files` (take `_002`, 534 s, 21 inputs; symlink the files under role names
-  for `dlive_mix_stems`, windows at 30 / 120 / 200 / 300 s).
-- **LIVE SAFE is a policy, not a tooltip** (`src/Mix/LiveSafe.h`), enforced in `MixController` rather than in a menu
-  handler - a guard in `MainView` only covers the menu, and the AI, the chat, a macro and a keyboard shortcut all
-  reach the mix without passing one. It never locks the emergency controls (mute, solo, the monitor, the transport,
-  recording, UNDO/REDO); it refuses what changes the mix wholesale or interrupts the audio (TUNE / TUNE CHANNEL /
-  TUNE LIVE MIX / MATCH TO REFERENCE, KEEP, REVERT, BYPASS, routing, output routing, the device, timeline edits,
-  opening a session); and it *limits* what is still allowed - `maxFaderStepDb` 6, `maxMasterStepDb` 3,
-  `maxInputGainStepDb` 6, a pan step - so one slip cannot throw a fader across the console. A refusal always carries
-  the sentence saying what the risk was. Moving the *monitor* feed stays legal mid-service (`onlyMonitorChanged`).
-  `DawEngine::setLiveSafe` is the one place both halves are set (the timeline's lock on `Project`, the mix's policy
-  on `MixController`), so they can never disagree.
-- **REPEATABILITY** is a requirement of the reasoning layer, not a setting. The same band, the same listen and the
-  same settings must produce the same mix. `MixContext::fingerprint()` (FNV-1a over the canonical document, written
-  out so it does not move with the toolchain) identifies a listen; it is the model's `seed` and the key of
-  `MixReasoningCache`, so a question already answered is answered the same way without a round trip.
-  `OpenAiMixProvider` sends `temperature: 0` and `top_p: 1` for the primary mix (a reasoning model takes only the
-  seed), and the brief tells every provider to be repeatable. **TRY ANOTHER MIX** is the only way to a different
-  reading: `LiveTuneSettings::variation` 1, 2, 3 ... - asked for by name, and itself repeatable -
-  and it works from the listen DLIVE already has (`reuseListen`), so two readings are compared against the same
-  performance. Verify with the `Repeatability: ...` tests, which pin a deliberately drifting provider.
-- **MIX BUDDY** (the user-facing name since 2026-09-17 - "DLIVE's mix engineer, in plain words"; never "chat" or
-  "AI chat", so nobody types a request that is not about the mix, and the panel carries a permanent note saying
-  what it is for and what it cannot touch; `app/ui/ChatSheet`, `MixController::sendChatRequest`) is a **panel beside the
-  workspace**, never over it (`MainView::kRequestsW`; the pages and the chain foot give up its width, so a
-  page's own sheet stays whole next to it). It is not a second mixing engine: a sentence
-  goes through the same pipeline as TUNE LIVE MIX - intent, `CapabilityResolver`, `MixSafetyValidator` - and comes
-  out as an ordinary `MixPlan`, so BEFORE / AFTER, KEEP, REVERT and the Inspector work on it unchanged and nothing
-  typed into a chat can reach a parameter by a path the reasoning layer could not. With no cloud model configured
-  the request is read by `MixAI/MixRequestParser` - deterministic, offline, and honest: a sentence it cannot read
-  comes back with what to try instead rather than a confident change to something nobody asked about, and a capture
-  problem ("the singer is off mic") is named as a capture problem. The transcript and the conversation ride in
-  `MixReasoningRequest::conversation`. Beside it is mix-level UNDO / REDO (`markMixChange` / `undoMix` / `redoMix`),
-  which LIVE SAFE deliberately never locks.
-- **HOW LOUD THE FINISHED MIX SHOULD BE** is a setting now (`MixSession::delivery`, `DeliveryLoudness`). It used to
-  be a hidden consequence of the purpose: "Church Broadcast" quietly meant EBU R128, which is -23 LUFS - right for a
-  television feed and about 9 dB under what a church stream is expected to be - and nothing said so. The target is
-  what the whole gain structure is fitted against (`MixPlanner` sets it on the master's `targetsOverride`, after any
-  reference and winning over it, because a reference sets the tone and is never allowed to set the delivery
-  loudness), not a gain added at the end: at -14 the stems land at -14.7 LUFS, -3.2 dBTP and the same 14.5 dB crest
-  as the -23 mix, and RE-TUNE still says NO CHANGE REQUIRED. `MixController::getMasterLoudness()` is the one place
-  the master's LUFS-I / short-term / true peak / limiter reduction / target / headroom are read, so no two pages can
-  disagree. Check with `dlive_mix_stems "<stems>" 30 <out> gospel -1 broadcast:-14`.
-- **RAISE LOUDNESS and MASTER SOUND** (2026-09-17, the MASTER band on TUNE and the Mix menu). *Raise loudness to
-  target* (`MixController::raiseLoudnessToTarget`, previewed by `previewLoudnessMove`) gets the master to the delivery
-  target (YouTube / Facebook / Spotify = -14 LUFS) in one move without re-tuning: the move is the gap between the
-  master's integrated (or short-term) LUFS and the target, clamped by `MixProfile::loudnessLift()` (+12 / -6 dB, and
-  capped so the true peak asks the limiter for no more than `maxLimiterGrDb`), written to the master's output trim
-  in the kept mix as an undoable mix change, with the master limiter turned on at the delivery ceiling so it cannot
-  clip. It refuses with its reason (nothing played, BYPASS, already there), and LIVE SAFE limits it like the master
-  fader. The integrated meter is reset afterwards so the readout measures the new level. *Master sound*
-  (`MasterVoicing`: As tuned / Warm / Bright / Voice first / Phone speakers / Earbuds / Car / TV-soundbar,
-  `MixSession::voicing`, saved as `voicing`) is a compose-time layer like the macros:
-  `MixMacros::applyVoicing` (numbers in `MixProfile::voicing (profile, voicing)`, tone shelves + a presence bell +
-  a touch of saturation, gains clamped to +/-6 dB) is applied on top of `MixMacros::apply` in `MixController::compose`,
-  so it never touches the kept mix, the plan or idempotency, and "As tuned" is exactly what TUNE MIX built.
-  Verify with the `MixController: the master's voicing ...` app test and the `07` / `16` snapshots.
-- **AMBIENCE is the sixth group bus** (`MixBus::Ambience`, before MASTER) and `SessionStore` is **version 4**, which
-  remaps a version <= 3 document's bus slots (`busFromStoredIndex` + `storedBusCount`: the last stored slot has
-  always been the master, wherever it sat). `ChannelRole::CrowdMic` / `AmbienceMic` / `AmbienceBus` and
-  `RoleFamily::Ambience` / `AmbienceBus` are their own family with their own strategy
-  (`src/Tune/AmbienceStrategies.cpp`): **never gated** - on a room microphone the quiet between the sounds is the
-  sound - never transient-shaped, high-passed well above a stage source, compressed slowly as a ceiling rather than
-  for punch, and aimed well under the band (`busBelowVocalsDb[Ambience]` = -12). A congregation microphone routed
-  through the drum-room rules was gated and pushed forward, which is the bug this fixes.
-  `ChannelRole::SaxAlto` / `SaxTenor` / `SaxBari` (`RoleFamily::Saxophone`, MUSIC bus, same file) are a horn and not
-  a keyboard: the honk between 0.9 and 2.5 kHz is *notched* rather than shelved, the compressor is fitted for the
-  range between a held note and a wailed one with an attack slow enough to keep the reed, the high-pass sits under
-  the horn's own lowest note, and it is never expanded. Both are in `StemNames`, `Dine::roleGroups`, the ASSIGN
-  kits and `Dine::busTint`.
-- **INPUT MAPPINGS** (`app/native/InputMapStore.{h,cpp}`, `~/Music/DLIVE/Input Maps/*.dlivemap.json`, File menu).
-  A church patches the same desk the same way every week; a map is the patch and nothing else - device channel,
-  name, source, stereo link - deliberately not a mix. Save / rename / duplicate / import / export / apply. The one
-  rule that matters: applying a map must never route audio to the wrong place, so an input the open device cannot
-  provide comes back **switched off and named**, with a sentence saying what is missing, and the dialog says so
-  *before* anything is applied. Two inputs wanting one channel is reported the same way.
-- **The TRACKS channel panel is resizable** (`TracksPage::setPanelWidth`, the divider at `headerWidth`): the
-  standard DAW drag, one width inherited by every row, persisted with the session (`Document::trackPanelWidth`).
-  `kHeaderWidth` is gone - everything on that page measures from the member.
-- **Desk sizes.** `build/app/dlive_ui_snapshots --sizes [dir]` renders every workspace at 1280x800, 1440x900
-  and 1920x1080 - the three screens a booth actually has - so a layout that only holds together at the
-  developer's window is caught before a Sunday. `dlive_ui_snapshots <dir>` (no flag) is still the full set of
-  states, and `21`-`25` are the smallest window DLIVE allows.
-- **UI frame budget.** `build/app/dlive_ui_snapshots --frames [channels=48] [frames=120]` builds a realistically
-  large console and reports, per workspace, the cost of one `refresh()` and the cost of a full repaint. A full
-  repaint is 30-130 ms at 48 channels, so **no page may call `repaint()` on itself from its 30 Hz tick** - that
-  alone spends the whole frame. Every workspace now compares what it is about to draw with what it last drew
-  (`Look` / `PageLook` / `InspectorLook`) and repaints only when that changed; TRACKS repaints the meter strips it
-  has to (`meterCell`) and the lanes only when the playhead moved. When adding anything to a page's `paint`, add it
-  to that page's `Look` too, or it will draw stale.
-- **SOUND PROFILES BEYOND THE CHURCH** (2026-09-18). `StyleProfileId` is six: Modern Gospel (default), Modern
-  Worship, **Rock Band**, **R&B and Hip-Hop**, **Jazz and Acoustic**, **Talk and Podcast**. Every one is a delta
-  on Modern Gospel in the same shape as Worship - `buildRockBand()` etc. in `ProfileData.cpp` (targets and
-  baselines), the mix-level deltas beside each rule in `MixProfileData.cpp` (sends, reverb beats, the balance,
-  `relationships`, `aiRanges`, `macroRanges`) and the return characters in `FxProfiles.cpp` - so the bounds,
-  the sentences, the strategies and idempotency come along unchanged (the per-profile test loops cover them).
-  What each one *is*: rock = the kit level with the voices, guitars carry, everything a little denser and driven,
-  the room small; R&B = the sub belongs to the kick and the bass (`bassHpf` 30-45), the voice airy and close, the
-  delays part of the song, no artificial drum room; jazz = crest +3, no saturation anywhere, **no gates on the
-  kit** (`gateAppropriate = false`, the overheads carry it), the piano and the room forward, no delay on a
-  voice; talk = the speaking voice is the reference, every voice held steadier (release never under 80 ms) and
-  de-essed harder, the band a bed 8 dB under (`busBelowVocalsDb`), a voice dry. Append to the enum, never
-  reorder: the index is in sessions, plug-in presets and input maps. The PURPOSE AND SOUND page wraps the
-  cards (`soundGridHeight`); `dlive_mix_stems` takes `gospel|worship|rock|rnb|jazz|talk`. The four purposes are
-  unchanged (their names are church-flavoured; the numbers are not).
-- **LINKED FADERS** (2026-09-18). `StripParameters::linkGroup` (0 = none) and `MixController::linkStrips /
-  unlinkStrip / getStripLink / linkedWith / linkedNames`. A link is **relative, about level and solo**:
-  `setStripFader (strip, db, withLink)` moves every other member by the same dB (after the LIVE SAFE step limit,
-  so no member moves further than the held one could), a member at the end of its travel stops there, and
-  Cmd-drag (`withLink = false`) moves one alone; **S on one member solos them all** (`setStripSolo`), from either
-  end. Mute, pan and the chain are deliberately not linked. It is
-  part of the kept mix - saved (`linkGroup`, absent = none), carried by `carryMix` with the strip, kept through a
-  TUNE (the plan sets each fader absolutely; the link keeps the new offsets) - and linking is one undoable mix
-  change that LIVE SAFE lets through. **Linking starts the members level**: every member takes the fader of the
-  channel the link was made from (the first strip passed), within the LIVE SAFE step, so a pair of overheads is a
-  pair from the moment it is linked; a balance is set afterwards with Cmd-drag. Linking to a member joins its
-  group; a group of one dissolves. The UI is
-  the strip's / header's right-click menu ("Link fader with" / "Linked faders", ticked members, "Unlink this
-  fader"), `Dine::drawLinkGlyph` beside the name (MIXER) and before the fader (TRACKS), and the fader tooltip
-  names the partners. Tests: `Linked faders: ...` in `dlive_app_tests`.
-- **THE TITLE ROW CARRIES THE TABS** (2026-09-18, the client's review). The session-name popover is gone from the
-  title row (everything it offered is in File / Help and the sidebar; `setupPopover` still exists, anchored to the
-  sidebar switch, for Getting started); the five workspace tabs sit centred in the title row between the wordmark
-  and the counts (`kCountsW`), and the toolbar holds the transport centred with BYPASS / LIVE SAFE / the output on
-  the right. Every plane now has a **hairline seam** (`Dine::hair`): under the title row and the toolbar, the
-  sidebar's right edge, the TUNE rail, both Inspector rails, the chain foot and the status foot. The LIVE page's
-  ENGINEER MONITORING card has the **solo device picker** at the right of its chip row
-  (`OutputsSheet::showSoloDeviceMenu`, shared with the Outputs sheet), so "solo has nowhere to go yet" is fixed
-  where it is read.
-- **THE V2 DESKTOP (2026-09-17, the Claude Design file `DLIVE Desktop v2.dc.html`, project
-  `8592889b-694f-4bb0-8f28-598c057014f5`).** The window is the design, one to one. Top to bottom: a 52 px
-  **title row** (`Dine::Metric::titleRow` - the sidebar switch, the session's name with its popover in the
-  middle, "N inputs / N to record" and AI MIX CHAT on the right), the 56 px **toolbar** (the transport in its
-  own pill with the clock, the five tabs `TRACKS MIXER TUNE LIVE INSPECTOR` centred - `MainView::kWorkspaceTabs`
-  = 5, Cmd-1..5 - then BYPASS, LIVE SAFE ON/OFF and the output popup), then the body. Down the left is the
-  184 px **sidebar** (`MainView::Sidebar`: LIBRARY > Sessions; SET-UP > Audio device / Inputs / Purpose and
-  sound; WORKSPACE > the five tabs again as rows; the device, its rate and its dropped buffers along the foot),
-  folding to a 17 px handle (`Ctrl-Cmd-S`, View > Show/Hide Sidebar). Beside it the workspace, then the
-  picked-out channel's **chain along a 48 px foot** on every workspace (`MainView::chainFoot`, reading
-  `selectedChannel()` or the last channel picked anywhere - TRACKS and MIXER no longer carry their own,
-  `setFootShown (false)`), then the 50 px **status foot** (`StatusBar`: Engine, CPU - `AppServices::cpuLoad` -
-  Disk, Recording, Broadcast, Monitor, Dropped, Live safe). Setup is not a mode: the four setup screens are
-  rows in the sidebar, and the session popover lists the same four steps with their values.
-  A workspace's own side panels belong to the workspace: TUNE's INPUTS rail (198 px, left, a name and
-  TUNE CHANNEL per row - clicking the row picks the channel out for the chain foot) and the Inspector's
-  CHANNELS rail (200 px) and WHAT DLIVE DID column (280 px), each folding to a named handle with `[` / `]`.
-  The window-wide channel list (`ChannelRail`) is gone: the design has one navigation and per-page rails, and
-  two lists of the same channels on one screen was the thing it removed.
-  **Since 2026-09-17 (the client's review):** the sidebar is the same plane as the title row (`Dine::sidebar` =
-  `Dine::title`, never the black desk), the DLIVE wordmark sits at the left end of the title row, after
-  the sidebar switch (`MainView::kWordmarkW`) so it is on screen whatever the sidebar does, a panel handle (`DinePanelTab`) is a
-  small key with a chevron pointing the way the panel will move (never three dots), and **green is not a brand
-  colour**: a soloed tile or a tuned chip sits on the neutral lifted plane (`soloGround` = `selected`) with the
-  teal lamp / hairline saying what it is - `Dine::ok` is only ever a status chip's colour.
-  **The palette and type are the design's, not the site's.** The desk is `#070809`, the application panel
-  `#0e1014` (`Dine::window`), the toolbar / rails / status foot `#13161c`, a page's tool row `#10131a`, a
-  card `#1a1e26`, a row `#1c212b`, what is chosen `#222830`, a resting control `#2a303a` (hover `#3e4656`, a
-  setting that is on `#4e5664`), an item inside a card `#161a22`; ink `#f4f5f7` / `#a8b0bc` / `#6b7380` /
-  `#4e5664`; the accent is the **teal `#6db8a8`** (hover `#8ed0c2`, near-black type on it) and it is spent on
-  the primary action, the active tab, what is selected or soloed, what DLIVE tuned, and the meters; ok
-  `#57b98d`, hot `#cbbf6a`, warn `#e0a85c`, crit `#e06a64`, monitor blue `#6eafff`; the buses keep their
-  colours (`Dine::busTint`). **Every surface is flat**: no gradients, no glows, no outlines - `drawCard`
-  ignores the plain hairlines and only draws an edge that carries a meaning (a solo, a warning). Radii are
-  12 / 10 / 8 / 6. Type is **Barlow** for words and **IBM Plex Mono** for every number, both embedded
-  (`Dine::text` / `Dine::mono` / `Dine::caps` go through `LiveMixLookAndFeel::body` / `mono`), so the booth
-  Mac reads like the mock whatever it has installed. A fader is a 2 px line and a flat pale cap (24 x 9
-  standing, 9 x 14 lying); a meter is a translucent well and **one gradient fill** (accent to two thirds,
-  yellow, red - `Dine::fillMeter`), never segments; a console key is `#2a303a` off and its own colour with
-  dark type on; a chip is a 20 % tint of its colour (`Dine::drawStatusChip`, `Dine::mix`); a modal sheet is
-  `Dine::drawSheet` centred over a `#070809` scrim at 0.86-0.88; the chat is a 380 px panel down the right of
-  the workspace column, not a modal. The "lime is the signal" rule survives with the teal in its place.
-  Colour literals still do not belong outside `AppTheme`.
-  **The mixer's frame budget** is the design's problem as much as its look, and the v2 rebuild fixed the
-  console that crawled at 48 channels: a strip re-reads only atomics every tick (meters, mute, solo, fader),
-  re-reads its inserts when a hash of its `ChannelParameters` changes (`chainHash`, via `forEachDspField`),
-  re-reads the gain advice twice a second (`MixerPage::tick`), and a meter is one fill whatever its height.
-  The bank is opaque so a scroll never repaints the page under it. `dlive_ui_snapshots --frames 48 120`: a
-  full repaint of MIXER went from 38 ms to 6.5 ms, TRACKS 61 to 10, INSPECTOR 68 to 23 (a 30 Hz frame is 33).
-- **THE MACRO PADS** (2026-09-18, `app/ui/MacroPad.{h,cpp}`, on TUNE). The five macros are two two-axis
-  pads and one ribbon: BODY x VOICE (`MixMacro::Bass` across, `Vocals` up), DRIVE x ROOM (`Space` across,
-  `Drums` up) and ENERGY on a ribbon under them. 50 / 50 is the plan, at dead centre under a dashed ring; a
-  press anywhere jumps the puck there and the drag is absolute; double-click re-centres that pad; three snaps
-  under each pad (Speech / Choir / Plan, Tight / Room / Plan) ease the puck over 140 ms and read as chosen
-  only while the puck sits exactly on the point. The pad owns nothing: every change goes through
-  `MixController::setMacro`, and the pads read the controller every tick. Under LIVE SAFE the controller
-  clamps each macro to `liveSafe::macroRange` (`LiveSafePolicy::maxMacroExcursion`, 50 +/- 25) and the pads
-  draw that fence hatched with the reason in the tooltip. TUNE is three columns: the inputs rail, the middle
-  (GROUPS stretching, MASTER, the pads - sized in `MixPage::layout` so the middle never scrolls; below the
-  floor the pads drop their snap rows), and a 296 px right panel (`MixPage::SidePanel`, its own scroll: the
-  verbs, the card saying which pad is held or moved, MIX HEALTH) folding with `]`. Mix > Centre Macro Pads
-  (id 401) is `MixPage::centreMacroPads`. TUNE LIVE MIX is also a button in the title row
-  (`MainView::tuneLiveButton`, command 405), so a live tune starts from any workspace. Verify with the `16`,
-  `16c` (the fence) and `23` snapshots and `--sizes`. **Since 2026-09-18 (the client's review: "too messy, text
-  everywhere")** the band is quiet: MASTER is its three controls and one mono readout (NOW / TARGET), the lift's
-  sentence lives on the Raise button's tooltip; a pad's head is its title alone, the values are read inside the
-  square (under the top corner words) only once the puck has left the plan, the corner words and the ribbon's ends
-  are small `ink4` caps, the snaps sit in one track, and the two pads + ribbon are one block centred in the column
-  (`kMaxPad` 236).
-- **THEMES** (2026-09-17, `docs/THEMES.md`). The look is a table of named colours and a theme is that table
-  written down: pick one under View > Appearance and every window follows; nothing about the session or the
-  mix depends on it. `app/native/ThemeStore` (JUCE-core, tested in `ThemeTests.cpp`) is the document
-  (`~/Music/DLIVE/Themes/<name>.dlivetheme.json`, schema 1, a *partial* map of key -> `#rrggbb`/`#aarrggbb`
-  resolved over its `basedOn` built-in over Studio Teal), the five built-ins (Studio Teal = the design, Lime
-  Desk, Slate, Tape, Daylight) and the preference (`~/Music/DLIVE/preferences.json`, `theme`). The `Dine::`
-  tokens are now mutable `inline` variables with the design as their initial values; `Dine::applyTheme`
-  writes them through `Dine::themeBindings()` (the one key -> token table), `Dine::refreshAllWindows()` /
-  `refreshWindow` re-applies the look-and-feel and `sendLookAndFeelChange`s every window (a repaint drops the
-  strips' cached images). **Nothing captures a token at construction unless it re-reads it in
-  `lookAndFeelChanged()`**: `DineButton` / `PanBar` hold an optional tint, text editors go through
-  `Dine::styleTextEditor` from the constructor and from `lookAndFeelChanged()`, `DineKey::setTint`. The
-  Appearance sheet (`app/ui/ThemeSheet`) is the editor: a swatch per token with a live picker, a built-in is
-  never overwritten (editing one saves a theme of your own with only the diff), Import reads before it copies,
-  Export writes a complete file. The snapshot tool checks the bindings and that `AppTheme.h` equals the Studio
-  Teal preset, renders `30-theme-*` / `31-appearance`, takes `--theme <name>` for the whole set, and never
-  writes the preference (`MainView::setStoredThemeUsed (false)`, `ThemeSheet (persisting = false)`).
-- **GETTING STARTED** (`app/ui/Tutorial`) is what DLIVE says to somebody who has never opened it: seven sentences
-  in the order a Sunday happens - name the inputs, press record, let DLIVE listen, keep or undo what it did, lock
-  the desk - each one putting the workspace it is talking about on screen and ringing the control it means
-  (`MainView::spotlight`, read from the live components so the tour can never ring empty space). It is a coach,
-  not a wizard: nothing is blocked behind it, Esc or "Skip the tour" ends it, and it never touches the session.
-  It opens by itself only on a genuine first run (no library **and** no assigned inputs) and is remembered in
-  `~/Music/DLIVE/.getting-started-seen`; after that it is Help > Getting started and the session popover.
-  `MainView::setAutoTutorial (false)` is how the snapshot tool keeps it out of every other state.
-- Read the PRD sections 6-8, 42, 48 and `docs/ARCHITECTURE-DINE-CORE.md` before touching the audio path or adding a product.
-- DLIVE is **the live recording and broadcast DAW** (2026-09 DAW milestone; see `docs/MILESTONE-7.md`).
-  Four workspaces over one session: TRACKS (timeline, clips, waveforms), MIXER, TUNE, LIVE. The DAW layer is
-  `app/native`: `Transport` (the playhead, sample-exact loop), `Recorder` (raw WAV per armed track through
-  `ThreadedWriter`), `ClipSource` (the one place clips become audio), `TimelinePlayer` (ring-buffered playback
-  on a reader thread), `Project` (tracks, clips, markers, LIVE SAFE) and `DawEngine`, which sits between the
-  device and the mix: it records the raw inputs, reads the timeline and builds the **input matrix** that
-  `MixController::process` receives, so TUNE MIX works the same on live inputs and on recorded material.
-  Monitoring has exactly one rule, `monitorUsesLiveInput` in `Project.h` - do not add a second. A session is a
-  folder (`~/Music/DLIVE/<name>/` with `Audio Files/` inside); `SessionStore` is version 3 and still opens
-  versions 1 and 2. Import a folder of stems with `MultitrackImport` (it becomes tracks and clips - there is no
-  separate "play a recording" audio path any more). Export is `MixBounce::renderProject`, streamed to disk.
-  App tests for all of this: `build/app/dlive_app_tests` (`app/Tests/DawTests.cpp`).
-- DLIVE standalone (2026-09 pivot; see `docs/ARCHITECTURE-DLIVE.md`): the mix layer lives in `src/Mix`
-  (`MixSession`/`RoutingGraph` build buses + returns from assignments; `MixEngine` is the real-time graph, parameters
-  arrive whole via `Core/TripleBuffer`; `MixCapture`/`OfflineCapture` listen to every input at once; `MixPlanner` =
-  per-strip Tune + input gain + relationships + balance + buses/master; `MixMacros` = the five overview controls, 50 =
-  the plan). Mix-level numbers only in `src/Profiles/MixProfileData.cpp`.
-  **The group buses are DRUMS, BASS, MUSIC, VOCALS, SPEECH, then MASTER** (`MixBus`, `src/Mix/MixSession.h`).
-  A speaking microphone is never mixed in with the singers: `RoleFamily::Speech` routes to its own
-  `MixBus::Speech`, which gets its own colour, band, meter, tile and rail section on every workspace
-  (`Dine::busTint` in `app/ui/AppTheme` is the one place that colour is decided - do not re-write the
-  switch per page) and its own row in the ASSIGN list. Everything that walks the group buses uses
-  `b < int (MixBus::Master)`, so a new bus goes in before MASTER. That insertion moved every stored bus
-  index above VOCALS, so `SessionStore` is version 3 and remaps a version <= 2 document's five bus slots
-  and its output-feed sources (`busFromStoredIndex`) - a session saved before the split opens with its
-  master on the master and an empty speech group. A bus chain is only fitted when something feeding it
-  was actually heard playing (`busPlayed` in `MixPlanner`): the speech group is silent through most
-  songs, and a compressor fitted to silence would crush the sermon the moment it arrives. The plan must stay idempotent on the same
-  listen (`MixPlannerTests`); every level decision is absolute from the capture, never "current + delta". Faders and
-  the master trim are fitted from levels *predicted under the proposed chain* (`MixPlanner::predictedProcessed{Peak,Rms,ActiveRms}Db`,
-  compressor model numbers in `MixProfileData`), so one TUNE MIX lands. A fader is fitted from **loudness while the
-  source plays** (`AnalysisResult::activeRmsDb`), never from the sample peak: desk multitrack exports carry isolated
-  clicks 25 dB above anything musical, and a peak-fitted fader follows the click. `musicalPeakDb` (the peak capped at
-  `hitLevelDb + 12`) is what gain staging reads for the same reason; the raw peak stays the clipping test. A drum close
-  microphone hears the whole kit, so the balance lifts one only `maxCloseMicRaiseDb` (gain + fader together) and says to
-  turn the preamp up instead. **The effects are timed to the song.** A live console has no host play head, so
-  `AnalysisAccumulator` measures a tempo per source (`tempoBpm` / `tempoConfidence`, autocorrelation of the onset
-  envelope) and `MixPlanner` takes the consensus across the sources that actually play a rhythm - a held note or an
-  open room mic has no onsets and does not vote, or it buries the kick. That tempo rides in `MixParameters::tempoBpm`
-  (saved with the session), reaches every return through `MixEngine`'s `FxChain::setTempo`, and also fits the reverb
-  tails: `MixProfile::reverbBeats` says how many beats a return may ring for, and the FX profile's own decay stays the
-  ceiling, so a quick song shortens the tail and a slow one leaves it alone. Without this every synced delay ran at the
-  engine's default 120 BPM regardless of the song. Check with the stems tool's PREDICTION CHECK
-  and the `after` LUFS line (target -23, within ~1 LU) when touching gain, fader, bus or master rules. Inputs below
-  `faintInputDb` at the device are "faint": flagged, never tuned or raised.
-  The app is `app/` (`MixController` no JUCE, `DawEngine` the timeline, `AudioHost` the device, `ui/` pages).
-  **The app's look is the v2 desktop design** (see THE V2 DESKTOP above): tokens, icons, widgets and
-  look-and-feel in `app/ui/AppTheme.{h,cpp}` (`Dine::`), the chrome in `MainView`, sheets for TUNE MIX and
-  its result. Caps only in the product verbs and the section labels (`Dine::caps`); the plug-in keeps
-  `Tokens` in `src/UI` and is unaffected.
-  MIXER (`app/ui/MixerPage`) is one `Strip` component laid out two ways - STRIPS (a vertical bank at three widths)
-  and LIST (a row per source) - with a filter (All / Inputs / Groups), pan and R/A/M/S. The bank is **one console
-  surface, not a row of cards**: a column is a flat `#13161c` plane 3 px apart from the next, carries its
-  group's colour as a 3 px band along its top (5 px when picked out), and the master is pinned to the right as
-  a 150 px column with LUFS-I / Short / True pk / Limiter / Target under its fader. A STRIPS column reads top to bottom the way a console does:
-  number and name, the gain-staging chip, INSERTS (the chain stages that are actually on, from `activeChainStages`),
-  SENDS (the used FX slots, a readout - sends are edited in the Inspector), PAN, then the fader and meter, the level
-  and peak, the keys, and the bus it feeds. **The slots are fixed** - three inserts, two sends, and the gain and pan
-  rows are reserved for every channel and bus - so an empty slot holds its place and the sections line up straight
-  across the console; `buildColumn` is the one place they are positioned (paint and layout read the same `Col`) and
-  a short strip drops whole sections, in a fixed order, rather than squeezing the fader. There is no per-strip dB
-  ruler: the one mark a bank is read against is the 0 dB unity line, drawn across the fader and the meter at the
-  same height in every strip (the five group meters on TUNE carry the numbers instead). The console fader is
-  `dineFader` in `DineLookAndFeel::drawLinearSlider`: a dark milled slot and a moulded cap, never a lit track.
-  A fader moves when it is **dragged and at no other time** - a two-finger swipe across a bank of faders is a
-  scroll, not twenty-four small changes to the mix - so every `juce::Slider` in `app/ui` goes through
-  `Dine::dragOnly` (no wheel; the event passes to the surface underneath) and every scrolling surface through
-  `Dine::nativeScrolling`, which sets the step that makes a trackpad swipe travel as far as the fingers do.
-  A `Strip` is opaque, cached as an image and repaints only what moved (`Strip::Look` / `showLook`), so
-  scrolling a 24-input console is a blit rather than twenty-four columns of text redrawn per frame. The master is pinned to the
-  right of the bank (it is a child of the page, not the scrolling `Bank`) and carries the LUFS-I / short-term /
-  true-peak readout against the -23 target. A click picks a strip out, a double-click opens it in the Inspector.
-  It also opens in its own window (View > Open Mixer in a New Window, or the button on the
-  page); the detached page is a second `MixerPage` on the same `MixController`, so both consoles always agree.
-  TRACKS (`app/ui/TracksPage`) is drawn and hit-tested by hand: a tool row (row height S/M/L, Snap, Follow,
-  Split, Marker, what is selected, the loop and the zoom) and then one 46 px ruler band that holds the loop
-  strip along its top (drag it to mark a loop), the marker lane inside it (click to jump, drag to move,
-  double-click empty to add, right-click to rename or delete, `M` / Edit menu to add at the playhead) and the
-  ticks along its foot. Snap is magnetic to the grid, the markers, the playhead, the loop
-  and every other clip edge (`snapSample`). `keyCell` is the one place the R/A/M/S keys are positioned (a 2 x 2
-  block beside the meter), so paint and hit-test cannot disagree; a header reads a status dot (accent when the
-  chain is doing something), number, source icon and name over its fader and level, and a third line that exists
-  only when it has something to say - the balance when it is not centred, the gain-staging chip when there is
-  advice. The name carries its own warning glyph when it no longer matches the clips, and a resting R/A/M/S key
-  is a hint rather than a boxed button, so the normal row is two lines. Clip and header colours come from
-  the same four group tints the mixer bands with, and a clip you cannot hear (muted, or soloed out) is drawn grey.
-  A TRACKS header also carries its own volume fader (`faderCell` is the one place it is
-  positioned; a tall row gets it under the name with the level beside it, a short row a slim
-  bar along the foot), a click on a header picks that channel out (the chain strip along the
-  foot reads it) while a *double*-click opens it in the Inspector - the header's own controls
-  keep their single clicks - and pinch on the trackpad (or Cmd-wheel) zooms about the pointer
-  via `zoomAround`.
-  A track and its input are two lists joined by index (`Project::tracks` / `MixSession::inputs`),
-  so `Project::syncTracks (previous, next)` remaps the tracks whenever the assignments are
-  rebuilt - each track follows its own input by device channel, then by name - and
-  `HostServices::reconfigure` hands the DAW engine the new session; without that an input
-  dropped on the ASSIGN page left the clips behind and every name below it slid by one.
-  **Which input a new input used to be is decided in exactly one place**, `matchInputs`
-  (`src/Mix/MixSession.h`): the clips read it (`syncTracks`) and so does the kept mix
-  (`carryMix`, `src/Mix/MixParameters.h`), so the timeline and the console can never end up
-  disagreeing about which input is which. `carryMix` is what makes rearranging free - every
-  channel that survived a rebuild keeps its chain, gain, fader, pan, keys and sends, and only
-  an input that became a *different source* goes back to its baseline (a kick's gate is wrong
-  on a voice); the buses, the master, the returns and the tempo are not per-input and come
-  across whole. One helper, `MixController::carryKept (previousMix, previousSession, tunes)`,
-  is what a host calls straight after `prepare()`, and `getPreparedSession()` is the session
-  the running mix belongs to (`setSession` replaces the document before the graph is rebuilt,
-  so `getSession()` is the wrong thing to read it against).
-  **Rearranging the channels is a drag on the TRACKS header** (`TracksPage::moveTrack`, also
-  Move up / Move down on the header's menu and in the Track menu): press a header and drag it
-  up or down, a line shows where it would land, and letting go moves the *input* - the mixer's
-  bank, TUNE's rail, the Inspector's list and the ASSIGN page all read the new order. The row
-  only lifts after the pointer has actually travelled (`kOrderGrip`), so a click that wandered
-  still just selects; dragging past the edge of the lanes scrolls. Nothing about the sound
-  changes, but the graph is rebuilt, so LIVE SAFE locks it like any other re-route.
-  A header whose name no longer describes the audio under it is drawn amber with a warning
-  glyph (`nameMismatch`: a take suffix is not a mismatch, a different word is), and
-  right-clicking a header is the one place to put it right - Rename, Use the clip's name,
-  Match every track to its clips, Source, Icon, Fix the assignments..., Open in the Inspector.
-  A rename goes through `MixController::setInputName`, which sets the session *and* the graph's
-  copy and rebuilds nothing, so TRACKS, MIXER and the Inspector are renamed together and the
-  kept mix, the plan and the clips all survive; changing the source rebuilds the routing and
-  says so. The icon is the same kind of label: `InputAssignment::icon` (last in the struct,
-  so the brace-initialised sessions in the tests still compile) holds a key from
-  `Dine::iconChoices()`, empty meaning "whatever the role says"; `Dine::iconFor (key, role)`
-  is the one place that decision is made, `MixController::setInputIcon` sets it without a
-  rebuild, `RoutingGraph`/`StripRoute` carry it so MIXER and TUNE agree, `AssignPage::commit`
-  carries it (it rebuilds every assignment from scratch), and `SessionStore` writes it only
-  when it is set.
-  Both workspaces end in `app/ui/ChainStrip`: the picked-out channel's chain stage by stage with what each is set
-  to, from the same `chainStages` the Inspector's cards follow. Click it to open the Inspector.
-  Outputs: the mix can leave by more than one pair at once. `src/Mix/OutputFeeds.h` is the model (up to
-  4 feeds, each a device output pair + source (master or a group bus) + level + mono + mute); `MixEngine`
-  takes them through their own `TripleBuffer` (`setOutputFeeds`) because monitoring is not mix - the planner,
-  the macros and BYPASS never touch them, and an export is unaffected. `AudioHost` opens every output channel
-  (`kMaxOutputs`). The UI is `app/ui/OutputsSheet` (toolbar output popup > Set up outputs, View menu, or the
-  Device page). CoreAudio opens one device at a time: two devices at once is a macOS Aggregate Device, which
-  the sheet explains and can open Audio MIDI Setup for.
-  INSPECTOR (`app/ui/AdvancedPage`) is the engineer's drill-down, in three columns. Left, a 206 px rail:
-  every channel under its bus (dot, name, a mini level bar, its fader) with the engine's own state - rate,
-  buffer, latency - along the foot. Middle, the channel: a 96 px head (colour, what it is, its name, the IN
-  and OUT meters either side of the chain, input gain, level, pan and the keys), then `SignalPath` - the
-  whole chain as a chip per stage with its lamp, number, icon, setting, a bar for how hard it is working and
-  a dot for where the setting came from (accent = tuned by DINE, amber = hand-edited) - and under it the
-  stage you picked, opened as a device by `app/ui/ChainEditor`: its name and plain sentence, a badge, IN/OUT
-  and `Back to DINE`, then what the stage is doing drawn (an EQ curve with nodes you drag, a compressor's or
-  gate's in-out line with the live gain reduction and the last 8 seconds, the bars of a trim with its gain
-  staging) beside a knob for every number it owns - band cards on the EQs, a knob grid and switch chips
-  elsewhere. Right, a 272 px column: what TUNE MIX did, a line per stage (what it is set to, TUNED /
-  EDITED / NOT USED, and the sentence from the report that explains it - matched by the parameter ids the
-  stage owns), RE-TUNE and REVERT, and the headroom (the master shows its loudness instead). The chip
-  labels and readouts come from `chainStages` in `ChainStrip`, so the path, the mixer's INSERTS and the
-  strip along the foot of a workspace can never disagree. The limiter stage appears on the master only and
-  the width stage on stereo channels only, because that is where `MixEngine` configures them; the sends
-  close the path where the session uses FX. "Hand-edited" is a diff against `getPlan()->proposed`, which is
-  also what `Back to DINE` and REVERT put back. Edits go through `MixController::setStripChannel` /
-  `setBusChannel` as a whole `ChannelParameters`: they live on the kept mix beside the faders, survive a
-  macro, are saved with the session, and the next TUNE MIX replaces them the way it replaces a fader.
-  BYPASS disables them.
-  Gain staging is the first move in a mix and the app says so before it says anything else:
-  `MixController::getInputAdvice (strip)` is the one place that reads the plan and answers what
-  one input's level needs (Faint / NotHeard / Low / Hot / Clipping / Digital / Healthy, the
-  console move in dB and the sentence). `Digital` is the one that matters in a church - the
-  level works, but only because DLIVE raised it more than `digitalGainAdviceDb`
-  (`MixProfileData`) digitally, which lifts the preamp's noise with the source. It is surfaced
-  as a chip on the TRACKS header and the MIXER strip (both layouts), as the GAIN STAGING card
-  at the top of the Inspector's right column, as the plan's *first* note (naming the inputs)
-  and in `getMixHealthNotes`; an input that only works on a big digital raise is not counted
-  healthy. Advice only: nothing about the mix changes.
-  TUNE CHANNEL is one source on its own, on click: `MixController::startTuneChannel (strip)`
-  runs the same listen as TUNE MIX (every input is measured, so the channel is still decided
-  in mix context) but waits for that channel (`MixCapture::Settings::triggerStrip`) and is
-  shorter, and the plan is narrowed by `MixPlanner::channelOnly (plan, strip, profile)`:
-  `proposed` is `before` everywhere except that strip, so the buses and the master are left
-  alone and what is proposed is exactly what the mix becomes when it is kept - which is also
-  what the Inspector reads as "what DINE set". Every other strip keeps what the listen
-  measured about it (gain-staging advice and mix health stay fresh) with the moves the plan
-  does not make taken back out. BEFORE / AFTER, KEEP and REVERT are the mix's own, and
-  `getTuningStrip()` says which channel a listen or a preview is about (-1 = the whole mix).
-  It is clicked from the TUNE workspace's input rail, a mixer strip's right-click menu, a
-  TRACKS header's menu, the Inspector's right column, the Mix menu or `T`; the sheet
-  (`app/ui/ChannelTuneSheet`) drops over whatever workspace you are on, so the console keeps
-  playing behind it and MixPage's own sheets stay out of the way.
-  Every panel at the edge of the window folds away, so the middle can have the width: the sidebar
-  (the toolbar's leftmost button, View menu, `Ctrl-Cmd-S`, `MainView::setSidebarShown` - `sidebarWidth()`
-  is the one place the rest of the window reads it), the Inspector's channel rail and its WHAT DINE DID
-  column (`AdvancedPage::setRail/TrailShown`) and TUNE's input rail (`MixPage::setRailShown`). A page
-  panel keeps a `Dine::Metric::panelTab` gutter with `DinePanelTab` in it - the same handle everywhere,
-  chevron pointing the way the click moves the panel, the panel's name down the gutter when it is closed
-  - and `[` / `]` toggle the panel on that side of whatever page you are on (`MainView::togglePanel`,
-  falling back to the sidebar where a page has no left panel of its own). Nothing about the mix changes.
-  State is never left to a shade. `DineKey` (`AppTheme`) is the one console key - M amber, S teal, R red, A blue,
-  dark letter on a filled key when it is on - used by the mixer strips, the LIST rows and (drawn the same way by
-  hand) the TRACKS headers, so a mute looks like a mute wherever it is pressed; a muted strip darkens, names itself
-  in amber and its meter greys out (`DineMeter::setMuted` keeps reading the signal, so "nothing there" and "not
-  heard" never look alike). On LIVE, a muted group tile goes amber and says NOT HEARD, a soloed one says SOLO, and
-  LIVE SAFE fills and reads "LIVE SAFE ON" with a sentence beside it saying what is locked. LIVE carries a
-  tile per group bus, **one for the effects returns and one for the MASTER** (2026-09-18: its fader and mute
-  are the master bus's own through `setBusFader` / `setBusMute (Master)`, there is no solo so MUTE has the key
-  row, and its integrated LUFS is the readout beside its meter; the "ON" chip yields to the name on a narrow tile): `MixParameters::fxReturnDb` / `fxMute` are the
-  FX group's own fader and mute, folded into the return's gain in the one place `MixEngine` already decides
-  it (so BYPASS and an unused slot still win) and set through `MixController::setFxReturn` / `setFxMute`.
-  0 dB and not muted is "as tuned", which is also what a session saved before they existed reads as. The
-  returns solo as one group (`MixController::setFxSoloAll` / `anyFxSolo`, 2026-09-18): S on that tile solos every
-  return the session uses, so the engineer hears just the reverbs and delays - in the normal (monitor) solo the
-  sources keep feeding the sends and only the returns reach the headphones.
-  BYPASS (toolbar, Mix menu, `B`) is `MixController::setBypass`: `compose()` returns `startingPoint()` with
-  `bypassProcessing`, carrying only mute and solo across, so you hear the console feed. It never touches the kept
-  mix - switch it off and the mix is exactly as it was - and faders are disabled while it is on.
-  Verify with
-  `build/app/dlive_ui_snapshots <dir>` and the real stems: `build/app/dlive_mix_stems "<stems folder>" 30 <outdir>`
-  (writes raw/before/after/after-retuned WAVs, exit 0 = re-plan on the same listen changed nothing). App tests:
-  `build/app/dlive_app_tests`; real device: `build/app/dlive_device_check 3`; recording playback through the host: `build/app/dlive_device_check 4 "<stems folder>"`.
-  The app is **DLIVE** (renamed from DINELIVE, 2026-09-10): target `DLive`, product `DLIVE`, bundle
-  `com.dine.dlive`, tools `dlive_{ui_snapshots,app_tests,mix_stems,device_check}`, sessions in `~/Music/DLIVE/`
-  as `<name>.dlive.json`. Sessions written under the old name still open and are still listed - `SessionStore`
-  accepts `app: "DINELIVE"`, scans `*.dinelive.json` and reads `~/Music/DINELIVE` (`formerNameFolder`) - and are
-  written back under the new extension when they are next saved. The app icon is `app/resources/AppIcon.png`
-  (1024 px, generated art: the D with a fader cap), handed to JUCE as `ICON_BIG`. The DINE plug-in family and the
-  `Dine::` design tokens keep their name; only DINELIVE became DLIVE.
-  **Setting a session up is four screens of one layout** (`app/ui/SetupPages`, 2026-09-12): SESSIONS (the
-  library), AUDIO DEVICE, INPUTS and PURPOSE AND SOUND. `SetupLayout::of` is the one place the bands are
-  measured - title and a readout, a toolbar, the table beside a 252 px rail of small cards, then a footer
-  with a note and Back / Continue - so all four line up and a change to the shape is a change in one
-  function; `drawSetupHead` / `drawSetupFooter` draw the ends. The shared parts live in `AppTheme`:
-  `DineChip` (a filter chip with its group's dot, in one rounded track), `Dine::drawRadio`,
-  `Dine::drawCaption` and `Dine::drawStackedBar` (one bar divided by group, in the bus colours).
-  SESSIONS lists every saved session with what it sounds like, what it was for and how its inputs fall
-  across the groups - read by `SessionStore::summarise`, which parses the document's header only and never
-  walks the audio beside it - and is where the app opens when there is a library to open into.
-  INPUTS groups the desk by the bus each input will feed (a clickable group header picks the whole group
-  out), and a selection turns the toolbar into the bulk one: set what they are, fill a kit down them in
-  order, name them from their role, link them as pairs, drop them. The numbers on PURPOSE AND SOUND are
-  `Profiles::targets (profile, masterRoleFor (purpose))`, so what the card promises is what TUNE MIX aims
-  at. AUDIO DEVICE and INPUTS draw what is arriving on each device channel from
-  `DawEngine::inputPeakDb` / `numInputsCarryingSignal` - a peak per block with a slow release, stored from
-  the audio thread with relaxed atomics before anything in the mix touches the signal - so "the console is
-  plugged in but channel 9 is dead", and "this unnamed input is carrying signal", are visible before a
-  single input has been named.
-  In the app, Import a multitrack... on the device page (or File > Import Multitrack Folder...) turns a stems
-  folder into tracks and clips, with names and sources guessed from the file names.
-  **"Arm" is not a word the app says.** A volunteer does not know it, and the message they meet when they press
-  Record is the worst place to teach it. The field stays `Track::armed`, the key stays the red **R** (a console
-  key, beside A/M/S), and every sentence around it is plain: "set to record", "N TO RECORD", "No tracks are set
-  to record yet - press the red R on each track you want". The engineer's word appears once, in the R key's
-  tooltip, as the thing it is called elsewhere. The TRACKS keys are drawn by hand, so `TracksPage::getTooltip`
-  is where R, A, M, S and the fader say what they are; the tool row's **All to record** button
-  (`setAllToRecord`) is the one click for a whole session, and it mirrors the Track menu.
+One engine (`src/`, C++20, JUCE-free), six Dine channel plug-ins + Dine FX (`modules/`), and DLIVE, the live
+recording and broadcast DAW (`app/`). This file holds the invariants and the map. Everything else is a topic
+file under `docs/` — read the one for the area you are touching before changing it.
+
+## Hard invariants
+
+- **The audio thread never allocates, locks, logs, builds strings or does I/O.** That is `process()`,
+  `processBlock()`, `MixEngine::process`, `Recorder::write`, the CoreAudio callback and everything they call.
+  Enforced by `tests/AllocationTracker` and by RealtimeSanitizer over the entry points marked
+  `LIVEMIX_NONBLOCKING` (`src/Core/Realtime.h`; `-DLIVEMIX_RTSAN=ON`, `scripts/rtsan.sh`,
+  `docs/REALTIME-SANITIZER.md`). A violation is fixed or documented in `scripts/rtsan.supp` with its reason.
+- **`src/` stays JUCE-free.** JUCE lives in `src/State/ParameterLayout|Bridge`, `src/UI`, `modules/`, `app/`.
+- **Numbers live in the profile data, nowhere else.** Per-source targets and safe ranges in
+  `src/Profiles/ProfileData.cpp`; mix-level rules in `src/Profiles/MixProfileData.cpp`; FX characters in
+  `src/FX/FxProfiles.cpp`. A strategy holds decision logic, never a target. Modern Gospel is the default; every
+  other profile is a documented delta on it. Never add a profile that cannot be tuned by listening.
+- **Tune is deterministic, repeatable and idempotent.** Analysis + profile targets + source strategy give a
+  bounded starting point; the same listen and settings give the same mix; a re-tune on the same capture says
+  NO CHANGE REQUIRED (tested). Cut rules compute from the profile template, never from the current value;
+  every level decision is absolute from the capture, never "current + delta". Strategies edit a
+  `ChannelParameters` inside `TuneDecisions::move()` and changes are recorded by diffing - never hand-write a
+  `ParameterChange` list. A high-pass never goes above 0.8 x the measured fundamental; a sustained source never
+  gets an expander; a room microphone is never gated.
+- **AI is optional, validated and never auto-applied.** Default Off, explicit user action only, a
+  `SafetyValidator` / `MixSafetyValidator` on every path, the deterministic result as the fallback on any
+  failure, AI output never enters the proposed parameters, nothing AI-related on the audio thread, and a
+  reopened session never contacts a provider. The plug-ins' AI assist is switched off on purpose
+  (`kAIAssistAvailable = false`); keep the code paths, do not re-enable without being asked. In DLIVE the
+  reasoning layer (TUNE LIVE MIX, MIX BUDDY) sits **above** `MixPlanner`, never instead of it: the
+  deterministic plan is built first and always.
+- **Never rename a released parameter ID**; sessions, presets and automation depend on them. Enums that are
+  stored (`StyleProfileId`, `MixBus`, roles) are appended to, never reordered; a stored-layout change bumps
+  `SessionStore`'s version and remaps the old one.
+- **Latency is reported honestly.** The channel path is sample-synchronous and minimum-phase and adds none;
+  the lookahead limiter (`Limiter::kLookaheadMs` = 1.5 ms) exists only where the stage is turned on (Dine
+  Master, DLIVE's master bus) and is reported through `setLatencySamples` constantly, on, off or in an A/B.
+  Do not change DSP behaviour without meaning to: `tests/reference/*.f32` regression renders must keep passing.
+- **Plain words on the surface.** Anything a volunteer sees in Simple view or on a DLIVE workspace is plain
+  language (WARMTH, CLARITY, SMOOTH, STEADY, CLEAN-UP, LOUD, "Only I hear it", "set to record"); engineer terms
+  (gate, comp, de-ess, AFL, aggregate device, arm) appear once each, in Advanced or a tooltip. The verbs are
+  TUNE / RE-TUNE / TUNE KIT / TUNE MIX / TUNE LIVE MIX; "Mix Buddy", never "chat". Tune explains WHAT then WHY
+  in sentences, and a refusal always carries the sentence saying why.
+- **A take survives a crash** (`app/native/Recorder`): the writer thread keeps the WAV header current and a
+  `<take>.wav.recording.json` sidecar beside it; a sidecar found on the next open is repaired and put back on its
+  track. Nothing about recording moves to the audio thread.
+- **UI changes are verified by looking at the PNGs** (`dlive_ui_snapshots`, the per-product
+  `livemix_*_ui_snapshots`), never by reasoning about layout code; regression references change only when a
+  baseline changes on purpose. No page repaints itself wholesale from its tick; a page's `paint` and its `Look`
+  move together. Colour literals belong in `AppTheme` only, and a new widget re-reads its tokens in
+  `lookAndFeelChanged()`.
+- **LIVE SAFE is a policy in `MixController`**, not a menu guard; **BYPASS never touches the kept mix**;
+  **solo never changes what the room hears**.
+
+## Build and check (the short form; all of it in `docs/BUILD-AND-VERIFY.md`)
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"     # cmake / ninja from uv tool
+scripts/build.sh                         # everything, Release, into build/
+scripts/dlive.sh [--build|--tests|--shots|--debug]      # the app alone: the fast loop
+cmake -S . -B build-engine -G Ninja -DLIVEMIX_BUILD_PLUGIN=OFF && cmake --build build-engine   # engine only
+scripts/test.sh && build/app/dlive_app_tests            # ctest + benchmark, then the DAW/app suite
+build/app/dlive_mix_stems "<stems>" 30 <out> gospel     # TUNE MIX on a real multitrack; exit 0 = idempotent
+scripts/package.sh                       # a zip for a tester (Developer ID + notarization via env vars)
+```
+
+One build at a time, `--parallel 4`, targeted targets rather than the whole project when iterating. CI
+(`.github/workflows/ci.yml`) runs bootstrap, the build, ctest, the benchmark against
+`scripts/benchmark-baseline.txt` (fails over 15 % slower) and `auval`, plus the RTSan job.
+
+## Map
+
+```
+src/Core, DSP, Analysis, Tune, Profiles, Recommendations, Intelligence, FX, Communication, State, MixAI, Mix
+  DSP/ChannelProcessor      the fixed chain: input, filters, gate, corrective EQ, de-esser, comp, transient,
+                            tone EQ, saturation, width, output trim, [limiter], [loudness meter]
+  State/ParameterSpecs.cpp  every parameter once, per product; visited by forEachDspField (DSP/ChannelParameters.h)
+  Tune/                     TuneEngine + one strategy file per family; numbers come from Profiles/
+  Mix/                      MixSession, RoutingGraph, MixEngine (the real-time graph), MixPlanner, MixMacros,
+                            MonitorBus, OutputFeeds, LiveSafe, ReferenceMix
+  MixAI/                    the reasoning layer above MixPlanner (RelationshipEngine ... TuneLiveCoordinator)
+modules/Common              the one shared ChannelPluginProcessor/Editor; modules/<Product> names it; modules/FX
+app/native                  MixController (no JUCE), DawEngine, Transport, Recorder, TimelinePlayer, AudioHost,
+                            MonitorDevice, SessionStore (versioned), InputMapStore, ThemeStore, MixBounce
+app/ui                      MainView + the workspaces (TracksPage, MixerPage, MixPage = TUNE, LivePage,
+                            AdvancedPage = Inspector), sheets, AppTheme (Dine:: tokens)
+app/Tools, app/Tests        dlive_ui_snapshots / dlive_mix_stems / dlive_device_check; dlive_app_tests
+tests/                      engine + integration tests, benchmark, reference renders
+```
+
+## Where the detail lives
+
+| Topic | File |
+| --- | --- |
+| Build, test, snapshot, stems and AU commands; the real recordings | `docs/BUILD-AND-VERIFY.md`, `BUILD-RUN-SHARE.md` |
+| The engine's rules: products, parameters, Tune, profiles, wording, FX | `docs/DINE-CORE-RULES.md`, `docs/ARCHITECTURE-DINE-CORE.md` |
+| DLIVE the application: DAW layer, every workspace, setup pages | `docs/DLIVE-APP.md`, `docs/ARCHITECTURE-DLIVE.md`, `docs/MILESTONE-7.md` |
+| The mix engineer: TUNE LIVE MIX, REFERENCE MIX, LIVE SAFE, MIX BUDDY, loudness, profiles, linked faders | `docs/DLIVE-MIX-ENGINEER.md`, `docs/ARCHITECTURE-DLIVE-AI.md` |
+| Monitoring: the solo bus, two devices, Dante | `docs/DLIVE-MONITORING.md` |
+| The desktop design, macro pads, themes, tutorial, frame budget | `docs/DLIVE-DESIGN.md`, `docs/THEMES.md` |
+| RealtimeSanitizer: wiring, findings, suppressions | `docs/REALTIME-SANITIZER.md` |
+| Milestone reports and the QA notes | `docs/MILESTONE-1..7.md`, `docs/QA-*.md` |
+
+Read the PRD sections 6-8, 42, 48 and `docs/ARCHITECTURE-DINE-CORE.md` before touching the audio path or
+adding a product. Work from `main`; commit each piece of work separately with a descriptive message.
