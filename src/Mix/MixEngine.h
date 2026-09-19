@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include "Core/Realtime.h"
 #include <atomic>
 #include <memory>
 #include <vector>
@@ -59,7 +60,7 @@ public:
 
     // Audio thread. inputs: device channels; outputs: at least 1 channel (mono sum) or 2 (L/R).
     // Every output channel is written: the feeds decide what lands where, the rest is silence.
-    void process (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples) noexcept;
+    void process (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples) noexcept LIVEMIX_NONBLOCKING;
 
     // Tune Mix listening. Set on the message thread before starting a capture; the engine checks isActive() per block.
     void setTap (MixTap* newTap) noexcept { tap.store (newTap, std::memory_order_release); }

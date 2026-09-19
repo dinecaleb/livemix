@@ -64,3 +64,45 @@ jobs:
 
       - name: AU validation (auval over every Dine component)
         run: scripts/validate_au.sh
+
+  rtsan:
+    # RealtimeSanitizer over the real-time entry points (LIVEMIX_NONBLOCKING, src/Core/Realtime.h).
+    # Apple clang has no -fsanitize=realtime, so this job builds with upstream LLVM from Homebrew,
+    # pinned to LLVM 21: JUCE 8.0.8 does not compile under clang 22 (juce_AudioPluginInstance.h's
+    # array-parameter constructor template fails its stricter non-dependent overload check).
+    # Only the test executables are built: they drive process() / processBlock() / Recorder::write()
+    # the way a host would, and RTSan aborts on the first unsafe call reached from one of them.
+    name: RealtimeSanitizer
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools (upstream LLVM for -fsanitize=realtime)
+        run: |
+          brew list ninja >/dev/null 2>&1 || brew install ninja
+          brew list llvm@21 >/dev/null 2>&1 || brew install llvm@21
+          "$(brew --prefix llvm@21)/bin/clang++" --version | head -1
+
+      - name: Cache external/JUCE
+        uses: actions/cache@v4
+        with:
+          path: external/JUCE
+          key: juce-${{ env.JUCE_TAG }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/bootstrap.sh') }}
+
+      - name: Bootstrap (vendor JUCE)
+        run: scripts/bootstrap.sh
+
+      - name: Configure with RTSan
+        run: |
+          LLVM="$(brew --prefix llvm@21)"
+          cmake -S . -B build-rtsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+                -DCMAKE_C_COMPILER="$LLVM/bin/clang" -DCMAKE_CXX_COMPILER="$LLVM/bin/clang++" \
+                -DLIVEMIX_RTSAN=ON -DLIVEMIX_COPY_PLUGIN_AFTER_BUILD=OFF
+          grep -q "LIVEMIX_HAVE_RTSAN:INTERNAL=1" build-rtsan/CMakeCache.txt || { echo "RTSan is not available with this compiler"; exit 1; }
+
+      - name: Build the test executables
+        run: cmake --build build-rtsan --target livemix_tests livemix_drums_plugin_tests livemix_vocals_plugin_tests livemix_keys_plugin_tests livemix_master_plugin_tests livemix_guitar_plugin_tests livemix_bass_plugin_tests livemix_fx_plugin_tests dlive_app_tests
+
+      - name: Run under RTSan (any unsafe call from a real-time entry point fails the job)
+        run: scripts/rtsan.sh build-rtsan

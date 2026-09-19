@@ -4,6 +4,7 @@
 #include <vector>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Project.h"
+#include "Core/Realtime.h"
 
 namespace livemix
 {
@@ -62,7 +63,7 @@ public:
     static double secondsFreeOn (const juce::File& folder, double bytesPerSec) noexcept;
 
     // Audio thread. Captures the device inputs exactly as they arrived.
-    void write (const float* const* deviceInputs, int numInputChannels, int numSamples) noexcept;
+    void write (const float* const* deviceInputs, int numInputChannels, int numSamples) noexcept LIVEMIX_NONBLOCKING;
 
 private:
     struct Writer

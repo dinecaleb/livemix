@@ -168,7 +168,7 @@ double Recorder::secondsFreeOn (const juce::File& folder, double bytesPerSec) no
     return double (free) / bytesPerSec;
 }
 
-void Recorder::write (const float* const* deviceInputs, int numInputChannels, int numSamples) noexcept
+void Recorder::write (const float* const* deviceInputs, int numInputChannels, int numSamples) noexcept LIVEMIX_NONBLOCKING
 {
     inCallback.store (true, std::memory_order_seq_cst);
     if (active.load (std::memory_order_seq_cst) && numSamples > kMaxBlock)

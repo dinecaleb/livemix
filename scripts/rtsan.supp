@@ -1,0 +1,12 @@
+# RealtimeSanitizer suppressions (RTSAN_OPTIONS=suppressions=...), read by scripts/rtsan.sh.
+# Every entry is a violation that is documented rather than fixed, with the reason beside it.
+# Forms: function-name-matches:<pattern>  call-stack-contains:<pattern>
+
+# juce::AudioFormatWriter::ThreadedWriter::Buffer::write calls timeSliceThread.notify() after every
+# block it queues, and juce::Thread::notify() is a std::mutex lock + condition_variable broadcast.
+# That is JUCE's design for its threaded writer (the lock is only ever contended with the writer
+# thread's own wake-up, so it is bounded, but it is a lock on the audio thread all the same).
+# Reported by RTSan through Recorder::write on 2026-09-19. Documented here rather than fixed: the
+# fix is a FIFO writer of our own whose reader thread polls instead of being woken, which is a
+# rework of Recorder (see docs/REALTIME-SANITIZER.md for the decision).
+call-stack-contains:juce::AudioFormatWriter::ThreadedWriter::Buffer::write

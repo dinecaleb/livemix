@@ -115,7 +115,7 @@ void ChannelProcessor::setParameters (const ChannelParameters& p) noexcept
     }
 }
 
-void ChannelProcessor::process (AudioBlockView& block) noexcept
+void ChannelProcessor::process (AudioBlockView& block) noexcept LIVEMIX_NONBLOCKING
 {
     inputMeter.process (block);
 

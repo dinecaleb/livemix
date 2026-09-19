@@ -2,6 +2,7 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include "DawEngine.h"
 #include "MixController.h"
+#include "Core/Realtime.h"
 
 namespace livemix
 {
@@ -69,7 +70,7 @@ public:
 private:
     void audioDeviceIOCallbackWithContext (const float* const* inputChannelData, int numInputChannels,
                                            float* const* outputChannelData, int numOutputChannels,
-                                           int numSamples, const juce::AudioIODeviceCallbackContext&) override;
+                                           int numSamples, const juce::AudioIODeviceCallbackContext&) noexcept LIVEMIX_NONBLOCKING override;
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
 

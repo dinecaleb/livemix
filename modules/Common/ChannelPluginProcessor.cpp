@@ -239,7 +239,7 @@ bool ChannelPluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts)
     return in == juce::AudioChannelSet::mono() || in == juce::AudioChannelSet::stereo();
 }
 
-void ChannelPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void ChannelPluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) noexcept LIVEMIX_NONBLOCKING
 {
     juce::ScopedNoDenormals noDenormals;
     const auto startTicks = juce::Time::getHighResolutionTicks();

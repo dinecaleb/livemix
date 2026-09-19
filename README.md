@@ -139,6 +139,7 @@ build/app/dlive_device_check 8 "<stems folder>"    # import + timeline playback 
 build/app/dlive_ui_snapshots out/                  # every DLIVE workspace and state as PNGs
 scripts/validate_au.sh          # auval for every Dine AU (Lmdr Lmvo Lmky Lmma Lmfx)
 scripts/benchmark_compare.py build/benchmark.txt   # the benchmark against scripts/benchmark-baseline.txt (fails > 15 % slower)
+scripts/rtsan.sh build-rtsan    # RealtimeSanitizer over the test suites (a -DLIVEMIX_RTSAN=ON build with upstream LLVM)
 ```
 
 CI (`.github/workflows/ci.yml`, every push to main and every pull request, macOS): bootstrap, the full build, ctest,
@@ -148,7 +149,9 @@ the benchmark against its committed baseline (`scripts/benchmark-baseline.txt`, 
 ## Principles baked into the code
 
 - The audio callback (`DrumsProcessor::processBlock` -> `ChannelProcessor::process`) never allocates,
-  locks, or waits. Verified by tests that count heap allocations during steady-state processing.
+  locks, or waits. Verified by tests that count heap allocations during steady-state processing, and by
+  clang's RealtimeSanitizer over the entry points marked `LIVEMIX_NONBLOCKING` (`-DLIVEMIX_RTSAN=ON`,
+  `scripts/rtsan.sh`; see `docs/REALTIME-SANITIZER.md` for what it found and what is documented instead of fixed).
 - Zero latency: every stage is minimum-phase and sample-synchronous; `setLatencySamples(0)`.
 - Analysis runs on a worker thread fed by a wait-free FIFO. Results never touch DSP directly;
   the user applies recommendations through the normal host parameter path.

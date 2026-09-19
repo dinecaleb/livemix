@@ -248,7 +248,7 @@ void MixEngine::setOutputFeeds (const OutputFeeds& f)
     feedMailbox.publish();
 }
 
-void MixEngine::process (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples) noexcept
+void MixEngine::process (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples) noexcept LIVEMIX_NONBLOCKING
 {
     ScopedNoDenormals noDenormals;
     const auto start = std::chrono::steady_clock::now();

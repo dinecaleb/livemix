@@ -232,7 +232,7 @@ int AudioHost::getBufferSize() const
 
 void AudioHost::audioDeviceIOCallbackWithContext (const float* const* inputChannelData, int numInputChannels,
                                                   float* const* outputChannelData, int numOutputChannels,
-                                                  int numSamples, const juce::AudioIODeviceCallbackContext&)
+                                                  int numSamples, const juce::AudioIODeviceCallbackContext&) noexcept LIVEMIX_NONBLOCKING
 {
     juce::ScopedNoDenormals noDenormals;
     if (! controller.isPrepared())

@@ -13,6 +13,7 @@
 #include "LoudnessMeter.h"
 #include "LevelMeter.h"
 #include "Core/Smoother.h"
+#include "Core/Realtime.h"
 
 namespace livemix
 {
@@ -37,7 +38,7 @@ public:
     const Options& getOptions() const noexcept { return options; }
 
     void prepare (double sampleRate, int maxBlockSize, int numChannels) override;
-    void process (AudioBlockView& block) noexcept override;
+    void process (AudioBlockView& block) noexcept LIVEMIX_NONBLOCKING override;
     void reset() noexcept override;
 
     // Audio-thread safe: copies the snapshot into the modules.

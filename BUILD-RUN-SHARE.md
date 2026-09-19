@@ -94,6 +94,9 @@ The same checks run on GitHub for every push to `main` and every pull request (`
 bootstrap, the full build, `ctest`, the benchmark against `scripts/benchmark-baseline.txt` (the build fails
 when the geometric mean over the rows is more than 15 % slower; the run's output is kept as an artifact so a
 new baseline can be committed from the runner's own numbers) and `scripts/validate_au.sh`.
+A second job builds the test suites with clang's RealtimeSanitizer (`-DLIVEMIX_RTSAN=ON`, upstream LLVM 21 -
+Apple clang has no `-fsanitize=realtime`) and runs `scripts/rtsan.sh`, which fails on any lock, allocation or
+syscall reached from a real-time entry point. `docs/REALTIME-SANITIZER.md` has the local recipe and what it found.
 
 A UI change is verified by rendering the snapshots and **looking at the PNGs**, not by reasoning about the
 layout code. `scripts/dlive.sh --shots` does the build and the render in one step.
