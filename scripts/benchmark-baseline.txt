@@ -1,0 +1,41 @@
+# livemix_benchmark baseline. Regenerate with:
+#   build/tests/livemix_benchmark > /tmp/bench.txt && scripts/benchmark_compare.py /tmp/bench.txt --update
+# Machine-specific: capture it on the class of machine that runs the comparison (CI: macos-latest).
+# measured on: Apple M5 Pro on 2026-09-19
+LiveMix ChannelProcessor benchmark @ 48000 Hz, stereo, full chain (gate+3 EQ+comp+transient+4 EQ+sat)
+instances  block      us/block/inst  us/block/all   budget%     
+1          32         1.99           2.0            0.3         
+8          32         1.63           13.0           2.0         
+16         32         1.52           24.4           3.7         
+32         32         1.42           45.6           6.8         
+48         32         1.43           68.7           10.3        
+1          64         3.78           3.8            0.3         
+8          64         3.81           30.5           2.3         
+16         64         3.59           57.5           4.3         
+32         64         3.40           108.9          8.2         
+48         64         3.37           161.8          12.1        
+1          128        8.37           8.4            0.3         
+8          128        8.22           65.8           2.5         
+16         128        8.04           128.7          4.8         
+32         128        7.29           233.4          8.8         
+48         128        7.29           350.1          13.1        
+1          256        17.25          17.2           0.3         
+8          256        17.62          141.0          2.6         
+16         256        16.53          264.4          5.0         
+32         256        15.25          488.1          9.2         
+48         256        15.42          740.3          13.9        
+
+Dine FX FxChain benchmark @ 48000 Hz, stereo (Vocal Plate / Vocal Throw alternating)
+instances  block      us/block/inst  us/block/all   budget%     
+1          64         3.88           3.9            0.3         
+4          64         4.40           17.6           1.3         
+8          64         4.43           35.5           2.7         
+16         64         4.48           71.7           5.4         
+1          128        8.03           8.0            0.3         
+4          128        9.20           36.8           1.4         
+8          128        9.12           73.0           2.7         
+16         128        9.16           146.6          5.5         
+1          256        16.61          16.6           0.3         
+4          256        18.71          74.9           1.4         
+8          256        18.44          147.5          2.8         
+16         256        19.61          313.7          5.9         

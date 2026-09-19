@@ -87,7 +87,13 @@ build/app/dlive_ui_snapshots --sizes out-sizes/     # every workspace at 1280x80
 build/app/dlive_mix_stems "<stems folder>" 30 out/  # TUNE MIX on a real multitrack; exit 0 = a re-tune changed nothing
 build/app/dlive_device_check 3                      # a real CoreAudio device
 scripts/validate_au.sh                              # auval over every Dine AU
+scripts/benchmark_compare.py build/benchmark.txt     # a benchmark run against the committed baseline
 ```
+
+The same checks run on GitHub for every push to `main` and every pull request (`.github/workflows/ci.yml`):
+bootstrap, the full build, `ctest`, the benchmark against `scripts/benchmark-baseline.txt` (the build fails
+when the geometric mean over the rows is more than 15 % slower; the run's output is kept as an artifact so a
+new baseline can be committed from the runner's own numbers) and `scripts/validate_au.sh`.
 
 A UI change is verified by rendering the snapshots and **looking at the PNGs**, not by reasoning about the
 layout code. `scripts/dlive.sh --shots` does the build and the render in one step.

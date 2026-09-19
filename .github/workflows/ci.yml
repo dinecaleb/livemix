@@ -1,0 +1,66 @@
+# Builds and checks the whole repo on every push and pull request: the engine, the six Dine
+# plug-ins, Dine FX, DLIVE and every test, then the benchmark against its committed baseline
+# and Apple's AU validation. macos-latest is an Apple-silicon runner; the benchmark baseline in
+# scripts/benchmark-baseline.txt has to come from that class of machine (see the script).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JUCE_TAG: "8.0.8"   # keep in step with scripts/bootstrap.sh
+
+jobs:
+  build-test:
+    name: Build, test, benchmark, auval
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools (cmake is preinstalled; ninja is not)
+        run: |
+          brew list ninja >/dev/null 2>&1 || brew install ninja
+          cmake --version | head -1
+          ninja --version
+          xcodebuild -version | head -1
+
+      - name: Cache external/JUCE
+        id: juce-cache
+        uses: actions/cache@v4
+        with:
+          path: external/JUCE
+          key: juce-${{ env.JUCE_TAG }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/bootstrap.sh') }}
+
+      - name: Bootstrap (vendor JUCE, configure)
+        run: scripts/bootstrap.sh
+
+      - name: Build (Release, everything)
+        run: scripts/build.sh
+
+      - name: Tests (ctest: engine, plug-in integration, app)
+        run: ctest --test-dir build --output-on-failure --timeout 600
+
+      - name: Benchmark
+        run: build/tests/livemix_benchmark | tee build/benchmark.txt
+
+      - name: Benchmark against the baseline (fails on more than 15 % slower)
+        run: scripts/benchmark_compare.py build/benchmark.txt --tolerance 15
+
+      - name: Keep this run's benchmark (commit it as scripts/benchmark-baseline.txt to re-baseline)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ github.sha }}
+          path: build/benchmark.txt
+          if-no-files-found: ignore
+
+      - name: AU validation (auval over every Dine component)
+        run: scripts/validate_au.sh

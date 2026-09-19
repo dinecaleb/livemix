@@ -138,7 +138,12 @@ build/app/dlive_mix_stems "<stems folder>" 30 out/ # TUNE MIX on a real multitra
 build/app/dlive_device_check 8 "<stems folder>"    # import + timeline playback through a real CoreAudio device
 build/app/dlive_ui_snapshots out/                  # every DLIVE workspace and state as PNGs
 scripts/validate_au.sh          # auval for every Dine AU (Lmdr Lmvo Lmky Lmma Lmfx)
+scripts/benchmark_compare.py build/benchmark.txt   # the benchmark against scripts/benchmark-baseline.txt (fails > 15 % slower)
 ```
+
+CI (`.github/workflows/ci.yml`, every push to main and every pull request, macOS): bootstrap, the full build, ctest,
+the benchmark against its committed baseline (`scripts/benchmark-baseline.txt`, regenerated with
+`scripts/benchmark_compare.py <run> --update` on the machine class that runs the comparison) and `auval` over every AU.
 
 ## Principles baked into the code
 
