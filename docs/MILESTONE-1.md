@@ -14,7 +14,7 @@ Date: 2026-09-05. Machine: Apple Silicon (arm64), macOS 26.4, Xcode 26.6, JUCE 8
 | 6–9 | EQ, gate, compressor, transient work | Unit-tested against measured responses |
 | 10 | Input/output metering | Peak + RMS + clip, pre-trim input and post-chain output |
 | 11 | Parameters restore after reopening | Plugin integration test: full round trip of all 77 parameters + extras + analysis results; malformed state is ignored safely |
-| 12 | Reports zero latency if truly none | `kAudioUnitProperty_Latency` = 0.0 s (queried via AudioToolbox); chain is minimum-phase, no lookahead/buffering |
+| 12 | Reports zero latency if truly none | `kAudioUnitProperty_Latency` = 0.0 s (queried via AudioToolbox); chain is minimum-phase, no lookahead/buffering. (Still true of Dine Drums. The lookahead limiter added in Milestone 5 makes Dine Master report 1.5 ms; see README, "Latency, honestly".) |
 | 13 | Unit tests pass | 46 engine test cases + plugin integration test, 0 failures |
 | 14 | 16+ instances without abnormal CPU | Benchmark: 48 stereo instances @ 48 kHz / 64 samples ≈ 16% of one core |
 | 15 | Analyze infrastructure without blocking audio | Wait-free FIFO + worker thread; test asserts `pushAudio` never allocates and `processBlock` stays < 1 ms while analyzing |

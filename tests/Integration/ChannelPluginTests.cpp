@@ -13,6 +13,8 @@
 #include <vector>
 #include <cstdio>
 #include <cmath>
+#include "DSP/Limiter.h"
+#include <algorithm>
 
 using namespace livemix;
 
@@ -206,7 +208,8 @@ int main()
             for (int block : { 32, 64, 128, 256 })
             {
                 p.prepareToPlay (sr, block);
-                const int expected = def.hasLoudness ? int (std::lround (1.5e-3 * sr)) : 0;
+                // What the host is told is exactly the limiter's lookahead on the product that has the stage, 0 elsewhere.
+                const int expected = def.hasLoudness ? std::max (1, int (std::lround (Limiter::kLookaheadMs * 0.001 * sr))) : 0;
                 CHECK (p.getLatencySamples() == expected);
                 juce::AudioBuffer<float> buf (2, block);
                 juce::MidiBuffer midi;

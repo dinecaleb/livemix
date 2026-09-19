@@ -59,7 +59,7 @@ intelligence), Phase 4 (hardening). Excluded on purpose: Phases 5-9, real AI pro
 | 48 instances @ 64 samples (real plugin path) | 162 µs per block for all ≈ 12% of the 1333 µs budget, 0 over-budget blocks |
 | Kit analyze (4 instances, headless) | completes, tom flagged Low, 2 balance items, kick/snare note |
 | auval | AU VALIDATION SUCCEEDED, 78 parameters. Two warnings: `gateAttack` and `gateHold` defaults do not round-trip exactly through their skewed range (float rounding; auval warning only). |
-| Latency | 0 samples (unchanged) |
+| Latency | 0 samples (unchanged; Dine Drums has no lookahead stage - the Milestone 5 limiter on Dine Master reports 1.5 ms) |
 
 ## Not done / needs a human
 

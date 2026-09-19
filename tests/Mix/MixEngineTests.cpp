@@ -1,4 +1,7 @@
 #include "TestFramework.h"
+#include "DSP/Limiter.h"
+#include <algorithm>
+#include <cmath>
 #include "TestSignals.h"
 #include "AllocationTracker.h"
 #include "Mix/MixEngine.h"
@@ -82,8 +85,8 @@ TEST_CASE ("MixEngine: with processing bypassed a centred mono strip reaches bot
     const int settle = 24000;
     CHECK_NEAR (d.peak (0, settle), 0.5f * std::cos (float (M_PI) / 4.0f), 0.01);
     CHECK_NEAR (d.peak (1, settle), 0.5f * std::cos (float (M_PI) / 4.0f), 0.01);
-    CHECK (e.getLatencySamples() > 0);   // the master limiter's lookahead, reported constantly
-    CHECK (e.getLatencySamples() < 200);
+    // The master limiter's lookahead, reported constantly, and nothing else in the graph adds to it.
+    CHECK (e.getLatencySamples() == std::max (1, int (std::lround (Limiter::kLookaheadMs * 0.001 * kSr))));
 }
 
 TEST_CASE ("MixEngine: pan, fader and mute behave like a console")

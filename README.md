@@ -152,7 +152,13 @@ the benchmark against its committed baseline (`scripts/benchmark-baseline.txt`, 
   locks, or waits. Verified by tests that count heap allocations during steady-state processing, and by
   clang's RealtimeSanitizer over the entry points marked `LIVEMIX_NONBLOCKING` (`-DLIVEMIX_RTSAN=ON`,
   `scripts/rtsan.sh`; see `docs/REALTIME-SANITIZER.md` for what it found and what is documented instead of fixed).
-- Zero latency: every stage is minimum-phase and sample-synchronous; `setLatencySamples(0)`.
+- **Latency, honestly.** The channel path is sample-synchronous and minimum-phase and adds no latency: filters,
+  gate, EQs, de-esser, compressor (no lookahead), transient shaper, saturation, width and trim all report 0. The one
+  exception is the lookahead limiter (`Limiter::kLookaheadMs` = 1.5 ms, 72 samples at 48 kHz), which only a product
+  that turns the stage on has - Dine Master, and DLIVE's master bus - and it is reported to the host through
+  `setLatencySamples` *constantly*, whether the limiter is on, off or in a loudness-matched A/B, so the host's
+  compensation never jumps. Dine FX is zero latency (pre-delay is part of the sound, not reported latency).
+  `tests/DSP/NewStageTests.cpp` ("Latency honesty ...") pins the reported number to the limiter's lookahead.
 - **A take survives a crash.** DLIVE's recorder (`app/native/Recorder`) has the writer thread rewrite each WAV's
   header every 15 s of audio and keep a `<take>.wav.recording.json` sidecar beside it (rate, channels, track,
   timeline start, frames so far) that a clean stop deletes; a sidecar found on the next open is a take the app

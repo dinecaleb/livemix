@@ -32,7 +32,7 @@ TEST_CASE ("ChannelProcessor: default parameters are bit-exact pass-through")
     CHECK (in.data[1] == ref1);
 }
 
-TEST_CASE ("ChannelProcessor: full chain reports zero latency (impulse lands at sample 0)")
+TEST_CASE ("ChannelProcessor: full chain without the limiter reports zero latency (impulse lands at sample 0)")
 {
     ChannelProcessor cp;
     cp.prepare (48000.0, 512, 1);

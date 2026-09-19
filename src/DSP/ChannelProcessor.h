@@ -23,8 +23,9 @@ namespace livemix
 //   Compressor -> Transient -> Tone EQ -> Saturation -> Width -> Output trim ->
 //   [Limiter] -> [Loudness meter] -> Output meter
 // Fixed order. Every stage is minimum-phase and sample-synchronous, so the chain
-// reports zero latency; only a product that enables the limiter (Dine Master)
-// reports the limiter's lookahead, and it does so constantly, on or off.
+// adds no latency and reports 0; only a product that enables the limiter (Dine Master,
+// DLIVE's master bus) reports the limiter's lookahead (Limiter::kLookaheadMs, 1.5 ms),
+// and it does so constantly - on, off or in an A/B - so a host's compensation never jumps.
 class ChannelProcessor : public Processor
 {
 public:

@@ -142,7 +142,7 @@ warnings as before. UI snapshots: all 22 states render (`tools/UISnapshots.cpp`)
 
 | Measure | Result |
 |---|---|
-| Latency | 0 samples (unchanged; detector filters are on the control path only) |
+| Latency | 0 samples (unchanged; detector filters are on the control path only. Dine Drums has no lookahead stage - the Milestone 5 limiter on Dine Master reports 1.5 ms) |
 | `processBlock` steady state | 0 allocations / 2000 blocks; 5.9 us per 64-sample stereo block |
 | 48 real plugin instances @ 48 kHz / 64 | 166 us per block for all (12.5 % of budget), 0 over-budget blocks |
 | Benchmark 48 instances @ 64 / 128 / 256 | 176 us (13.2 %) / 384 us (14.4 %) / 810 us (15.2 %) |

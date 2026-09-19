@@ -7,6 +7,7 @@
 #include "DSP/Limiter.h"
 #include "DSP/LoudnessMeter.h"
 #include "DSP/ChannelProcessor.h"
+#include <algorithm>
 #include "Core/Denormals.h"
 #include <cmath>
 
@@ -202,6 +203,38 @@ TEST_CASE ("LoudnessMeter: 997 Hz sine at -20 dBFS reads -23 LUFS in one channel
     run (g, loudPart); run (g, quietPart); run (g, silence);
     CHECK_NEAR (g.getIntegratedLufs(), -23.01f, 0.3f);
     CHECK (g.getMomentaryLufs() < -100.0f);
+}
+
+TEST_CASE ("Latency honesty: what is reported is the limiter's lookahead when the stage exists, and zero when it does not")
+{
+    for (double sr : { 44100.0, 48000.0, 96000.0 })
+    {
+        Limiter alone;
+        alone.prepare (sr, 128, 2);
+        const int lookahead = std::max (1, int (std::lround (Limiter::kLookaheadMs * 0.001 * sr)));
+        CHECK (alone.getLatencySamples() == lookahead);
+
+        // Without the stage: nothing in the chain buffers, so 0 - whatever the parameters say.
+        ChannelProcessor plain;
+        plain.prepare (sr, 128, 2);
+        ChannelParameters wants; wants.limiterEnabled = true;
+        plain.setParameters (wants);
+        CHECK (plain.getLatencySamples() == 0);
+
+        // With the stage: the lookahead, and the same number on, off and in an A/B.
+        ChannelProcessor master;
+        ChannelProcessor::Options o; o.limiter = true;
+        master.configure (o);
+        master.prepare (sr, 128, 2);
+        CHECK (master.getLatencySamples() == lookahead);
+        ChannelParameters p;
+        p.limiterEnabled = false; master.setParameters (p);
+        CHECK (master.getLatencySamples() == lookahead);
+        p.limiterEnabled = true; master.setParameters (p);
+        CHECK (master.getLatencySamples() == lookahead);
+        p.bypassAll = true; master.setParameters (p);
+        CHECK (master.getLatencySamples() == lookahead);
+    }
 }
 
 TEST_CASE ("ChannelProcessor: limiter option reports constant latency and holds the ceiling; other products stay at zero")
