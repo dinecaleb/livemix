@@ -118,8 +118,10 @@ scripts/package.sh              # build and zip for this Mac      --universal  a
 scripts/package.sh --no-build   # zip what is already built       --out <dir>  default: dist/
 ```
 
-Leaves `dist/DLIVE-<version>-<date>.zip` and `dist/NOTES.txt` — **send both**. The signature is ad-hoc, so the
-tester right-click > Opens it once.
+Leaves `DLIVE-<version>-<date>.zip` and `NOTES.txt` in `~/Documents/dliveApp` (`--out <dir>`) — **send both**. With
+no `DEVELOPER_ID` set the signature is ad-hoc and the tester right-click > Opens it once; with `DEVELOPER_ID`,
+`TEAM_ID` and `NOTARY_PROFILE` set the same script signs with the hardened runtime, notarizes and staples, and
+the build opens with no warning at all (see `BUILD-RUN-SHARE.md`).
 
 **Every command, and what to tell the tester: [`BUILD-RUN-SHARE.md`](BUILD-RUN-SHARE.md).**
 

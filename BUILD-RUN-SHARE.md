@@ -109,15 +109,15 @@ layout code. `scripts/dlive.sh --shots` does the build and the render in one ste
 scripts/package.sh              # build (Release) and zip for this Mac's architecture
 scripts/package.sh --universal  # arm64 + x86_64, so an Intel Mac can run it as well
 scripts/package.sh --no-build   # zip whatever is already built
-scripts/package.sh --out <dir>  # where the zip goes (default: dist/)
+scripts/package.sh --out <dir>  # where the zip goes (default: ~/Documents/dliveApp)
 ```
 
-It builds the `DLive` target, replaces the partial signature the linker leaves behind with a complete
-ad-hoc one over the whole bundle, verifies it, and writes two files into `dist/` (git-ignored):
+It builds the `DLive` target, signs the bundle (ad-hoc, or with a Developer ID - see below), verifies it,
+and writes two files into the output folder:
 
 ```
-dist/DLIVE-<version>-<yyyymmdd>.zip
-dist/NOTES.txt
+DLIVE-<version>-<yyyymmdd>.zip
+NOTES.txt
 ```
 
 **Send both.** NOTES.txt is the two-line version of everything below, written for someone who has never
@@ -138,9 +138,10 @@ their own name, and export the file to send back. A theme is a preference of the
 (`~/Music/DLIVE/Themes`, `~/Music/DLIVE/preferences.json`) and never touches a session, so it is safe to play
 with mid-test. See `docs/THEMES.md`.
 
-There is no Developer ID certificate on this machine, so the app is signed **ad-hoc**. That is a complete,
-valid signature — the Info.plist is bound and the resources are sealed — it is simply not one Apple has
-vouched for. The distinction matters, because it is the difference between two very different messages:
+With no `DEVELOPER_ID` in the environment (there is no certificate on this machine) the app is signed
+**ad-hoc**. That is a complete, valid signature — the Info.plist is bound and the resources are sealed — it
+is simply not one Apple has vouched for. The distinction matters, because it is the difference between two
+very different messages:
 
 - *"unverified developer — open it anyway?"* — an ad-hoc signed app. There is a way through.
 - *"damaged — move to Trash"* — an unsigned or linker-only-signed bundle. There appears not to be.
@@ -164,9 +165,37 @@ So the tester has to let it through once:
 
 macOS 11 or later. Sessions are written to `~/Music/DLIVE/`.
 
-For a build anyone can double-click with no warning at all, the app needs a **Developer ID Application**
-certificate and a trip through `notarytool`. That is a real distribution step, not a testing one, and
-nothing in `scripts/` does it today.
+### A build anyone can double-click: Developer ID and notarization
+
+The same script does the real distribution step when three environment variables are set. Nothing else
+changes — same build, same zip, same `NOTES.txt` (with the "right-click > Open" paragraph gone).
+
+| Variable | What it is |
+| --- | --- |
+| `DEVELOPER_ID` | the "Developer ID Application: Name (TEAMID)" identity - its name or SHA-1, from `security find-identity -v -p codesigning` |
+| `TEAM_ID` | the ten-character team id (optional when the identity's name carries it in brackets) |
+| `NOTARY_PROFILE` | the `notarytool` keychain profile, made once (below) |
+
+```sh
+# once, on the Mac that will package: an app-specific password from appleid.apple.com
+xcrun notarytool store-credentials "dlive-notary" --apple-id you@example.com --team-id ABCDE12345
+
+# every release
+DEVELOPER_ID="Developer ID Application: Your Name (ABCDE12345)" TEAM_ID=ABCDE12345 NOTARY_PROFILE=dlive-notary \
+    scripts/package.sh --universal
+```
+
+What happens, in order: the app is signed with the identity, the **hardened runtime**, a secure timestamp and
+`scripts/DLIVE.entitlements` (only `com.apple.security.device.audio-input`, because the hardened runtime
+refuses the microphone unless the app declares it - DLIVE loads no plug-ins and needs nothing else); the zip is
+submitted with `xcrun notarytool submit --wait` (a few minutes; a failure prints the command that fetches
+Apple's log); the ticket is **stapled into the bundle** (`xcrun stapler staple`), checked with `spctl`, and the
+zip is **made again from the stapled app**, so it opens offline on a Mac that has never seen it. The last line
+the script prints says which of the three it did: `signed: adhoc`, `signed` or `notarized`.
+
+`DEVELOPER_ID` without `NOTARY_PROFILE` signs with the identity and the hardened runtime but skips Apple:
+macOS still asks the tester to right-click > Open once, and `NOTES.txt` says so. The Developer ID path has
+not been run on this machine (no certificate here); the ad-hoc path is what every build so far has used.
 
 ## Where the build directories come from
 

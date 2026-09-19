@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
-# Package DLIVE.app as a zip another Mac can run, for testing.
+# Package DLIVE.app as a zip another Mac can run, for testing - or, with a Developer ID, for anyone.
 #
 #   scripts/package.sh                 build (Release) and package for this Mac's architecture
 #   scripts/package.sh --universal     arm64 + x86_64, so an Intel Mac can run it too (slow: JUCE builds twice)
 #   scripts/package.sh --no-build      package whatever is already built
 #   scripts/package.sh --out <dir>     where the zip goes (default: ~/Documents/dliveApp)
 #
-# There is no Developer ID certificate on this machine, so the app is signed
-# ad-hoc: it is a complete, valid signature (the Info.plist is bound and the
-# resources are sealed), it is simply not one Apple has vouched for. That is the
-# difference between macOS saying "unverified developer - open it anyway?" and
-# macOS saying "damaged - move to Trash", and the second one is what an
-# unsigned or linker-only-signed bundle gets. The tester still has to let it
-# through once; NOTES.txt beside the zip tells them how in two lines.
+# Two ways to sign, chosen by the environment:
 #
-# For a build anyone can double-click with no warning at all, the app needs a
-# "Developer ID Application" certificate and a trip through notarytool. That is
-# a real distribution step, not a testing one.
+#   DEVELOPER_ID    unset: the app is signed AD-HOC. A complete, valid signature (the Info.plist is
+#                   bound and the resources are sealed), just not one Apple has vouched for - the
+#                   difference between "unverified developer - open it anyway?" and "damaged - move
+#                   to Trash". The tester lets it through once; NOTES.txt tells them how.
+#
+#   DEVELOPER_ID    set: the "Developer ID Application: Name (TEAMID)" identity (its name or SHA-1,
+#                   from `security find-identity -v -p codesigning`). The app is signed with it,
+#                   with the hardened runtime, a secure timestamp and scripts/DLIVE.entitlements
+#                   (the microphone). Then, if NOTARY_PROFILE is also set, it is submitted to Apple
+#                   with notarytool, the ticket is stapled to the bundle, and the zip is made from
+#                   the stapled app - that build opens on any Mac with no warning at all.
+#   TEAM_ID         the ten-character team id (optional when DEVELOPER_ID names it in brackets).
+#   NOTARY_PROFILE  the notarytool keychain profile made once with
+#                       xcrun notarytool store-credentials "<profile>" --apple-id <id> --team-id <TEAM_ID>
+#                   (an app-specific password from appleid.apple.com). Unset: signed, not notarized,
+#                   and NOTES.txt says so.
+#
+# BUILD-RUN-SHARE.md has the whole story, and what to tell the tester in each case.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.local/bin:$PATH"          # cmake / ninja from uv tool
@@ -30,7 +39,7 @@ while [ $# -gt 0 ]; do
         --universal) UNIVERSAL=1 ;;
         --no-build)  BUILD=0 ;;
         --out)       shift; OUT_DIR="${1:?--out needs a directory}" ;;
-        -h|--help)   sed -n '2,9p' "$0"; exit 0 ;;
+        -h|--help)   sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -56,11 +65,24 @@ fi
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist" 2>/dev/null || echo 0.0.0)
 ARCHS=$(lipo -archs "$APP/Contents/MacOS/DLIVE")
+ENTITLEMENTS="$(pwd)/scripts/DLIVE.entitlements"
 
-# A complete ad-hoc signature over the whole bundle, replacing the partial one the linker
-# leaves behind. --force because the linker already put one there.
-codesign --force --deep --sign - --identifier com.dine.dlive "$APP"
-codesign --verify --deep --strict "$APP"
+DEVELOPER_ID="${DEVELOPER_ID:-}"
+TEAM_ID="${TEAM_ID:-}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+MODE=adhoc
+if [ -n "$DEVELOPER_ID" ]; then
+    MODE=signed
+    # Developer ID, hardened runtime, secure timestamp, entitlements: the four things notarization
+    # requires. Not --deep: Apple deprecated it for signing, and the bundle has no nested code -
+    # if it ever does, sign it inside-out here. --force because the linker already put a signature there.
+    codesign --force --sign "$DEVELOPER_ID" --options runtime --timestamp \
+             --entitlements "$ENTITLEMENTS" --identifier com.dine.dlive "$APP"
+else
+    # A complete ad-hoc signature over the whole bundle, replacing the partial one the linker leaves behind.
+    codesign --force --deep --sign - --identifier com.dine.dlive "$APP"
+fi
+codesign --verify --deep --strict --verbose=2 "$APP"
 
 mkdir -p "$OUT_DIR"
 STAMP=$(date +%Y%m%d)
@@ -69,9 +91,64 @@ rm -f "$ZIP"
 
 # ditto, not zip: an .app is full of symlinks and a plain zip flattens them, which is
 # itself a way to arrive as "damaged".
-ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+make_zip() { rm -f "$ZIP"; ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"; }
+make_zip
 
-cat > "$OUT_DIR/NOTES.txt" <<'NOTES'
+if [ "$MODE" = "signed" ] && [ -n "$NOTARY_PROFILE" ]; then
+    MODE=notarized
+    # Apple scans the zip, not the app; the ticket comes back for the bundle's signature, gets
+    # stapled INTO the bundle, and the zip is made again from the stapled app so what is sent
+    # opens offline on a Mac that has never heard of it.
+    team_args=()
+    [ -n "$TEAM_ID" ] && team_args=(--team-id "$TEAM_ID")
+    echo "notarizing $ZIP (this waits for Apple, usually a few minutes)..."
+    if ! xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" "${team_args[@]}" --wait; then
+        echo "notarization failed - the log has the reason:" >&2
+        echo "  xcrun notarytool log <submission-id> --keychain-profile \"$NOTARY_PROFILE\"" >&2
+        exit 1
+    fi
+    xcrun stapler staple "$APP"
+    xcrun stapler validate "$APP"
+    spctl --assess --type execute --verbose=2 "$APP"
+    make_zip
+fi
+
+case "$MODE" in
+    notarized) cat > "$OUT_DIR/NOTES.txt" <<'NOTES'
+DLIVE
+
+1. Unzip, drag DLIVE.app to Applications, open it. It is signed with a Developer ID and
+   notarized by Apple, so there is nothing to allow.
+
+2. It will ask for microphone access the first time it opens an audio device.
+   That is DLIVE reading the inputs of your interface or console; say yes or it
+   has nothing to mix. System Settings > Privacy & Security > Microphone if it
+   is ever refused by accident.
+
+Needs macOS 11 or later. Sessions are written to ~/Music/DLIVE/.
+No console? File > Import Multitrack Folder... turns a folder of stems into a
+session you can mix, tune and export.
+NOTES
+    ;;
+    signed) cat > "$OUT_DIR/NOTES.txt" <<'NOTES'
+DLIVE - signed build (not notarized)
+
+1. Unzip, drag DLIVE.app to Applications.
+2. The FIRST time only: right-click (or Control-click) the app and choose Open,
+   then Open again in the dialog. It is signed with a Developer ID but has not
+   been through Apple's notarization, so macOS wants to be told once.
+
+3. It will ask for microphone access the first time it opens an audio device.
+   That is DLIVE reading the inputs of your interface or console; say yes or it
+   has nothing to mix. System Settings > Privacy & Security > Microphone if it
+   is ever refused by accident.
+
+Needs macOS 11 or later. Sessions are written to ~/Music/DLIVE/.
+No console? File > Import Multitrack Folder... turns a folder of stems into a
+session you can mix, tune and export.
+NOTES
+    ;;
+    *) cat > "$OUT_DIR/NOTES.txt" <<'NOTES'
 DLIVE - test build
 
 1. Unzip, drag DLIVE.app to Applications.
@@ -93,8 +170,10 @@ Needs macOS 11 or later. Sessions are written to ~/Music/DLIVE/.
 No console? File > Import Multitrack Folder... turns a folder of stems into a
 session you can mix, tune and export.
 NOTES
+    ;;
+esac
 
 echo
 echo "  $ZIP"
-echo "  $(du -h "$ZIP" | cut -f1)  $ARCHS  version $VERSION"
+echo "  $(du -h "$ZIP" | cut -f1)  $ARCHS  version $VERSION  signed: $MODE"
 echo "  notes: $OUT_DIR/NOTES.txt"
