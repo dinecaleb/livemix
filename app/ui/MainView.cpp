@@ -51,37 +51,6 @@ private:
     bool refuse = false;
 };
 
-// ---------------------------------------------------------------- session button
-// The document title in the middle of the title row: the session's name and a chevron.
-class MainView::SessionButton : public juce::Button
-{
-public:
-    SessionButton() : juce::Button ("session") { setWantsKeyboardFocus (false); }
-    void set (const juce::String& n)
-    {
-        if (n == name) return;
-        name = n; repaint();
-    }
-    int idealWidth() const
-    {
-        return juce::jmin (420, Dine::textWidth (Dine::text (14.0f, 500), name) + 20 + 12 + 10);
-    }
-    void paintButton (juce::Graphics& g, bool over, bool down) override
-    {
-        if (over || down) Dine::fillRounded (g, getLocalBounds().toFloat(), Dine::card, Dine::Radius::chip);
-        auto r = getLocalBounds().reduced (10, 0);
-        const int w = juce::jmin (r.getWidth() - 16, Dine::textWidth (Dine::text (14.0f, 500), name));
-        auto block = r.withSizeKeepingCentre (w + 16, r.getHeight());
-        g.setColour (Dine::ink);
-        g.setFont (Dine::text (14.0f, 500));
-        g.drawText (name, block.removeFromLeft (w), juce::Justification::centredLeft, true);
-        block.removeFromLeft (7);
-        Dine::drawDropChevron (g, block.toFloat(), Dine::ink);
-    }
-private:
-    juce::String name;
-};
-
 // ---------------------------------------------------------------- toolbar toggle
 // BYPASS, LIVE SAFE ON / OFF and MIX BUDDY: the accent when on, the control plane when
 // not, tracked caps either way.
@@ -97,7 +66,18 @@ public:
 
     void setOn (bool o) { if (o != on) { on = o; repaint(); } }
     bool isOn() const noexcept { return on; }
-    void setSuffix (const juce::String& s) { if (s != suffix) { suffix = s; repaint(); } }
+    // A suffix changes the label's width ("TUNE LIVE MIX" grows a "STOP" while a live tune runs), so
+    // the row it sits in is laid out again; a repaint alone left the button at its widest after the
+    // tune ended, sitting over the counts beside it.
+    void setSuffix (const juce::String& s)
+    {
+        if (s == suffix) return;
+        const int was = idealWidth();
+        suffix = s;
+        repaint();
+        if (idealWidth() != was)
+            if (auto* parent = getParentComponent()) parent->resized();
+    }
     juce::String label() const { return suffix.isEmpty() ? getButtonText() : getButtonText() + " " + suffix; }
 
     int idealWidth() const { return Dine::textWidth (Dine::caps (fontPx, track), label()) + 24; }
@@ -221,6 +201,8 @@ public:
     void paint (juce::Graphics& g) override
     {
         Dine::drawStatusBand (g, getLocalBounds());
+        g.setColour (Dine::hair);
+        g.fillRect (getLocalBounds().removeFromTop (1));   // the seam over the status foot
         auto r = getLocalBounds().reduced (10, 0);
         cell (g, r, "Engine", look.engine, look.engineTint);
         cell (g, r, "CPU", look.cpu, look.cpuTint);
@@ -337,6 +319,8 @@ public:
         auto r = getLocalBounds();
         g.setColour (Dine::sidebar);
         g.fillRect (r);
+        g.setColour (Dine::hair);
+        g.fillRect (r.removeFromRight (1));   // the seam against the workspace
         if (collapsed) return;
         r.removeFromTop (kHeadH);   // the wordmark lives in the title row now, where it is always on screen
 
@@ -553,7 +537,7 @@ public:
                     m.addSubMenu ("Master Sound", sound);
                 }
                 m.addSeparator();
-                m.addItem (401, "Reset Macros");
+                m.addItem (401, "Centre Macro Pads");
                 m.addItem (402, view.controller.numSoloed() > 0
                                     ? "Clear Solo (" + juce::String (view.controller.numSoloed()) + ")"
                                     : juce::String ("Clear Solo"),
@@ -643,7 +627,6 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     advancedPage = std::make_unique<AdvancedPage> (controller);
     transportBar = std::make_unique<TransportBar> (controller, services);
     toast = std::make_unique<Toast>();
-    sessionButton = std::make_unique<SessionButton>();
     menu = std::make_unique<Menu> (*this);
 
     for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) devicePage.get(),
@@ -681,13 +664,16 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     addAndMakeVisible (*statusBar);
 
     // ---- title row
-    addAndMakeVisible (*sessionButton);
-    sessionButton->onClick = [this] { setupPopover(); };
-
     sidebarButton = std::make_unique<SidebarButton>();
     sidebarButton->setTooltip ("Show or hide the sidebar (Ctrl-Cmd-S)");
     sidebarButton->onClick = [this] { setSidebarShown (! sidebarShown); };
     addAndMakeVisible (*sidebarButton);
+
+    tuneLiveButton = std::make_unique<ToolbarToggle> ("TUNE LIVE MIX", 11.0f, 0.06f);
+    tuneLiveButton->setTooltip ("Start TUNE LIVE MIX from any workspace: DLIVE listens to the band, builds its mix and reasons "
+                                "about what this band still needs. The listen and the result open on TUNE. Press again to stop.");
+    tuneLiveButton->onClick = [this] { handleCommand (405); };
+    addChildComponent (*tuneLiveButton);
 
     chatButton = std::make_unique<ToolbarToggle> ("MIX BUDDY", 11.0f, 0.06f);
     chatButton->setTooltip ("Open or close Mix Buddy, DLIVE's mix engineer in plain words: ask for a change to the mix - "
@@ -917,20 +903,29 @@ void MainView::updateChrome()
         tabs[size_t (i)]->setEnabled (mixable);
     }
 
-    outputButton.setVisible (running || inWorkspace);
-    bypassButton->setVisible (inWorkspace && mixable);
+    // What is on the title row and the toolbar decides where everything else on them goes, so a
+    // button appearing or disappearing lays both rows out again (resized() skips a hidden one).
+    bool rowsChanged = false;
+    auto show = [&rowsChanged] (juce::Component& c, bool visible)
+    {
+        if (c.isVisible() == visible) return;
+        c.setVisible (visible);
+        rowsChanged = true;
+    };
+    show (outputButton, running || inWorkspace);
+    show (*bypassButton, inWorkspace && mixable);
     bypassButton->setOn (controller.isBypassed());
-    liveSafeButton->setVisible (inWorkspace && mixable);
+    show (*liveSafeButton, inWorkspace && mixable);
     liveSafeButton->setOn (project.liveSafe);
     liveSafeButton->setSuffix (project.liveSafe ? "ON" : "OFF");
-    chatButton->setVisible (mixable);
+    show (*chatButton, mixable);
     chatButton->setOn (chatSheet != nullptr);
-    transportBar->setVisible (inWorkspace);
-    chainFoot->setVisible (inWorkspace && mixable);
-
-    juce::String name = services.currentSessionName();
-    if (name.isEmpty()) name = "Untitled";
-    sessionButton->set (name);
+    show (*tuneLiveButton, mixable);
+    tuneLiveButton->setOn (controller.isTuningLive());
+    tuneLiveButton->setSuffix (controller.isTuningLive() ? juce::String ("  " + Glyph::dot() + "  STOP") : juce::String());
+    show (*transportBar, inWorkspace);
+    show (*chainFoot, inWorkspace && mixable);
+    if (rowsChanged) resized();
 
     const juce::String out = services.outputDisplayName();
     outputButton.setValue (out.isEmpty() ? "No output" : out);
@@ -1012,7 +1007,7 @@ void MainView::setupPopover()
     m.addItem (9, "Rename or fix the inputs" + juce::String (Glyph::ellip()));
     m.addItem (10, "Getting started");
 
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sessionButton.get())
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sidebarButton.get())
                                                .withMinimumWidth (300),
                      [this] (int r)
                      {
@@ -1040,7 +1035,7 @@ void MainView::setupPopover()
 
 juce::Rectangle<int> MainView::spotlight (const juce::String& what) const
 {
-    if (what == "session" && sessionButton != nullptr) return sessionButton->getBounds();
+    if (what == "session" && sidebarButton != nullptr) return sidebarButton->getBounds().expanded (6, 4);
     if (what == "transport" && transportBar != nullptr && transportBar->isVisible()) return transportBar->getBounds();
     if (what == "livesafe" && liveSafeButton != nullptr && liveSafeButton->isVisible()) return liveSafeButton->getBounds();
     if (what == "rail" && sidebar != nullptr && sidebar->isVisible()) return sidebar->getBounds();
@@ -1107,6 +1102,7 @@ bool MainView::panelShown (bool left) const
         return sidebarShown;
     }
     if (page == Page::Inspector) return advancedPage->isTrailShown();
+    if (page == Page::Tune) return mixPage->isSideShown();
     return true;
 }
 
@@ -1120,6 +1116,7 @@ void MainView::togglePanel (bool left)
         return;
     }
     if (page == Page::Inspector) { advancedPage->setTrailShown (! advancedPage->isTrailShown()); return; }
+    if (page == Page::Tune) mixPage->setSideShown (! mixPage->isSideShown());
 }
 
 // ---------------------------------------------------------------- bypass and the second console
@@ -1606,7 +1603,7 @@ void MainView::handleCommand (int id)
             showPage (Page::Tracks);
             tracksPage->moveSelectedTrack (id == 305 ? -1 : 1);
             break;
-        case 401: controller.resetMacros(); showToast ("Macros back to the plan."); break;
+        case 401: mixPage->centreMacroPads(); showToast ("Both pads and the ENERGY ribbon are back to the plan."); break;
         case 420: showToast (juce::String (controller.raiseLoudnessToTarget())); break;
         case 430: case 431: case 432: case 433: case 434: case 435: case 436:
             controller.setDelivery (DeliveryLoudness (id - 430));
@@ -1857,7 +1854,7 @@ void MainView::openSession()
     for (int i = 0; i < listed.size(); ++i)
         m.addItem (i + 1, listed[i].name + "   " + listed[i].modified.formatted ("%d %b"));
 
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sessionButton.get()).withMinimumWidth (280),
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sidebarButton.get()).withMinimumWidth (280),
                      [this, listed] (int result)
                      {
                          if (result <= 0 || result > listed.size()) return;
@@ -1998,12 +1995,21 @@ void MainView::paint (juce::Graphics& g)
         g.setFont (Dine::caps (13.0f, 0.16f));
         cell.removeFromLeft (26 + 14);
         g.drawText ("DLIVE", cell.removeFromLeft (kWordmarkW), juce::Justification::centredLeft);
-        if (chatButton->isVisible()) cell.removeFromRight (chatButton->getWidth() + 14);
+        // The counts end where the buttons begin - measured from where the buttons actually are,
+        // so the two can never be drawn over each other whatever widened one of them.
+        for (juce::Component* button : { static_cast<juce::Component*> (chatButton.get()), static_cast<juce::Component*> (tuneLiveButton.get()) })
+            if (button->isVisible()) cell.setRight (juce::jmin (cell.getRight(), button->getX() - 14));
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
         g.drawText (counts, cell, juce::Justification::centredRight, true);
     }
-    Dine::drawChrome (g, top.removeFromTop (Dine::Metric::toolbar));
+    auto toolbarRow = top.removeFromTop (Dine::Metric::toolbar);
+    Dine::drawChrome (g, toolbarRow);
+    // The seams: one hairline under the title row and one under the toolbar, so the three
+    // planes of the chrome read as three rather than as one tall grey band.
+    g.setColour (Dine::hair);
+    g.fillRect (titleRow.removeFromBottom (1));
+    g.fillRect (toolbarRow.removeFromBottom (1));
 }
 
 void MainView::resized()
@@ -2017,25 +2023,39 @@ void MainView::resized()
         const int w = chatButton->idealWidth();
         chatButton->setBounds (titleRight.removeFromRight (w).withSizeKeepingCentre (w, 26));
     }
+    if (tuneLiveButton->isVisible())
     {
-        const int w = juce::jmin (sessionButton->idealWidth(), juce::jmax (80, getWidth() - 520));
-        sessionButton->setBounds (juce::Rectangle<int> (getWidth() / 2 - w / 2, titleRow.getY(), w, titleRow.getHeight())
-                                      .withSizeKeepingCentre (w, 28));
+        titleRight.removeFromRight (10);
+        const int w = tuneLiveButton->idealWidth();
+        tuneLiveButton->setBounds (titleRight.removeFromRight (w).withSizeKeepingCentre (w, 26));
+    }
+    {
+        // The five workspace tabs, centred in the title row between the wordmark and the counts.
+        // They give way to the wordmark on the left and to the counts and the buttons on the right.
+        int widths[kWorkspaceTabs], total = 0;
+        for (int i = 0; i < kWorkspaceTabs; ++i) { widths[i] = tabs[size_t (i)]->idealWidth(); total += widths[i]; }
+        const int gap = 18;
+        total += gap * (kWorkspaceTabs - 1);
+        const int leftEdge = titleRow.getX() + 14 + kWordmarkW + 16;
+        const int rightEdge = titleRight.getRight() - kCountsW - 16;
+        const int x = juce::jlimit (leftEdge, juce::jmax (leftEdge, rightEdge - total), getWidth() / 2 - total / 2);
+        auto row = juce::Rectangle<int> (x, titleRow.getY(), total, titleRow.getHeight()).withSizeKeepingCentre (total, 30);
+        for (int i = 0; i < kWorkspaceTabs; ++i)
+        {
+            tabs[size_t (i)]->setBounds (row.removeFromLeft (widths[i]));
+            row.removeFromLeft (gap);
+        }
     }
 
-    // ---- the toolbar: the right cluster, the transport, then the tabs in the middle
+    // ---- the toolbar: the right cluster, then the transport centred in what is left
     auto bar = getLocalBounds().withTrimmedTop (Dine::Metric::titleRow).removeFromTop (Dine::Metric::toolbar).reduced (18, 0);
     auto right = bar;
-    // What the tabs need, so the right cluster can give way before they overlap it.
-    int tabsNeed = 0;
-    for (int i = 0; i < kWorkspaceTabs; ++i) tabsNeed += tabs[size_t (i)]->idealWidth();
-    tabsNeed += 18 * (kWorkspaceTabs - 1);
-    const int transportNeed = transportBar->isVisible() ? transportBar->keysOnlyWidth() + 16 : 0;
+    const int transportNeed = transportBar->isVisible() ? transportBar->idealWidth() + 16 : 0;
     const int clusterNeed = (bypassButton->isVisible() ? bypassButton->idealWidth() + 16 : 0)
                           + (liveSafeButton->isVisible() ? liveSafeButton->idealWidth() + 10 : 0);
     if (outputButton.isVisible())
     {
-        const int room = bar.getWidth() - transportNeed - tabsNeed - clusterNeed - 24;
+        const int room = bar.getWidth() - transportNeed - clusterNeed - 24;
         const int w = juce::jlimit (60, 220, juce::jmin (outputButton.idealWidth(), room));
         outputButton.setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
         right.removeFromRight (10);
@@ -2053,25 +2073,13 @@ void MainView::resized()
         right.removeFromRight (16);
     }
     auto left = bar.withRight (right.getRight());
-    int transportW = 0;
     if (transportBar->isVisible())
     {
-        transportW = juce::jmin (transportBar->idealWidth(), juce::jmax (transportBar->keysOnlyWidth(), left.getWidth() / 2 - 60));
-        transportBar->setBounds (left.removeFromLeft (transportW).withSizeKeepingCentre (transportW, TransportBar::height));
-        left.removeFromLeft (16);
-    }
-    {
-        int widths[kWorkspaceTabs], total = 0;
-        for (int i = 0; i < kWorkspaceTabs; ++i) { widths[i] = tabs[size_t (i)]->idealWidth(); total += widths[i]; }
-        const int gap = 18;
-        total += gap * (kWorkspaceTabs - 1);
-        int x = juce::jlimit (left.getX(), juce::jmax (left.getX(), left.getRight() - total), getWidth() / 2 - total / 2);
-        auto row = juce::Rectangle<int> (x, bar.getY(), total, bar.getHeight()).withSizeKeepingCentre (total, 30);
-        for (int i = 0; i < kWorkspaceTabs; ++i)
-        {
-            tabs[size_t (i)]->setBounds (row.removeFromLeft (widths[i]));
-            row.removeFromLeft (gap);
-        }
+        // The playback controls sit in the middle of the toolbar, where the tabs used to be, and
+        // slide left rather than under the right cluster when the window is narrow.
+        const int w = juce::jmin (transportBar->idealWidth(), juce::jmax (transportBar->keysOnlyWidth(), left.getWidth() - 16));
+        const int x = juce::jlimit (left.getX(), juce::jmax (left.getX(), left.getRight() - w), getWidth() / 2 - w / 2);
+        transportBar->setBounds (juce::Rectangle<int> (x, bar.getY(), w, bar.getHeight()).withSizeKeepingCentre (w, TransportBar::height));
     }
 
     // ---- the body

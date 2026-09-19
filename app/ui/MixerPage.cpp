@@ -143,7 +143,8 @@ public:
         {
             if (updating) return;
             const float db = float (fader.getValue());
-            if (kind == Kind::Channel) controller.setStripFader (strip, db);
+            // A linked fader takes its partners with it; Cmd-drag moves this one alone.
+            if (kind == Kind::Channel) controller.setStripFader (strip, db, ! juce::ModifierKeys::getCurrentModifiers().isCommandDown());
             else controller.setBusFader (bus, db);
             levelText = db1 (db);
             repaint (layout == Layout::Column ? col.level : valueRect);
@@ -275,6 +276,7 @@ public:
             muted = st.mute;
             soloed = st.solo;
             channel = &st.channel;
+            linkNow = st.linkGroup;
             const auto& m = controller.getEngine().getStrip (strip).getOutputMeter();
             peak = m.consumeMaxPeakDb();
             hold = m.getMaxRmsDb();
@@ -312,6 +314,14 @@ public:
             levels = true;
         }
         if (muted != mute || soloed != solo) { mute = muted; solo = soloed; body = true; }
+        if (linkNow != link)
+        {
+            link = linkNow;
+            fader.setTooltip (link != 0 ? "Level. Linked with " + juce::String (controller.linkedNames (strip))
+                                              + ": they move and solo together. Cmd-drag to move this one alone. Double-click for 0.0 dB."
+                                        : juce::String ("Level. Double-click for 0.0 dB."));
+            body = true;
+        }
         muteButton.setOn (mute);
         soloButton.setOn (solo);
         if (bypassed != controller.isBypassed())
@@ -416,6 +426,12 @@ public:
             g.setColour (tint().withAlpha (mute ? 0.4f : 1.0f));
             g.fillRect (r.removeFromTop (selected ? 5 : 3));
         }
+        else
+        {
+            // The master is pinned beside the scrolling bank: a seam down its left edge says so.
+            g.setColour (Dine::hair);
+            g.fillRect (r.removeFromLeft (1));
+        }
 
         // ---- the number and the name
         if (kind == Kind::Master)
@@ -443,6 +459,8 @@ public:
                 g.setColour (Dine::ink3);
                 g.fillRect (head.getX(), head.getCentreY(), head.getWidth(), 1);
             }
+            // Linked faders: the mark at the right end of the name row, in the accent.
+            if (link != 0) Dine::drawLinkGlyph (g, col.name.removeFromRight (18).toFloat().reduced (2.0f, 0.0f), Dine::accent);
         }
 
         // ---- gain staging: every strip that can have it, always in its slot
@@ -558,6 +576,12 @@ public:
         g.drawText (numberText, inner.removeFromLeft (24), juce::Justification::centredLeft);
         inner.removeFromLeft (12);
         auto nameCell = inner.removeFromLeft (132);
+        if (link != 0)
+        {
+            // The link mark right after the name, where the eye already is.
+            const int nameW = juce::jmin (nameCell.getWidth() - 22, Dine::textWidth (Dine::text (12.5f, selected ? 600 : 500), name));
+            Dine::drawLinkGlyph (g, nameCell.withTrimmedLeft (nameW + 6).removeFromLeft (16).toFloat(), Dine::accent);
+        }
         g.setColour (mute ? Dine::ink3 : Dine::ink);
         g.setFont (Dine::text (12.5f, selected ? 600 : 500));
         g.drawText (name, nameCell, juce::Justification::centredLeft, true);
@@ -796,6 +820,24 @@ public:
             m.addItem (5, "Monitoring: Auto");
             m.addItem (6, "Monitoring: Off");
             m.addSeparator();
+            // Linked faders: pick the channels this one should move with. A member already in
+            // the group is ticked, and choosing it again takes it out.
+            const int group = controller.getStripLink (strip);
+            juce::PopupMenu link;
+            const auto& inputs = controller.getSession().inputs;
+            const int count = juce::jmin (controller.getKept().numStrips, int (inputs.size()));
+            for (int i = 0; i < count; ++i)
+            {
+                if (i == strip) continue;
+                const int g = controller.getStripLink (i);
+                const bool together = group != 0 && g == group;
+                link.addItem (300 + i, juce::String (i + 1).paddedLeft ('0', 2) + "  " + juce::String (inputs[size_t (i)].name)
+                                           + (g != 0 && ! together ? "   (linked elsewhere)" : juce::String()), true, together);
+            }
+            m.addSubMenu (group != 0 ? "Linked faders  " + juce::String (Glyph::dot()) + "  " + juce::String (controller.linkedNames (strip))
+                                     : juce::String ("Link fader with"), link, count > 1);
+            if (group != 0) m.addItem (9, "Unlink this fader");
+            m.addSeparator();
             m.addItem (7, "Fix the assignments" + juce::String (Glyph::ellip()), assign != nullptr);
         }
         else
@@ -809,8 +851,17 @@ public:
                          {
                              if (safe == nullptr || chosen <= 0) return;
                              auto& s = *safe;
+                             if (chosen >= 300)
+                             {
+                                 const int other = chosen - 300;
+                                 const int group = s.controller.getStripLink (s.strip);
+                                 if (group != 0 && s.controller.getStripLink (other) == group) s.controller.unlinkStrip (other);
+                                 else s.controller.linkStrips ({ s.strip, other });
+                                 return;
+                             }
                              switch (chosen)
                              {
+                                 case 9: s.controller.unlinkStrip (s.strip); break;
                                  case 1: if (s.tune) s.tune(); break;
                                  case 2: if (s.open) s.open(); break;
                                  case 3: s.armButton.triggerClick(); break;
@@ -851,6 +902,7 @@ public:
     juce::String integratedText { Glyph::dash() }, shortTermText { Glyph::dash() }, truePeakText { Glyph::dash() },
                  grText { Glyph::dash() }, targetText { "-23.0" };
     bool truePeakOver = false, limiterHot = false;
+    int link = 0, linkNow = 0;            // StripParameters::linkGroup, as last drawn / as read this tick
     float peakDb = -120.0f, shownFaderDb = 1000.0f;
     juce::Rectangle<int> valueRect, panReadRect;
     Col col;

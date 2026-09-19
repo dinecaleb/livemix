@@ -6,6 +6,7 @@
 #include <vector>
 #include "AppServices.h"
 #include "AppTheme.h"
+#include "MacroPad.h"
 #include "UI/Widgets.h"
 #include "Mix/MixMacros.h"
 
@@ -14,9 +15,12 @@ namespace livemix
 
 class ReferenceSheet;
 
-// TUNE: the mix's health and the verbs that build it, the group buses with their faders and
-// meters, the five macros, and every input on a rail down the left. While DLIVE listens, and
-// again when the plan is ready, a sheet drops over the workspace.
+// TUNE, in three columns: every input on a rail down the left; the group buses with their
+// faders and meters, the master's loudness row and the two macro pads in the middle - sized
+// so nothing there ever scrolls; and down the right a panel of its own with the verbs
+// (TUNE MIX, TUNE LIVE MIX, Reference, Mix Buddy, Undo / Redo), a card saying what the pad
+// under the pointer does, and MIX HEALTH. While DLIVE listens, and again when the plan is
+// ready, a sheet drops over the workspace.
 class MixPage : public juce::Component
 {
 public:
@@ -36,6 +40,8 @@ public:
     bool isRailShown() const noexcept { return railShown; }
     void setRailAvailable (bool);
     bool isRailAvailable() const noexcept { return railAvailable; }
+    void setSideShown (bool);          // the right panel: the verbs, the pad card, MIX HEALTH
+    bool isSideShown() const noexcept { return sideShown; }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -44,32 +50,44 @@ public:
     void pressTune();
     void pressLiveTune();
     void setMacroValue (MixMacro m, float v);
+    void centreMacroPads();            // both pads and the ribbon back to the plan, eased
+
+    static constexpr int kSideW = 296;
 
 private:
     class GroupTile;
-    class MacroSlider;
     class ListenSheet;
     class ResultSheet;
     class InputRow;
+    class SidePanel;
 
     struct Layout
     {
-        juce::Rectangle<int> health, actions, groupsCaption, groups, master, macrosCaption, macros, rail, railTab;
+        juce::Rectangle<int> groupsCaption, groups, master, macrosCaption, ribbon, rail, railTab, side, sideTab;
+        std::array<juce::Rectangle<int>, 2> pads;
+        int padSize = MacroPad::kMinPad;
+        bool compact = false;
     };
     Layout layout() const;
     int railWidth() const noexcept
     {
         return ! railAvailable ? 0 : railShown ? Dine::Metric::tuneRail : Dine::Metric::panelTab;
     }
+    int sideWidth() const noexcept { return sideShown ? kSideW : Dine::Metric::panelTab; }
     void refreshTuneButton();
     void refreshMaster();              // the loudness readout and the two pickers, a few times a second
     void rebuildRail();
     void selectRow (int strip);
+    void syncMacros();                 // the pads and the ribbon read the controller
+    void updateSide();                 // the pad card's words follow the pads
+    void layoutSide();                 // the panel's content height, for its own scroll
 
     MixController& controller;
     // One tile per group bus, then the FX returns: DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE FX.
     std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 1> groups;
-    std::array<std::unique_ptr<MacroSlider>, int (MixMacro::Count)> macros;
+    // BODY x VOICE (bass across, vocals up) and DRIVE x ROOM (space across, drums up), then ENERGY on a ribbon.
+    std::array<std::unique_ptr<MacroPad>, 2> pads;
+    std::unique_ptr<MacroRibbon> ribbon;
     std::unique_ptr<ListenSheet> listenSheet;
     std::unique_ptr<ResultSheet> resultSheet;
     std::unique_ptr<ReferenceSheet> referenceSheet;
@@ -78,6 +96,10 @@ private:
     juce::Component railHolder;
     std::unique_ptr<DinePanelTab> railTab;
     bool railShown = true, railAvailable = true;
+    std::unique_ptr<SidePanel> side;
+    juce::Viewport sideView;
+    std::unique_ptr<DinePanelTab> sideTab;
+    bool sideShown = true;
     DineButton tuneButton { "TUNE MIX", DineButton::Style::Filled };
     DineButton liveTuneButton { "TUNE LIVE MIX", DineButton::Style::Standard };
     DineButton referenceButton { "Reference", DineButton::Style::Standard };
@@ -85,7 +107,7 @@ private:
     DineButton undoButton { "Undo mix", DineButton::Style::Standard };
     DineButton redoButton { "Redo mix", DineButton::Style::Standard };
     DineButton advancedButton { "Open the Inspector", DineButton::Style::Ghost };
-    DineButton resetMacrosButton { "Reset macros", DineButton::Style::Ghost };
+    DineButton resetMacrosButton { "Centre both pads", DineButton::Style::Ghost };
     // MASTER: how loud the finished mix should be, one press to get there, and who it is for.
     DinePopup loudnessTargetButton;
     DineButton raiseButton { "Raise loudness to target", DineButton::Style::Standard };
@@ -100,12 +122,12 @@ private:
         MixController::Stage stage = MixController::Stage::Setup;
         int tunes = -1;
         bool hasReference = false, canUndo = false, canRedo = false;
-        juce::String referenceName, masterNote;
+        juce::String referenceName, masterNote, padCard;
         bool operator== (const PageLook& o) const
         {
             return status == o.status && notes == o.notes && health == o.health && stage == o.stage && tunes == o.tunes
                 && hasReference == o.hasReference && referenceName == o.referenceName && canUndo == o.canUndo && canRedo == o.canRedo
-                && masterNote == o.masterNote;
+                && masterNote == o.masterNote && padCard == o.padCard;
         }
         bool operator!= (const PageLook& o) const { return ! (*this == o); }
     };

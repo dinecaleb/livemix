@@ -542,6 +542,10 @@ int main (int argc, char** argv)
     rig.dawEngine.locate (juce::int64 (2.4 * kSr));
     rig.feed (1.5);
     rig.snap (dir, "06-tracks");
+    rig.controller.linkStrips ({ 9, 10, 11 });
+    rig.feed (0.3);
+    rig.snap (dir, "06f-tracks-linked");
+    rig.controller.unlinkStrip (9); rig.controller.unlinkStrip (10);
 
     view.getTracksPage().setRowHeight (TracksPage::RowHeight::Small);
     rig.feed (0.3);
@@ -738,6 +742,13 @@ int main (int argc, char** argv)
     rig.snap (dir, "15g-mixer-mute-solo");
     rig.controller.setStripMute (2, false);
     rig.controller.setStripSolo (10, false);
+    // Linked faders: the three backing vocals move together, and the console says so beside their names.
+    rig.controller.linkStrips ({ 9, 10, 11 });
+    rig.controller.setStripFader (9, -4.0f);
+    view.getMixerPage().setView (MixerPage::View::List);
+    rig.feed (0.3);
+    rig.snap (dir, "15h-mixer-linked");
+    view.getMixerPage().setView (MixerPage::View::Strips);
     rig.feed (0.3);
     view.setBypass (true);
     rig.feed (0.3);
@@ -775,6 +786,13 @@ int main (int argc, char** argv)
     view.getMixPage().setMacroValue (MixMacro::Drums, 30.0f);
     rig.feed (0.5);
     rig.snap (dir, "16-tune-macros");
+    // The same pads under LIVE SAFE: each macro fenced to the plan's neighbourhood, the fence hatched.
+    rig.dawEngine.setLiveSafe (true);
+    view.getMixPage().setMacroValue (MixMacro::Bass, 62.0f);
+    rig.feed (0.5);
+    rig.snap (dir, "16c-tune-macros-live-safe");
+    rig.dawEngine.setLiveSafe (false);
+    rig.feed (0.3);
 
     view.showPage (MainView::Page::Live);
     rig.feed (0.5);

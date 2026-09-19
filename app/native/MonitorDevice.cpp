@@ -52,9 +52,9 @@ namespace
         return fromCF (value);
     }
 
-    int outputChannelCount (AudioObjectID device)
+    int channelCount (AudioObjectID device, AudioObjectPropertyScope scope)
     {
-        auto addr = address (kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeOutput);
+        auto addr = address (kAudioDevicePropertyStreamConfiguration, scope);
         UInt32 size = 0;
         if (AudioObjectGetPropertyDataSize (device, &addr, 0, nullptr, &size) != noErr || size == 0) return 0;
         juce::HeapBlock<char> raw;
@@ -65,6 +65,8 @@ namespace
         for (UInt32 i = 0; i < list->mNumberBuffers; ++i) channels += int (list->mBuffers[i].mNumberChannels);
         return channels;
     }
+    int outputChannelCount (AudioObjectID device) { return channelCount (device, kAudioObjectPropertyScopeOutput); }
+    int inputChannelCount (AudioObjectID device)  { return channelCount (device, kAudioObjectPropertyScopeInput); }
 
     bool isAggregateDevice (AudioObjectID device)
     {
@@ -136,7 +138,7 @@ bool available()
 #endif
 }
 
-juce::Array<Device> outputDevices()
+juce::Array<Device> allDevices()
 {
     juce::Array<Device> out;
 #if JUCE_MAC
@@ -144,7 +146,8 @@ juce::Array<Device> outputDevices()
     {
         Device d;
         d.outputChannels = outputChannelCount (id);
-        if (d.outputChannels <= 0) continue;           // an input-only device is not a destination
+        d.inputChannels = inputChannelCount (id);
+        if (d.outputChannels <= 0 && d.inputChannels <= 0) continue;
         d.name = deviceStringProperty (id, kAudioObjectPropertyName);
         d.uid = deviceStringProperty (id, kAudioDevicePropertyDeviceUID);
         d.isAggregate = isAggregateDevice (id);
@@ -154,6 +157,22 @@ juce::Array<Device> outputDevices()
     }
 #endif
     return out;
+}
+
+juce::Array<Device> outputDevices()
+{
+    juce::Array<Device> out;
+    for (const auto& d : allDevices())
+        if (d.outputChannels > 0) out.add (d);      // an input-only device is not a destination
+    return out;
+}
+
+Device findDevice (const juce::String& name)
+{
+    if (name.isNotEmpty())
+        for (const auto& d : allDevices())
+            if (d.name == name) return d;
+    return {};
 }
 
 bool dliveDeviceExists()
@@ -177,14 +196,14 @@ Suggestion suggest (const juce::String& currentOutputDeviceName)
     return suggestFrom (outputDevices(), currentOutputDeviceName);
 }
 
-Result combine (const Device& broadcast, const Device& headphones)
+Result combine (const Device& broadcast, const Device& headphones, const Device* input)
 {
     Result r;
 #if JUCE_MAC
     const AudioObjectID plugIn = coreAudioPlugIn();
     if (plugIn == kAudioObjectUnknown) { r.error = "This Mac will not let DLIVE build a combined output device."; return r; }
-    if (broadcast.uid.isEmpty() || headphones.uid.isEmpty()) { r.error = "Those devices could not be identified."; return r; }
-    if (broadcast.uid == headphones.uid) { r.error = "The broadcast and the headphones have to be two different devices."; return r; }
+    const Layout layout = layoutFor (broadcast, headphones, input);
+    if (layout.problem.isNotEmpty()) { r.error = layout.problem; return r; }
 
     // Replace the one from last time rather than adding another. A device the *user* built is
     // never touched - only ours carries our UID.
@@ -223,16 +242,17 @@ Result combine (const Device& broadcast, const Device& headphones)
     CFDictionarySetValue (description, CFSTR (kAudioAggregateDeviceIsStackedKey), stackedRef);
     CFRelease (stackedRef);
 
-    auto* subDevices = CFArrayCreateMutable (kCFAllocatorDefault, 2, &kCFTypeArrayCallBacks);
+    // In the layout's order, because that order is the channel order (see Layout). The master runs
+    // on its own clock; every other piece is drift-corrected onto it. Dante and a USB interface do
+    // not share a clock, and without this the monitor ticks every few seconds.
+    auto* subDevices = CFArrayCreateMutable (kCFAllocatorDefault, layout.pieces.size(), &kCFTypeArrayCallBacks);
     CFHold holdSubs (subDevices);
-    // The master runs on its own clock; the other one is drift-corrected onto it. Dante and a
-    // USB interface do not share a clock, and without this the monitor ticks every few seconds.
-    auto* first = subDevice (broadcast.uid, false);
-    CFArrayAppendValue (subDevices, first);
-    CFRelease (first);
-    auto* second = subDevice (headphones.uid, true);
-    CFArrayAppendValue (subDevices, second);
-    CFRelease (second);
+    for (const auto& piece : layout.pieces)
+    {
+        auto* sub = subDevice (piece.uid, piece.uid != broadcast.uid);
+        CFArrayAppendValue (subDevices, sub);
+        CFRelease (sub);
+    }
     CFDictionarySetValue (description, CFSTR (kAudioAggregateDeviceSubDeviceListKey), subDevices);
 
     AudioObjectID created = kAudioObjectUnknown;
@@ -247,22 +267,28 @@ Result combine (const Device& broadcast, const Device& headphones)
         return r;
     }
 
-    // CoreAudio decides the channel order from the sub-device list, so the layout is read back
-    // from the device that now exists rather than assumed: the broadcast is at the start and
-    // the headphones follow it.
+    // CoreAudio lays the channels out in the order of the sub-device list, which is the layout's
+    // order. A device that came back smaller than the layout expected means a piece did not offer
+    // everything it advertised; the pairs are checked against the device that now exists so they
+    // can never point past its end.
     r.ok = true;
     r.deviceName = deviceStringProperty (created, kAudioObjectPropertyName);
     if (r.deviceName.isEmpty()) r.deviceName = kDliveName;
-    r.broadcastChannel = 0;
-    r.headphoneChannel = juce::jmax (2, broadcast.outputChannels);
-    // A device that came back smaller than expected means the broadcast device did not offer
-    // everything it advertised; the headphone pair is clamped so it can never point past the end.
+    r.broadcastChannel = layout.broadcastChannel;
+    r.headphoneChannel = layout.headphoneChannel;
+    r.carriesInput = layout.carriesInput;
     const int total = outputChannelCount (created);
-    if (total > 0 && r.headphoneChannel + 1 >= total) r.headphoneChannel = juce::jmax (0, total - 2);
+    if (total > 0 && (r.headphoneChannel + 1 >= total || r.broadcastChannel + 1 >= total))
+    {
+        removeDliveDevice();
+        r.ok = false;
+        r.error = "The combined device came back with only " + juce::String (total) + " outputs, so there is no separate pair for solo.";
+        return r;
+    }
 
     r.summary = "Your headphones are on " + headphones.name + ". Solo goes there; the stream never changes.";
 #else
-    juce::ignoreUnused (broadcast, headphones);
+    juce::ignoreUnused (broadcast, headphones, input);
     r.error = "Combined output devices are a macOS feature.";
 #endif
     return r;

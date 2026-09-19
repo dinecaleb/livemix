@@ -122,7 +122,7 @@ private:
     // The level meter down the right edge of a header, so only it is repainted when only it
     // moved - a 24-channel timeline redrawn whole at 30 Hz is what made DLIVE feel slow.
     juce::Rectangle<int> meterCell (int track) const;
-    void dragFader (int track, int x, bool fine);
+    void dragFader (int track, int x, bool fine, bool alone = false);   // alone: Cmd held, the link is left out
     bool compactHeader (int track) const;
     // The grab zone for the panel / timeline divider.
     bool onDivider (juce::Point<int>) const;

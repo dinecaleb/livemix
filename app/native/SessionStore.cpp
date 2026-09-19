@@ -70,6 +70,7 @@ namespace
             so->setProperty ("pan", s.pan);
             so->setProperty ("mute", s.mute);
             so->setProperty ("solo", s.solo);
+            if (s.linkGroup != 0) so->setProperty ("linkGroup", s.linkGroup);   // linked faders; absent = not linked
             juce::Array<juce::var> sends;
             for (float db : s.sendDb) sends.add (db);
             so->setProperty ("sendDb", sends);
@@ -158,6 +159,7 @@ namespace
                 s.pan = float (double (so->getProperty ("pan")));
                 s.mute = bool (so->getProperty ("mute"));
                 s.solo = bool (so->getProperty ("solo"));
+                s.linkGroup = so->hasProperty ("linkGroup") ? juce::jmax (0, int (so->getProperty ("linkGroup"))) : 0;
                 if (auto* sends = so->getProperty ("sendDb").getArray())
                     for (int f = 0; f < std::min (int (FxSlot::Count), sends->size()); ++f) s.sendDb[size_t (f)] = float (double (sends->getReference (f)));
             }
@@ -364,6 +366,7 @@ juce::var toVar (const Document& d)
     if (d.trackPanelWidth > 0) obj->setProperty ("trackPanelWidth", d.trackPanelWidth);
     obj->setProperty ("inputDevice", d.inputDevice);
     obj->setProperty ("outputDevice", d.outputDevice);
+    if (d.soloDevice.isNotEmpty()) obj->setProperty ("soloDevice", d.soloDevice);
     juce::Array<juce::var> inputs;
     for (const auto& in : d.session.inputs)
     {
@@ -429,6 +432,7 @@ bool fromVar (const juce::var& v, Document& d)
     d.trackPanelWidth = int (obj->getProperty ("trackPanelWidth"));
     d.inputDevice = obj->getProperty ("inputDevice").toString();
     d.outputDevice = obj->getProperty ("outputDevice").toString();
+    d.soloDevice = obj->getProperty ("soloDevice").toString();
     if (auto* inputs = obj->getProperty ("inputs").getArray())
         for (const auto& iv : *inputs)
         {

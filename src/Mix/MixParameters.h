@@ -19,6 +19,13 @@ struct StripParameters
     bool mute = false;
     bool solo = false;
     std::array<float, int (FxSlot::Count)> sendDb {};   // post-fader send level; kSilenceDb = no send
+    // Linked faders: every strip with the same non-zero group moves with this one. A link is
+    // relative - a move is the same number of dB on every member, so the balance between a
+    // pair of overheads or the choir's four microphones is kept whichever one is held. It is
+    // part of the kept mix (saved, carried across a rearrangement with the rest of the strip)
+    // and it is about level and solo: mute, pan and the chain are never linked. The engine
+    // ignores it; MixController::setStripFader / setStripSolo are where a linked move is made.
+    int linkGroup = 0;
 
     StripParameters() { sendDb.fill (kSilenceDb); }
 };

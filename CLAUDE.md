@@ -132,6 +132,42 @@
   "Everyone hears it", "In the mix" / "On its own", "My headphones". The engineer's terms
   (monitor bus, solo in place, AFL, PFL, aggregate device) survive once each, in tooltips -
   the same plain-language-on-the-surface rule the rest of the app follows.
+- **SOLO ON A SECOND DEVICE, WITH DANTE (2026-09-18, the QUEENSVIEW session).** Broadcast on Dante Virtual Soundcard
+  and solo on a Scarlett went silent. Two causes, both in the machinery under the two pickers: the built device put
+  the Scarlett's pair *after* sixty-four Dante outputs (channel 64-65) and `AudioHost` opened the first `kMaxOutputs`
+  (16) channels, so the solo pair was never open; and the console was opened twice - as the input device, and again
+  inside the built device for its outputs - glued together by JUCE's own `AudioIODeviceCombiner`. Now
+  `MonitorDevice::layoutFor (broadcast, headphones, input)` (JUCE-core, `MonitorDevicePick.cpp`, tested in
+  `DawTests`) decides the pieces of the built device in channel order - **the console's input device first** so
+  channel 1 stays channel 1, then the broadcast, then the headphones, each once - and `combine` builds exactly that
+  and reports `carriesInput`; the host then opens the built device **once, for both directions**, with
+  `MonitorDevice::outputChannelsToOpen` choosing the pairs (the solo pair always, as much of the broadcast device as
+  fits beside it) passed to `AudioHost::open (..., outputChannels)`. The engine and the feeds address the *open*
+  channels packed in device order (`slotForOutputChannel`, and `getOutputChannelNames()` lists them the same way),
+  so a pair at 64-65 is slot 14-15 and never falls off the engine. `HostServices::consoleInput()` is the console's
+  device while the built one carries it; nothing outside `Main.cpp` ever sees "DLIVE Monitoring" as an input. The
+  session stores `inputDevice` / `outputDevice` as the devices the user chose plus `soloDevice`, and
+  `restoreSolo` rebuilds the pairing on opening, so a Mac that lost the built device comes back right. A failed
+  join waits for the console device to be republished before reopening it and says if that failed too, instead
+  of leaving the desk silent.
+- **WHAT A MICROPHONE HEARS BETWEEN THE SOUNDS (2026-09-18, from the QUEENSVIEW recording).** Three balance faults
+  found on a real 21-input service, all in `MixPlanner` / the analysis, all with the numbers in `MixProfileData`:
+  (1) a vocal microphone nobody was really singing into (active -43 dBFS, floor -48) was lifted 30 dB to reach the
+  vocal level and became the loudest cymbals in the mix. `Rules::spillBelowTargetDb` (16): a voice or a close drum
+  microphone (`isSpillProneMic`) is lifted (gain + fader, absolute) only until its between-the-sounds floor would
+  land that far under its mix level; only ever a limit on a lift; the strip is `spillLimited`, says "mostly hears
+  the stage", and is never the lead the rest of the band follows down. Keys, pads, DIs, overheads and room
+  microphones are exempt: the floor of a held chord is the chord. (2) `AnalysisResult::musicalPeakDb` was capped
+  12 dB over the 95th-percentile *frame* level, which on a sparse close mic (a snare on the backbeat) is the decay
+  tails - so every real hit looked like an isolated click and the gain staging drove the snare's chain input to
+  +3 dBFS. The detected events (`eventLevelDb`, `kSpikeEventsMin` 8) now set the cap too. (3) the close-mic budget
+  `maxCloseMicRaiseDb` counted only a positive gain, so a hot hi-hat pulled down 12 dB could not get its fader back:
+  it now counts the net lift (gain + fader) whichever way the gain went. Also the master's loudness move per Tune is
+  bounded at 18 dB (was 12): a live sum at -22 LUFS asked for a -14 stream is a 15 dB move, and stopping short left
+  RE-TUNE with something to say. Measured on four 40 s windows of the recording: the vocal spill mics went from
+  +30/+37 dB to +14/+18, the snare's gain from +13 to 0, and the toms from a 5 dB spread to 1 dB. The recording is
+  `~/Music/DLIVE/QUEEENSVIEW WIRED/Audio Files` (take `_002`, 534 s, 21 inputs; symlink the files under role names
+  for `dlive_mix_stems`, windows at 30 / 120 / 200 / 300 s).
 - **LIVE SAFE is a policy, not a tooltip** (`src/Mix/LiveSafe.h`), enforced in `MixController` rather than in a menu
   handler - a guard in `MainView` only covers the menu, and the AI, the chat, a macro and a keyboard shortcut all
   reach the mix without passing one. It never locks the emergency controls (mute, solo, the monitor, the transport,
@@ -220,6 +256,45 @@
   (`Look` / `PageLook` / `InspectorLook`) and repaints only when that changed; TRACKS repaints the meter strips it
   has to (`meterCell`) and the lanes only when the playhead moved. When adding anything to a page's `paint`, add it
   to that page's `Look` too, or it will draw stale.
+- **SOUND PROFILES BEYOND THE CHURCH** (2026-09-18). `StyleProfileId` is six: Modern Gospel (default), Modern
+  Worship, **Rock Band**, **R&B and Hip-Hop**, **Jazz and Acoustic**, **Talk and Podcast**. Every one is a delta
+  on Modern Gospel in the same shape as Worship - `buildRockBand()` etc. in `ProfileData.cpp` (targets and
+  baselines), the mix-level deltas beside each rule in `MixProfileData.cpp` (sends, reverb beats, the balance,
+  `relationships`, `aiRanges`, `macroRanges`) and the return characters in `FxProfiles.cpp` - so the bounds,
+  the sentences, the strategies and idempotency come along unchanged (the per-profile test loops cover them).
+  What each one *is*: rock = the kit level with the voices, guitars carry, everything a little denser and driven,
+  the room small; R&B = the sub belongs to the kick and the bass (`bassHpf` 30-45), the voice airy and close, the
+  delays part of the song, no artificial drum room; jazz = crest +3, no saturation anywhere, **no gates on the
+  kit** (`gateAppropriate = false`, the overheads carry it), the piano and the room forward, no delay on a
+  voice; talk = the speaking voice is the reference, every voice held steadier (release never under 80 ms) and
+  de-essed harder, the band a bed 8 dB under (`busBelowVocalsDb`), a voice dry. Append to the enum, never
+  reorder: the index is in sessions, plug-in presets and input maps. The PURPOSE AND SOUND page wraps the
+  cards (`soundGridHeight`); `dlive_mix_stems` takes `gospel|worship|rock|rnb|jazz|talk`. The four purposes are
+  unchanged (their names are church-flavoured; the numbers are not).
+- **LINKED FADERS** (2026-09-18). `StripParameters::linkGroup` (0 = none) and `MixController::linkStrips /
+  unlinkStrip / getStripLink / linkedWith / linkedNames`. A link is **relative, about level and solo**:
+  `setStripFader (strip, db, withLink)` moves every other member by the same dB (after the LIVE SAFE step limit,
+  so no member moves further than the held one could), a member at the end of its travel stops there, and
+  Cmd-drag (`withLink = false`) moves one alone; **S on one member solos them all** (`setStripSolo`), from either
+  end. Mute, pan and the chain are deliberately not linked. It is
+  part of the kept mix - saved (`linkGroup`, absent = none), carried by `carryMix` with the strip, kept through a
+  TUNE (the plan sets each fader absolutely; the link keeps the new offsets) - and linking is one undoable mix
+  change that LIVE SAFE lets through. **Linking starts the members level**: every member takes the fader of the
+  channel the link was made from (the first strip passed), within the LIVE SAFE step, so a pair of overheads is a
+  pair from the moment it is linked; a balance is set afterwards with Cmd-drag. Linking to a member joins its
+  group; a group of one dissolves. The UI is
+  the strip's / header's right-click menu ("Link fader with" / "Linked faders", ticked members, "Unlink this
+  fader"), `Dine::drawLinkGlyph` beside the name (MIXER) and before the fader (TRACKS), and the fader tooltip
+  names the partners. Tests: `Linked faders: ...` in `dlive_app_tests`.
+- **THE TITLE ROW CARRIES THE TABS** (2026-09-18, the client's review). The session-name popover is gone from the
+  title row (everything it offered is in File / Help and the sidebar; `setupPopover` still exists, anchored to the
+  sidebar switch, for Getting started); the five workspace tabs sit centred in the title row between the wordmark
+  and the counts (`kCountsW`), and the toolbar holds the transport centred with BYPASS / LIVE SAFE / the output on
+  the right. Every plane now has a **hairline seam** (`Dine::hair`): under the title row and the toolbar, the
+  sidebar's right edge, the TUNE rail, both Inspector rails, the chain foot and the status foot. The LIVE page's
+  ENGINEER MONITORING card has the **solo device picker** at the right of its chip row
+  (`OutputsSheet::showSoloDeviceMenu`, shared with the Outputs sheet), so "solo has nowhere to go yet" is fixed
+  where it is read.
 - **THE V2 DESKTOP (2026-09-17, the Claude Design file `DLIVE Desktop v2.dc.html`, project
   `8592889b-694f-4bb0-8f28-598c057014f5`).** The window is the design, one to one. Top to bottom: a 52 px
   **title row** (`Dine::Metric::titleRow` - the sidebar switch, the session's name with its popover in the
@@ -269,6 +344,26 @@
   re-reads the gain advice twice a second (`MixerPage::tick`), and a meter is one fill whatever its height.
   The bank is opaque so a scroll never repaints the page under it. `dlive_ui_snapshots --frames 48 120`: a
   full repaint of MIXER went from 38 ms to 6.5 ms, TRACKS 61 to 10, INSPECTOR 68 to 23 (a 30 Hz frame is 33).
+- **THE MACRO PADS** (2026-09-18, `app/ui/MacroPad.{h,cpp}`, on TUNE). The five macros are two two-axis
+  pads and one ribbon: BODY x VOICE (`MixMacro::Bass` across, `Vocals` up), DRIVE x ROOM (`Space` across,
+  `Drums` up) and ENERGY on a ribbon under them. 50 / 50 is the plan, at dead centre under a dashed ring; a
+  press anywhere jumps the puck there and the drag is absolute; double-click re-centres that pad; three snaps
+  under each pad (Speech / Choir / Plan, Tight / Room / Plan) ease the puck over 140 ms and read as chosen
+  only while the puck sits exactly on the point. The pad owns nothing: every change goes through
+  `MixController::setMacro`, and the pads read the controller every tick. Under LIVE SAFE the controller
+  clamps each macro to `liveSafe::macroRange` (`LiveSafePolicy::maxMacroExcursion`, 50 +/- 25) and the pads
+  draw that fence hatched with the reason in the tooltip. TUNE is three columns: the inputs rail, the middle
+  (GROUPS stretching, MASTER, the pads - sized in `MixPage::layout` so the middle never scrolls; below the
+  floor the pads drop their snap rows), and a 296 px right panel (`MixPage::SidePanel`, its own scroll: the
+  verbs, the card saying which pad is held or moved, MIX HEALTH) folding with `]`. Mix > Centre Macro Pads
+  (id 401) is `MixPage::centreMacroPads`. TUNE LIVE MIX is also a button in the title row
+  (`MainView::tuneLiveButton`, command 405), so a live tune starts from any workspace. Verify with the `16`,
+  `16c` (the fence) and `23` snapshots and `--sizes`. **Since 2026-09-18 (the client's review: "too messy, text
+  everywhere")** the band is quiet: MASTER is its three controls and one mono readout (NOW / TARGET), the lift's
+  sentence lives on the Raise button's tooltip; a pad's head is its title alone, the values are read inside the
+  square (under the top corner words) only once the puck has left the plan, the corner words and the ribbon's ends
+  are small `ink4` caps, the snaps sit in one track, and the two pads + ribbon are one block centred in the column
+  (`kMaxPad` 236).
 - **THEMES** (2026-09-17, `docs/THEMES.md`). The look is a table of named colours and a theme is that table
   written down: pick one under View > Appearance and every window follows; nothing about the session or the
   mix depends on it. `app/native/ThemeStore` (JUCE-core, tested in `ThemeTests.cpp`) is the document
@@ -492,11 +587,15 @@
   in amber and its meter greys out (`DineMeter::setMuted` keeps reading the signal, so "nothing there" and "not
   heard" never look alike). On LIVE, a muted group tile goes amber and says NOT HEARD, a soloed one says SOLO, and
   LIVE SAFE fills and reads "LIVE SAFE ON" with a sentence beside it saying what is locked. LIVE carries a
-  tile per group bus **and one more for the effects returns**: `MixParameters::fxReturnDb` / `fxMute` are the
+  tile per group bus, **one for the effects returns and one for the MASTER** (2026-09-18: its fader and mute
+  are the master bus's own through `setBusFader` / `setBusMute (Master)`, there is no solo so MUTE has the key
+  row, and its integrated LUFS is the readout beside its meter; the "ON" chip yields to the name on a narrow tile): `MixParameters::fxReturnDb` / `fxMute` are the
   FX group's own fader and mute, folded into the return's gain in the one place `MixEngine` already decides
   it (so BYPASS and an unused slot still win) and set through `MixController::setFxReturn` / `setFxMute`.
   0 dB and not muted is "as tuned", which is also what a session saved before they existed reads as. The
-  returns have nothing to solo against, so that tile offers MUTE and no more.
+  returns solo as one group (`MixController::setFxSoloAll` / `anyFxSolo`, 2026-09-18): S on that tile solos every
+  return the session uses, so the engineer hears just the reverbs and delays - in the normal (monitor) solo the
+  sources keep feeding the sends and only the returns reach the headphones.
   BYPASS (toolbar, Mix menu, `B`) is `MixController::setBypass`: `compose()` returns `startingPoint()` with
   `bypassProcessing`, carrying only mute and solo across, so you hear the console feed. It never touches the kept
   mix - switch it off and the mix is exactly as it was - and faders are disabled while it is on.

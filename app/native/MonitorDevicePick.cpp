@@ -81,5 +81,53 @@ Suggestion suggestFrom (const juce::Array<Device>& devices, const juce::String& 
     return s;
 }
 
+Layout layoutFor (const Device& broadcast, const Device& headphones, const Device* input)
+{
+    Layout l;
+    if (broadcast.uid.isEmpty() || headphones.uid.isEmpty()) { l.problem = "Those devices could not be identified."; return l; }
+    if (broadcast.uid == headphones.uid) { l.problem = "The broadcast and the headphones have to be two different devices."; return l; }
+    if (broadcast.isAggregate || headphones.isAggregate || (input != nullptr && input->isAggregate))
+    {
+        // An aggregate device cannot hold another one. A combined device the user built is opened as
+        // it is; solo then needs the user's own device to carry a spare pair.
+        l.problem = "One of those is already a combined device, and a combined device cannot be put inside another. "
+                    "Choose the plain devices instead.";
+        return l;
+    }
+
+    // The console's inputs first, so channel 1 stays channel 1; a device already in the list is not added twice.
+    auto add = [&l] (const Device& d)
+    {
+        for (const auto& p : l.pieces) if (p.uid == d.uid) return;
+        l.pieces.add (d);
+    };
+    if (input != nullptr && input->uid.isNotEmpty() && input->inputChannels > 0)
+    {
+        add (*input);
+        l.carriesInput = true;
+    }
+    add (broadcast);
+    add (headphones);
+
+    int channel = 0;
+    for (const auto& p : l.pieces)
+    {
+        if (p.uid == broadcast.uid) l.broadcastChannel = channel;
+        if (p.uid == headphones.uid) l.headphoneChannel = channel;
+        channel += p.outputChannels;
+    }
+    return l;
+}
+
+juce::BigInteger outputChannelsToOpen (const Layout& layout, int broadcastOutputs, int capacity)
+{
+    juce::BigInteger bits;
+    bits.setRange (juce::jmax (0, layout.headphoneChannel), 2, true);
+    const int forBroadcast = juce::jlimit (2, juce::jmax (2, capacity - 2), broadcastOutputs);
+    for (int c = 0; c < forBroadcast; ++c)
+        bits.setBit (juce::jmax (0, layout.broadcastChannel) + c, true);
+    return bits;
+}
+
 } // namespace MonitorDevice
 } // namespace livemix

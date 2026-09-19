@@ -44,6 +44,15 @@ namespace
         return f == RoleFamily::Kick || f == RoleFamily::Snare || f == RoleFamily::Tom || f == RoleFamily::HiHat;
     }
 
+    // A microphone that has quiet between the sounds it is there for - a voice between phrases, a drum
+    // between hits - and hears the stage in that quiet. A DI, a keyboard or a pad has no such quiet (the
+    // floor of a held chord is the chord), and an overhead or a room microphone is meant to hear the room.
+    bool isSpillProneMic (RoleFamily f)
+    {
+        return isDrumCloseMic (f) || f == RoleFamily::LeadVocal || f == RoleFamily::BackingVocal
+            || f == RoleFamily::Choir || f == RoleFamily::Speech;
+    }
+
     bool isMusicFamily (RoleFamily f)
     {
         return f == RoleFamily::Piano || f == RoleFamily::ElectricPiano || f == RoleFamily::Organ || f == RoleFamily::Synth
@@ -561,13 +570,14 @@ MixPlan plan (const MixPlanContext& ctx)
         // up with the instrument and the console preamp is the thing that is actually wrong.
         if (isDrumCloseMic (f))
         {
-            // How far DLIVE is lifting this microphone digitally in total - an absolute amount, not what this
-            // pass added on top of the last one. Measuring the raise against the gain that ran at the listen
-            // handed the whole budget out again on every Tune Mix, because by then the gain it was meant to
-            // count had become the listen's own: a close mic climbed another maxCloseMicRaiseDb each pass and
-            // brought the rest of the kit up with it.
-            const float digitalRaise = std::max (sp.inputGainDb, 0.0f);
-            const float allowed = R.maxCloseMicRaiseDb - digitalRaise;
+            // How far DLIVE is lifting this microphone digitally in total - the gain and the fader together, as
+            // an absolute amount, not what this pass added on top of the last one. Measuring the raise against
+            // the gain that ran at the listen handed the whole budget out again on every Tune Mix, because by
+            // then the gain it was meant to count had become the listen's own: a close mic climbed another
+            // maxCloseMicRaiseDb each pass and brought the rest of the kit up with it. The gain counts whichever
+            // way it went: a hot hi-hat pulled down 12 dB for its processing and lifted 17 dB on the fader is
+            // lifted 5 dB, and the bleed with it - not 17.
+            const float allowed = R.maxCloseMicRaiseDb - sp.inputGainDb;
             if (fader > allowed)
             {
                 fader = roundHalf (std::max (allowed, 0.0f));
@@ -575,6 +585,34 @@ MixPlan plan (const MixPlanContext& ctx)
                                              "To sit where the mix wants it this close microphone needs more level than DLIVE will add to it. "
                                              "It also hears the rest of the kit, so raising it here would bring that bleed up with the instrument. "
                                              "Turn its preamp up at the console and Tune Mix again.", Confidence::High));
+            }
+        }
+        // Any microphone on a stage hears the stage between the sounds it is there for. A voice or a close drum
+        // microphone is lifted only until what it hears between phrases would land R.spillBelowTargetDb under the
+        // level the mix wants it at; past that the lift is the rest of the band arriving through the wrong
+        // microphone - which is how a barely-used vocal microphone, lifted 30 dB to reach the vocal level, became
+        // the loudest cymbals in the mix. Measured from the listen: the floor was heard at the listen's gain, the
+        // lift is what the plan adds on top, so planning again on the same listen lands in the same place. Only
+        // ever a limit on a lift: a microphone already at its level, or being brought down, is left to the rules above.
+        if (isSpillProneMic (f) && a.noiseFloorDb > -119.0f)
+        {
+            const float gainDelta = sp.inputGainDb - ctx.atCapture.strips[size_t (i)].inputGainDb;
+            const float lift = gainDelta + fader;
+            const float allowedLift = (target - R.spillBelowTargetDb) - a.noiseFloorDb;
+            if (lift > 0.0f && lift > allowedLift)
+            {
+                const float kept = std::max (allowedLift, 0.0f);
+                fader = roundHalf (kept - gainDelta);
+                sp.spillLimited = true;
+                sp.mixItems.push_back (info (Recommendation::Kind::CaptureGain, upper (sp.name) + ": mostly hears the stage",
+                                             "Between the sounds it is there for, this microphone picks up the rest of the stage at "
+                                             + num ("%.0f dBFS", double (a.noiseFloorDb - ctx.atCapture.strips[size_t (i)].inputGainDb))
+                                             + " at the device - only " + num ("%.0f dB", double (std::max (a.activeRmsDb - a.noiseFloorDb, 0.0f)))
+                                             + " under what it hears while the source plays. Lifting it to the level the mix wants would bring the "
+                                             "stage up with it - the cymbals through a vocal microphone are the usual result - so it is lifted "
+                                             + num ("%.0f dB", double (kept)) + " and left there. Get the source closer to the microphone (a preamp "
+                                             "raises the stage with it), or keep it muted while nobody is using it, and Tune Mix again.",
+                                             Confidence::High));
             }
         }
         sp.faderDb = clamp (fader, -R.maxFaderMoveDb, R.maxFaderMoveDb);
@@ -585,8 +623,14 @@ MixPlan plan (const MixPlanContext& ctx)
     // the bound), everything else follows it down by the same amount so the hierarchy survives; the master's
     // loudness rule makes up the overall level afterwards.
     {
-        const int lead = findHeard ([] (RoleFamily f) { return f == RoleFamily::LeadVocal; });
-        if (lead >= 0 && plan.strips[size_t (lead)].balanced)
+        // The reference is a lead microphone somebody is actually singing into. One held back because it
+        // mostly hears the stage is not a quiet capture the rest of the band should follow down.
+        int lead = -1;
+        for (int i = 0; i < n && lead < 0; ++i)
+            if (plan.strips[size_t (i)].heard && plan.strips[size_t (i)].balanced && ! plan.strips[size_t (i)].spillLimited
+                && roleFamily (plan.strips[size_t (i)].role) == RoleFamily::LeadVocal)
+                lead = i;
+        if (lead >= 0)
         {
             const float effectiveLevel = predictedProcessedActiveRmsDb (ctx, lead, plan.proposed.strips[size_t (lead)]);
             const float needed = roundHalf (MixProfile::mixLevelTargetDb (profile, RoleFamily::LeadVocal) - effectiveLevel);

@@ -19,6 +19,7 @@ namespace
     constexpr float kActiveRangeDb = 20.0f;
     // How far a real peak can stand above the hit level before it is a click rather than the source.
     constexpr float kSpikeMarginDb = 12.0f;
+    constexpr int kSpikeEventsMin = 8;      // enough hits for their level to be the instrument's, not one click's
     // Tempo search: the onset envelope runs at one frame per 10 ms, so a lag in frames is 10 ms.
     constexpr float kTempoMinBpm = 50.0f, kTempoMaxBpm = 200.0f;
     constexpr int kMaxOnsetFrames = 12000;   // 120 s of envelope; a listen is far shorter
@@ -384,6 +385,16 @@ AnalysisResult AnalysisAccumulator::finalise (int droppedFrames)
                 r.bleedLevelDb = quietMean;
             }
         }
+
+        // A sparse close microphone - a snare on the backbeat, a tom hit six times in a listen - spends
+        // most of its 10 ms frames in decay tails and bleed, so its 95th-percentile frame level sits tens
+        // of dB under the hits themselves, and every real hit then looked like an isolated click: the
+        // musical peak was capped 12 dB over the tails, and the gain staging that followed it drove the
+        // actual hits past the chain's ceiling. The detected events know where the hits are, so they set
+        // the cap too; an isolated click is still a click, because it is one event and the level is a
+        // percentile of many.
+        if (r.eventLevelDb > -119.0f && r.eventCount >= kSpikeEventsMin)
+            r.musicalPeakDb = std::min (r.peakDb, std::max (r.hitLevelDb, r.eventLevelDb) + kSpikeMarginDb);
     }
 
     // Tempo: the strongest periodicity in the onset envelope. A live console has no host play head, so

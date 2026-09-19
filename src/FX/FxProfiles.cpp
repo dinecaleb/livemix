@@ -165,6 +165,59 @@ namespace
     }
 }
 
+namespace
+{
+    // The rooms that are not a church, each a delta on the gospel set.
+    // Rock: shorter, brighter, out of the way of the next hit; the delays repeat less.
+    FxParameters rock (FxType type)
+    {
+        FxParameters p = gospel (type);
+        p.reverbDecayS = clamp (p.reverbDecayS * 0.85f, 0.2f, 20.0f);
+        p.reverbHighCutHz = clamp (p.reverbHighCutHz * 1.1f, 1000.0f, 20000.0f);
+        p.reverbPreDelayMs = clamp (p.reverbPreDelayMs + 5.0f, 0.0f, 250.0f);
+        if (p.delayEnabled) p.delayFeedback = clamp (p.delayFeedback - 5.0f, 0.0f, 95.0f);
+        return p;
+    }
+    // R&B and hip-hop: darker, tighter tails; the delays are part of the song and duck hard under the voice.
+    FxParameters rnb (FxType type)
+    {
+        FxParameters p = gospel (type);
+        p.reverbDecayS = clamp (p.reverbDecayS * 0.9f, 0.2f, 20.0f);
+        p.reverbHighCutHz = clamp (p.reverbHighCutHz * 0.85f, 1000.0f, 20000.0f);
+        if (p.delayEnabled)
+        {
+            p.delayFeedback = clamp (p.delayFeedback + 8.0f, 0.0f, 95.0f);
+            p.delayDuck = clamp (p.delayDuck + 15.0f, 0.0f, 100.0f);
+        }
+        return p;
+    }
+    // Jazz and acoustic: a natural room - longer, warmer, further away - and no rhythmic delay to speak of.
+    FxParameters jazz (FxType type)
+    {
+        FxParameters p = gospel (type);
+        p.reverbDecayS = clamp (p.reverbDecayS * 1.2f, 0.2f, 20.0f);
+        p.reverbPreDelayMs = clamp (p.reverbPreDelayMs + 10.0f, 0.0f, 250.0f);
+        p.reverbHighCutHz = clamp (p.reverbHighCutHz * 0.8f, 1000.0f, 20000.0f);
+        p.reverbModDepth = clamp (p.reverbModDepth - 5.0f, 0.0f, 100.0f);
+        if (p.delayEnabled) p.delayFeedback = clamp (p.delayFeedback - 10.0f, 0.0f, 95.0f);
+        return p;
+    }
+    // Talk: barely there. Short, dark and early, so a voice never sounds like it is in a hall.
+    FxParameters talk (FxType type)
+    {
+        FxParameters p = gospel (type);
+        p.reverbDecayS = clamp (p.reverbDecayS * 0.6f, 0.2f, 20.0f);
+        p.reverbPreDelayMs = clamp (p.reverbPreDelayMs * 0.5f, 0.0f, 250.0f);
+        p.reverbHighCutHz = clamp (p.reverbHighCutHz * 0.8f, 1000.0f, 20000.0f);
+        if (p.delayEnabled)
+        {
+            p.delayFeedback = clamp (p.delayFeedback - 10.0f, 0.0f, 95.0f);
+            p.delayDuck = clamp (p.delayDuck + 15.0f, 0.0f, 100.0f);
+        }
+        return p;
+    }
+}
+
 namespace FxProfiles
 {
 
@@ -173,6 +226,10 @@ FxParameters baseline (StyleProfileId profile, FxType type)
     switch (profile)
     {
         case StyleProfileId::ModernWorship: return worship (type);
+        case StyleProfileId::RockBand:      return rock (type);
+        case StyleProfileId::RnbHipHop:     return rnb (type);
+        case StyleProfileId::JazzAcoustic:  return jazz (type);
+        case StyleProfileId::TalkPodcast:   return talk (type);
         case StyleProfileId::ModernGospel:
         case StyleProfileId::Count:
         default:                            return gospel (type);

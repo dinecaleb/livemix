@@ -4,7 +4,7 @@
 #   scripts/package.sh                 build (Release) and package for this Mac's architecture
 #   scripts/package.sh --universal     arm64 + x86_64, so an Intel Mac can run it too (slow: JUCE builds twice)
 #   scripts/package.sh --no-build      package whatever is already built
-#   scripts/package.sh --out <dir>     where the zip goes (default: dist/)
+#   scripts/package.sh --out <dir>     where the zip goes (default: ~/Documents/dliveApp)
 #
 # There is no Developer ID certificate on this machine, so the app is signed
 # ad-hoc: it is a complete, valid signature (the Info.plist is bound and the
@@ -23,7 +23,7 @@ export PATH="$HOME/.local/bin:$PATH"          # cmake / ninja from uv tool
 
 BUILD=1
 UNIVERSAL=0
-OUT_DIR="dist"
+OUT_DIR="$HOME/Documents/dliveApp"
 
 while [ $# -gt 0 ]; do
     case "$1" in

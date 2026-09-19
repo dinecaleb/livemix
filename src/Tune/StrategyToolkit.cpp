@@ -787,7 +787,11 @@ void setLoudness (const TuneContext& ctx, const SourceTargets& t, TuneDecisions&
                 "The mix measures " + num ("%.1f LUFS", double (predicted)) + " against a target of " + num ("%.0f LUFS", double (t.targetLufs)) + " for this output.", Confidence::High);
         return;
     }
-    const float bounded = clamp (std::round (delta * 2.0f) * 0.5f, -12.0f, 12.0f);
+    // The output trim is a digital gain set from a measurement, not a preamp a person turns one step at a
+    // time, so the move is bounded by what the limiter can honestly absorb rather than by a human step: a
+    // live sum at -22 LUFS asked for a -14 stream is a 15 dB move, and stopping at 12 left every such mix a
+    // few LU short with a RE-TUNE that still had something to say.
+    const float bounded = clamp (std::round (delta * 2.0f) * 0.5f, -18.0f, 18.0f);
     const float newTrim = clamp (cur.outputTrimDb + bounded, -24.0f, 24.0f);
     std::string what = std::fabs (delta) > t.loudnessToleranceLu
         ? (bounded > 0 ? "Raised the output " : "Lowered the output ") + fmtDb (bounded, 1) + " toward " + num ("%.0f LUFS", double (t.targetLufs))

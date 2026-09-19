@@ -23,10 +23,13 @@ namespace livemix
 
 // The window, after the v2 design (DLIVE Desktop v2, 2026-09-17).
 //
-// Top to bottom: a 52 px title row (the sidebar switch, the session's name with its popover,
-// how many inputs and how many are set to record, MIX BUDDY), the 56 px toolbar (the
-// transport in its pill with the clock, the five workspace tabs in the middle, BYPASS /
-// LIVE SAFE / the output on the right), then the body. Down the left of the body is the
+// Top to bottom: a 52 px title row (the sidebar switch, the wordmark, the five workspace tabs
+// in the middle, how many inputs and how many are set to record, TUNE LIVE MIX, MIX BUDDY),
+// the 56 px toolbar (the transport in its pill with the clock in the middle, BYPASS / LIVE
+// SAFE / the output on the right), then the body. The session's name and its popover left the
+// title row on 2026-09-18: everything the popover offered is in the File and Help menus and
+// in the sidebar, and the row is better spent on the tabs. A hairline separates every plane
+// (title / toolbar / body, the sidebar, the rails, the chain foot, the status foot). Down the left of the body is the
 // sidebar - LIBRARY, SET-UP and WORKSPACE, with the device along its foot - which folds to a
 // 17 px handle; beside it the workspace, then the picked-out channel's chain along a 48 px
 // strip, then a 50 px status foot that always says what the engine, the disk, the recording,
@@ -95,10 +98,10 @@ public:
 
 private:
     class Toast;
-    class SessionButton;
     class Menu;
     class ToolbarToggle;
     static constexpr int kWordmarkW = 58;
+    static constexpr int kCountsW = 190;     // "N inputs   N to record", at the right of the title row before the buttons
     static constexpr int kRequestsW = 380;   // the Mix Buddy panel down the right of the workspace   // "DLIVE" at the right end of the title row
     class SidebarButton;
     class MixerWindow;
@@ -159,11 +162,11 @@ private:
     std::unique_ptr<AdvancedPage> advancedPage;
     std::unique_ptr<TransportBar> transportBar;
     std::unique_ptr<Toast> toast;
-    std::unique_ptr<SessionButton> sessionButton;
     std::unique_ptr<Menu> menu;
     std::unique_ptr<ToolbarToggle> bypassButton;
     std::unique_ptr<ToolbarToggle> liveSafeButton;
     std::unique_ptr<ToolbarToggle> chatButton;
+    std::unique_ptr<ToolbarToggle> tuneLiveButton;   // TUNE LIVE MIX from any workspace, in the title row
     std::unique_ptr<SidebarButton> sidebarButton;
     std::unique_ptr<MixerWindow> mixerWindow;
     std::unique_ptr<Sidebar> sidebar;

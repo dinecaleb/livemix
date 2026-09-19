@@ -45,6 +45,7 @@ set(DLIVE_UI_SOURCES
     ui/SetupPages.cpp
     ui/TracksPage.cpp
     ui/MixPage.cpp
+    ui/MacroPad.cpp
     ui/MixerPage.cpp
     ui/OutputsSheet.cpp
     ui/ChannelTuneSheet.cpp

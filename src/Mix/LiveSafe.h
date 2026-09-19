@@ -84,6 +84,13 @@ struct LiveSafePolicy
     // The master must never lose its headroom to an edit made in a hurry.
     float minMasterHeadroomDb = 0.5f;
 
+    // How far a mix control (the macro pads on TUNE) may lean away from the plan while the
+    // service is running, on the 0..100 scale where 50 is the plan. A macro at the end of its
+    // travel is a 6 dB shelf and a wet reverb on the whole group - the kind of wholesale
+    // change LIVE SAFE exists to stop - so the pads are fenced to 50 +/- this and draw the
+    // fence. Ceiling and floor together, because the plan is in the middle.
+    float maxMacroExcursion = 25.0f;
+
     static LiveSafePolicy off() noexcept { return {}; }
     static LiveSafePolicy armed() noexcept { LiveSafePolicy p; p.on = true; return p; }
 };
@@ -186,6 +193,28 @@ namespace liveSafe
     inline const char* lockedSummary() noexcept
     {
         return "Tuning, KEEP / REVERT, BYPASS, routing, outputs, the device and timeline edits are refused.";
+    }
+
+    // The range a macro may take under this policy: the whole travel when LIVE SAFE is off.
+    struct MacroRange { float lo = 0.0f, hi = 100.0f; };
+    inline MacroRange macroRange (const LiveSafePolicy& p) noexcept
+    {
+        if (! p.on) return {};
+        const float e = p.maxMacroExcursion < 0.0f ? 0.0f : (p.maxMacroExcursion > 50.0f ? 50.0f : p.maxMacroExcursion);
+        return { 50.0f - e, 50.0f + e };
+    }
+    inline float clampMacro (const LiveSafePolicy& p, float v) noexcept
+    {
+        const auto r = macroRange (p);
+        return v < r.lo ? r.lo : (v > r.hi ? r.hi : v);
+    }
+    inline std::string macroLimitReason (const LiveSafePolicy& p)
+    {
+        if (! p.on) return {};
+        char buf[160];
+        std::snprintf (buf, sizeof (buf), "LIVE SAFE keeps each control within %d of the plan, so one move cannot change the sound wholesale mid-service.",
+                       int (macroRange (p).hi - 50.0f + 0.5f));
+        return buf;
     }
 
     inline Verdict check (const LiveSafePolicy& p, LiveAction a)

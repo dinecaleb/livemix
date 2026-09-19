@@ -22,8 +22,15 @@ public:
     juce::Array<DeviceInfo> listOutputDevices();
 
     // Opens the devices and starts the callback. Returns an empty string on success.
+    // `outputChannels` says which of the device's output channels to open (empty = the first
+    // kMaxOutputs). The engine and the feeds count the *open* channels, in device order - so with
+    // channels 1-2 and 65-66 open, the feeds address them as 0-1 and 2-3 (see slotForOutputChannel).
+    // This is what lets solo reach a pair that sits past sixty-four Dante channels.
     juce::String open (const juce::String& inputDevice, const juce::String& outputDevice,
-                       double preferredSampleRate = 48000.0, int preferredBufferSize = 64);
+                       double preferredSampleRate = 48000.0, int preferredBufferSize = 64,
+                       const juce::BigInteger& outputChannels = {});
+    // Where a device output channel sits among the open ones (what a feed addresses); -1 if it is not open.
+    int slotForOutputChannel (int deviceChannel) const;
     // Output only: playing a recorded session back with no console connected.
     juce::String openOutputOnly (const juce::String& outputDevice,
                                  double preferredSampleRate = 48000.0, int preferredBufferSize = 128);
@@ -41,7 +48,7 @@ public:
     juce::String getOutputDeviceName() const;
     int getNumInputChannels() const;
     int getNumOutputChannels() const;
-    juce::StringArray getOutputChannelNames() const;
+    juce::StringArray getOutputChannelNames() const;   // the open channels' names, in the order the feeds address them
 
     // CoreAudio has gained or lost a device (DLIVE building its own combined output, an
     // interface plugged in). JUCE caches the device list inside each AudioIODeviceType, so a

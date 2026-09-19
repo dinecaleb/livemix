@@ -99,6 +99,14 @@ namespace MixProfile
         // instrument without raising what leaks into it. Counted over the input gain and the fader together,
         // because a digital raise and a fader raise lift the bleed identically.
         float maxCloseMicRaiseDb = 6.0f;
+        // Any microphone on a stage hears the stage between the sounds it is there for: a singer's
+        // microphone between phrases is the drums and the wedges. Lifting the microphone lifts that with
+        // it, so the balance never lifts a voice or a close drum microphone so far that what it hears
+        // between the sounds lands closer than this under the level the mix wants the source at. Counted
+        // over the input gain and the fader together, and only ever as a limit on a lift - a source that
+        // already sits at its level, or is being brought down, is never touched by it. The usual victim
+        // was a barely-used vocal microphone lifted 30 dB, which made it the loudest cymbals in the mix.
+        float spillBelowTargetDb = 16.0f;
         float faintInputDb = -38.0f;       // a raw peak (at the device) that never got above this during the listen is a faint input: the
                                            // source did not really play, or the microphone / cable / preamp is the problem. It is not tuned,
                                            // raised or balanced; the mix says to check it.

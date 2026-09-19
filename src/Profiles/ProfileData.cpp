@@ -1166,6 +1166,222 @@ namespace
         return d;
     }
 
+    // ------------------------------------------------------------------
+    // The rooms that are not a church. Each one is a delta on Modern Gospel, in
+    // the same shape as Modern Worship: a change to a target is a change to what
+    // Tune aims at, a change to a baseline is where a channel starts before it
+    // has been heard. Nothing here adds a rule; the strategies are the same ones.
+    // ------------------------------------------------------------------
+
+    // Rock Band: a kit that hits, guitars that carry the song, a voice that has to
+    // cut through them. More density than gospel, not less: the drums are allowed
+    // to sit level with the voices, the compressors work harder and the saturators
+    // are on. The room stays out of the way - a rock stream wants the band, not the
+    // building.
+    ProfileDefinition buildRockBand()
+    {
+        ProfileDefinition d = buildModernGospel();
+        d.id = StyleProfileId::RockBand;
+        d.name = "Rock Band";
+        d.philosophy = "Rock: a tight, forward kit, guitars that carry the song and a voice that cuts through them; "
+                       "density and attack over polish, the room kept small.";
+        for (auto& t : d.targets)
+        {
+            t.crestFactorMaxDb = std::max (t.crestFactorMinDb + 2.0f, t.crestFactorMaxDb - 1.0f);   // control arrives a little sooner
+            t.compTargetGrDb += 1.0f;
+            t.compRatioMax += 1.0f;
+            t.satMaxDrive = std::min (0.5f, t.satMaxDrive + 0.1f);
+        }
+        // The kit: click on the kick, crack on the snare, cymbals allowed to be bright.
+        d.targets[int (RoleFamily::Kick)].bandTargetDb[size_t (Band::Sub)] -= 1.0f;
+        d.targets[int (RoleFamily::Kick)].bandTargetDb[size_t (Band::Presence)] += 1.5f;
+        d.targets[int (RoleFamily::Snare)].bandTargetDb[size_t (Band::Presence)] += 1.0f;
+        d.targets[int (RoleFamily::Tom)].bandTargetDb[size_t (Band::Presence)] += 1.0f;
+        d.targets[int (RoleFamily::Overhead)].bandTargetDb[size_t (Band::Brilliance)] += 1.0f;
+        d.targets[int (RoleFamily::Room)].kitBalanceRelDb = -10.0f;
+        for (auto& p : d.baselines)
+            p.compRatio = std::min (10.0f, p.compRatio + 0.5f);
+        for (auto f : { RoleFamily::Kick, RoleFamily::Snare, RoleFamily::Tom, RoleFamily::ElectricBass, RoleFamily::ElectricGuitar })
+        {
+            auto& p = d.baselines[int (f)];
+            p.satEnabled = true;
+            p.satDrive = std::min (0.5f, p.satDrive + 0.05f);
+        }
+        d.baselines[int (RoleFamily::Kick)].toneBands[2].gainDb += 1.0f;      // the beater
+        // Guitars: the electrics are the song; the fizz roll-off sits a little higher, the acoustic keeps its air.
+        d.baselines[int (RoleFamily::ElectricGuitar)].lpfHz = 9000.0f;
+        d.targets[int (RoleFamily::ElectricGuitar)].bandTargetDb[size_t (Band::Presence)] += 1.0f;
+        // Voices: presence over air, and a little more sibilance control because the singer is close and loud.
+        for (auto f : { RoleFamily::LeadVocal, RoleFamily::BackingVocal })
+        {
+            d.targets[int (f)].bandTargetDb[size_t (Band::Presence)] += 1.0f;
+            d.targets[int (f)].deEssMaxRangeDb += 1.0f;
+        }
+        // Bass: grit is the point; the sub stays where the kick leaves it.
+        d.targets[int (RoleFamily::ElectricBass)].bandTargetDb[size_t (Band::Presence)] += 1.0f;
+        // Ambience: a crowd microphone is welcome between songs and out of the way during them.
+        d.targets[int (RoleFamily::Ambience)].mixPeakTargetDb -= 2.0f;
+        d.targets[int (RoleFamily::Ambience)].kitBalanceRelDb -= 2.0f;
+        // Master: glue, and the density a rock record has.
+        d.targets[int (RoleFamily::Master)].compTargetGrDb = 2.5f;
+        return d;
+    }
+
+    // R&B and Hip-Hop: the low end is the song. Sub on the kick and the bass, a snare
+    // that cracks rather than rings, a voice that is smooth, close and airy over a
+    // wide bed of keys. Dense, held dynamics: the compressors work steadily rather
+    // than for punch, and the delays are part of the arrangement.
+    ProfileDefinition buildRnbHipHop()
+    {
+        ProfileDefinition d = buildModernGospel();
+        d.id = StyleProfileId::RnbHipHop;
+        d.name = "R&B and Hip-Hop";
+        d.philosophy = "R&B and hip-hop: the sub owns the low end, the snare cracks, the voice is smooth and close over a "
+                       "wide bed of keys; held, dense dynamics and the delays are part of the song.";
+        for (auto& t : d.targets)
+        {
+            t.crestFactorMaxDb = std::max (t.crestFactorMinDb + 2.0f, t.crestFactorMaxDb - 1.5f);
+            t.compTargetGrDb += 1.0f;
+        }
+        // The low end: sub on the kick and both basses, and a little weight on the kick's body.
+        d.targets[int (RoleFamily::Kick)].bandTargetDb[size_t (Band::Sub)] += 2.0f;
+        d.targets[int (RoleFamily::Kick)].bandTargetDb[size_t (Band::Low)] += 1.0f;
+        d.targets[int (RoleFamily::ElectricBass)].bandTargetDb[size_t (Band::Sub)] += 1.5f;
+        d.targets[int (RoleFamily::SynthBass)].bandTargetDb[size_t (Band::Sub)] += 2.0f;
+        d.targets[int (RoleFamily::ElectricBass)].compTargetGrDb += 1.0f;
+        d.baselines[int (RoleFamily::Kick)].satEnabled = true;
+        d.baselines[int (RoleFamily::Kick)].satDrive = std::min (0.5f, d.baselines[int (RoleFamily::Kick)].satDrive + 0.05f);
+        d.baselines[int (RoleFamily::Kick)].toneBands[0].gainDb += 1.0f;
+        // The snare: crack, not ring.
+        d.targets[int (RoleFamily::Snare)].bandTargetDb[size_t (Band::Presence)] += 1.5f;
+        d.targets[int (RoleFamily::Snare)].bandTargetDb[size_t (Band::LowMid)] -= 1.0f;
+        // Voices: air and smoothness; the microphone is close, so the S sounds need more control.
+        for (auto f : { RoleFamily::LeadVocal, RoleFamily::BackingVocal })
+        {
+            d.targets[int (f)].bandTargetDb[size_t (Band::Air)] += 2.0f;
+            d.targets[int (f)].deEssMaxRangeDb += 1.0f;
+            d.targets[int (f)].compTargetGrDb += 0.5f;
+            d.baselines[int (f)].toneBands[3].enabled = true;
+            d.baselines[int (f)].toneBands[3].gainDb += 1.0f;
+        }
+        // Keys: wide, and behind the voice.
+        d.targets[int (RoleFamily::Synth)].widthTarget = 1.3f;
+        d.baselines[int (RoleFamily::Synth)].widthAmount = 1.3f;
+        d.targets[int (RoleFamily::ElectricPiano)].widthTarget = std::max (d.targets[int (RoleFamily::ElectricPiano)].widthTarget, 1.15f);
+        // Master: the density an R&B record has; the saturator is allowed to help.
+        d.targets[int (RoleFamily::Master)].compTargetGrDb = 3.0f;
+        return d;
+    }
+
+    // Jazz and Acoustic: the band is the point and the dynamics are the music. Almost
+    // nothing is compressed hard, nothing is saturated, and the kit is one instrument
+    // heard through the overheads rather than four gated close microphones - so the
+    // gates on the drums are off in this profile and bleed is managed with filtering.
+    // The room is welcome.
+    ProfileDefinition buildJazzAcoustic()
+    {
+        ProfileDefinition d = buildModernGospel();
+        d.id = StyleProfileId::JazzAcoustic;
+        d.name = "Jazz and Acoustic";
+        d.philosophy = "Jazz and acoustic: open dynamics, no saturation, the kit heard as one instrument through the "
+                       "overheads, the piano forward and the room welcome; the band is the point.";
+        for (auto& t : d.targets)
+        {
+            t.crestFactorMaxDb += 3.0f;                                  // the swing between a whisper and a hit is the music
+            t.compTargetGrDb = std::max (1.0f, t.compTargetGrDb - 1.5f);
+            t.compRatioMax = std::max (t.compRatioMin, t.compRatioMax - 2.0f);
+            t.saturationAppropriate = false;
+            t.satMaxDrive = 0.0f;
+            t.transientMaxAttack = std::min (t.transientMaxAttack, 0.25f);
+        }
+        for (auto& p : d.baselines)
+        {
+            p.compRatio = std::max (1.5f, p.compRatio - 1.0f);
+            p.satEnabled = false;
+            p.satDrive = 0.0f;
+        }
+        // The kit is one instrument: no gates on the close microphones, and the overheads carry it.
+        for (auto f : { RoleFamily::Kick, RoleFamily::Snare, RoleFamily::Tom, RoleFamily::HiHat })
+        {
+            d.targets[int (f)].gateAppropriate = false;
+            d.baselines[int (f)].gateEnabled = false;
+        }
+        d.targets[int (RoleFamily::Kick)].bandTargetDb[size_t (Band::Sub)] -= 2.0f;    // an 18-inch kick has no sub thump to find
+        d.baselines[int (RoleFamily::Kick)].toneBands[0].gainDb = std::min (d.baselines[int (RoleFamily::Kick)].toneBands[0].gainDb, 1.0f);
+        d.targets[int (RoleFamily::Overhead)].bandTargetDb[size_t (Band::Air)] += 1.0f;
+        d.targets[int (RoleFamily::Room)].kitBalanceRelDb = -6.0f;
+        d.targets[int (RoleFamily::Room)].mixPeakTargetDb = -16.0f;
+        d.baselines[int (RoleFamily::Room)].transientSustain = 0.0f;
+        // The piano and the acoustic guitar: their air is their tone.
+        d.targets[int (RoleFamily::Piano)].bandTargetDb[size_t (Band::Air)] += 1.0f;
+        d.targets[int (RoleFamily::AcousticGuitar)].bandTargetDb[size_t (Band::Air)] += 1.0f;
+        // Voices: the de-esser is gentle and the air is natural rather than added.
+        for (auto f : { RoleFamily::LeadVocal, RoleFamily::BackingVocal, RoleFamily::Choir })
+            d.targets[int (f)].deEssMaxRangeDb = std::max (3.0f, d.targets[int (f)].deEssMaxRangeDb - 2.0f);
+        // Bass: an upright or a clean electric - the low end is the note, not the sub.
+        d.targets[int (RoleFamily::ElectricBass)].bandTargetDb[size_t (Band::Sub)] -= 1.0f;
+        d.baselines[int (RoleFamily::ElectricBass)].lpfEnabled = false;
+        // Ambience: the room is welcome.
+        d.targets[int (RoleFamily::Ambience)].mixPeakTargetDb += 3.0f;
+        d.targets[int (RoleFamily::Ambience)].kitBalanceRelDb += 3.0f;
+        // Master: barely touched.
+        d.targets[int (RoleFamily::Master)].compTargetGrDb = 1.0f;
+        d.targets[int (RoleFamily::Master)].compRatioMax = 2.0f;
+        d.targets[int (RoleFamily::Master)].saturationAppropriate = false;
+        return d;
+    }
+
+    // Talk and Podcast: a conference, a panel, a podcast with a band in the breaks.
+    // The words are the reason the room is there, so every voice is held steady and
+    // close, the S sounds are controlled harder, and the music is a bed under the
+    // speech rather than a mix in its own right. Nothing on a voice ever pumps.
+    ProfileDefinition buildTalkPodcast()
+    {
+        ProfileDefinition d = buildModernGospel();
+        d.id = StyleProfileId::TalkPodcast;
+        d.name = "Talk and Podcast";
+        d.philosophy = "Talk: every voice held steady, close and clear, the S sounds controlled, the music a bed under the "
+                       "words rather than a mix of its own; nothing on a voice ever pumps.";
+        // Voices: held steadier, closer, and de-essed harder. The crest of a spoken voice is
+        // what a listener hears as somebody leaning in and out of the microphone.
+        for (auto f : { RoleFamily::Speech, RoleFamily::LeadVocal, RoleFamily::BackingVocal })
+        {
+            auto& t = d.targets[int (f)];
+            t.crestFactorMaxDb = std::max (t.crestFactorMinDb + 2.0f, t.crestFactorMaxDb - 2.0f);
+            t.compTargetGrDb += 1.0f;
+            t.compReleaseMinMs = std::max (t.compReleaseMinMs, 80.0f);   // never fast enough to pump on a syllable
+            t.deEssMaxRangeDb += 2.0f;
+            t.bandTargetDb[size_t (Band::Presence)] += 1.0f;
+            t.bandTargetDb[size_t (Band::LowMid)] -= 1.0f;                 // the desk and the lectern are not the voice
+            t.satMaxDrive = 0.0f;
+            t.saturationAppropriate = false;
+            d.baselines[int (f)].satEnabled = false;
+            d.baselines[int (f)].satDrive = 0.0f;
+        }
+        d.baselines[int (RoleFamily::Speech)].hpfHz = std::max (d.baselines[int (RoleFamily::Speech)].hpfHz, 100.0f);
+        // Instruments: a bed, not a band. Less compression, no drive, the kit tighter and further back.
+        for (int f = 0; f < int (RoleFamily::Count); ++f)
+        {
+            const auto family = RoleFamily (f);
+            if (family == RoleFamily::Speech || family == RoleFamily::LeadVocal || family == RoleFamily::BackingVocal
+                || family == RoleFamily::Master || family == RoleFamily::VocalBus)
+                continue;
+            auto& t = d.targets[f];
+            t.compTargetGrDb = std::max (1.5f, t.compTargetGrDb - 1.0f);
+            t.satMaxDrive = std::max (0.0f, t.satMaxDrive - 0.1f);
+            auto& p = d.baselines[f];
+            p.satDrive = std::max (0.0f, p.satDrive - 0.05f);
+            if (p.satDrive <= 0.001f) p.satEnabled = false;
+        }
+        d.targets[int (RoleFamily::Room)].kitBalanceRelDb = -12.0f;
+        // Ambience: a little of the audience is the difference between a panel and a phone call.
+        d.targets[int (RoleFamily::Ambience)].mixPeakTargetDb += 1.0f;
+        // Master: steady, and the voice first.
+        d.targets[int (RoleFamily::Master)].compTargetGrDb = 2.0f;
+        d.targets[int (RoleFamily::Master)].saturationAppropriate = false;
+        return d;
+    }
+
     // Role refinements on top of the family baseline (same for every profile).
     void applyRoleRefinements (ChannelRole role, ChannelParameters& p)
     {
@@ -1223,12 +1439,21 @@ namespace Profiles
 
 const ProfileDefinition& definition (StyleProfileId id)
 {
-    static const ProfileDefinition gospel = buildModernGospel();
+    static const ProfileDefinition gospel  = buildModernGospel();
     static const ProfileDefinition worship = buildModernWorship();
+    static const ProfileDefinition rock    = buildRockBand();
+    static const ProfileDefinition rnb     = buildRnbHipHop();
+    static const ProfileDefinition jazz    = buildJazzAcoustic();
+    static const ProfileDefinition talk    = buildTalkPodcast();
     switch (id)
     {
         case StyleProfileId::ModernWorship: return worship;
+        case StyleProfileId::RockBand:      return rock;
+        case StyleProfileId::RnbHipHop:     return rnb;
+        case StyleProfileId::JazzAcoustic:  return jazz;
+        case StyleProfileId::TalkPodcast:   return talk;
         case StyleProfileId::ModernGospel:
+        case StyleProfileId::Count:
         default:                            return gospel;
     }
 }

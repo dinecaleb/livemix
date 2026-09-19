@@ -283,6 +283,15 @@ juce::String OutputsSheet::pairName (int pair) const
 // about - the host joins the two.
 void OutputsSheet::chooseSoloDevice()
 {
+    showSoloDeviceMenu (services, soloDeviceButton, [this] (const juce::String& message)
+    {
+        if (onToast) onToast (message);
+        refresh();
+    });
+}
+
+void OutputsSheet::showSoloDeviceMenu (AppServices& services, juce::Component& anchor, std::function<void (const juce::String&)> done)
+{
     const auto current = services.soloOutputDevice();
     const auto broadcast = services.broadcastOutputDevice();
 
@@ -314,14 +323,13 @@ void OutputsSheet::chooseSoloDevice()
     }
     if (names.isEmpty()) m.addItem (-1, "No output devices found", false, false);
 
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (soloDeviceButton).withMinimumWidth (320),
-                     [this, names] (int chosen)
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&anchor).withMinimumWidth (320),
+                     [&services, names, done] (int chosen)
                      {
                          if (chosen <= 0) return;
                          const juce::String wanted = chosen == 1 ? juce::String() : names[chosen - 100];
-                         const auto done = services.setSoloOutputDevice (wanted);
-                         if (onToast) onToast (done.message);
-                         refresh();
+                         const auto result = services.setSoloOutputDevice (wanted);
+                         if (done) done (result.message);
                      });
 }
 

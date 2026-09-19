@@ -794,7 +794,7 @@ void MixController::revertPlan()
 
 void MixController::setMacro (MixMacro m, float value)
 {
-    macros.set (m, value);
+    macros.set (m, liveSafe::clampMacro (safety, value));
     publish();
     if (onMixChanged) onMixChanged();
 }
@@ -1026,6 +1026,27 @@ void MixController::setMonitorSource (MixBus b)
     if (onMixChanged) onMixChanged();
 }
 
+bool MixController::anyFxSolo() const noexcept
+{
+    for (int f = 0; f < int (FxSlot::Count); ++f) if (kept.fx[size_t (f)].solo) return true;
+    return false;
+}
+
+void MixController::setFxSoloAll (bool solo)
+{
+    const auto& used = prepared ? getGraph().fxUsed : std::array<bool, int (FxSlot::Count)> {};
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+    {
+        const bool want = solo && used[size_t (f)];
+        kept.fx[size_t (f)].solo = want;
+        if (plan && stage == Stage::Preview) plan->proposed.fx[size_t (f)].solo = want;
+    }
+    publish();
+    if (solo && ! hasMonitorOutput() && kept.monitor.mode == SoloMode::Monitor && onMessage)
+        onMessage ("Solo has nowhere to go yet. Pick the device you listen on: the Solo picker on LIVE, or Outputs > Solo.");
+    if (onMixChanged) onMixChanged();
+}
+
 void MixController::setFxSolo (FxSlot slot, bool solo)
 {
     if (int (slot) < 0 || int (slot) >= int (FxSlot::Count)) return;
@@ -1033,7 +1054,7 @@ void MixController::setFxSolo (FxSlot slot, bool solo)
     if (plan && stage == Stage::Preview) plan->proposed.fx[size_t (slot)].solo = solo;
     publish();
     if (solo && ! hasMonitorOutput() && kept.monitor.mode == SoloMode::Monitor && onMessage)
-        onMessage ("Solo has nowhere to go yet. Pick the device you listen on: Outputs > Solo.");
+        onMessage ("Solo has nowhere to go yet. Pick the device you listen on: the Solo picker on LIVE, or Outputs > Solo.");
     if (onMixChanged) onMixChanged();
 }
 
@@ -1044,15 +1065,130 @@ namespace
     bool validStrip (const MixParameters& p, int strip) { return strip >= 0 && strip < p.numStrips; }
 }
 
-void MixController::setStripFader (int strip, float db)
+void MixController::setStripFader (int strip, float db, bool withLink)
 {
     if (! validStrip (kept, strip)) return;
     float want = clamp (db, -60.0f, 12.0f);
     liveSafe::Verdict v;
-    want = liveSafe::limitStepDb (safety, LiveAction::Fader, kept.strips[size_t (strip)].faderDb, want, v);
+    const float from = kept.strips[size_t (strip)].faderDb;
+    want = liveSafe::limitStepDb (safety, LiveAction::Fader, from, want, v);
     if (v.limited && onMessage) onMessage (v.reason);
     kept.strips[size_t (strip)].faderDb = want;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].faderDb = kept.strips[size_t (strip)].faderDb;
+    // The link: the same move, in dB, on every other member. The step was already limited on
+    // the held strip, so under LIVE SAFE no member moves further than it could have on its own.
+    // A member at the end of its travel stops there; the others keep going, the way a console's
+    // fader group does - a link keeps a balance, it cannot invent headroom.
+    const float delta = want - from;
+    if (withLink && std::fabs (delta) > 1e-4f)
+        for (int other : linkedWith (strip))
+        {
+            auto& s = kept.strips[size_t (other)];
+            s.faderDb = clamp (s.faderDb + delta, -60.0f, 12.0f);
+            if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (other)].faderDb = s.faderDb;
+        }
+    publish();
+    if (onMixChanged) onMixChanged();
+}
+
+// ---- Linked faders ----
+
+int MixController::getStripLink (int strip) const noexcept
+{
+    return validStrip (kept, strip) ? kept.strips[size_t (strip)].linkGroup : 0;
+}
+
+std::vector<int> MixController::linkedWith (int strip) const
+{
+    std::vector<int> out;
+    const int group = getStripLink (strip);
+    if (group == 0) return out;
+    for (int i = 0; i < kept.numStrips; ++i)
+        if (i != strip && kept.strips[size_t (i)].linkGroup == group) out.push_back (i);
+    return out;
+}
+
+std::string MixController::linkedNames (int strip) const
+{
+    std::string out;
+    const auto& inputs = prepared ? preparedSession.inputs : session.inputs;
+    for (int other : linkedWith (strip))
+    {
+        if (! out.empty()) out += ", ";
+        out += other < int (inputs.size()) ? inputs[size_t (other)].name : "channel " + std::to_string (other + 1);
+    }
+    return out;
+}
+
+int MixController::linkStrips (const std::vector<int>& strips)
+{
+    std::vector<int> members;
+    for (int s : strips)
+        if (validStrip (kept, s) && std::find (members.begin(), members.end(), s) == members.end()) members.push_back (s);
+    if (members.size() < 2) return 0;
+
+    // A member that is already linked brings its whole group along: linking the left overhead
+    // to a room microphone when it is already linked to the right one makes three, not a new
+    // pair that silently steals it. The lowest existing group wins, else a fresh number.
+    int group = 0, highest = 0;
+    for (int i = 0; i < kept.numStrips; ++i) highest = std::max (highest, kept.strips[size_t (i)].linkGroup);
+    for (int s : members)
+        if (const int g = kept.strips[size_t (s)].linkGroup; g != 0 && (group == 0 || g < group)) group = g;
+    if (group == 0) group = highest + 1;
+
+    markMixChange ("linking faders");
+    std::vector<int> joining;
+    for (int s : members)
+        if (const int g = kept.strips[size_t (s)].linkGroup; g != 0 && g != group) joining.push_back (g);
+    for (int i = 0; i < kept.numStrips; ++i)
+    {
+        auto& s = kept.strips[size_t (i)];
+        if (std::find (joining.begin(), joining.end(), s.linkGroup) != joining.end()) s.linkGroup = group;
+    }
+    for (int s : members) kept.strips[size_t (s)].linkGroup = group;
+    // Linking starts the members level: a pair of overheads linked at +1.5 and -6.9 is not a
+    // pair yet. Every member of the group takes the level of the channel the link was made
+    // from (the first one asked for), under the LIVE SAFE step like any other fader move, so
+    // mid-service the far one comes as close as the policy allows and says so.
+    const float lead = kept.strips[size_t (members.front())].faderDb;
+    bool limited = false;
+    liveSafe::Verdict verdict;
+    for (int i = 0; i < kept.numStrips; ++i)
+    {
+        auto& s = kept.strips[size_t (i)];
+        if (s.linkGroup != group || i == members.front()) continue;
+        liveSafe::Verdict v;
+        s.faderDb = liveSafe::limitStepDb (safety, LiveAction::Fader, s.faderDb, lead, v);
+        if (v.limited) { limited = true; verdict = v; }
+        if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (i)].faderDb = s.faderDb;
+    }
+    if (limited && onMessage) onMessage (verdict.reason);
+    if (plan) for (int i = 0; i < kept.numStrips; ++i)
+    {
+        plan->proposed.strips[size_t (i)].linkGroup = kept.strips[size_t (i)].linkGroup;
+        plan->before.strips[size_t (i)].linkGroup = kept.strips[size_t (i)].linkGroup;
+    }
+    publish();
+    if (onMixChanged) onMixChanged();
+    return group;
+}
+
+void MixController::unlinkStrip (int strip)
+{
+    if (! validStrip (kept, strip) || kept.strips[size_t (strip)].linkGroup == 0) return;
+    markMixChange ("unlinking a fader");
+    const int group = kept.strips[size_t (strip)].linkGroup;
+    kept.strips[size_t (strip)].linkGroup = 0;
+    // A group of one is not a group.
+    int left = 0, last = -1;
+    for (int i = 0; i < kept.numStrips; ++i)
+        if (kept.strips[size_t (i)].linkGroup == group) { ++left; last = i; }
+    if (left == 1) kept.strips[size_t (last)].linkGroup = 0;
+    if (plan) for (int i = 0; i < kept.numStrips; ++i)
+    {
+        plan->proposed.strips[size_t (i)].linkGroup = kept.strips[size_t (i)].linkGroup;
+        plan->before.strips[size_t (i)].linkGroup = kept.strips[size_t (i)].linkGroup;
+    }
     publish();
     if (onMixChanged) onMixChanged();
 }
@@ -1097,11 +1233,17 @@ void MixController::setStripSolo (int strip, bool solo)
     if (! validStrip (kept, strip)) return;
     kept.strips[size_t (strip)].solo = solo;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].solo = solo;
+    // Solo follows the link: S on one overhead means "the overheads", from either member.
+    for (int other : linkedWith (strip))
+    {
+        kept.strips[size_t (other)].solo = solo;
+        if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (other)].solo = solo;
+    }
     publish();
     // Solo is safe (it never reaches the master) but it is only *useful* when a monitor
     // output exists. Saying so once beats an S key that appears to do nothing.
     if (solo && ! hasMonitorOutput() && kept.monitor.mode == SoloMode::Monitor && onMessage)
-        onMessage ("Solo has nowhere to go yet. Pick the device you listen on: Outputs > Solo.");
+        onMessage ("Solo has nowhere to go yet. Pick the device you listen on: the Solo picker on LIVE, or Outputs > Solo.");
     if (onMixChanged) onMixChanged();
 }
 
@@ -1168,7 +1310,7 @@ void MixController::setBusSolo (MixBus bus, bool solo)
     if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].solo = solo;
     publish();
     if (solo && ! hasMonitorOutput() && kept.monitor.mode == SoloMode::Monitor && onMessage)
-        onMessage ("Solo has nowhere to go yet. Pick the device you listen on: Outputs > Solo.");
+        onMessage ("Solo has nowhere to go yet. Pick the device you listen on: the Solo picker on LIVE, or Outputs > Solo.");
     if (onMixChanged) onMixChanged();
 }
 

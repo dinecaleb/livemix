@@ -39,11 +39,12 @@ private:
 
     MixController& controller;
     AppServices& services;
-    // One tile per group bus, then the effects returns: DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE FX.
-    std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 1> tiles;
+    // One tile per group bus, then the effects returns, then the master: DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE FX MASTER.
+    std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 2> tiles;
     DineButton liveSafeButton { "LIVE SAFE OFF", DineButton::Style::Standard };
     std::array<std::unique_ptr<DineButton>, 6> chips;   // MONITOR SOLO / SOLO IN PLACE / AFL / PFL / Dim / Clear solo
     juce::Slider monitorLevel { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+    DinePopup soloDevice;                                // where solo goes: the device only the engineer hears
     std::unique_ptr<RecordKey> recordButton;
 
     struct Look

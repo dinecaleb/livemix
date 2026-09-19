@@ -349,17 +349,21 @@ juce::Rectangle<int> TracksPage::faderCell (int track) const
 // A fader is grabbed where it stands and moved from there - it never jumps to the click.
 // A live fader that snaps to wherever the mouse landed is how a service gets 12 dB louder
 // by accident. Hold Shift for a quarter-speed move, the same as the console's faders.
-void TracksPage::dragFader (int track, int x, bool fine)
+void TracksPage::dragFader (int track, int x, bool fine, bool alone)
 {
     if (track < 0 || track >= controller.getBase().numStrips) return;
     const auto cell = faderCell (track);
     if (cell.isEmpty()) return;
     const float travel = float (x - dragStartX) / float (juce::jmax (1, cell.getWidth()));
     const float norm = juce::jlimit (0.0f, 1.0f, dragFaderNorm + travel * (fine ? 0.25f : 1.0f));
-    controller.setStripFader (track, std::round (faderRange().convertFrom0to1 (norm) * 10.0f) * 0.1f);
+    controller.setStripFader (track, std::round (faderRange().convertFrom0to1 (norm) * 10.0f) * 0.1f, ! alone);
     // A fader has to feel immediate, which means repainting the row it is on and the readout
     // that follows it - not the whole timeline, which at 48 channels costs more than a frame.
+    // A linked move lands on the partners' rows too.
     repaint (0, trackTop (track), headerWidth, trackHeight (track));
+    if (! alone)
+        for (int other : controller.linkedWith (track))
+            repaint (0, trackTop (other), headerWidth, trackHeight (other));
     repaint (toolbarArea());
 }
 
@@ -987,6 +991,24 @@ void TracksPage::headerMenu (int track)
     m.addItem (7, "Move up", track > 0);
     m.addItem (8, "Move down", track < numTracks() - 1);
     m.addSeparator();
+    // Linked faders: the channels this one moves with. A member is ticked; choosing it again takes it out.
+    {
+        const int group = controller.getStripLink (track);
+        juce::PopupMenu link;
+        const int count = juce::jmin (numTracks(), controller.getKept().numStrips);
+        for (int i = 0; i < count; ++i)
+        {
+            if (i == track) continue;
+            const int g = controller.getStripLink (i);
+            const bool together = group != 0 && g == group;
+            link.addItem (300 + i, juce::String (i + 1).paddedLeft ('0', 2) + "  " + juce::String (controller.getSession().inputs[size_t (i)].name)
+                                       + (g != 0 && ! together ? "   (linked elsewhere)" : juce::String()), true, together);
+        }
+        m.addSubMenu (group != 0 ? "Linked faders  " + Glyph::dot() + "  " + juce::String (controller.linkedNames (track))
+                                 : juce::String ("Link fader with"), link, count > 1);
+        if (group != 0) m.addItem (9, "Unlink this fader");
+    }
+    m.addSeparator();
     m.addItem (4, "Fix the assignments" + Glyph::ellip(), onOpenAssign != nullptr);
     m.addSeparator();
     m.addItem (6, "TUNE CHANNEL", onTuneStrip != nullptr);
@@ -999,6 +1021,14 @@ void TracksPage::headerMenu (int track)
                      [this, track, clip, byId, iconKeys] (int chosen)
                      {
                          if (chosen <= 0 || track >= numTracks()) return;
+                         if (chosen >= 300)
+                         {
+                             const int other = chosen - 300, group = controller.getStripLink (track);
+                             if (group != 0 && controller.getStripLink (other) == group) controller.unlinkStrip (other);
+                             else controller.linkStrips ({ track, other });
+                             repaint();
+                             return;
+                         }
                          if (chosen >= 200) { setTrackIcon (track, iconKeys[size_t (chosen - 200)]); return; }
                          if (chosen >= 100) { setTrackSource (track, byId[size_t (chosen - 100)]); return; }
                          switch (chosen)
@@ -1013,6 +1043,7 @@ void TracksPage::headerMenu (int track)
                                      if (onTuneStrip) onTuneStrip (track); break;
                              case 7: moveTrack (track, track - 1); break;
                              case 8: moveTrack (track, track + 1); break;
+                             case 9: controller.unlinkStrip (track); repaint(); break;
                              default: break;
                          }
                      });
@@ -1417,6 +1448,9 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
                     juce::Justification::centredLeft, true);
         if (wrongName && nameCell.getWidth() >= 13)
             Dine::drawIcon (g, Dine::Icon::Warn, nameCell.removeFromLeft (13).toFloat().withSizeKeepingCentre (11.0f, 11.0f), Dine::warn);
+        // Linked faders: the mark after the name, in the accent, the same one the mixer draws.
+        if (inRange && params.strips[size_t (track)].linkGroup != 0 && nameCell.getWidth() >= 22)
+            Dine::drawLinkGlyph (g, nameCell.withTrimmedLeft (6).removeFromLeft (16).toFloat(), Dine::accent);
     }
     if (! compact && note.isNotEmpty())
     {
@@ -1788,7 +1822,7 @@ void TracksPage::mouseDrag (const juce::MouseEvent& e)
         }
 
         case Drag::Fader:
-            dragFader (dragTrack, p.x, e.mods.isShiftDown());
+            dragFader (dragTrack, p.x, e.mods.isShiftDown(), e.mods.isCommandDown());
             break;
 
         case Drag::TrackOrder:
@@ -2031,7 +2065,11 @@ juce::String TracksPage::getTooltip()
             default: return "Solo: hear this source alone.";
         }
     }
-    if (faderCell (track).contains (p)) return "Level for this track. Double-click for 0.0 dB.";
+    if (faderCell (track).contains (p))
+        return controller.getStripLink (track) != 0
+                   ? "Level for this track. Linked with " + juce::String (controller.linkedNames (track))
+                         + ": they move and solo together. Cmd-drag to move this one alone. Double-click for 0.0 dB."
+                   : juce::String ("Level for this track. Double-click for 0.0 dB.");
     // The reorder is a gesture with nothing drawn to advertise it, so the header itself says so.
     if (numTracks() > 1)
         return juce::String (controller.getSession().inputs[size_t (track)].name)

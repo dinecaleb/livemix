@@ -1249,6 +1249,21 @@ TEST_CASE ("Monitor: solo is monitoring, and the mix that is published is unchan
     c.clearSolos();
     CHECK (c.numSoloed() == 0);
     CHECK (! c.anySolo());
+
+    // The returns as one group: S on the FX RETURNS tile solos every return the session uses
+    // and none it does not, and the mix that is published is still untouched.
+    int usedReturns = 0;
+    for (int f = 0; f < int (FxSlot::Count); ++f) if (c.getGraph().fxUsed[size_t (f)]) ++usedReturns;
+    REQUIRE (usedReturns > 0);
+    c.setFxSoloAll (true);
+    CHECK (c.anyFxSolo());
+    CHECK (c.numSoloed() == usedReturns);
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+        CHECK (c.getKept().fx[size_t (f)].solo == c.getGraph().fxUsed[size_t (f)]);
+    CHECK (MixPlanner::countParameterChanges (before, c.getRunning()) == 0);
+    c.setFxSoloAll (false);
+    CHECK (! c.anyFxSolo());
+    CHECK (c.numSoloed() == 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1280,6 +1295,136 @@ TEST_CASE ("Mix history: a change can be undone by name, and redone")
     c.setLiveSafe (true);
     c.undoMix();
     CHECK_NEAR (c.getKept().strips[0].channel.hpfHz, was, 0.01);
+}
+
+// ---------------------------------------------------------------------------
+// Linked faders
+// ---------------------------------------------------------------------------
+TEST_CASE ("Linked faders: members move by the same amount, keep their balance, and one can be moved alone")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    c.setStripFader (0, -6.0f);
+    c.setStripFader (1, -2.0f);
+    c.setStripFader (2, 4.0f);
+
+    const int group = c.linkStrips ({ 0, 1 });
+    REQUIRE (group != 0);
+    CHECK (c.getStripLink (0) == group);
+    CHECK (c.getStripLink (1) == group);
+    CHECK (c.getStripLink (2) == 0);
+    CHECK ((c.linkedWith (0) == std::vector<int> { 1 }));
+    CHECK (c.linkedNames (0) == band().inputs[1].name);
+
+    // Linking starts them level, at the fader of the channel the link was made from.
+    CHECK_NEAR (c.getKept().strips[0].faderDb, -6.0f, 0.01);
+    CHECK_NEAR (c.getKept().strips[1].faderDb, -6.0f, 0.01);
+
+    // Cmd-drag sets a balance between them (this one alone) ...
+    c.setStripFader (1, -2.0f, false);
+    CHECK_NEAR (c.getKept().strips[0].faderDb, -6.0f, 0.01);
+
+    // ... and from then on, held from either end, the other member moves by the same dB and the 4 dB is kept.
+    c.setStripFader (0, -3.0f);
+    CHECK_NEAR (c.getKept().strips[1].faderDb, 1.0f, 0.01);
+    c.setStripFader (1, -1.0f);
+    CHECK_NEAR (c.getKept().strips[0].faderDb, -5.0f, 0.01);
+    CHECK_NEAR (c.getKept().strips[2].faderDb, 4.0f, 0.01);        // an unlinked strip never moves
+
+    c.setStripFader (0, 0.0f, false);
+    CHECK_NEAR (c.getKept().strips[1].faderDb, -1.0f, 0.01);
+
+    // A member at the end of its travel stops there; the held one still lands where it was put.
+    c.setStripFader (1, 10.0f, false);
+    c.setStripFader (0, 5.0f);
+    CHECK_NEAR (c.getKept().strips[0].faderDb, 5.0f, 0.01);
+    CHECK_NEAR (c.getKept().strips[1].faderDb, 12.0f, 0.01);
+
+    // Solo follows the link - hearing one overhead on its own is never what S on a pair means -
+    // and so does un-solo from either member. Mute and pan stay each channel's own.
+    c.setStripSolo (0, true);
+    CHECK (c.getKept().strips[1].solo);
+    c.setStripSolo (1, false);
+    CHECK (! c.getKept().strips[0].solo);
+    c.setStripMute (0, true);
+    CHECK (! c.getKept().strips[1].mute);
+    c.setStripMute (0, false);
+
+    // Linking a third to a member brings the group along, not a new pair, and the whole group
+    // takes the new member's level (it is the channel the link was made from).
+    CHECK (c.linkStrips ({ 2, 1 }) == group);
+    CHECK ((c.linkedWith (0) == std::vector<int> { 1, 2 }));
+    CHECK_NEAR (c.getKept().strips[0].faderDb, 4.0f, 0.01);
+    CHECK_NEAR (c.getKept().strips[1].faderDb, 4.0f, 0.01);
+
+    // Taking one out leaves the other two linked; a group of one dissolves.
+    c.unlinkStrip (2);
+    CHECK (c.getStripLink (2) == 0);
+    CHECK (c.getStripLink (0) == group);
+    c.unlinkStrip (0);
+    CHECK (c.getStripLink (1) == 0);
+
+    // Linking is a mix change, so UNDO brings the link back.
+    CHECK (c.canUndoMix());
+    c.undoMix();
+    CHECK (c.getStripLink (0) == group);
+    CHECK (c.getStripLink (1) == group);
+}
+
+TEST_CASE ("Linked faders: LIVE SAFE keeps every member's step small, and the link survives a save and a rearrangement")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    c.setStripFader (3, -20.0f);
+    REQUIRE (c.linkStrips ({ 0, 1 }) != 0);
+    c.setLiveSafe (true);
+    // Linking is allowed mid-service, and the levelling it does is a fader move like any other:
+    // the far member comes as close as the policy's step allows, no further.
+    CHECK (c.linkStrips ({ 0, 3 }) != 0);
+    CHECK_NEAR (c.getKept().strips[3].faderDb, -20.0f + c.getLiveSafePolicy().maxFaderStepDb, 0.01);
+    c.setLiveSafe (false);
+    c.setStripFader (3, 0.0f, false);
+    c.setLiveSafe (true);
+    c.setStripFader (0, 12.0f);       // asks for +12, gets the policy's step, and so does every member
+    const float step = c.getLiveSafePolicy().maxFaderStepDb;
+    CHECK_NEAR (c.getKept().strips[0].faderDb, step, 0.01);
+    CHECK_NEAR (c.getKept().strips[1].faderDb, step, 0.01);
+    CHECK_NEAR (c.getKept().strips[3].faderDb, step, 0.01);
+    c.setLiveSafe (false);
+
+    // The link is part of the kept mix: it is written with the session and read back.
+    const auto folder = scratchFolder().getChildFile ("linked-session");
+    folder.deleteRecursively();
+    folder.createDirectory();
+    SessionStore::Document d;
+    d.session = band();
+    d.project.syncTracks (d.session);
+    d.hasMix = true;
+    d.mix = c.getKept();
+    const auto file = folder.getChildFile ("linked.dlive.json");
+    CHECK (SessionStore::save (d, file));
+    SessionStore::Document back;
+    CHECK (SessionStore::load (file, back));
+    CHECK (back.mix.strips[0].linkGroup == c.getKept().strips[0].linkGroup);
+    CHECK (back.mix.strips[1].linkGroup == c.getKept().strips[0].linkGroup);
+    CHECK (back.mix.strips[2].linkGroup == 0);
+    folder.deleteRecursively();
+
+    // Rearranging the inputs carries the link with each strip, because it is the strip's.
+    const MixSession before = band();
+    MixSession after = before;
+    auto moved = after.inputs[3];
+    after.inputs.erase (after.inputs.begin() + 3);
+    after.inputs.insert (after.inputs.begin(), moved);
+    MixParameters baseline;
+    baseline.numStrips = after.numStrips();
+    const auto carried = carryMix (c.getKept(), before, baseline, after);
+    CHECK (carried.strips[0].linkGroup != 0);                                   // the moved input (was 3)
+    CHECK (carried.strips[1].linkGroup == carried.strips[0].linkGroup);         // was 0
+    CHECK (carried.strips[2].linkGroup == carried.strips[0].linkGroup);         // was 1
+    CHECK (carried.strips[3].linkGroup == 0);                                   // was 2
 }
 
 // ---------------------------------------------------------------------------
@@ -1520,4 +1665,88 @@ TEST_CASE ("Monitoring: the device solo goes to is chosen sensibly, and says so 
     REQUIRE (again.valid);
     CHECK (again.broadcast.name == "Dante Virtual Soundcard");
     CHECK (again.headphones.name == "Scarlett 2i2 USB");
+}
+
+// ---------------------------------------------------------------------------
+// The channel layout of the device DLIVE builds
+//
+// What broke with Dante: sixty-four Dante outputs, then the Scarlett at 64-65 - and the host
+// opened the first sixteen channels, so solo pointed at a pair that was never open; and the
+// console was opened twice, once as the input device and once inside the built device, glued
+// together by JUCE's own combiner. The layout puts the console inside the built device (its
+// inputs first, so channel 1 stays channel 1) and the host opens exactly the pairs the feeds
+// need, wherever they sit.
+// ---------------------------------------------------------------------------
+TEST_CASE ("Monitoring: the built device carries the console's inputs first and the solo pair wherever it falls")
+{
+    using MonitorDevice::Device;
+    const Device dante    { "Dante Virtual Soundcard", "uid-dante", 64, false, false, 64 };
+    const Device scarlett { "Scarlett 2i2 USB", "uid-scarlett", 2, false, false, 2 };
+    const Device usbDesk  { "X32 USB", "uid-x32", 0, false, false, 32 };   // a console that only sends inputs
+    const Device macMic   { "MacBook Pro Microphone", "uid-mic", 0, false, false, 1 };
+
+    // The usual booth: the console comes in and goes out on Dante, the headphones are on the interface.
+    {
+        const auto l = MonitorDevice::layoutFor (dante, scarlett, &dante);
+        REQUIRE (l.problem.isEmpty());
+        REQUIRE (l.pieces.size() == 2);
+        CHECK (l.pieces[0].uid == "uid-dante");
+        CHECK (l.pieces[1].uid == "uid-scarlett");
+        CHECK (l.carriesInput);
+        CHECK (l.broadcastChannel == 0);
+        CHECK (l.headphoneChannel == 64);
+        // The host opens the solo pair and as much of the Dante as fits beside it - never more
+        // than the engine can address, and the solo pair is always in.
+        const auto open = MonitorDevice::outputChannelsToOpen (l, dante.outputChannels, kMaxOutputs);
+        CHECK (open.countNumberOfSetBits() == kMaxOutputs);
+        CHECK (open[0]); CHECK (open[1]); CHECK (open[13]);
+        CHECK (! open[14]);
+        CHECK (open[64]); CHECK (open[65]);
+        CHECK (! open[66]);
+    }
+    // The console comes in on the interface the headphones are in: the interface goes first
+    // (its inputs keep their numbers), the broadcast follows.
+    {
+        const auto l = MonitorDevice::layoutFor (dante, scarlett, &scarlett);
+        REQUIRE (l.problem.isEmpty());
+        REQUIRE (l.pieces.size() == 2);
+        CHECK (l.pieces[0].uid == "uid-scarlett");
+        CHECK (l.carriesInput);
+        CHECK (l.headphoneChannel == 0);
+        CHECK (l.broadcastChannel == 2);
+        const auto open = MonitorDevice::outputChannelsToOpen (l, dante.outputChannels, kMaxOutputs);
+        CHECK (open[0]); CHECK (open[1]); CHECK (open[2]); CHECK (open[15]); CHECK (! open[16]);
+    }
+    // A third device carries the inputs: it goes first and, having no outputs, moves nothing.
+    {
+        const auto l = MonitorDevice::layoutFor (dante, scarlett, &usbDesk);
+        REQUIRE (l.pieces.size() == 3);
+        CHECK (l.pieces[0].uid == "uid-x32");
+        CHECK (l.carriesInput);
+        CHECK (l.broadcastChannel == 0);
+        CHECK (l.headphoneChannel == 64);
+        const auto mic = MonitorDevice::layoutFor (dante, scarlett, &macMic);
+        CHECK (mic.pieces.size() == 3);
+        CHECK (mic.carriesInput);
+    }
+    // No console at all (a session played from stems): two pieces, opened for output only.
+    {
+        const auto l = MonitorDevice::layoutFor (dante, scarlett, nullptr);
+        REQUIRE (l.pieces.size() == 2);
+        CHECK (! l.carriesInput);
+        CHECK (l.headphoneChannel == 64);
+    }
+    // A small broadcast device: every one of its outputs is opened beside the solo pair.
+    {
+        const Device small { "Scarlett 4i4 USB", "uid-4i4", 4, false, false, 4 };
+        const auto l = MonitorDevice::layoutFor (small, scarlett, &small);
+        CHECK (l.headphoneChannel == 4);
+        const auto open = MonitorDevice::outputChannelsToOpen (l, small.outputChannels, kMaxOutputs);
+        CHECK (open.countNumberOfSetBits() == 6);
+        CHECK (open[3]); CHECK (open[4]); CHECK (open[5]);
+    }
+    // What cannot be built is said, not attempted.
+    CHECK (MonitorDevice::layoutFor (dante, dante, &dante).problem.isNotEmpty());
+    const Device theirs { "My Aggregate", "uid-theirs", 66, true, false, 64 };
+    CHECK (MonitorDevice::layoutFor (theirs, scarlett, &theirs).problem.contains ("combined device"));
 }

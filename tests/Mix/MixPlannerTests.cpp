@@ -230,8 +230,8 @@ TEST_CASE ("MixPlanner: one listen tunes every source, balances the faders and r
         const bool closeMic = f == RoleFamily::Kick || f == RoleFamily::Snare || f == RoleFamily::Tom || f == RoleFamily::HiHat;
         if (closeMic)
         {
-            const float gainRaise = std::max (s.inputGainDb - ctx.atCapture.strips[size_t (s.strip)].inputGainDb, 0.0f);
-            expected = std::min (expected, std::max (std::round ((R.maxCloseMicRaiseDb - gainRaise) * 2.0f) * 0.5f, 0.0f));
+            // ... counted over the gain and the fader together, whichever way the gain went.
+            expected = std::min (expected, std::max (std::round ((R.maxCloseMicRaiseDb - s.inputGainDb) * 2.0f) * 0.5f, 0.0f));
         }
         expected = std::max (-R.maxFaderMoveDb, std::min (R.maxFaderMoveDb, expected));
         CHECK_NEAR (s.faderDb, expected, 0.01f);

@@ -134,6 +134,8 @@ void ChainStrip::paint (juce::Graphics& g)
     auto r = getLocalBounds();
     g.setColour (Dine::window);
     g.fillRect (r);
+    g.setColour (Dine::hair);
+    g.fillRect (r.removeFromTop (1));   // the seam between the workspace and its chain foot
 
     auto row = r.reduced (18, 0);
 

@@ -367,6 +367,35 @@ TEST_CASE ("MixController: the master's voicing rides on top of the kept mix; th
     c.setLiveSafe (false);
 }
 
+TEST_CASE ("MixController: under LIVE SAFE a macro is fenced to the plan's neighbourhood, and the fence is what the pads read")
+{
+    MixController c;
+    // Off: the whole travel, and the range says so.
+    c.setMacro (MixMacro::Space, 92.0f);
+    CHECK (c.getMacros().get (MixMacro::Space) == 92.0f);
+    CHECK (c.macroRange().lo == 0.0f);
+    CHECK (c.macroRange().hi == 100.0f);
+    CHECK (liveSafe::macroLimitReason (c.getLiveSafePolicy()).empty());
+
+    // On: a value past the fence lands on it rather than being refused, on both sides,
+    // and the range the pads draw is the same one the controller enforces.
+    c.setLiveSafe (true);
+    const auto range = c.macroRange();
+    const float e = c.getLiveSafePolicy().maxMacroExcursion;
+    CHECK_NEAR (range.lo, 50.0f - e, 0.001f);
+    CHECK_NEAR (range.hi, 50.0f + e, 0.001f);
+    c.setMacro (MixMacro::Drums, 100.0f);
+    CHECK_NEAR (c.getMacros().get (MixMacro::Drums), range.hi, 0.001f);
+    c.setMacro (MixMacro::Bass, 0.0f);
+    CHECK_NEAR (c.getMacros().get (MixMacro::Bass), range.lo, 0.001f);
+    c.setMacro (MixMacro::Vocals, 60.0f);
+    CHECK (c.getMacros().get (MixMacro::Vocals) == 60.0f);        // inside the fence: untouched
+    CHECK (! liveSafe::macroLimitReason (c.getLiveSafePolicy()).empty());
+    c.setLiveSafe (false);
+    c.setMacro (MixMacro::Drums, 100.0f);
+    CHECK (c.getMacros().get (MixMacro::Drums) == 100.0f);
+}
+
 TEST_CASE ("MixController: TUNE CHANNEL tunes one source and leaves the rest of the mix exactly where it is")
 {
     MixController c;

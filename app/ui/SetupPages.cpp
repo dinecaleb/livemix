@@ -1711,12 +1711,17 @@ public:
         auto top = r.removeFromTop (18);
         Dine::drawRadio (g, top.removeFromLeft (14).toFloat(), on);
         top.removeFromLeft (10);
+        // The heading is the card; the tag is a hint and gives way to it, then disappears.
+        const int headingW = Dine::textWidth (Dine::text (15.0f), heading);
         if (tag.isNotEmpty())
         {
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::text (11.0f));
-            const int w = Dine::textWidth (Dine::text (11.0f), tag);
-            g.drawText (tag, top.removeFromRight (w), juce::Justification::centredRight);
+            const int w = juce::jmin (Dine::textWidth (Dine::text (11.0f), tag), top.getWidth() - headingW - 12);
+            if (w >= 40)
+            {
+                g.setColour (Dine::ink4);
+                g.setFont (Dine::text (11.0f));
+                g.drawText (tag, top.removeFromRight (w), juce::Justification::centredRight, true);
+            }
         }
         g.setColour (Dine::ink);
         g.setFont (Dine::text (15.0f));
@@ -1742,9 +1747,9 @@ public:
 
 namespace
 {
-    // Two rows of purpose cards, each tall enough for its name, its sentence and the three
-    // numbers it promises.
-    constexpr int kPurposeGrid = 150;
+    // A purpose card is tall enough for its name, its sentence and the three numbers it
+    // promises; the grid wraps at its natural height, the page scrolls if it must.
+    constexpr int kPurposeTileH = 136;
 
     // Every number on this page is the profile's own: the loudness a delivery wants, the
     // ceiling its true peaks must stay under, and how much the loudness may wander. They
@@ -1753,6 +1758,20 @@ namespace
     {
         return Profiles::targets (profile, masterRoleFor (purpose));
     }
+
+    // The SOUND cards wrap like the PURPOSE cards do: three across on a 1280 desk, six on a
+    // 1920 one. One function decides the rows, so paint() and resized() cannot disagree.
+    // A card is 300 wide when there is room and never narrower than 260: four purpose cards
+    // fit one row on a 1280 desk that way instead of wrapping a lone fourth under the others.
+    constexpr int kSoundTileH = 110, kTileW = 300, kTileMinW = 260, kTileGap = 12;
+    int soundColumns (int width, int count) { return juce::jlimit (1, juce::jmax (1, count), (width + kTileGap) / (kTileMinW + kTileGap)); }
+    int gridHeight (int width, int count, int tileH)
+    {
+        const int rows = (count + soundColumns (width, count) - 1) / soundColumns (width, count);
+        return rows * tileH + (rows - 1) * kTileGap;
+    }
+    int soundGridHeight (int width, int count)   { return gridHeight (width, count, kSoundTileH); }
+    int purposeGridHeight (int width, int count) { return gridHeight (width, count, kPurposeTileH); }
 
     juce::String lufs (float v)   { return juce::String (v, 0) + " LUFS"; }
     juce::String dbtp (float v)   { return juce::String (v, 1) + " dBTP"; }
@@ -1772,23 +1791,37 @@ PurposePage::PurposePage (MixController& c) : controller (c)
         auto t = std::make_unique<Tile> (mixPurposeName (MixPurpose (i)), purposeLines[i]);
         t->setClickingTogglesState (false);
         t->onClick = [this, i] { controller.setPurpose (MixPurpose (i)); refresh(); };
-        addAndMakeVisible (*t);
+        body.addAndMakeVisible (*t);
         purposeTiles.push_back (std::move (t));
     }
+    // One sentence per sound, in the profile's order. The first two are the church; the rest
+    // are the other rooms the same desk ends up in. Every card is a real profile with its own
+    // numbers (ProfileData.cpp / MixProfileData.cpp), never a rename of another.
+    static_assert (int (StyleProfileId::Count) == 6, "add a sentence and a tag for the new profile");
     const char* soundLines[] = {
         "Full low end, a forward vocal and drums that push. Organ and keys sit wide behind them.",
-        "Guitars and pads carry it. The vocal is warm rather than bright and the kick stays tight."
+        "Guitars and pads carry it. The vocal is warm rather than bright and the kick stays tight.",
+        "A kit that hits, guitars that carry the song and a voice that cuts through them. Dense, and the room kept small.",
+        "The sub owns the low end, the snare cracks, the voice is smooth and close over wide keys. The delays are part of the song.",
+        "Open dynamics and nothing driven. The kit is one instrument through the overheads, the piano is forward, the room is welcome.",
+        "Every voice held steady, close and clear. The music is a bed under the words, never a mix of its own."
     };
+    const char* soundTags[] = { "Default", "A documented delta", "Club, festival, indie", "Studio, urban",
+                                "Jazz, folk, unplugged", "Conference, podcast" };
     for (int i = 0; i < int (StyleProfileId::Count); ++i)
     {
         auto t = std::make_unique<Tile> (styleProfileName (StyleProfileId (i)), soundLines[i]);
-        t->tag = i == 0 ? "Default" : "A documented delta";
+        t->tag = soundTags[i];
         t->setClickingTogglesState (false);
         t->onClick = [this, i] { controller.setProfile (StyleProfileId (i)); refresh(); };
-        addAndMakeVisible (*t);
+        body.addAndMakeVisible (*t);
         soundTiles.push_back (std::move (t));
     }
-    addAndMakeVisible (deliveryButton);
+    addAndMakeVisible (viewport);
+    viewport.setViewedComponent (&body, false);
+    viewport.setScrollBarsShown (true, false);
+    Dine::nativeScrolling (viewport);
+    body.addAndMakeVisible (deliveryButton);
     deliveryButton.setTooltip ("How loud the finished mix should end up. This is what the whole gain structure is "
                                "fitted against - not a gain added at the end - so changing it changes nothing until "
                                "the next TUNE MIX, and then every fader, group and the master follow it.");
@@ -1842,15 +1875,37 @@ void PurposePage::refresh()
     deliveryButton.setValue (session.delivery == DeliveryLoudness::FromPurpose
                                  ? juce::String (deliveryLoudnessName (session.delivery)) + "  (" + lufs (purposeTarget.targetLufs) + ")"
                                  : juce::String (deliveryLoudnessName (session.delivery)) + "  " + lufs (session.deliveryTargetLufs()));
+    body.repaint();
     repaint();
 }
 
 SetupLayout PurposePage::layout() const { return SetupLayout::of (getLocalBounds(), false, false); }
 
+namespace
+{
+    // The body's bands, top to bottom. One place, read by bodyHeight(), paintBody() and resized().
+    constexpr int kSectionCaption = 14, kCaptionGap = 10, kSectionGap = 22, kClosing = 44;
+}
+
+int PurposePage::bodyHeight (int width) const
+{
+    return kSectionCaption + kCaptionGap + purposeGridHeight (width, int (purposeTiles.size())) + kSectionGap
+         + kSectionCaption + kCaptionGap + soundGridHeight (width, int (soundTiles.size())) + kSectionGap
+         + kSectionCaption + kCaptionGap + Dine::Metric::button + 18 + kClosing + 12;
+}
+
 void PurposePage::paint (juce::Graphics& g)
 {
     g.fillAll (Dine::window);
     const auto L = layout();
+    drawSetupHead (g, L.head, "Purpose and sound",
+                   "Each card is a commitment: the numbers on it are what DLIVE will mix to.");
+    drawSetupFooter (g, getLocalBounds(), "DLIVE listens for about thirty seconds, then sets the whole mix.",
+                     continueButton.getWidth() + backButton.getWidth() + 10);
+}
+
+void PurposePage::paintBody (juce::Graphics& g)
+{
     const auto& session = controller.getSession();
     auto target = masterTargets (session.profile, session.purpose);
     if (const float wanted = session.deliveryTargetLufs(); wanted < 0.0f && target.loudnessTargetAppropriate)
@@ -1859,16 +1914,13 @@ void PurposePage::paint (juce::Graphics& g)
         target.truePeakCeilingDb = juce::jmin (target.truePeakCeilingDb, wanted >= -15.0f ? -1.0f : -1.5f);
     }
 
-    drawSetupHead (g, L.head, "Purpose and sound",
-                   "Each card is a commitment: the numbers on it are what DLIVE will mix to.");
-
-    auto main = L.main;
-    Dine::drawSection (g, main.removeFromTop (14), "PURPOSE  " + juce::String (Glyph::dot()) + "  WHERE IT IS GOING");
-    main.removeFromTop (10 + kPurposeGrid + 22);
-    Dine::drawSection (g, main.removeFromTop (14), "SOUND  " + juce::String (Glyph::dot()) + "  WHAT IT SHOULD FEEL LIKE");
-    main.removeFromTop (10 + 110 + 22);
-    Dine::drawSection (g, main.removeFromTop (14), "HOW LOUD IT SHOULD END UP");
-    main.removeFromTop (10);
+    auto main = body.getLocalBounds();
+    Dine::drawSection (g, main.removeFromTop (kSectionCaption), "PURPOSE  " + juce::String (Glyph::dot()) + "  WHERE IT IS GOING");
+    main.removeFromTop (kCaptionGap + purposeGridHeight (main.getWidth(), int (purposeTiles.size())) + kSectionGap);
+    Dine::drawSection (g, main.removeFromTop (kSectionCaption), "SOUND  " + juce::String (Glyph::dot()) + "  WHAT IT SHOULD FEEL LIKE");
+    main.removeFromTop (kCaptionGap + soundGridHeight (main.getWidth(), int (soundTiles.size())) + kSectionGap);
+    Dine::drawSection (g, main.removeFromTop (kSectionCaption), "HOW LOUD IT SHOULD END UP");
+    main.removeFromTop (kCaptionGap);
     auto row = main.removeFromTop (Dine::Metric::button);
     row.removeFromLeft (deliveryButton.getWidth() + 14);
     g.setColour (Dine::ink3);
@@ -1881,35 +1933,43 @@ void PurposePage::paint (juce::Graphics& g)
                           + dbtp (target.truePeakCeilingDb) + ", and tune every group toward "
                           + juce::String (styleProfileName (session.profile)) + ". Purpose and sound can be switched mid-service: "
                           "the next tune follows the new one, and anything you moved by hand is kept.",
-                      main.removeFromTop (44).withWidth (juce::jmin (main.getWidth(), 720)), juce::Justification::topLeft, 3, 1.0f);
-
-    drawSetupFooter (g, getLocalBounds(), "DLIVE listens for about thirty seconds, then sets the whole mix.",
-                     continueButton.getWidth() + backButton.getWidth() + 10);
+                      main.removeFromTop (kClosing).withWidth (juce::jmin (main.getWidth(), 720)), juce::Justification::topLeft, 3, 1.0f);
 }
 
 void PurposePage::resized()
 {
     const auto L = layout();
-    auto main = L.main;
-    main.removeFromTop (14 + 10);
+    viewport.setBounds (L.main);
+    const int width = viewport.getMaximumVisibleWidth();
+    body.setSize (width, juce::jmax (viewport.getMaximumVisibleHeight(), bodyHeight (width)));
 
-    const int gap = 12;
-    auto purposeArea = main.removeFromTop (kPurposeGrid);
-    const int cols = juce::jlimit (1, int (purposeTiles.size()), (purposeArea.getWidth() + gap) / (300 + gap));
-    const int rowsN = (int (purposeTiles.size()) + cols - 1) / cols;
-    const int tileH = juce::jmin (kPurposeGrid, (kPurposeGrid - gap * (rowsN - 1)) / juce::jmax (1, rowsN));
-    const int tileW = juce::jmin (300, (purposeArea.getWidth() - gap * (cols - 1)) / cols);
+    auto main = body.getLocalBounds();
+    main.removeFromTop (kSectionCaption + kCaptionGap);
+
+    auto purposeArea = main.removeFromTop (purposeGridHeight (main.getWidth(), int (purposeTiles.size())));
+    const int cols = soundColumns (purposeArea.getWidth(), int (purposeTiles.size()));
+    const int tileH = kPurposeTileH;
+    const int tileW = juce::jmin (kTileW, (purposeArea.getWidth() - kTileGap * (cols - 1)) / cols);
     for (int i = 0; i < int (purposeTiles.size()); ++i)
     {
         const int c = i % cols, r = i / cols;
-        purposeTiles[size_t (i)]->setBounds (purposeArea.getX() + c * (tileW + gap),
-                                             purposeArea.getY() + r * (tileH + gap), tileW, tileH);
+        purposeTiles[size_t (i)]->setBounds (purposeArea.getX() + c * (tileW + kTileGap),
+                                             purposeArea.getY() + r * (tileH + kTileGap), tileW, tileH);
     }
-    main.removeFromTop (22 + 14 + 10);
-    auto soundArea = main.removeFromTop (110);
-    for (auto& t : soundTiles) { t->setBounds (soundArea.removeFromLeft (300)); soundArea.removeFromLeft (gap); }
+    main.removeFromTop (kSectionGap + kSectionCaption + kCaptionGap);
+    auto soundArea = main.removeFromTop (soundGridHeight (main.getWidth(), int (soundTiles.size())));
+    {
+        const int scols = soundColumns (soundArea.getWidth(), int (soundTiles.size()));
+        const int stileW = juce::jmin (kTileW, (soundArea.getWidth() - kTileGap * (scols - 1)) / scols);
+        for (int i = 0; i < int (soundTiles.size()); ++i)
+        {
+            const int c = i % scols, r = i / scols;
+            soundTiles[size_t (i)]->setBounds (soundArea.getX() + c * (stileW + kTileGap),
+                                               soundArea.getY() + r * (kSoundTileH + kTileGap), stileW, kSoundTileH);
+        }
+    }
 
-    main.removeFromTop (22 + 14 + 10);
+    main.removeFromTop (kSectionGap + kSectionCaption + kCaptionGap);
     auto loudRow = main.removeFromTop (Dine::Metric::button);
     deliveryButton.setBounds (loudRow.removeFromLeft (juce::jmin (300, juce::jmax (220, deliveryButton.idealWidth()))));
 

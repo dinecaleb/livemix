@@ -235,6 +235,9 @@ namespace Dine
     void drawPill (juce::Graphics&, juce::Rectangle<float>, const juce::String& text, juce::Colour, Icon icon = Icon::None);
     // A small chevron pointing down: the mark on every popup (5 px tall, 8 wide).
     void drawDropChevron (juce::Graphics&, juce::Rectangle<float>, juce::Colour);
+    // Two rings joined: the mark on a channel whose fader is linked to another's. Drawn the same
+    // on a mixer strip, a TRACKS header and in a menu, so a link looks like a link everywhere.
+    void drawLinkGlyph (juce::Graphics&, juce::Rectangle<float>, juce::Colour);
 
     juce::Colour levelColour (float db) noexcept;
     juce::Colour busTint (MixBus) noexcept;

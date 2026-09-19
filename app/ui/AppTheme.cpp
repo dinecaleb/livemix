@@ -556,6 +556,16 @@ void Dine::drawStackedBar (juce::Graphics& g, juce::Rectangle<int> r, const std:
     g.restoreState();
 }
 
+void Dine::drawLinkGlyph (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c)
+{
+    // Two small rounded links, overlapping by a third, inside `r` (about 14 x 8 reads best).
+    auto box = r.withSizeKeepingCentre (juce::jmin (r.getWidth(), 14.0f), juce::jmin (r.getHeight(), 8.0f));
+    const float w = box.getWidth() * 0.62f, h = box.getHeight(), rad = h * 0.5f;
+    g.setColour (c);
+    g.drawRoundedRectangle (box.getX(), box.getY(), w, h, rad, 1.4f);
+    g.drawRoundedRectangle (box.getRight() - w, box.getY(), w, h, rad, 1.4f);
+}
+
 void Dine::drawDropChevron (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c)
 {
     juce::Path p;

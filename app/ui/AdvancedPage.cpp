@@ -1028,6 +1028,9 @@ void AdvancedPage::paint (juce::Graphics& g)
     g.fillRect (rail);
     if (trailShown) { g.setColour (Dine::window); g.fillRect (trailArea); }
     else            { g.setColour (Dine::menubar); g.fillRect (trailArea); }
+    g.setColour (Dine::hair);
+    g.fillRect (rail.withLeft (rail.getRight() - 1));          // the seams either side of the middle column
+    g.fillRect (trailArea.withWidth (1));
 
     if (! railShown) return paintWorkspaceBands (g, area);
 

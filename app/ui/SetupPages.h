@@ -255,6 +255,19 @@ public:
 private:
     class Tile;
     SetupLayout layout() const;
+    // The cards and the loudness row live on a body inside a viewport: six sound cards and
+    // four purpose cards no longer fit a 1280 x 800 desk above the footer, and a page that
+    // hides its last control under the footer is worse than one that scrolls.
+    struct Body : public juce::Component
+    {
+        explicit Body (PurposePage& p) : page (p) {}
+        void paint (juce::Graphics& g) override { page.paintBody (g); }
+        PurposePage& page;
+    };
+    void paintBody (juce::Graphics&);
+    int bodyHeight (int width) const;
+    juce::Viewport viewport;
+    Body body { *this };
 
     MixController& controller;
     std::vector<std::unique_ptr<Tile>> purposeTiles, soundTiles;

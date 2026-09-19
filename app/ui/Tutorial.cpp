@@ -18,8 +18,9 @@ const std::vector<Tutorial::Step>& Tutorial::steps()
 {
     static const std::vector<Step> all {
         { "GETTING STARTED  1 / 7", "This is your session.",
-          "Everything you set up, record and mix lives under this name. It saves itself. "
-          "Click it any time to see how the setup is going, or to open a different session.",
+          "Everything you set up, record and mix lives in a session, and it saves itself. The "
+          "sidebar is where you open one, set up the inputs and pick a workspace; this button "
+          "shows or hides it.",
           0 /* Sessions */, "session" },
 
         { "GETTING STARTED  2 / 7", "Tell DLIVE what is plugged in.",

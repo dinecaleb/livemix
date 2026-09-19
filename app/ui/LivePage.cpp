@@ -1,4 +1,5 @@
 #include "LivePage.h"
+#include "OutputsSheet.h"
 #include "UI/Widgets.h"
 #include <cmath>
 
@@ -8,10 +9,13 @@ namespace livemix
 namespace
 {
     constexpr int kGroupBuses = int (MixBus::Master);
-    constexpr int kTiles = kGroupBuses + 1;
+    constexpr int kFxTile = kGroupBuses, kMasterTile = kGroupBuses + 1;
+    constexpr int kTiles = kGroupBuses + 2;
     constexpr int kPadX = 24, kPadY = 22, kGap = 20;
     constexpr int kStatusH = 100;
     constexpr int kSafeW = 330;
+    // The monitor card's rows, measured once: the caption, a gap, the chips, a gap, the level, a gap, the sentence.
+    constexpr int kMonCaption = 14, kMonCaptionGap = 12, kMonRowGap = 20, kMonNoteGap = 16, kMonNote = 18;
 
     juce::String dbText (float v)
     {
@@ -44,28 +48,36 @@ public:
         fader.setDoubleClickReturnValue (true, 0.0);
         fader.getProperties().set ("dineFader", true);
         fader.setTooltip (isFx() ? "Level for every effect return together. Double-click for 0.0 dB, which is what TUNE MIX set."
-                                 : "Level for the whole group. Double-click for 0.0 dB.");
+                        : isMaster() ? "The master fader: everything the room and the stream hear. The readout beside the meter is the "
+                                       "mix's integrated loudness. Double-click for 0.0 dB."
+                                     : "Level for the whole group. Double-click for 0.0 dB.");
         fader.onValueChange = [this]
         {
             if (updating) return;
             if (isFx()) controller.setFxReturn (float (fader.getValue()));
-            else        controller.setBusFader (MixBus (group), float (fader.getValue()));
+            else        controller.setBusFader (bus(), float (fader.getValue()));
             repaint (readout);
         };
 
         addAndMakeVisible (mute);
         addAndMakeVisible (solo);
         mute.setTooltip (isFx() ? "Mute the effects: the reverbs and delays leave the mix, the sources stay."
-                                : "Muted: the whole group is not heard");
-        solo.setTooltip (isFx() ? "The FX returns have nothing to solo against: they only carry what other channels send them."
+                       : isMaster() ? "Mute the master: nothing reaches the room or the stream until it is off."
+                                    : "Muted: the whole group is not heard");
+        // The master has nothing to solo against: its key is the loudness readout instead (painted).
+        solo.setVisible (! isMaster());
+        solo.setTooltip (isFx() ? "Soloed: just the reverbs and delays, so you hear what the sends are adding. Only you hear it."
                                 : "Soloed: this group and nothing else");
-        solo.setEnabled (! isFx());
         mute.onClick = [this]
         {
             if (isFx()) controller.setFxMute (! controller.getBase().fxMute);
-            else        controller.setBusMute (MixBus (group), ! controller.getBase().buses[size_t (group)].mute);
+            else        controller.setBusMute (bus(), ! controller.getBase().buses[size_t (bus())].mute);
         };
-        solo.onClick = [this] { if (! isFx()) controller.setBusSolo (MixBus (group), ! controller.getBase().buses[size_t (group)].solo); };
+        solo.onClick = [this]
+        {
+            if (isFx()) controller.setFxSoloAll (! controller.anyFxSolo());
+            else if (! isMaster()) controller.setBusSolo (bus(), ! controller.getBase().buses[size_t (bus())].solo);
+        };
         for (auto* b : { &mute, &solo }) { b->setFontPx (10.0f); b->setPadX (4); b->setCaps (true); }
     }
 
@@ -78,6 +90,7 @@ public:
         {
             faderDb = p.fxReturnDb;
             m = p.fxMute;
+            s = controller.anyFxSolo();
             int returns = 0;
             if (controller.isPrepared())
             {
@@ -89,10 +102,17 @@ public:
         }
         else
         {
-            const auto& b = p.buses[size_t (group)];
+            const auto& b = p.buses[size_t (bus())];
             faderDb = b.faderDb; m = b.mute; s = b.solo;
-            isUsed = controller.isPrepared() && controller.getEngine().isBusUsed (MixBus (group));
-            if (isUsed) peak = controller.getEngine().getBus (MixBus (group)).getOutputMeter().consumeMaxPeakDb();
+            isUsed = controller.isPrepared() && (isMaster() || controller.getEngine().isBusUsed (bus()));
+            if (isUsed) peak = controller.getEngine().getBus (bus()).getOutputMeter().consumeMaxPeakDb();
+        }
+        if (isMaster())
+        {
+            // The master's readout beside its mute: where it is against the delivery target.
+            const auto loud = controller.getMasterLoudness();
+            const juce::String next = loud.known && loud.integratedLufs > -100.0f ? juce::String (loud.integratedLufs, 1) : juce::String (Glyph::dash());
+            if (next != loudness) { loudness = next; repaint(); }
         }
         updating = true;
         if (! fader.isMouseButtonDown() && std::fabs (faderDb - float (fader.getValue())) > 0.01f)
@@ -112,6 +132,7 @@ public:
             solo.setTint (Dine::keySolo);
             fader.setEnabled (used);
             mute.setEnabled (used);
+            solo.setEnabled (used);
             repaint();
         }
     }
@@ -125,15 +146,32 @@ public:
         const juce::String state = ! used ? "OFF" : muted ? "NOT HEARD" : soloed ? "SOLO" : "ON";
         const auto chipFont = Dine::caps (10.0f, 0.08f, 500);
         const int chipW = Dine::textWidth (chipFont, state) + 14;
-        auto chip = head.removeFromRight (chipW).withSizeKeepingCentre (chipW, 18).toFloat();
-        Dine::fillRounded (g, chip, muted ? Dine::keyMute : soloed ? Dine::accent : Dine::control, Dine::Radius::chip);
-        g.setColour (muted || soloed ? Dine::onAccent : Dine::ink3);
-        g.setFont (chipFont);
-        g.drawText (state, chip, juce::Justification::centred);
+        // "ON" is the resting state and says little; on a narrow tile it gives its room to the name.
+        // OFF, NOT HEARD and SOLO are news and always show.
+        if ((state != "ON" || head.getWidth() >= 150) && ! (isMaster() && state == "ON"))
+        {
+            auto chip = head.removeFromRight (chipW).withSizeKeepingCentre (chipW, 18).toFloat();
+            Dine::fillRounded (g, chip, muted ? Dine::keyMute : soloed ? Dine::accent : Dine::control, Dine::Radius::chip);
+            g.setColour (muted || soloed ? Dine::onAccent : Dine::ink3);
+            g.setFont (chipFont);
+            g.drawText (state, chip, juce::Justification::centred);
+            head.removeFromRight (6);
+        }
         g.setColour (used ? tint() : Dine::ink4);
         g.setFont (Dine::caps (13.0f, 0.06f));
         g.drawText (name(), head, juce::Justification::centredLeft, true);
 
+        if (isMaster())
+        {
+            // The master's level is its loudness: the integrated LUFS where the groups show their fader.
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::caps (9.0f, 0.08f, 500));
+            g.drawText ("LUFS", readout.translated (0, -13), juce::Justification::centredRight);
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::mono (12.0f, 500));
+            g.drawText (loudness, readout, juce::Justification::centredRight);
+            return;
+        }
         g.setColour (! used ? Dine::ink4 : Dine::ink2);
         g.setFont (Dine::mono (12.0f, 500));
         g.drawText (used ? dbText (float (fader.getValue())) : Glyph::dash(), readout, juce::Justification::centredRight);
@@ -151,19 +189,23 @@ public:
         fader.setBounds (inner.removeFromTop (14));
         inner.removeFromTop (10);
         auto keys = inner.removeFromTop (28);
+        if (isMaster()) { mute.setBounds (keys); return; }     // nothing to solo against: MUTE has the row
         mute.setBounds (keys.removeFromLeft ((keys.getWidth() - 6) / 2));
         keys.removeFromLeft (6);
         solo.setBounds (keys);
     }
 
 private:
-    bool isFx() const noexcept { return group >= kGroupBuses; }
-    juce::Colour tint() const { return isFx() ? Dine::ink2 : Dine::busTint (MixBus (group)); }
-    juce::String name() const { return isFx() ? "FX RETURNS" : juce::String (mixBusName (MixBus (group))).toUpperCase(); }
+    bool isFx() const noexcept { return group == kFxTile; }
+    bool isMaster() const noexcept { return group == kMasterTile; }
+    MixBus bus() const noexcept { return isMaster() ? MixBus::Master : MixBus (group); }
+    juce::Colour tint() const { return isFx() ? Dine::ink2 : isMaster() ? Dine::ink : Dine::busTint (bus()); }
+    juce::String name() const { return isFx() ? "FX RETURNS" : isMaster() ? "MASTER" : juce::String (mixBusName (bus())).toUpperCase(); }
 
     MixController& controller;
     int group;
     bool used = true, muted = false, soloed = false, updating = false;
+    juce::String loudness;
     juce::Rectangle<int> readout;
     DineMeter meter { DineMeter::Style::Bar };
     juce::Slider fader;
@@ -265,6 +307,20 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     chips[4]->onClick = [this] { controller.setMonitorDim (! controller.getMonitor().dim); refreshMonitor(); };
     chips[5]->onClick = [this] { controller.clearSolos(); refreshMonitor(); if (onToast) onToast ("Solo cleared."); };
 
+    // Where solo goes. The same choice as Outputs > Solo, here because this card is where the
+    // sentence "solo has nowhere to go yet" is read, and the fix should be one click away from it.
+    addAndMakeVisible (soloDevice);
+    soloDevice.setTooltip ("The device only you listen on - headphones, a second interface, or outputs 3-4 of the "
+                           "broadcast device. Solo a channel and it comes out here; the room and the stream never hear it.");
+    soloDevice.onClick = [this]
+    {
+        OutputsSheet::showSoloDeviceMenu (services, soloDevice, [this] (const juce::String& message)
+        {
+            if (onToast) onToast (message);
+            refreshMonitor();
+        });
+    };
+
     addAndMakeVisible (monitorLevel);
     monitorLevel.setRange (-40.0, 12.0, 0.5);
     monitorLevel.setValue (0.0, juce::dontSendNotification);
@@ -290,6 +346,9 @@ void LivePage::refreshMonitor()
     chips[5]->setEnabled (controller.numSoloed() > 0);
     if (std::fabs (monitorLevel.getValue() - double (m.gainDb)) > 0.01)
         monitorLevel.setValue (m.gainDb, juce::dontSendNotification);
+    const auto device = services.soloOutputDevice();
+    soloDevice.setValue (device.isEmpty() ? juce::String ("Solo goes nowhere yet") : "Solo: " + device);
+    soloDevice.setEnabled (services.isAudioRunning());
     repaint (layout().monitor);
 }
 
@@ -376,7 +435,7 @@ void LivePage::refresh()
     next.routed = controller.hasMonitorOutput();
     next.monitorDb = float (monitorLevel.getValue());
     next.monitorNote = next.inPlace ? "Careful: pressing S is heard by the room and the stream too."
-                     : ! next.routed ? "Solo has nowhere to go yet. Pick the device you listen on in Outputs."
+                     : ! next.routed ? "Solo has nowhere to go yet. Pick the device you listen on, at the right of the row above."
                      : next.soloCount > 0 ? juce::String (next.soloCount) + (next.soloCount == 1 ? " channel soloed. Only you hear it." : " channels soloed. Only you hear it.")
                                           : "Press S on any channel to hear it. Only you hear it.";
     if (next.soloCount != look.soloCount || next.inPlace != look.inPlace) refreshMonitor();
@@ -397,7 +456,8 @@ LivePage::Layout LivePage::layout() const
     l.safe = lower.removeFromRight (kSafeW);
     lower.removeFromRight (kGap);
     // The monitor card is as tall as what it holds (caption, chips, level, sentence); LIVE SAFE keeps the band's height for its rules.
-    l.monitor = lower.withHeight (juce::jmin (lower.getHeight(), 18 + 14 + Dine::Metric::control + 18 + Dine::Metric::control + 12 + 18 + 18));
+    l.monitor = lower.withHeight (juce::jmin (lower.getHeight(), 18 + kMonCaption + kMonCaptionGap + Dine::Metric::control + kMonRowGap
+                                                                + Dine::Metric::control + kMonNoteGap + kMonNote + 18));
     return l;
 }
 
@@ -445,16 +505,17 @@ void LivePage::paint (juce::Graphics& g)
     {
         Dine::fillRounded (g, l.monitor.toFloat(), Dine::tile, Dine::Radius::card);
         auto inner = l.monitor.reduced (18, 18);
-        Dine::drawSection (g, inner.removeFromTop (14), "ENGINEER MONITORING  " + juce::String (Glyph::dot()) + "  THE ROOM AND THE STREAM DO NOT HEAR THIS");
+        Dine::drawSection (g, inner.removeFromTop (kMonCaption), "ENGINEER MONITORING  " + juce::String (Glyph::dot()) + "  THE ROOM AND THE STREAM DO NOT HEAR THIS");
         // The same rows resized() gives the chips and the slider: the caption is already taken off `inner`.
-        auto levelRow = inner.withTrimmedTop (Dine::Metric::control + 18).withHeight (Dine::Metric::control);
+        inner.removeFromTop (kMonCaptionGap);
+        auto levelRow = inner.withTrimmedTop (Dine::Metric::control + kMonRowGap).withHeight (Dine::Metric::control);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
         g.drawText ("Monitor level", levelRow.removeFromLeft (110), juce::Justification::centredLeft);
         g.setColour (Dine::ink2);
         g.setFont (Dine::mono (12.0f, 500));
         g.drawText (dbText (look.monitorDb), levelRow.removeFromRight (58), juce::Justification::centredRight);
-        auto note = inner.withTrimmedTop (Dine::Metric::control + 18 + Dine::Metric::control + 12).withHeight (18);
+        auto note = inner.withTrimmedTop (Dine::Metric::control + kMonRowGap + Dine::Metric::control + kMonNoteGap).withHeight (kMonNote);
         g.setColour (look.inPlace || ! look.routed ? Dine::warn : look.soloCount > 0 ? Dine::accent : Dine::ink3);
         g.setFont (Dine::text (12.5f));
         g.drawText (look.monitorNote, note, juce::Justification::centredLeft, true);
@@ -520,7 +581,7 @@ void LivePage::resized()
     }
     {
         auto inner = l.monitor.reduced (18, 18);
-        inner.removeFromTop (14);
+        inner.removeFromTop (kMonCaption + kMonCaptionGap);
         auto chipRow = inner.removeFromTop (Dine::Metric::control);
         for (auto& c : chips)
         {
@@ -529,7 +590,11 @@ void LivePage::resized()
             c->setBounds (chipRow.removeFromLeft (w));
             chipRow.removeFromLeft (8);
         }
-        inner.removeFromTop (18);
+        // The solo device picker takes the right end of the chip row, when there is a row's worth left for it.
+        const int pickW = juce::jmin (300, juce::jmax (150, soloDevice.idealWidth()));
+        soloDevice.setVisible (chipRow.getWidth() >= 150);
+        soloDevice.setBounds (chipRow.removeFromRight (juce::jmin (pickW, chipRow.getWidth())));
+        inner.removeFromTop (kMonRowGap);
         auto levelRow = inner.removeFromTop (Dine::Metric::control);
         levelRow.removeFromLeft (110);
         levelRow.removeFromRight (58 + 14);

@@ -25,7 +25,7 @@ namespace
     }
 
     constexpr int kGroupsH = 210;
-    constexpr int kMacroRowH = 40;
+    constexpr int kRibbonGap = 22;      // the ENERGY ribbon sits clear of the snap rows above it
 
     juce::String dbText (float db)
     {
@@ -120,55 +120,132 @@ private:
     juce::Slider fader;
 };
 
-// ------------------------------------------------------------------ MacroSlider
-class MixPage::MacroSlider : public juce::Component
+// ------------------------------------------------------------------ SidePanel
+// The right column, in its own scroll: the verbs, a card that says what the pad under the
+// pointer does (or which pad is off the plan), then MIX HEALTH wrapped to the panel's width.
+// The buttons are the page's; they are laid out here so the stack is measured in one place.
+class MixPage::SidePanel : public juce::Component
 {
 public:
-    MacroSlider (MixMacro m, std::function<void (float)> onChange) : macro (m), changed (std::move (onChange))
+    explicit SidePanel (MixPage& p) : page (p) {}
+
+    static constexpr int kPad = 18;
+
+    // Measures the stack for a width; `place` also positions the buttons. Returns the height needed.
+    int layoutFor (int width, bool place)
     {
-        slider.setSliderStyle (juce::Slider::LinearHorizontal);
-        slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        Dine::dragOnly (slider);
-        slider.setRange (0.0, 100.0, 1.0);
-        slider.setValue (50.0, juce::dontSendNotification);
-        slider.setDoubleClickReturnValue (true, 50.0);
-        slider.setTooltip (juce::String (MixMacros::tooltip (m)) + "  " + Glyph::dot() + "  "
-                           + MixMacros::lowLabel (m) + " at 0, " + MixMacros::highLabel (m) + " at 100, the plan at 50.");
-        slider.onValueChange = [this] { if (changed) changed (float (slider.getValue())); repaint (top); };
-        DineLookAndFeel::setBipolar (slider, true);
-        addAndMakeVisible (slider);
+        const int inner = width - kPad * 2;
+        int y = kPad;
+        auto put = [&] (juce::Component& c, juce::Rectangle<int> r) { if (place) c.setBounds (r); };
+        put (page.tuneButton, { kPad, y, inner, 44 });          y += 44 + 9;
+        put (page.liveTuneButton, { kPad, y, inner, 44 });      y += 44 + 9;
+        {
+            const int half = (inner - 9) / 2;
+            put (page.referenceButton, { kPad, y, half, Dine::Metric::button });
+            put (page.chatButton, { kPad + half + 9, y, inner - half - 9, Dine::Metric::button });
+            y += Dine::Metric::button + 9;
+            put (page.undoButton, { kPad, y, half, Dine::Metric::button });
+            put (page.redoButton, { kPad + half + 9, y, inner - half - 9, Dine::Metric::button });
+            y += Dine::Metric::button + 9;
+        }
+        stamp = { kPad, y, inner, 16 };                          y += 16 + 4;
+        put (page.advancedButton, { kPad, y, juce::jmin (inner, juce::jmax (120, page.advancedButton.idealWidth())), Dine::Metric::control });
+        y += Dine::Metric::control + kPad;
+
+        // the pad card
+        {
+            const int textW = inner - 16 - 14;
+            const int bodyH = juce::jmax (16, textHeight (Dine::text (12.5f), body, textW));
+            card = { kPad, y, inner, 14 + 14 + 8 + bodyH + 14 };
+            y += card.getHeight() + kPad;
+        }
+
+        // MIX HEALTH
+        healthCap = { kPad, y, inner, 14 };                      y += 14 + 12;
+        notes.clear();
+        for (const auto& n : page.controller.getMixHealthNotes())
+        {
+            const juce::String text (n);
+            const auto lower = text.toLowerCase();
+            const bool bad = lower.contains ("clipping") || lower.contains ("barely") || lower.contains ("not heard");
+            const bool watch = lower.contains ("preamp") || lower.contains ("digital");
+            const int h = textHeight (Dine::text (13.0f), text, inner);
+            notes.push_back ({ text, bad ? Dine::crit : watch ? Dine::warn : Dine::ink2, { kPad, y, inner, h } });
+            y += h + 10;
+        }
+        bool statusIsNote = false;
+        for (const auto& n : notes) if (n.text == page.status) statusIsNote = true;
+        statusBox = {};
+        if (! statusIsNote && page.status.isNotEmpty())
+        {
+            const int h = textHeight (Dine::text (13.0f), page.status, inner);
+            statusBox = { kPad, y, inner, h };
+            y += h + 10;
+        }
+        return y + kPad;
     }
-    void setValue (float v)
-    {
-        if (std::fabs (v - float (slider.getValue())) < 0.01f) return;
-        slider.setValue (v, juce::dontSendNotification);
-        repaint (top);
-    }
+
+    void setCard (const juce::String& h, const juce::String& b) { heading = h; body = b; }
+
+    void resized() override { layoutFor (getWidth(), true); }
 
     void paint (juce::Graphics& g) override
     {
-        const juce::String label = juce::String (MixMacros::name (macro));
-        g.setColour (Dine::ink);
-        g.setFont (Dine::text (13.0f, 500));
-        g.drawText (label.substring (0, 1) + label.substring (1).toLowerCase(), top, juce::Justification::centredLeft);
-        g.setColour (Dine::ink2);
-        g.setFont (Dine::mono (12.0f, 500));
-        g.drawText (juce::String (int (slider.getValue())), top, juce::Justification::centredRight);
-    }
+        // the stamp under the verbs
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::text (12.5f));
+        const int tunes = page.controller.getTuneCount();
+        juce::String text = tunes > 0 ? "Tuned " + juce::String (tunes) + (tunes == 1 ? " time" : " times") + " this session"
+                                      : juce::String ("Not tuned yet");
+        if (page.controller.hasReference()) text += "  " + Glyph::dot() + "  aimed at " + juce::String (page.controller.getReference().name);
+        g.drawText (text, stamp, juce::Justification::centredLeft, true);
 
-    void resized() override
-    {
-        auto r = getLocalBounds();
-        top = r.removeFromTop (18);
-        r.removeFromTop (7);
-        slider.setBounds (r.removeFromTop (14));
+        // the pad card: a 2 px accent edge down its left
+        {
+            const auto r = card.toFloat();
+            Dine::drawCard (g, r, Dine::card);
+            {
+                juce::Graphics::ScopedSaveState clip (g);
+                juce::Path round; round.addRoundedRectangle (r, Dine::Radius::card);
+                g.reduceClipRegion (round);
+                g.setColour (Dine::accent);
+                g.fillRect (juce::Rectangle<float> (r.getX(), r.getY(), 2.0f, r.getHeight()));
+            }
+            auto in = card.reduced (16, 14).withTrimmedLeft (0);
+            g.setColour (Dine::accent);
+            g.setFont (Dine::caps (10.5f, 0.10f));
+            g.drawText (heading, in.removeFromTop (14), juce::Justification::centredLeft, true);
+            in.removeFromTop (8);
+            drawWrapped (g, body, Dine::text (12.5f), Dine::ink2, in);
+        }
+
+        Dine::drawSection (g, healthCap, page.health > 0 ? "MIX HEALTH  " + juce::String (Glyph::dot()) + "  " + juce::String (page.health) + "%"
+                                                         : "MIX HEALTH");
+        for (const auto& n : notes) drawWrapped (g, n.text, Dine::text (13.0f), n.colour, n.box);
+        if (! statusBox.isEmpty()) drawWrapped (g, page.status, Dine::text (13.0f), Dine::ink3, statusBox);
     }
 
 private:
-    MixMacro macro;
-    juce::Slider slider;
-    juce::Rectangle<int> top;
-    std::function<void (float)> changed;
+    static int textHeight (const juce::Font& f, const juce::String& s, int width)
+    {
+        if (s.isEmpty() || width <= 0) return 0;
+        juce::AttributedString a; a.setText (s); a.setFont (f);
+        juce::TextLayout tl; tl.createLayout (a, float (width));
+        return int (std::ceil (tl.getHeight())) + 2;
+    }
+    static void drawWrapped (juce::Graphics& g, const juce::String& s, const juce::Font& f, juce::Colour c, juce::Rectangle<int> box)
+    {
+        if (s.isEmpty() || box.isEmpty()) return;
+        juce::AttributedString a; a.setText (s); a.setFont (f); a.setColour (c);
+        juce::TextLayout tl; tl.createLayout (a, float (box.getWidth()));
+        tl.draw (g, box.toFloat());
+    }
+
+    struct Note { juce::String text; juce::Colour colour; juce::Rectangle<int> box; };
+    MixPage& page;
+    juce::String heading, body;
+    juce::Rectangle<int> stamp, card, healthCap, statusBox;
+    std::vector<Note> notes;
 };
 
 // ------------------------------------------------------------------ InputRow (the rail)
@@ -625,11 +702,18 @@ private:
 MixPage::MixPage (MixController& c) : controller (c)
 {
     for (int i = 0; i < kGroupTiles; ++i) { groups[size_t (i)] = std::make_unique<GroupTile> (controller, i); addAndMakeVisible (*groups[size_t (i)]); }
-    for (int i = 0; i < int (MixMacro::Count); ++i)
     {
-        const auto m = MixMacro (i);
-        macros[size_t (i)] = std::make_unique<MacroSlider> (m, [this, m] (float v) { controller.setMacro (m, v); });
-        addAndMakeVisible (*macros[size_t (i)]);
+        const auto set = [this] (MixMacro m, float v) { controller.setMacro (m, v); };
+        const juce::String times = juce::String::fromUTF8 ("\xC3\x97");
+        pads[0] = std::make_unique<MacroPad> ("BODY " + times + " VOICE", MixMacro::Bass, MixMacro::Vocals,
+                                              MacroPad::Corners { "AIRY", "PRESENT", "DARK", "THICK" },
+                                              std::vector<MacroPad::Snap> { { "Speech", 30.0f, 78.0f }, { "Choir", 68.0f, 58.0f }, { "Plan", 50.0f, 50.0f } }, set);
+        pads[1] = std::make_unique<MacroPad> ("DRIVE " + times + " ROOM", MixMacro::Space, MixMacro::Drums,
+                                              MacroPad::Corners { "DRY HIT", "BIG HIT", "FLAT", "WASH" },
+                                              std::vector<MacroPad::Snap> { { "Tight", 22.0f, 74.0f }, { "Room", 76.0f, 62.0f }, { "Plan", 50.0f, 50.0f } }, set);
+        for (auto& p : pads) { p->onActiveChanged = [this] { updateSide(); }; addAndMakeVisible (*p); }
+        ribbon = std::make_unique<MacroRibbon> (MixMacro::Energy, [this] (float v) { controller.setMacro (MixMacro::Energy, v); });
+        addAndMakeVisible (*ribbon);
     }
     railView.setViewedComponent (&railHolder, false);
     Dine::nativeScrolling (railView);
@@ -640,11 +724,21 @@ MixPage::MixPage (MixController& c) : controller (c)
     railTab->onClick = [this] { setRailShown (! railShown); };
     addAndMakeVisible (*railTab);
 
+    side = std::make_unique<SidePanel> (*this);
+    sideView.setViewedComponent (side.get(), false);
+    Dine::nativeScrolling (sideView);
+    sideView.setScrollBarsShown (true, false);
+    addAndMakeVisible (sideView);
+    sideTab = std::make_unique<DinePanelTab> (DinePanelTab::Side::Right, "Mix health");
+    sideTab->onClick = [this] { setSideShown (! sideShown); };
+    addAndMakeVisible (*sideTab);
+
     listenSheet = std::make_unique<ListenSheet> (controller);
     resultSheet = std::make_unique<ResultSheet> (controller, *this);
     referenceSheet = std::make_unique<ReferenceSheet> (controller);
-    for (auto* b : { &tuneButton, &liveTuneButton, &referenceButton, &chatButton, &undoButton, &redoButton, &advancedButton, &resetMacrosButton })
-        addAndMakeVisible (*b);
+    for (auto* b : { &tuneButton, &liveTuneButton, &referenceButton, &chatButton, &undoButton, &redoButton, &advancedButton })
+        side->addAndMakeVisible (*b);
+    addAndMakeVisible (resetMacrosButton);
     addChildComponent (*referenceSheet);
     addChildComponent (*resultSheet);
     addChildComponent (*listenSheet);
@@ -691,7 +785,8 @@ MixPage::MixPage (MixController& c) : controller (c)
     advancedButton.setFontPx (12.5f);
     advancedButton.onClick = [this] { if (onOpenAdvanced) onOpenAdvanced(); };
     resetMacrosButton.setFontPx (13.0f);
-    resetMacrosButton.onClick = [this] { controller.resetMacros(); for (int i = 0; i < int (MixMacro::Count); ++i) macros[size_t (i)]->setValue (50.0f); };
+    resetMacrosButton.setTooltip ("Both pads and the ENERGY ribbon back to the plan - exactly what TUNE MIX built.");
+    resetMacrosButton.onClick = [this] { centreMacroPads(); };
 
     // ---- MASTER: the target, the lift and the sound
     addAndMakeVisible (loudnessTargetButton);
@@ -773,6 +868,16 @@ void MixPage::setRailShown (bool shown)
     repaint();
 }
 
+void MixPage::setSideShown (bool shown)
+{
+    if (shown == sideShown) return;
+    sideShown = shown;
+    sideTab->setCollapsed (! shown);
+    sideView.setVisible (shown);
+    resized();
+    repaint();
+}
+
 void MixPage::openReference()
 {
     if (listenSheet->isVisible() || resultSheet->isVisible()) return;
@@ -799,8 +904,69 @@ void MixPage::pressLiveTune()
 
 void MixPage::setMacroValue (MixMacro m, float v)
 {
-    macros[size_t (m)]->setValue (v);
     controller.setMacro (m, v);
+    syncMacros();
+    updateSide();
+}
+
+void MixPage::centreMacroPads()
+{
+    controller.resetMacros();
+    for (auto& p : pads) p->settleTo (50.0f, 50.0f);
+    ribbon->settleTo (50.0f);
+    updateSide();
+}
+
+void MixPage::syncMacros()
+{
+    const auto& m = controller.getMacros();
+    pads[0]->setValues (m.get (MixMacro::Bass), m.get (MixMacro::Vocals));
+    pads[1]->setValues (m.get (MixMacro::Space), m.get (MixMacro::Drums));
+    ribbon->setValue (m.get (MixMacro::Energy));
+    const auto range = controller.macroRange();
+    const juce::String why (liveSafe::macroLimitReason (controller.getLiveSafePolicy()));
+    for (auto& p : pads) p->setLimits (range.lo, range.hi, why);
+    ribbon->setLimits (range.lo, range.hi, why);
+}
+
+// The card on the right says what the pad you are holding does, or which pad is off the
+// plan; its body is the two macros' own sentences.
+void MixPage::updateSide()
+{
+    juce::String heading, body;
+    const MacroPad* about = nullptr;
+    for (auto& p : pads) if (p->isActive()) { about = p.get(); heading = "HOLDING  " + juce::String (Glyph::dot()) + "  " + p->getTitle(); }
+    if (about == nullptr)
+    {
+        const bool a = pads[0]->isOffCentre(), b = pads[1]->isOffCentre();
+        if (a && b)  { about = pads[0].get(); heading = "BOTH PADS MOVED"; }
+        else if (a)  { about = pads[0].get(); heading = pads[0]->getTitle() + " MOVED"; }
+        else if (b)  { about = pads[1].get(); heading = pads[1]->getTitle() + " MOVED"; }
+    }
+    if (about != nullptr)
+        body = juce::String (MixMacros::tooltip (about->getAcross())) + "  " + MixMacros::tooltip (about->getUp());
+    else
+    {
+        heading = "BOTH PADS AT THE PLAN";
+        body = "The dashed ring at the centre of each pad is what TUNE MIX built. Press anywhere on a pad to lean the mix "
+               "away from it - across for one control, up and down for the other - and double-click to come back.";
+    }
+    const auto key = heading + "|" + body;
+    if (key == painted.padCard) return;
+    painted.padCard = key;
+    side->setCard (heading, body);
+    layoutSide();
+    side->repaint();
+}
+
+void MixPage::layoutSide()
+{
+    const auto view = sideView.getBounds();
+    if (view.isEmpty()) return;
+    const int need = side->layoutFor (view.getWidth(), false);
+    const int w = view.getWidth() - (need > view.getHeight() ? 10 : 0);
+    side->setSize (w, juce::jmax (need, view.getHeight()));
+    side->resized();
 }
 
 void MixPage::refreshTuneButton()
@@ -899,19 +1065,23 @@ void MixPage::refresh()
     if (listenOn) { listenSheet->tick(); listenSheet->resized(); listenSheet->repaint(); }
     if (preview && (adviceTicks % 10) == 0) resultSheet->refresh();
     if (stage != lastStage || live != lastLiveRun) { refreshTuneButton(); lastStage = stage; lastLiveRun = live; }
-    for (int i = 0; i < int (MixMacro::Count); ++i) macros[size_t (i)]->setValue (controller.getMacros().get (MixMacro (i)));
+    syncMacros();
+    updateSide();
     if ((adviceTicks % 6) == 0) refreshMaster();
 
     juce::String notes;
     for (const auto& n : controller.getMixHealthNotes()) notes << juce::String (n) << "|";
     const PageLook now { status, notes, health, stage, controller.getTuneCount(), controller.hasReference(),
                          controller.canUndoMix(), controller.canRedoMix(),
-                         controller.hasReference() ? juce::String (controller.getReference().name) : juce::String(), masterNote };
+                         controller.hasReference() ? juce::String (controller.getReference().name) : juce::String(), masterNote,
+                         painted.padCard };
     if (now != painted)
     {
         painted = now;
         undoButton.setEnabled (now.canUndo);
         redoButton.setEnabled (now.canRedo);
+        layoutSide();
+        side->repaint();
         repaint();
     }
 }
@@ -929,12 +1099,19 @@ void MixPage::refreshMaster()
     const auto move = controller.previewLoudnessMove();
     raisePossible = move.possible;
     raiseButton.setEnabled (move.possible && ! controller.isLiveSafe());
+    // The band shows one readout - where the master is and where it is going - and the whole
+    // sentence (what one press would do, or why it cannot) lives on the button it is about.
+    juce::String sentence;
     if (move.possible)
-        masterNote = "Now " + lufs (move.fromLufs) + ", aiming at " + lufs (move.targetLufs) + ": "
-                     + (move.moveDb > 0 ? "+" : "") + juce::String (move.moveDb, 1) + " dB on the master, under the limiter so it cannot clip.";
+        sentence = "Now " + lufs (move.fromLufs) + ", aiming at " + lufs (move.targetLufs) + ": "
+                 + (move.moveDb > 0 ? "+" : "") + juce::String (move.moveDb, 1) + " dB on the master, under the limiter so it cannot clip.";
     else
-        masterNote = controller.isLiveSafe() ? juce::String ("LIVE SAFE is on: the master stays where it is until it is off.")
-                                             : juce::String (move.why);
+        sentence = controller.isLiveSafe() ? juce::String ("LIVE SAFE is on: the master stays where it is until it is off.")
+                                           : juce::String (move.why);
+    raiseButton.setTooltip ("Raises the master to the loudness target in one move, under the master limiter, so it cannot clip.  " + sentence);
+    const auto loud = controller.getMasterLoudness();
+    const bool known = loud.known && loud.integratedLufs > -100.0f;
+    masterNote = known ? "NOW  " + juce::String (loud.integratedLufs, 1) + "     TARGET  " + juce::String (loud.targetLufs, 1) : juce::String();
 }
 
 MixPage::Layout MixPage::layout() const
@@ -943,23 +1120,42 @@ MixPage::Layout MixPage::layout() const
     auto b = getLocalBounds();
     l.rail = b.removeFromLeft (railWidth());
     l.railTab = railShown ? l.rail.removeFromRight (0) : l.rail;
+    l.side = b.removeFromRight (sideWidth());
+    l.sideTab = sideShown ? l.side.withHeight (36).removeFromRight (30) : l.side;
     auto main = b.reduced (24, 22);
-    // MIX HEALTH beside the 230 px column of verbs
-    auto top = main.removeFromTop (juce::jmin (230, juce::jmax (150, main.getHeight() / 3)));
-    l.actions = top.removeFromRight (230);
-    top.removeFromRight (22);
-    l.health = top;
-    main.removeFromTop (22);
-    // The macros are as tall as they are; the groups take what is left, down to a floor.
-    const int macrosH = 12 + 12 + 18 + 7 + 14;
-    l.macros = main.removeFromBottom (macrosH);
-    main.removeFromBottom (20);
-    // MASTER: a caption, then one row of the target, the lift and the sound, with its sentence beside them.
-    l.master = main.removeFromBottom (12 + 8 + Dine::Metric::control);
-    main.removeFromBottom (20);
+
+    // The middle column never scrolls. The groups take what is left after the master row and
+    // the pads, down to a floor of 150; when even that does not fit, the pads drop their snap
+    // rows first. What is spare goes to the pads (up to their 214) before the groups.
+    const int fixed = (12 + 12) + 20 + (12 + 8 + Dine::Metric::control) + 20 + (12 + 12) + kRibbonGap + MacroRibbon::kHeight;
+    const int groupsFloor = 150;
+    l.compact = main.getHeight() < fixed + MacroPad::heightFor (MacroPad::kMinPad, false) + groupsFloor;
+    const int padCap = juce::jmax (MacroPad::kMinPad, juce::jmin (MacroPad::kMaxPad, (main.getWidth() - 12) / 2));
+    l.padSize = MacroPad::kMinPad;
+    for (int size = padCap; size > MacroPad::kMinPad; size -= 2)
+        if (main.getHeight() - fixed - MacroPad::heightFor (size, l.compact) >= groupsFloor) { l.padSize = size; break; }
+    const int padsH = MacroPad::heightFor (l.padSize, l.compact);
+    const int groupsH = juce::jlimit (groupsFloor, 320, main.getHeight() - fixed - padsH);
+
     l.groupsCaption = main.removeFromTop (12);
     main.removeFromTop (12);
-    l.groups = main.withHeight (juce::jlimit (150, kGroupsH + 40, main.getHeight()));
+    l.groups = main.removeFromTop (groupsH);
+    main.removeFromTop (20);
+    // MASTER: a caption, then one row of the target, the lift and the sound, with its sentence beside them.
+    l.master = main.removeFromTop (12 + 8 + Dine::Metric::control);
+    main.removeFromTop (20);
+    l.macrosCaption = main.removeFromTop (12);
+    main.removeFromTop (12);
+    // The two pads and the ribbon are one block, centred in the column rather than parked at its left.
+    auto padRow = main.removeFromTop (padsH);
+    const int compW = juce::jmin (l.padSize + 40, (padRow.getWidth() - 24) / 2);
+    const int block = compW * 2 + 24;
+    padRow = padRow.withSizeKeepingCentre (block, padRow.getHeight());
+    l.pads[0] = padRow.removeFromLeft (compW);
+    padRow.removeFromLeft (24);
+    l.pads[1] = padRow.removeFromLeft (compW);
+    main.removeFromTop (kRibbonGap);
+    l.ribbon = main.removeFromTop (MacroRibbon::kHeight).withSizeKeepingCentre (block, MacroRibbon::kHeight);
     return l;
 }
 
@@ -968,80 +1164,37 @@ void MixPage::paint (juce::Graphics& g)
     g.fillAll (Dine::window);
     const auto l = layout();
 
-    // ---- MIX HEALTH: the caption and the sentences under it
-    {
-        auto r = l.health;
-        auto cap = r.removeFromTop (14);
-        Dine::drawSection (g, cap, health > 0 ? "MIX HEALTH  " + juce::String (Glyph::dot()) + "  " + juce::String (health) + "%" : "MIX HEALTH");
-        r.removeFromTop (12);
-        const auto notes = controller.getMixHealthNotes();
-        const auto font = Dine::text (13.0f);
-        int shown = 0;
-        for (const auto& n : notes)
-        {
-            if (shown >= 3 || r.getHeight() < 20) break;
-            const juce::String text (n);
-            const auto lower = text.toLowerCase();
-            const bool bad = lower.contains ("clipping") || lower.contains ("barely") || lower.contains ("not heard");
-            const bool watch = lower.contains ("preamp") || lower.contains ("digital");
-            g.setColour (bad ? Dine::crit : watch ? Dine::warn : Dine::ink2);
-            g.setFont (font);
-            juce::AttributedString a; a.setText (text); a.setFont (font);
-            juce::TextLayout tl; tl.createLayout (a, float (juce::jmin (620, r.getWidth())));
-            const int h = juce::jmin (r.getHeight(), int (std::ceil (tl.getHeight())) + 2);
-            g.drawFittedText (text, r.removeFromTop (h).withWidth (juce::jmin (620, r.getWidth())), juce::Justification::topLeft, 4, 1.0f);
-            r.removeFromTop (10);
-            ++shown;
-        }
-        bool statusIsNote = false;
-        for (const auto& n : notes) if (juce::String (n) == status) statusIsNote = true;
-        if (r.getHeight() >= 18 && ! statusIsNote && status.isNotEmpty())
-        {
-            g.setColour (Dine::ink3);
-            g.setFont (font);
-            g.drawFittedText (status, r.withWidth (juce::jmin (620, r.getWidth())), juce::Justification::topLeft, 2, 1.0f);
-        }
-    }
-
-    // ---- the stamp under the verbs
-    {
-        auto stamp = l.actions.withTrimmedTop (44 + 9 + 44 + 9 + Dine::Metric::button + 9 + Dine::Metric::button + 9).withHeight (16);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::text (12.5f));
-        juce::String text = controller.getTuneCount() > 0 ? "Tuned " + juce::String (controller.getTuneCount()) + (controller.getTuneCount() == 1 ? " time" : " times")
-                                                          + " this session" : juce::String ("Not tuned yet");
-        if (controller.hasReference()) text += "  " + Glyph::dot() + "  aimed at " + juce::String (controller.getReference().name);
-        g.drawText (text, stamp, juce::Justification::centredLeft, true);
-    }
+    // ---- the right panel's ground and its edge (the panel itself paints its words)
+    g.setColour (Dine::sidebar);
+    g.fillRect (l.side.getUnion (l.sideTab));
+    g.setColour (Dine::hair);
+    g.fillRect (l.side.getX(), l.side.getY(), 1, l.side.getHeight());
 
     Dine::drawSection (g, l.groupsCaption, "GROUPS");
 
     // ---- MASTER: the sentence beside the controls says what the lift would do, or why not
     {
         auto r = l.master;
-        Dine::drawSection (g, r.removeFromTop (12), "MASTER  " + juce::String (Glyph::dot()) + "  HOW LOUD, AND FOR WHOM");
+        Dine::drawSection (g, r.removeFromTop (12), "MASTER");
         r.removeFromTop (8);
         const int used = loudnessTargetButton.getRight() > 0 ? voicingButton.getRight() - r.getX() : 0;
         auto note = r.withTrimmedLeft (used + 16);
-        if (note.getWidth() > 120 && masterNote.isNotEmpty())
+        if (note.getWidth() > 160 && masterNote.isNotEmpty())
         {
             g.setColour (raisePossible ? Dine::ink2 : Dine::ink3);
-            g.setFont (Dine::text (12.0f));
-            g.drawFittedText (masterNote, note, juce::Justification::centredLeft, 2, 1.0f);
+            g.setFont (Dine::mono (11.5f, 500));
+            g.drawText (masterNote, note, juce::Justification::centredRight, true);
         }
     }
 
-    // ---- MACROS
-    {
-        auto r = l.macros;
-        auto cap = r.removeFromTop (12);
-        Dine::drawSection (g, cap, "MACROS  " + juce::String (Glyph::dot()) + "  50 IS THE PLAN");
-    }
+    Dine::drawSection (g, l.macrosCaption, "MACROS");
 
     // ---- the input rail
     if (! railAvailable) return;
     g.setColour (Dine::rail);
     g.fillRect (l.rail.getUnion (l.railTab));
+    g.setColour (Dine::hair);
+    g.fillRect (l.rail.getUnion (l.railTab).removeFromRight (1));   // the seam against the middle
     if (! railShown) return;
     auto head = l.rail.withHeight (36).reduced (14, 0).withTrimmedTop (12);
     Dine::drawSection (g, head.withTrimmedRight (20), "INPUTS");
@@ -1077,26 +1230,10 @@ void MixPage::resized()
 {
     const auto l = layout();
 
-    auto col = l.actions;
-    tuneButton.setBounds (col.removeFromTop (44));
-    col.removeFromTop (9);
-    liveTuneButton.setBounds (col.removeFromTop (44));
-    col.removeFromTop (9);
-    {
-        auto row = col.removeFromTop (Dine::Metric::button);
-        referenceButton.setBounds (row.removeFromLeft ((row.getWidth() - 9) / 2));
-        row.removeFromLeft (9);
-        chatButton.setBounds (row);
-    }
-    col.removeFromTop (9);
-    {
-        auto row = col.removeFromTop (Dine::Metric::button);
-        undoButton.setBounds (row.removeFromLeft ((row.getWidth() - 9) / 2));
-        row.removeFromLeft (9);
-        redoButton.setBounds (row);
-    }
-    col.removeFromTop (9 + 16 + 6);
-    advancedButton.setBounds (col.removeFromTop (Dine::Metric::control).withWidth (juce::jmax (120, advancedButton.idealWidth())));
+    // ---- the right panel
+    sideTab->setBounds (l.sideTab);
+    sideView.setBounds (sideShown ? l.side.withTrimmedTop (36) : juce::Rectangle<int>());
+    layoutSide();
 
     auto groupRow = l.groups;
     const int gap = 10;
@@ -1112,14 +1249,17 @@ void MixPage::resized()
         voicingButton.setBounds (row.removeFromLeft (juce::jmin (row.getWidth() / 2, juce::jmax (140, voicingButton.idealWidth()))));
     }
 
-    auto macroArea = l.macros;
-    auto cap = macroArea.removeFromTop (12);
-    resetMacrosButton.setBounds (cap.removeFromRight (juce::jmax (90, resetMacrosButton.idealWidth())).withSizeKeepingCentre (juce::jmax (90, resetMacrosButton.idealWidth()), 22));
-    macroArea.removeFromTop (12);
-    auto row = macroArea.removeFromTop (kMacroRowH);
-    const int mgap = 14;
-    const int mw = (row.getWidth() - mgap * (int (MixMacro::Count) - 1)) / int (MixMacro::Count);
-    for (auto& m : macros) { m->setBounds (row.removeFromLeft (mw)); row.removeFromLeft (mgap); }
+    {
+        const int w = juce::jmax (90, resetMacrosButton.idealWidth());
+        resetMacrosButton.setBounds (l.macrosCaption.withTrimmedLeft (l.macrosCaption.getWidth() - w).withSizeKeepingCentre (w, 22));
+        for (size_t i = 0; i < pads.size(); ++i)
+        {
+            pads[i]->setCompact (l.compact);
+            pads[i]->setPadSize (l.padSize);
+            pads[i]->setBounds (l.pads[i]);
+        }
+        ribbon->setBounds (l.ribbon);
+    }
 
     // ---- rail
     if (railShown) railTab->setBounds (l.rail.withHeight (36).removeFromRight (30));

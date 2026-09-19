@@ -1,7 +1,7 @@
 // DLIVE offline success test: a folder of recorded stems goes through the complete
 // standalone pipeline with no audio device and no UI.
 //
-//   dlive_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dlive-out] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording[:LUFS]] [reference.wav]
+//   dlive_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dlive-out] [gospel|worship|rock|rnb|jazz|talk] [offsetSeconds] [broadcast|livestream|recording[:LUFS]] [reference.wav]
 //
 // The delivery target can be named outright: "broadcast:-14" aims the whole gain structure at
 // -14 LUFS instead of the purpose's own standard, which is the one knob that decides whether a
@@ -109,7 +109,16 @@ int main (int argc, char** argv)
     const juce::File folder { juce::String (argv[1]) };
     const float seconds = argc > 2 ? juce::String (argv[2]).getFloatValue() : 30.0f;
     const juce::File outDir = argc > 3 ? juce::File (juce::String (argv[3])) : folder.getChildFile ("dlive-out");
-    const StyleProfileId profile = argc > 4 && juce::String (argv[4]).containsIgnoreCase ("worship") ? StyleProfileId::ModernWorship : StyleProfileId::ModernGospel;
+    StyleProfileId profile = StyleProfileId::ModernGospel;
+    if (argc > 4)
+    {
+        const juce::String want (argv[4]);
+        if (want.containsIgnoreCase ("worship"))   profile = StyleProfileId::ModernWorship;
+        else if (want.containsIgnoreCase ("rock")) profile = StyleProfileId::RockBand;
+        else if (want.containsIgnoreCase ("rnb") || want.containsIgnoreCase ("hiphop") || want.containsIgnoreCase ("r&b")) profile = StyleProfileId::RnbHipHop;
+        else if (want.containsIgnoreCase ("jazz") || want.containsIgnoreCase ("acoustic")) profile = StyleProfileId::JazzAcoustic;
+        else if (want.containsIgnoreCase ("talk") || want.containsIgnoreCase ("podcast")) profile = StyleProfileId::TalkPodcast;
+    }
     const double offsetArg = argc > 5 ? juce::String (argv[5]).getDoubleValue() : -1.0;
     MixPurpose purpose = MixPurpose::ChurchBroadcast;
     DeliveryLoudness delivery = DeliveryLoudness::FromPurpose;

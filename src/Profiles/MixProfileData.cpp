@@ -1,8 +1,9 @@
-// Mix-level profile numbers for Modern Gospel (Modern Worship inherits them with
-// the documented deltas at the bottom). Routing, sends, pans, balance and the
+// Mix-level profile numbers for Modern Gospel (every other profile inherits them with
+// the documented deltas beside each rule). Routing, sends, pans, balance and the
 // relationship bounds MixPlanner works inside. Decision logic lives in src/Mix.
 #include "MixProfileData.h"
 #include "Core/Constants.h"
+#include <algorithm>
 
 namespace livemix
 {
@@ -49,11 +50,43 @@ float defaultSendDb (StyleProfileId profile, RoleFamily family, FxSlot slot)
             break;
         default: break;
     }
-    if (profile == StyleProfileId::ModernWorship && db > kSilenceDb)
+    if (db <= kSilenceDb) return db;
+    switch (profile)
     {
-        // Worship: a little more hall on the backing vocals, a touch less delay on the lead.
-        if (slot == FxSlot::BgvHall) db += 1.5f;
-        if (slot == FxSlot::VocalDelay) db -= 2.0f;
+        case StyleProfileId::ModernWorship:
+            // Worship: a little more hall on the backing vocals, a touch less delay on the lead.
+            if (slot == FxSlot::BgvHall) db += 1.5f;
+            if (slot == FxSlot::VocalDelay) db -= 2.0f;
+            break;
+        case StyleProfileId::RockBand:
+            // Rock: the plate is shorter and further back, the drum room bigger, the delay tucked.
+            if (slot == FxSlot::VocalPlate) db -= 2.0f;
+            if (slot == FxSlot::VocalDelay) db -= 3.0f;
+            if (slot == FxSlot::DrumRoom) db += 2.0f;
+            break;
+        case StyleProfileId::RnbHipHop:
+            // R&B: the delay is part of the arrangement and the snare plate is the snare's tail.
+            if (slot == FxSlot::VocalDelay) db += 3.0f;
+            if (slot == FxSlot::SnarePlate) db += 2.0f;
+            if (slot == FxSlot::DrumRoom) db = kSilenceDb;      // a tight kit, no artificial room
+            break;
+        case StyleProfileId::JazzAcoustic:
+            // Jazz: no delay on a voice, a lighter plate, no plate on the snare: the real room does it.
+            if (slot == FxSlot::VocalDelay) db = kSilenceDb;
+            if (slot == FxSlot::VocalPlate) db -= 4.0f;
+            if (slot == FxSlot::BgvHall) db -= 3.0f;
+            if (slot == FxSlot::SnarePlate) db = kSilenceDb;
+            if (slot == FxSlot::DrumRoom) db -= 4.0f;
+            break;
+        case StyleProfileId::TalkPodcast:
+            // Talk: a voice is dry. The band in the breaks keeps a little of its plate.
+            if (slot == FxSlot::VocalDelay) db = kSilenceDb;
+            if (slot == FxSlot::VocalPlate) db -= 6.0f;
+            if (slot == FxSlot::BgvHall) db -= 6.0f;
+            break;
+        case StyleProfileId::ModernGospel:
+        case StyleProfileId::Count:
+        default: break;
     }
     return db;
 }
@@ -76,8 +109,13 @@ float reverbBeats (StyleProfileId profile, FxSlot slot)
         case FxSlot::DrumRoom:   beats = 1.5f; break;
         default:                 beats = 0.0f; break;   // delays have no tail to fit
     }
-    if (profile == StyleProfileId::ModernWorship && beats > 0.0f)
-        beats += 1.0f;   // worship breathes: the tails are allowed to run a beat longer
+    if (beats > 0.0f)
+    {
+        if (profile == StyleProfileId::ModernWorship) beats += 1.0f;                     // worship breathes: the tails run a beat longer
+        if (profile == StyleProfileId::JazzAcoustic) beats += 1.0f;                      // a jazz room is allowed to ring
+        if (profile == StyleProfileId::RockBand) beats = std::max (1.0f, beats - 1.0f);   // rock tails stay out of the next hit
+        if (profile == StyleProfileId::TalkPodcast) beats = std::max (1.0f, beats - 1.0f);
+    }
     return beats;
 }
 
@@ -155,13 +193,60 @@ float mixLevelTargetDb (StyleProfileId profile, RoleFamily family)
         case RoleFamily::ElectricGuitar: db = -27.0f; break;
         default:                         db = -24.0f; break;
     }
-    if (profile == StyleProfileId::ModernWorship)
+    switch (profile)
     {
-        // Worship: guitars and pads a touch more forward, the choir a little further back.
-        if (family == RoleFamily::AcousticGuitar || family == RoleFamily::ElectricGuitar || family == RoleFamily::Synth) db += 1.5f;
-        if (family == RoleFamily::Choir) db -= 1.0f;
-        // Worship wants more of the room: it is what stops a stream sounding like a rehearsal.
-        if (family == RoleFamily::Ambience) db += 2.0f;
+        case StyleProfileId::ModernWorship:
+            // Worship: guitars and pads a touch more forward, the choir a little further back.
+            if (family == RoleFamily::AcousticGuitar || family == RoleFamily::ElectricGuitar || family == RoleFamily::Synth) db += 1.5f;
+            if (family == RoleFamily::Choir) db -= 1.0f;
+            // Worship wants more of the room: it is what stops a stream sounding like a rehearsal.
+            if (family == RoleFamily::Ambience) db += 2.0f;
+            break;
+        case StyleProfileId::RockBand:
+            // Rock: the guitars carry the song and the kit hits; keys and the room step back.
+            if (family == RoleFamily::ElectricGuitar) db += 3.0f;
+            if (family == RoleFamily::AcousticGuitar) db += 1.0f;
+            if (family == RoleFamily::Kick || family == RoleFamily::Snare) db += 1.0f;
+            if (family == RoleFamily::Overhead) db += 1.0f;
+            if (family == RoleFamily::Piano || family == RoleFamily::ElectricPiano || family == RoleFamily::Organ || family == RoleFamily::Synth) db -= 1.0f;
+            if (family == RoleFamily::Ambience) db -= 2.0f;
+            break;
+        case StyleProfileId::RnbHipHop:
+            // R&B: the kick and the bass are the song, the keys wide and behind, the guitars back.
+            if (family == RoleFamily::Kick) db += 1.5f;
+            if (family == RoleFamily::ElectricBass || family == RoleFamily::SynthBass) db += 1.5f;
+            if (family == RoleFamily::Snare) db += 0.5f;
+            if (family == RoleFamily::AcousticGuitar || family == RoleFamily::ElectricGuitar) db -= 2.0f;
+            if (family == RoleFamily::Overhead || family == RoleFamily::HiHat) db -= 1.0f;
+            if (family == RoleFamily::Ambience) db -= 2.0f;
+            break;
+        case StyleProfileId::JazzAcoustic:
+            // Jazz: the overheads carry the kit, the piano is forward, the voice sits with the band rather than over it.
+            if (family == RoleFamily::Overhead) db += 3.0f;
+            if (family == RoleFamily::Room) db += 2.0f;
+            if (family == RoleFamily::Kick || family == RoleFamily::Snare) db -= 2.0f;
+            if (family == RoleFamily::Tom) db -= 1.0f;
+            if (family == RoleFamily::Piano) db += 3.0f;
+            if (family == RoleFamily::AcousticGuitar) db += 2.0f;
+            if (family == RoleFamily::ElectricBass) db -= 1.0f;
+            if (family == RoleFamily::Saxophone) db += 2.0f;
+            if (family == RoleFamily::LeadVocal) db -= 1.0f;
+            if (family == RoleFamily::Ambience) db += 3.0f;
+            break;
+        case StyleProfileId::TalkPodcast:
+            // Talk: the speaking voice is the reference and everything with strings or sticks is a bed under it.
+            if (family == RoleFamily::Speech) db += 2.0f;
+            if (family == RoleFamily::LeadVocal) db += 1.0f;
+            if (family == RoleFamily::Kick || family == RoleFamily::Snare || family == RoleFamily::Tom
+                || family == RoleFamily::HiHat || family == RoleFamily::Overhead || family == RoleFamily::Room) db -= 4.0f;
+            if (family == RoleFamily::ElectricBass || family == RoleFamily::SynthBass) db -= 3.0f;
+            if (family == RoleFamily::Piano || family == RoleFamily::ElectricPiano || family == RoleFamily::Organ || family == RoleFamily::Synth
+                || family == RoleFamily::AcousticGuitar || family == RoleFamily::ElectricGuitar || family == RoleFamily::Saxophone) db -= 3.0f;
+            if (family == RoleFamily::Ambience) db += 1.0f;
+            break;
+        case StyleProfileId::ModernGospel:
+        case StyleProfileId::Count:
+        default: break;
     }
     return db;
 }
@@ -197,7 +282,64 @@ const Relationships& relationships (StyleProfileId profile)
         r.backingBelowLeadDb = 4.0f;
         return r;
     }();
-    return profile == StyleProfileId::ModernWorship ? worship : gospel;
+    static const Relationships rock = []
+    {
+        Relationships r = gospel;
+        r.busBelowVocalsDb[size_t (MixBus::Drums)] = 0.0f;      // the kit sits level with the voices
+        r.busBelowVocalsDb[size_t (MixBus::Bass)] = -2.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Music)] = -3.0f;     // the guitars are the song
+        r.busBelowVocalsDb[size_t (MixBus::Ambience)] = -14.0f;
+        r.backingBelowLeadDb = 6.0f;
+        r.vocalPocketMaxCutDb = 3.0f;                            // the guitars have to make room, or nobody hears the words
+        return r;
+    }();
+    static const Relationships rnb = []
+    {
+        Relationships r = gospel;
+        r.busBelowVocalsDb[size_t (MixBus::Drums)] = 0.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Bass)] = -1.0f;      // the bass is the song
+        r.busBelowVocalsDb[size_t (MixBus::Music)] = -5.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Ambience)] = -14.0f;
+        r.bassHpfMinHz = 30.0f;                                  // the sub belongs to the bass here
+        r.bassHpfMaxHz = 45.0f;
+        r.backingBelowLeadDb = 4.0f;
+        return r;
+    }();
+    static const Relationships jazz = []
+    {
+        Relationships r = gospel;
+        r.busBelowVocalsDb[size_t (MixBus::Drums)] = -3.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Bass)] = -3.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Music)] = -2.0f;     // the band is the point
+        r.busBelowVocalsDb[size_t (MixBus::Ambience)] = -9.0f;  // the room is welcome
+        r.backingBelowLeadDb = 3.0f;
+        r.vocalPocketMaxCutDb = 1.5f;                            // the piano keeps its tone
+        r.tomGateMaxRangeWithOverheadsDb = 0.0f;                 // no gates on a jazz kit (the profile says so; this keeps a hand-set one gentle)
+        return r;
+    }();
+    static const Relationships talk = []
+    {
+        Relationships r = gospel;
+        r.busBelowVocalsDb[size_t (MixBus::Drums)] = -8.0f;     // a bed, not a band
+        r.busBelowVocalsDb[size_t (MixBus::Bass)] = -8.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Music)] = -8.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Speech)] = 0.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Ambience)] = -12.0f;
+        r.vocalPocketMaxCutDb = 3.0f;
+        r.backingBelowLeadDb = 2.0f;                             // on a panel every voice is a lead
+        return r;
+    }();
+    switch (profile)
+    {
+        case StyleProfileId::ModernWorship: return worship;
+        case StyleProfileId::RockBand:      return rock;
+        case StyleProfileId::RnbHipHop:     return rnb;
+        case StyleProfileId::JazzAcoustic:  return jazz;
+        case StyleProfileId::TalkPodcast:   return talk;
+        case StyleProfileId::ModernGospel:
+        case StyleProfileId::Count:
+        default:                            return gospel;
+    }
 }
 
 float compPeakRiseMs (StyleProfileId profile, ChannelRole role)
@@ -233,7 +375,38 @@ const AiRanges& aiRanges (StyleProfileId profile)
         a.sendDb = 4.0f;
         return a;
     }();
-    return profile == StyleProfileId::ModernWorship ? worship : gospel;
+    static const AiRanges jazz = []
+    {
+        AiRanges a;
+        // Jazz and acoustic: a full-strength move is a small one; the band is not to be re-mixed by a sentence.
+        a.presenceDb = 2.0f;
+        a.bodyDb = 2.0f;
+        a.faderDb = 2.0f;
+        a.sendDb = 4.0f;
+        a.compThresholdDb = 3.0f;
+        return a;
+    }();
+    static const AiRanges talk = []
+    {
+        AiRanges a;
+        // Talk: the moves that matter are on the voices, and they are small; the bed can move further.
+        a.presenceDb = 3.0f;
+        a.clarityDb = 3.5f;
+        a.deEssRangeDb = 5.0f;
+        a.faderDb = 3.0f;
+        return a;
+    }();
+    switch (profile)
+    {
+        case StyleProfileId::ModernWorship: return worship;
+        case StyleProfileId::JazzAcoustic:  return jazz;
+        case StyleProfileId::TalkPodcast:   return talk;
+        case StyleProfileId::RockBand:
+        case StyleProfileId::RnbHipHop:
+        case StyleProfileId::ModernGospel:
+        case StyleProfileId::Count:
+        default:                            return gospel;
+    }
 }
 
 const AiBounds& aiBounds()
@@ -262,7 +435,51 @@ const MacroRanges& macroRanges (StyleProfileId profile)
         m.energyPolishedThresholdDb = 4.0f;
         return m;
     }();
-    return profile == StyleProfileId::ModernWorship ? worship : gospel;
+    static const MacroRanges rock = []
+    {
+        MacroRanges m;
+        m.drumBigLowDb = 3.0f;
+        m.drumBigSatDrive = 0.18f;      // Big on a rock kit is allowed to be dirty
+        m.energyPolishedSatDrive = 0.12f;
+        return m;
+    }();
+    static const MacroRanges rnb = []
+    {
+        MacroRanges m;
+        m.bassHugeLowDb = 4.0f;         // Huge means the sub
+        m.bassLowShelfHz = 60.0f;
+        m.drumBigLowDb = 3.0f;
+        return m;
+    }();
+    static const MacroRanges jazz = []
+    {
+        MacroRanges m;
+        m.drumBigLowDb = 1.5f;
+        m.drumBigSatDrive = 0.0f;       // nothing on a jazz kit is ever driven
+        m.bassHugeSatDrive = 0.0f;
+        m.energyPolishedSatDrive = 0.0f;
+        m.energyPolishedThresholdDb = 3.0f;
+        return m;
+    }();
+    static const MacroRanges talk = []
+    {
+        MacroRanges m;
+        m.vocalBrightHighDb = 2.0f;
+        m.energyPolishedThresholdDb = 4.0f;
+        m.energyPolishedSatDrive = 0.0f;
+        return m;
+    }();
+    switch (profile)
+    {
+        case StyleProfileId::ModernWorship: return worship;
+        case StyleProfileId::RockBand:      return rock;
+        case StyleProfileId::RnbHipHop:     return rnb;
+        case StyleProfileId::JazzAcoustic:  return jazz;
+        case StyleProfileId::TalkPodcast:   return talk;
+        case StyleProfileId::ModernGospel:
+        case StyleProfileId::Count:
+        default:                            return gospel;
+    }
 }
 
 const Voicing& voicing (StyleProfileId profile, MasterVoicing which)

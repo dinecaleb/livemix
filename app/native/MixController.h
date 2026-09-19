@@ -269,6 +269,12 @@ public:
     void setMonitorMute (bool);
     void setMonitorSource (MixBus);
     void setFxSolo (FxSlot, bool);
+    // The returns as one group: S on the FX RETURNS tile solos every return the session uses,
+    // so the engineer hears just the reverbs and delays - what the sends are actually adding.
+    // Monitoring like every other solo: in the normal (monitor) mode the sources keep feeding
+    // the sends and only the returns reach the headphones.
+    void setFxSoloAll (bool);
+    bool anyFxSolo() const noexcept;
     // Is a monitor output actually routed? Solo with nowhere to go is an S key that does
     // nothing audible, so the app says so instead of letting it happen quietly.
     bool hasMonitorOutput() const noexcept { return hasMonitorFeed (outputs); }
@@ -283,12 +289,18 @@ public:
     const OutputFeeds& getOutputFeeds() const noexcept { return outputs; }
 
     // ---- Macros (50 = the plan) ----
+    // Under LIVE SAFE a value is clamped to `macroRange()` rather than refused: the pads draw
+    // the fence and never ask for what would be clamped, but the policy is enforced here.
     void setMacro (MixMacro m, float value);
     const MixMacroValues& getMacros() const noexcept { return macros; }
     void resetMacros();
+    liveSafe::MacroRange macroRange() const noexcept { return liveSafe::macroRange (safety); }
 
     // ---- Advanced edits (on the kept mix; they survive macro moves) ----
-    void setStripFader (int strip, float db);
+    // A fader move follows the strip's link (StripParameters::linkGroup): every other member
+    // moves by the same number of dB, clamped at the ends of its own travel. `withLink = false`
+    // (Cmd-drag on the console) moves this one alone.
+    void setStripFader (int strip, float db, bool withLink = true);
     void setStripInputGain (int strip, float db);
     void setStripPan (int strip, float pan);            // -1 left .. +1 right (balance on a stereo strip)
     void setStripMute (int strip, bool mute);
@@ -309,6 +321,20 @@ public:
     void setStripChannel (int strip, const ChannelParameters&);
     void setBusChannel (MixBus bus, const ChannelParameters&);
     void clearSolos();
+
+    // ---- Linked faders ----
+    // Two or more channels whose faders move together, and which solo together: a pair of
+    // overheads, a stereo keyboard on two inputs, the choir's microphones. Mute and pan stay each
+    // channel's own. Linking is one undoable mix change that LIVE SAFE lets through.
+    // A member that is already in a group brings its group along; a group left with one member
+    // dissolves. Linking starts the members level: every member takes the fader of the first
+    // strip in the list (the one the link was made from), within the LIVE SAFE step.
+    // Returns the group, 0 when there was nothing to link.
+    int linkStrips (const std::vector<int>& strips);
+    void unlinkStrip (int strip);
+    int getStripLink (int strip) const noexcept;             // 0 = not linked
+    std::vector<int> linkedWith (int strip) const;           // the other members, in strip order
+    std::string linkedNames (int strip) const;               // "OH R, Room" - for a tooltip or a menu
     const MixParameters& getKept() const noexcept { return kept; }          // without macros
     // What is audible, without macros. During a TUNE LIVE MIX verify listen the applied
     // proposal has to stay audible even though the stage says Listening: the second listen is

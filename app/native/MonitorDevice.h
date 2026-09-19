@@ -42,10 +42,13 @@ namespace MonitorDevice
         int outputChannels = 0;
         bool isAggregate = false;       // already a combined device: never a building block
         bool isDliveBuilt = false;      // one of ours, from a previous run
+        int inputChannels = 0;          // last, so the brace-initialised lists in the tests still read
     };
 
     bool available();                   // false off macOS: the caller offers the manual route
+    juce::Array<Device> allDevices();   // every device, input-only ones included (the console may be one)
     juce::Array<Device> outputDevices();
+    Device findDevice (const juce::String& name);   // empty uid when there is no such device
 
     // What DLIVE would pick if the user just presses the button. The broadcast is whatever is
     // already carrying the mix; the headphones are the best remaining real device - preferring
@@ -65,6 +68,34 @@ namespace MonitorDevice
     // not a platform call - so they live apart from CoreAudio and are tested without a device.
     Suggestion suggestFrom (const juce::Array<Device>&, const juce::String& currentOutputDeviceName);
 
+    // The channel layout of the device DLIVE builds, decided before CoreAudio is asked for anything
+    // and tested without it. CoreAudio lays an aggregate device's channels out in the order of its
+    // pieces, so the order here *is* the channel map: the console's input device goes first (its
+    // inputs keep the numbers every track and assignment already uses), then the broadcast, then the
+    // headphones. A piece that plays two parts - the console is the broadcast, or the console is the
+    // interface the headphones are in - appears once.
+    //
+    // Why the input device is in there at all: macOS opens one device per stream, and JUCE glues a
+    // different input and output device together with a combiner of its own - two clocks, a FIFO,
+    // and the console opened twice (once for its inputs, once inside the built device for its
+    // outputs). With Dante that came back as silence. Putting the console inside the built device
+    // makes it one CoreAudio device, opened once, for both directions.
+    struct Layout
+    {
+        juce::Array<Device> pieces;     // sub-devices in channel order
+        int broadcastChannel = 0;       // first output channel of the broadcast pair
+        int headphoneChannel = 0;       // first output channel of the headphone pair
+        bool carriesInput = false;      // the console's input device is a piece: open the built device for input too
+        juce::String problem;           // when the two cannot be combined; empty otherwise
+    };
+    Layout layoutFor (const Device& broadcast, const Device& headphones, const Device* input);
+    // Which of the built device's output channels to open, given the engine feeds at most `capacity`
+    // of them: the solo pair always, and as much of the broadcast device as fits beside it. What the
+    // engine and the feeds then see is the open channels, packed in device order - so a solo pair at
+    // 64-65 behind sixty-four Dante channels is addressed as the pair after the fourteen Dante
+    // channels that were opened, and never falls off the end of the engine.
+    juce::BigInteger outputChannelsToOpen (const Layout& layout, int broadcastOutputs, int capacity);
+
     struct Result
     {
         bool ok = false;
@@ -72,13 +103,15 @@ namespace MonitorDevice
         juce::String error;
         int broadcastChannel = 0;       // first channel of the broadcast pair, 0-based
         int headphoneChannel = 0;       // first channel of the headphone pair, 0-based
+        bool carriesInput = false;      // open it for input as well: the console's inputs are inside it, first
         juce::String summary;           // one sentence for the toast
     };
 
-    // Builds (or rebuilds) DLIVE's own aggregate device from these two. Replacing one it made
-    // earlier is safe and is what happens when the interface changes; a device the *user* made
-    // is never touched.
-    Result combine (const Device& broadcast, const Device& headphones);
+    // Builds (or rebuilds) DLIVE's own aggregate device from these two - and the console's input
+    // device, when there is one, so the built device is the only device open (see Layout). Replacing
+    // one it made earlier is safe and is what happens when the interface changes; a device the *user*
+    // made is never touched.
+    Result combine (const Device& broadcast, const Device& headphones, const Device* input = nullptr);
 
     // Removes the device DLIVE built, if it exists. Used by "stop using my headphones" so the
     // Mac is left the way it was found.

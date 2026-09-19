@@ -33,6 +33,10 @@ namespace SessionStore
         MixSession session;
         Project project;            // timeline: tracks, clips, markers, loop
         juce::String inputDevice, outputDevice;
+        // The device solo goes to, when one was chosen (empty = solo has nowhere to go). Stored as the
+        // device the user picked, never the combined device DLIVE built around it: that one is rebuilt
+        // on opening, so a session survives a Mac that lost it.
+        juce::String soloDevice;
         MixMacroValues macros;
         bool hasMix = false;
         MixParameters mix;          // the kept mix (without macros); valid when hasMix

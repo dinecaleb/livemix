@@ -47,6 +47,12 @@ private:
     // The second of the two choices this sheet exists for: which device the engineer listens
     // on. Different from the broadcast is the normal case; the host joins the two.
     void chooseSoloDevice();
+public:
+    // The "where does solo go" menu, shared with the LIVE page: every usable output device, the
+    // broadcast's own only when it has a second pair to spare, and "nowhere". `done` gets the
+    // sentence to show once the choice has been made.
+    static void showSoloDeviceMenu (AppServices&, juce::Component& anchor, std::function<void (const juce::String&)> done);
+private:
 
     MixController& controller;
     AppServices& services;

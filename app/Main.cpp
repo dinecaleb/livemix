@@ -47,6 +47,7 @@ namespace
         juce::String openDevices (const juce::String& input, const juce::String& output) override
         {
             hold();
+            forgetPairing();
             const auto err = host.open (input, output);
             applyPendingMix();
             return err;
@@ -54,6 +55,7 @@ namespace
         juce::String openOutputOnly (const juce::String& output) override
         {
             hold();
+            forgetPairing();
             const auto err = host.openOutputOnly (output);
             applyPendingMix();
             return err;
@@ -108,7 +110,7 @@ namespace
             host.reconfigure();
             applyPendingMix();
         }
-        juce::String currentInputDevice() override { return host.getInputDeviceName(); }
+        juce::String currentInputDevice() override { return consoleInput(); }
         juce::String currentOutputDevice() override { return host.getOutputDeviceName(); }
         juce::String currentSessionName() override { return juce::String (controller.getSession().name); }
         juce::File sessionFolder() override { return dawEngine.getProject().folder; }
@@ -207,6 +209,7 @@ namespace
             dawEngine.setProject (doc.project);
             panelWidth = doc.trackPanelWidth;
             pending = doc;
+            forgetPairing();
 
             juce::String err;
             if (doc.inputDevice.isNotEmpty())
@@ -216,6 +219,7 @@ namespace
             else if (host.isOpen())
                 host.reconfigure();
             applyPendingMix();
+            restoreSolo (doc, err);
             dawEngine.setSession (doc.session);
             dawEngine.setProject (doc.project);
             dawEngine.locate (0);
@@ -259,9 +263,10 @@ namespace
         MonitorSetup setSoloOutputDevice (const juce::String& wanted) override
         {
             const auto broadcast = broadcastOutputDevice();
-            // Taken now, because a failed open closes the device and forgets it - and putting
-            // the console back afterwards is the whole point of the fallback path.
-            const auto input = host.getInputDeviceName();
+            // The console's own device, taken now: a failed open closes the device and forgets
+            // it, and while the built device is open the host's input *is* the built device.
+            // Putting the console back afterwards is the whole point of the fallback path.
+            const auto input = consoleInput();
 
             // ---- turn it off: put the Mac back the way it was found
             if (wanted.isEmpty())
@@ -276,12 +281,14 @@ namespace
                     hold();
                     // Off the combined device *before* it is destroyed, for the same reason.
                     const auto err = openWith (broadcast, input);
+                    consoleInputDevice = {};
                     MonitorDevice::removeDliveDevice();
                     host.rescanDevices();
                     applyPendingMix();
                     if (err.isNotEmpty()) return { false, err };
                 }
                 broadcastDevice = {};
+                consoleInputDevice = {};
                 saveSession();
                 return { true, "Solo is switched off. Everything goes out of " + broadcast + " as before." };
             }
@@ -304,15 +311,20 @@ namespace
                 return { false, "This Mac will not let DLIVE join two output devices. "
                                 "You can make an Aggregate Device yourself in Audio MIDI Setup and choose it above." };
 
-            MonitorDevice::Device broadcastDev, soloDev;
-            for (const auto& d : MonitorDevice::outputDevices())
+            MonitorDevice::Device broadcastDev, soloDev, inputDev;
+            for (const auto& d : MonitorDevice::allDevices())
             {
                 if (d.isDliveBuilt) continue;
-                if (d.name == broadcast) broadcastDev = d;
-                if (d.name == wanted) soloDev = d;
+                if (d.name == broadcast && d.outputChannels > 0) broadcastDev = d;
+                if (d.name == wanted && d.outputChannels > 0) soloDev = d;
+                if (d.name == input && d.inputChannels > 0) inputDev = d;
             }
             if (broadcastDev.uid.isEmpty() || soloDev.uid.isEmpty())
                 return { false, "One of those devices is no longer connected." };
+            // The console goes inside the built device too, so it is opened once, for both
+            // directions (see MonitorDevice::Layout). A combined device the user built cannot
+            // go inside another; that one stays a separate input, glued on by JUCE as before.
+            const bool foldInput = inputDev.uid.isNotEmpty() && ! inputDev.isAggregate;
 
             hold();
             // Never destroy the device the audio is running on. Rebuilding the pairing - which
@@ -323,10 +335,11 @@ namespace
             if (MonitorDevice::dliveDeviceExists())
             {
                 openWith (broadcast, input);
+                consoleInputDevice = {};
                 host.rescanDevices();
             }
 
-            const auto built = MonitorDevice::combine (broadcastDev, soloDev);
+            const auto built = MonitorDevice::combine (broadcastDev, soloDev, foldInput ? &inputDev : nullptr);
             if (! built.ok)
             {
                 // Back where we started, with the broadcast still playing.
@@ -334,41 +347,44 @@ namespace
                 return { false, built.error };
             }
 
+            // Only the pairs the feeds need are opened: the engine addresses at most kMaxOutputs
+            // channels, and behind sixty-four Dante outputs the headphone pair sits well past
+            // that. Opening the first sixteen - which is what happened - left solo pointing at
+            // a channel that was never open.
+            const auto channels = MonitorDevice::outputChannelsToOpen ({ {}, built.broadcastChannel, built.headphoneChannel, built.carriesInput, {} },
+                                                                       broadcastDev.outputChannels, kMaxOutputs);
+
             // The device exists in CoreAudio the moment it is created, but it is published
             // asynchronously and JUCE caches a device list per type - so without waiting for it
             // and asking again, opening it fails with "No such device" on the device DLIVE has
             // just built. This is the whole reason the first attempt at this did not work.
             const bool appeared = host.waitForOutputDevice (built.deviceName);
-            const auto err = appeared ? openWith (built.deviceName, input)
+            const auto err = appeared ? host.open (built.carriesInput ? built.deviceName : input, built.deviceName, 48000.0, 64, channels)
                                       : juce::String ("this Mac did not publish it in time");
-            if (err.isNotEmpty())
+            if (err.isEmpty()) consoleInputDevice = built.carriesInput ? input : juce::String();
+            const int broadcastSlot = err.isEmpty() ? host.slotForOutputChannel (built.broadcastChannel) : -1;
+            const int soloSlot = err.isEmpty() ? host.slotForOutputChannel (built.headphoneChannel) : -1;
+            if (err.isNotEmpty() || broadcastSlot < 0 || soloSlot < 0)
             {
-                // It would not open. Leave nothing behind and put the old device back.
+                // It would not open, or came back without the pairs. Leave nothing behind and put
+                // the old device back - waiting for it, because it was just pulled out of a device
+                // that is being destroyed - and say what happened rather than going quiet.
                 MonitorDevice::removeDliveDevice();
+                consoleInputDevice = {};
                 host.rescanDevices();
-                openWith (broadcast, input);
+                host.waitForOutputDevice (broadcast);
+                const auto back = openWith (broadcast, input);
                 applyPendingMix();
-                return { false, "Those two could not be joined (" + err + "). Nothing has been changed. "
+                juce::String why = err.isNotEmpty() ? err : juce::String ("it came back without a separate pair for solo");
+                if (back.isNotEmpty()) why += "; and " + broadcast + " could not be reopened afterwards: " + back + " - choose it again under Set-up";
+                return { false, "Those two could not be joined (" + why + "). Nothing has been changed. "
                                 "Some devices - Bluetooth especially - refuse to be combined; try a wired one." };
             }
             applyPendingMix();
 
-            // It opened - but if it came back without a second pair there is nowhere for solo
-            // to go, and a silent solo with no explanation is worse than a refusal.
-            if (numOutputChannels() < built.headphoneChannel + 2)
-            {
-                MonitorDevice::removeDliveDevice();
-                host.rescanDevices();
-                openWith (broadcast, input);
-                applyPendingMix();
-                return { false, "The two were joined but came back with only "
-                                + juce::String (numOutputChannels()) + " outputs, so there is no separate pair "
-                                "for solo. Nothing has been changed." };
-            }
-
             broadcastDevice = broadcast;
             soloDevice = wanted;
-            routeOutputs (built.broadcastChannel, built.headphoneChannel);
+            routeOutputs (broadcastSlot, soloSlot);
             saveSession();
             return { true, built.summary };
         }
@@ -386,6 +402,15 @@ namespace
 
         // Restoring a mix that a device change is about to wipe.
         void holdMix (const SessionStore::Document& doc) { pending = doc; }
+        // The session remembers which device solo went to; the pairing is rebuilt from that
+        // after the console is open, so a Mac that lost the built device still comes back right.
+        // A pairing that cannot be rebuilt is not an error opening the session: solo has nowhere
+        // to go, which the Outputs sheet and the LIVE page say.
+        void restoreSolo (const SessionStore::Document& doc, const juce::String& openError)
+        {
+            if (openError.isNotEmpty() || doc.soloDevice.isEmpty() || ! host.isOpen()) return;
+            setSoloOutputDevice (doc.soloDevice);
+        }
         void applyPendingMix()
         {
             if (! pending.has_value() || ! controller.isPrepared()) return;
@@ -435,8 +460,9 @@ namespace
             SessionStore::Document d;
             d.session = controller.getSession();
             d.project = dawEngine.getProject();
-            d.inputDevice = host.getInputDeviceName();
-            d.outputDevice = host.getOutputDeviceName();
+            d.inputDevice = consoleInput();              // the console, never the device DLIVE built around it
+            d.outputDevice = broadcastOutputDevice();
+            d.soloDevice = soloOutputDevice();
             d.macros = controller.getMacros();
             d.outputs = controller.getOutputFeeds();
             d.tuneCount = controller.getTuneCount();
@@ -462,6 +488,16 @@ namespace
             lastSessionPointer().replaceWithText (file.getFullPathName());
             return true;
         }
+
+        // The console's own input device. While DLIVE's built device carries the console's
+        // inputs, the host's input device *is* the built one, and nothing outside this class
+        // should ever see that name.
+        juce::String consoleInput() const
+        {
+            return consoleInputDevice.isNotEmpty() ? consoleInputDevice : host.getInputDeviceName();
+        }
+        // Opening devices from Set-up is a fresh start: whatever pairing was in place is over.
+        void forgetPairing() { broadcastDevice = {}; soloDevice = {}; consoleInputDevice = {}; }
 
         // Reopen on an output device, keeping whatever input is already in use. A session built
         // from imported stems has no console attached at all, and opening with an empty input
@@ -499,8 +535,9 @@ namespace
         std::optional<SessionStore::Document> pending;
         int panelWidth = 0;             // TRACKS channel panel; 0 = the page's own default
         // The two devices the user chose. While a combined device is open, the *open* device is
-        // DLIVE's own and these are what the user actually picked.
-        juce::String broadcastDevice, soloDevice;
+        // DLIVE's own and these are what the user actually picked; consoleInputDevice is the
+        // console's input device while the built device carries it (see consoleInput()).
+        juce::String broadcastDevice, soloDevice, consoleInputDevice;
     };
 
     class MainWindow : public juce::DocumentWindow
@@ -567,6 +604,7 @@ public:
             if (opened)
             {
                 services->applyPendingMix();
+                services->restoreSolo (doc, {});
                 dawEngine->setSession (doc.session);
                 dawEngine->setProject (doc.project);
                 window->view().showPage (controller->getSession().inputs.empty() ? MainView::Page::Assign

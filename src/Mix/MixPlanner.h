@@ -34,6 +34,7 @@ struct StripPlan
     bool balanced = false;                  // the fader was fitted from the processed level
     bool bleedOnly = false;                 // heard, but only as spill (a speech mic during the song): left alone
     bool faint = false;                     // signal, but never above the profile's faint level at the device: check the mic, nothing changed
+    bool spillLimited = false;              // the lift stopped short because what the microphone hears between the sounds would come up with it
     TuneResult tune;                        // the source's own Tune (before / proposed / explanations)
     std::vector<Recommendation> mixItems;   // relationship and balance decisions about this strip
     float faderBeforeDb = 0.0f, faderDb = 0.0f;
