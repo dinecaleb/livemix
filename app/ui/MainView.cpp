@@ -720,7 +720,8 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
         if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
         tracksPage->rebuild();
         showPage (controller.getSession().inputs.empty() ? Page::Assign : Page::Tracks);
-        showToast ("Opened \"" + services.currentSessionName() + "\".");
+        const auto recovered = services.takeRecoveryNote();
+        showToast ("Opened \"" + services.currentSessionName() + "\"." + (recovered.isEmpty() ? "" : " " + recovered));
         updateChrome();
     };
     devicePage->onBack = [this] { showPage (Page::Sessions); };
@@ -1865,7 +1866,8 @@ void MainView::openSession()
                          if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
                          tracksPage->rebuild();
                          showPage (controller.getSession().inputs.empty() ? Page::Assign : Page::Tracks);
-                         showToast ("Opened \"" + services.currentSessionName() + "\".");
+                         const auto recovered = services.takeRecoveryNote();
+                         showToast ("Opened \"" + services.currentSessionName() + "\"." + (recovered.isEmpty() ? "" : " " + recovered));
                          updateChrome();
                      });
 }

@@ -77,6 +77,8 @@ public:
     // Load a previously saved session; restores assignments, timeline, macros, kept mix, and
     // reopens devices when possible. Returns "" on success.
     virtual juce::String loadSession (const juce::File& file) = 0;
+    // What the last loadSession found still recording from a crash, one sentence per take, "" if nothing. Read once.
+    virtual juce::String takeRecoveryNote() { return {}; }
     virtual juce::Array<SessionStore::Listing> listSessions() = 0;
     virtual juce::String currentSessionName() = 0;
     // How wide the TRACKS channel panel was left. A layout preference stored with the session,

@@ -222,10 +222,16 @@ namespace
             restoreSolo (doc, err);
             dawEngine.setSession (doc.session);
             dawEngine.setProject (doc.project);
+            recoveryNote.clear();
+            for (const auto& take : dawEngine.recoverUnfinishedTakes())
+                recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + take.note;
             dawEngine.locate (0);
             if (err.isEmpty()) lastSessionPointer().replaceWithText (file.getFullPathName());
             return err;
         }
+
+        juce::String takeRecoveryNote() override { auto n = recoveryNote; recoveryNote.clear(); return n; }
+        juce::String recoveryNote;
 
         juce::Array<SessionStore::Listing> listSessions() override { return SessionStore::listSessions(); }
 

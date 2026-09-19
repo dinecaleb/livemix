@@ -1,4 +1,5 @@
 #include "Recorder.h"
+#include <cstring>
 
 namespace livemix
 {
@@ -11,7 +12,8 @@ namespace
     constexpr double kMinMinutes = 10.0;          // less room than this and a take will stop in the middle
 }
 
-Recorder::Recorder()
+Recorder::Recorder (double sidecarSeconds, double flushSeconds)
+    : sidecarMs (juce::jmax (1, int (sidecarSeconds * 1000.0))), headerFlushSeconds (juce::jmax (0.001, flushSeconds))
 {
     silence.assign (kMaxBlock, 0.0f);
 }
@@ -83,6 +85,9 @@ juce::String Recorder::start (const juce::File& audioFolder,
         {
             stream.release();
             w.writer = std::make_unique<juce::AudioFormatWriter::ThreadedWriter> (writer, thread, kFifoSamples);
+            // The header is rewritten from the writer thread every few seconds of audio, so a
+            // crash leaves a file that is short by at most that much, not one that is unreadable.
+            w.writer->setFlushInterval (juce::jmax (1, int (rate * headerFlushSeconds)));
             made.push_back (std::move (w));
         }
         else
@@ -94,9 +99,42 @@ juce::String Recorder::start (const juce::File& audioFolder,
     }
 
     writers = std::move (made);
+    sidecars.clear();
+    for (const auto& w : writers)
+        sidecars.push_back ({ sidecarFor (w.file), w.trackIndex, w.channels, w.name });
+    writeSidecars();                                 // "in progress" from the first block, not the first interval
+    thread.addTimeSliceClient (&sidecarWriter, sidecarMs);
     if (! thread.isThreadRunning()) thread.startThread (juce::Thread::Priority::high);
     active.store (true, std::memory_order_release);
     return {};
+}
+
+int Recorder::SidecarWriter::useTimeSlice()
+{
+    owner.writeSidecars();
+    return owner.sidecarMs;
+}
+
+void Recorder::writeSidecars()
+{
+    // Writer thread (and once from start()). Only `frames` is shared with the audio thread,
+    // and it is an atomic; the rest was fixed when the take began.
+    const juce::int64 written = frames.load (std::memory_order_relaxed);
+    for (const auto& s : sidecars)
+    {
+        auto* o = new juce::DynamicObject();
+        o->setProperty ("app", "DLIVE");
+        o->setProperty ("schema", 1);
+        o->setProperty ("track", s.trackIndex);
+        o->setProperty ("name", s.name);
+        o->setProperty ("sampleRate", rate);
+        o->setProperty ("channels", s.channels);
+        o->setProperty ("bitDepth", kBitDepth);
+        o->setProperty ("timelineStart", startSample);
+        o->setProperty ("framesWritten", written);
+        o->setProperty ("updated", juce::Time::getCurrentTime().toISO8601 (true));
+        s.file.replaceWithText (juce::JSON::toString (juce::var (o)));
+    }
 }
 
 std::vector<Recorder::Take> Recorder::stop()
@@ -114,10 +152,14 @@ std::vector<Recorder::Take> Recorder::stop()
     for (int spins = 0; inCallback.load (std::memory_order_acquire) && spins < 2000; ++spins)
         juce::Thread::sleep (1);
 
+    // Blocks until a sidecar write in progress has finished, so nothing below races it.
+    thread.removeTimeSliceClient (&sidecarWriter);
+
     const juce::int64 length = frames.load (std::memory_order_relaxed);
     for (auto& w : writers)
     {
-        w.writer.reset();                 // flushes and closes the file
+        w.writer.reset();                 // flushes and closes the file: the header is final now
+        sidecarFor (w.file).deleteFile(); // and the take is no longer "in progress"
         if (length > 0)
         {
             Take t;
@@ -133,7 +175,128 @@ std::vector<Recorder::Take> Recorder::stop()
         }
     }
     writers.clear();
+    sidecars.clear();
     return takes;
+}
+
+juce::File Recorder::sidecarFor (const juce::File& take)
+{
+    return take.getSiblingFile (take.getFileName() + ".recording.json");
+}
+
+juce::int64 Recorder::repairWavHeader (const juce::File& wav, juce::String& error)
+{
+    int channels = 0, bits = 0;
+    juce::int64 dataOffset = -1, fileSize = 0;
+    {
+        juce::FileInputStream in (wav);
+        if (! in.openedOk()) { error = "could not be read"; return -1; }
+        fileSize = in.getTotalLength();
+        char id[4] = {};
+        auto readId = [&] { return in.read (id, 4) == 4; };
+        auto is = [&] (const char* s) { return std::memcmp (id, s, 4) == 0; };
+        if (! readId()) { error = "is empty"; return -1; }
+        if (is ("RF64")) { error = "is a 64-bit (RF64) file, which this build does not repair"; return -1; }
+        if (! is ("RIFF")) { error = "is not a WAV file"; return -1; }
+        in.readInt();                                            // the RIFF size, whatever it says
+        if (! readId() || ! is ("WAVE")) { error = "is not a WAV file"; return -1; }
+        while (in.getPosition() + 8 <= fileSize)
+        {
+            if (! readId()) break;
+            const auto size = (juce::uint32) in.readInt();
+            const auto body = in.getPosition();
+            if (is ("fmt "))
+            {
+                in.readShort();                                  // format tag
+                channels = in.readShort();
+                in.readInt();                                    // sample rate
+                in.readInt();                                    // byte rate
+                in.readShort();                                  // block align
+                bits = in.readShort();
+            }
+            else if (is ("data"))
+            {
+                dataOffset = body;
+                break;
+            }
+            in.setPosition (body + size + (size & 1));
+        }
+    }
+    if (dataOffset < 0 || channels <= 0 || bits <= 0) { error = "has no usable header"; return -1; }
+
+    const int frameBytes = channels * bits / 8;
+    juce::int64 dataBytes = juce::jmax ((juce::int64) 0, fileSize - dataOffset);
+    dataBytes -= dataBytes % frameBytes;                         // a frame cut short by the crash is not audio
+    if (dataOffset + dataBytes - 8 > 0xFFFFFFFFLL)
+    {
+        error = "is over 4 GB, which needs an RF64 header this build does not write";
+        return -1;
+    }
+
+    juce::FileOutputStream out (wav);                            // opens without truncating; positioned by hand
+    if (out.failedToOpen()) { error = "could not be written"; return -1; }
+    if (! out.setPosition (4) || ! out.writeInt ((int) (juce::uint32) (dataOffset + dataBytes - 8))
+     || ! out.setPosition (dataOffset - 4) || ! out.writeInt ((int) (juce::uint32) dataBytes))
+    {
+        error = "could not be written";
+        return -1;
+    }
+    out.flush();
+    return dataBytes / frameBytes;
+}
+
+std::vector<Recorder::Recovered> Recorder::recoverUnfinishedTakes (const juce::File& audioFolder)
+{
+    std::vector<Recovered> out;
+    if (! audioFolder.isDirectory()) return out;
+
+    for (const auto& sidecar : audioFolder.findChildFiles (juce::File::findFiles, false, "*.recording.json"))
+    {
+        Recovered r;
+        const auto doc = juce::JSON::parse (sidecar.loadFileAsString());
+        if (auto* o = doc.getDynamicObject())
+        {
+            r.trackIndex    = (int) o->getProperty ("track");
+            r.name          = o->getProperty ("name").toString();
+            r.timelineStart = (juce::int64) o->getProperty ("timelineStart");
+            r.sampleRate    = (double) o->getProperty ("sampleRate");
+            r.channels      = (int) o->getProperty ("channels");
+        }
+        const auto wav = sidecar.getSiblingFile (sidecar.getFileName().dropLastCharacters (int (juce::String (".recording.json").length())));
+        r.fileName = wav.getFileName();
+
+        if (! wav.existsAsFile())
+        {
+            sidecar.deleteFile();
+            r.note = wav.getFileName() + " was still recording when DLIVE last closed, but the file is gone.";
+            out.push_back (r);
+            continue;
+        }
+
+        juce::String err;
+        const auto frames = wav.getSize() == 0 ? (juce::int64) 0 : repairWavHeader (wav, err);
+        if (frames < 0)
+        {
+            r.note = wav.getFileName() + " was still recording when DLIVE last closed and " + err + ".";
+        }
+        else if (frames == 0)
+        {
+            wav.deleteFile();
+            sidecar.deleteFile();
+            r.note = wav.getFileName() + " was still recording when DLIVE last closed and held no audio; it was removed.";
+        }
+        else
+        {
+            r.length = frames;
+            r.repaired = true;
+            sidecar.deleteFile();
+            const double seconds = r.sampleRate > 0.0 ? double (frames) / r.sampleRate : 0.0;
+            r.note = wav.getFileName() + " was still recording when DLIVE last closed; "
+                   + juce::String (seconds, 1) + " s of it were recovered.";
+        }
+        out.push_back (r);
+    }
+    return out;
 }
 
 juce::String Recorder::getError() const

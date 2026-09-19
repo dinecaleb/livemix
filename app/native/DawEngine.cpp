@@ -227,6 +227,37 @@ int DawEngine::stopRecording()
     return int (takes.size());
 }
 
+std::vector<Recorder::Recovered> DawEngine::recoverUnfinishedTakes()
+{
+    if (project.folder == juce::File() || recorder.isRecording()) return {};
+    auto takes = Recorder::recoverUnfinishedTakes (project.audioFolder());
+
+    bool changed = false;
+    for (const auto& take : takes)
+    {
+        if (! take.repaired) continue;
+        bool referenced = false;
+        for (const auto& t : project.tracks)
+            for (const auto& c : t.clips)
+                if (c.file == take.fileName) referenced = true;
+        if (referenced || take.trackIndex < 0 || take.trackIndex >= int (project.tracks.size())) continue;
+
+        AudioClip clip;
+        clip.name = take.name;
+        clip.file = take.fileName;
+        clip.start = take.timelineStart;
+        clip.offset = 0;
+        clip.length = take.length;
+        clip.fileSampleRate = take.sampleRate > 0.0 ? take.sampleRate : sampleRate;
+        auto& clips = project.tracks[size_t (take.trackIndex)].clips;
+        clips.push_back (clip);
+        std::sort (clips.begin(), clips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.start < b.start; });
+        changed = true;
+    }
+    if (changed) { clipsDirty = true; refresh(); }
+    return takes;
+}
+
 void DawEngine::processBlock (const float* const* deviceInputs, int numInputChannels,
                               float* const* outputs, int numOutputs, int numSamples) noexcept
 {

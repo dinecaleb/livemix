@@ -17,10 +17,19 @@ namespace livemix
 // One WAV per armed track per take, named "<Track>_001.wav" in the project's
 // "Audio Files" folder. A take that cannot be written (disk full, no permission) stops
 // recording and says so instead of failing quietly.
+//
+// A take is readable even if DLIVE dies in the middle of it. A WAV header carries its sizes,
+// and a writer that only fills them in on close leaves an unreadable file behind a crash, so
+// while a take is being written the writer thread (never the audio thread) rewrites the
+// header every headerFlushSeconds of audio, and keeps a sidecar beside each file -
+// "<take>.wav.recording.json": sample rate, channels, track, where on the timeline, frames so
+// far - updated every sidecarSeconds. The sidecar is deleted by a clean stop, so one that is
+// still there on the next open *is* the detection: recoverUnfinishedTakes() rebuilds the
+// header from what is actually on disk and hands the take back so it can go on its track.
 class Recorder
 {
 public:
-    Recorder();
+    Recorder (double sidecarSeconds = 20.0, double headerFlushSeconds = 15.0);
     ~Recorder();
 
     // One armed track: which device channels it captures and what to call the file.
@@ -62,6 +71,33 @@ public:
     static double bytesPerSecondFor (const std::vector<Spec>& specs, double sampleRate) noexcept;
     static double secondsFreeOn (const juce::File& folder, double bytesPerSec) noexcept;
 
+    // ---- Recovery ----
+
+    // A take that was still being written when DLIVE last closed.
+    struct Recovered
+    {
+        int trackIndex = -1;
+        juce::String name, fileName;
+        juce::int64 length = 0;             // frames the file holds now
+        juce::int64 timelineStart = 0;
+        double sampleRate = 0.0;
+        int channels = 0;
+        bool repaired = false;              // false: `note` says why not (the sidecar is kept so the next open tries again)
+        juce::String note;
+    };
+
+    // Message thread, on opening a session. Every sidecar left in the folder is a take that
+    // never got its header; each is repaired from the bytes on disk (an empty one is removed)
+    // and returned so the host can put it on the timeline.
+    static std::vector<Recovered> recoverUnfinishedTakes (const juce::File& audioFolder);
+
+    // Rewrites the RIFF and data sizes of a WAV from its length on disk (a trailing partial
+    // frame is ignored). Returns the frames it holds, or -1 with `error` set: not a WAV, no
+    // fmt/data chunk, or a file over 4 GB, which needs an RF64 header this does not write.
+    static juce::int64 repairWavHeader (const juce::File& wav, juce::String& error);
+
+    static juce::File sidecarFor (const juce::File& take);
+
     // Audio thread. Captures the device inputs exactly as they arrived.
     void write (const float* const* deviceInputs, int numInputChannels, int numSamples) noexcept LIVEMIX_NONBLOCKING;
 
@@ -79,7 +115,28 @@ private:
 
     static juce::File uniqueTakeFile (const juce::File& folder, const juce::String& trackName);
 
+    // The sidecars, written from the writer thread (a TimeSliceClient on the same thread the
+    // audio is flushed by). Everything but framesWritten is fixed at start; that one is the
+    // recorder's own atomic.
+    struct Sidecar
+    {
+        juce::File file;
+        int trackIndex = 0, channels = 1;
+        juce::String name;
+    };
+    struct SidecarWriter : public juce::TimeSliceClient
+    {
+        explicit SidecarWriter (Recorder& r) : owner (r) {}
+        int useTimeSlice() override;
+        Recorder& owner;
+    };
+    void writeSidecars();
+
     juce::TimeSliceThread thread { "DLIVE recorder" };
+    SidecarWriter sidecarWriter { *this };
+    std::vector<Sidecar> sidecars;
+    int sidecarMs = 20000;
+    double headerFlushSeconds = 15.0;
     std::vector<Writer> writers;
     std::vector<float> silence;                 // a missing device channel records as silence, not as garbage
     std::atomic<bool> active { false };

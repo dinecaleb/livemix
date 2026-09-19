@@ -10,8 +10,10 @@
 #include "native/InputMapStore.h"
 #include "native/MonitorDevice.h"
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 using namespace livemix;
@@ -220,6 +222,172 @@ TEST_CASE ("Recorder: a block bigger than the capture path is reported, never si
     CHECK (recorder.getError().isNotEmpty());
     CHECK (recorder.getFramesWritten() == 0);
     recorder.stop();
+    folder.deleteRecursively();
+}
+
+namespace
+{
+    // What a take looks like after the app died while writing it: the RIFF and data sizes are
+    // still the zeros the writer put there before its first flush, and the sidecar is still beside it.
+    void makeUnfinished (const juce::File& wav, int track, const juce::String& name, int channels, juce::int64 timelineStart)
+    {
+        juce::int64 dataSizeAt = -1;
+        {
+            juce::FileInputStream in (wav);
+            in.setPosition (12);
+            while (in.getPosition() + 8 <= in.getTotalLength())
+            {
+                char id[4]; in.read (id, 4);
+                const auto size = (juce::uint32) in.readInt();
+                if (std::memcmp (id, "data", 4) == 0) { dataSizeAt = in.getPosition() - 4; break; }
+                in.setPosition (in.getPosition() + size + (size & 1));
+            }
+        }
+        REQUIRE (dataSizeAt > 0);
+        juce::FileOutputStream out (wav);
+        out.setPosition (4); out.writeInt (0);
+        out.setPosition (dataSizeAt); out.writeInt (0);
+        out.flush();
+        Recorder::sidecarFor (wav).replaceWithText (
+            "{\"app\":\"DLIVE\",\"schema\":1,\"track\":" + juce::String (track) + ",\"name\":\"" + name + "\","
+            "\"sampleRate\":48000.0,\"channels\":" + juce::String (channels) + ",\"bitDepth\":24,"
+            "\"timelineStart\":" + juce::String (timelineStart) + ",\"framesWritten\":0}");
+    }
+
+    juce::int64 readerLength (const juce::File& wav)
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> r (formats.createReaderFor (wav));
+        return r != nullptr ? r->lengthInSamples : -1;
+    }
+}
+
+TEST_CASE ("Recorder: a take the app died in the middle of is repaired to the length on disk, and lands on its track")
+{
+    const auto folder = scratchFolder().getChildFile ("recover");
+    folder.deleteRecursively();
+
+    // Two real takes, then the crash: headers back to zero, sidecars left behind.
+    Recorder recorder;
+    std::vector<Recorder::Spec> specs { { 0, "Kick", 0, -1 }, { 2, "Keys", 2, 3 } };
+    REQUIRE (recorder.start (folder, specs, kSr, 0).isEmpty());
+    std::vector<std::vector<float>> in (4, std::vector<float> (size_t (kBlock), 0.25f));
+    std::vector<const float*> ip (4, nullptr);
+    for (size_t c = 0; c < in.size(); ++c) ip[c] = in[c].data();
+    for (int b = 0; b < 60; ++b) recorder.write (ip.data(), 4, kBlock);
+    const auto takes = recorder.stop();
+    REQUIRE (takes.size() == 2);
+    CHECK (! Recorder::sidecarFor (folder.getChildFile (takes[0].fileName)).existsAsFile());   // a clean stop leaves none
+
+    const auto kick = folder.getChildFile (takes[0].fileName);
+    const auto keys = folder.getChildFile (takes[1].fileName);
+    makeUnfinished (kick, 0, "Kick", 1, 4800);
+    makeUnfinished (keys, 2, "Keys", 2, 4800);
+    { juce::FileOutputStream out (kick); out.setPosition (out.getFile().getSize()); out.writeByte (1); out.writeByte (1); }  // a frame cut short by the crash
+    CHECK (readerLength (kick) <= 0);                 // the simulation is real: no reader, or no audio, as recorded
+    CHECK (readerLength (keys) <= 0);
+
+    auto recovered = Recorder::recoverUnfinishedTakes (folder);
+    REQUIRE (recovered.size() == 2);
+    std::sort (recovered.begin(), recovered.end(), [] (const auto& a, const auto& b) { return a.trackIndex < b.trackIndex; });
+    CHECK (recovered[0].repaired);
+    CHECK (recovered[0].trackIndex == 0);
+    CHECK (recovered[0].length == 60 * kBlock);       // the two stray bytes are not a frame
+    CHECK (recovered[0].timelineStart == 4800);
+    CHECK (recovered[0].channels == 1);
+    CHECK (recovered[0].note.contains ("recovered"));
+    CHECK (recovered[1].repaired);
+    CHECK (recovered[1].trackIndex == 2);
+    CHECK (recovered[1].length == 60 * kBlock);
+    CHECK (readerLength (kick) == 60 * kBlock);
+    CHECK (readerLength (keys) == 60 * kBlock);
+    CHECK (! Recorder::sidecarFor (kick).existsAsFile());
+    CHECK (! Recorder::sidecarFor (keys).existsAsFile());
+    CHECK (Recorder::recoverUnfinishedTakes (folder).empty());   // nothing left to do
+
+    // A take that never got a byte is removed rather than recovered; a sidecar without its file is cleared.
+    makeUnfinished (kick, 0, "Kick", 1, 0);
+    { juce::FileOutputStream out (kick); out.setPosition (0); out.truncate(); out.flush(); }
+    Recorder::sidecarFor (keys).replaceWithText ("{\"track\":2}");
+    keys.deleteFile();
+    recovered = Recorder::recoverUnfinishedTakes (folder);
+    REQUIRE (recovered.size() == 2);
+    CHECK (! recovered[0].repaired);
+    CHECK (! recovered[1].repaired);
+    CHECK (! kick.existsAsFile() || kick.getSize() > 0);
+    CHECK (folder.getNumberOfChildFiles (juce::File::findFiles, "*.recording.json") == 0);
+
+    // Through the engine: the recovered take becomes a clip on its track, once.
+    folder.deleteRecursively();
+    Recorder again;
+    REQUIRE (again.start (folder, specs, kSr, 0).isEmpty());
+    for (int b = 0; b < 60; ++b) again.write (ip.data(), 4, kBlock);
+    const auto second = again.stop();
+    REQUIRE (second.size() == 2);
+    makeUnfinished (folder.getChildFile (second[0].fileName), 0, "Kick", 1, 9600);
+
+    MixController controller;
+    DawEngine daw (controller);
+    daw.setSession (band());
+    Project project;
+    project.folder = folder.getParentDirectory();
+    project.tracks.resize (band().inputs.size());
+    daw.setProject (project);
+    // The project's audio lives in folder/"Audio Files": move the takes there.
+    const auto audio = project.audioFolder();
+    audio.deleteRecursively();
+    REQUIRE (folder.moveFileTo (audio));
+
+    const auto found = daw.recoverUnfinishedTakes();
+    REQUIRE (found.size() == 1);
+    CHECK (found[0].repaired);
+    REQUIRE (daw.getProject().tracks[0].clips.size() == 1);
+    CHECK (daw.getProject().tracks[0].clips[0].file == second[0].fileName);
+    CHECK (daw.getProject().tracks[0].clips[0].start == 9600);
+    CHECK (daw.getProject().tracks[0].clips[0].length == 60 * kBlock);
+    CHECK (daw.recoverUnfinishedTakes().empty());
+    CHECK (daw.getProject().tracks[0].clips.size() == 1);
+    audio.deleteRecursively();
+}
+
+TEST_CASE ("Recorder: while a take is being written its header and sidecar are kept current from the writer thread")
+{
+    const auto folder = scratchFolder().getChildFile ("inprogress");
+    folder.deleteRecursively();
+
+    Recorder recorder (0.05, 0.02);    // sidecar every 50 ms, header every 20 ms of audio (a service uses 20 s / 15 s)
+    std::vector<Recorder::Spec> specs { { 1, "Kick", 0, -1 } };
+    REQUIRE (recorder.start (folder, specs, kSr, 7000).isEmpty());
+    const auto files = folder.findChildFiles (juce::File::findFiles, false, "*.wav");
+    REQUIRE (files.size() == 1);
+    const auto wav = files[0];
+    const auto sidecar = Recorder::sidecarFor (wav);
+    CHECK (sidecar.existsAsFile());                    // "in progress" from the first block
+
+    std::vector<float> in (size_t (kBlock), 0.25f);
+    const float* ip[1] = { in.data() };
+    for (int b = 0; b < 60; ++b) recorder.write (ip, 1, kBlock);
+    juce::Thread::sleep (400);
+
+    const auto doc = juce::JSON::parse (sidecar.loadFileAsString());
+    REQUIRE (doc.getDynamicObject() != nullptr);
+    CHECK ((int) doc["track"] == 1);
+    CHECK ((int) doc["channels"] == 1);
+    CHECK ((double) doc["sampleRate"] == kSr);
+    CHECK ((juce::int64) doc["timelineStart"] == 7000);
+    CHECK ((juce::int64) doc["framesWritten"] == 60 * kBlock);
+
+    // The header on disk is already valid: a copy of the file, as a crash would leave it, reads.
+    const auto copy = folder.getChildFile ("copy.wav");
+    REQUIRE (wav.copyFileTo (copy));
+    CHECK (readerLength (copy) > 0);
+    CHECK (readerLength (copy) <= 60 * kBlock);
+
+    const auto takes = recorder.stop();
+    REQUIRE (takes.size() == 1);
+    CHECK (! sidecar.existsAsFile());
+    CHECK (readerLength (wav) == 60 * kBlock);
     folder.deleteRecursively();
 }
 

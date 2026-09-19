@@ -153,6 +153,11 @@ the benchmark against its committed baseline (`scripts/benchmark-baseline.txt`, 
   clang's RealtimeSanitizer over the entry points marked `LIVEMIX_NONBLOCKING` (`-DLIVEMIX_RTSAN=ON`,
   `scripts/rtsan.sh`; see `docs/REALTIME-SANITIZER.md` for what it found and what is documented instead of fixed).
 - Zero latency: every stage is minimum-phase and sample-synchronous; `setLatencySamples(0)`.
+- **A take survives a crash.** DLIVE's recorder (`app/native/Recorder`) has the writer thread rewrite each WAV's
+  header every 15 s of audio and keep a `<take>.wav.recording.json` sidecar beside it (rate, channels, track,
+  timeline start, frames so far) that a clean stop deletes; a sidecar found on the next open is a take the app
+  died in, and `Recorder::recoverUnfinishedTakes` rebuilds its header from the bytes on disk and puts it back on
+  its track. Takes over 4 GB need an RF64 header, which the repair does not write yet (JUCE's writer does, on a clean close).
 - Analysis runs on a worker thread fed by a wait-free FIFO. Results never touch DSP directly;
   the user applies recommendations through the normal host parameter path.
 - **Tune is deterministic.** Analysis + profile targets + source strategy produce a bounded starting point

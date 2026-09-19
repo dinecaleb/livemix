@@ -69,6 +69,12 @@ public:
     juce::String startRecording();
     // Ends the take and turns what was captured into clips on their tracks. Returns how many.
     int stopRecording();
+
+    // Message thread, after a session is opened. Takes that were still being written when DLIVE
+    // last closed (a crash mid-set) get a valid header from what is on disk and go on the track
+    // they were recording, at the place they started, unless a clip already has them. Returns
+    // what was found, one sentence each (Recorder::Recovered::note).
+    std::vector<Recorder::Recovered> recoverUnfinishedTakes();
     bool isRecording() const noexcept { return recorder.isRecording(); }
     // How long the take has been running, and how long the disk would last at this rate
     // (0 = nothing armed, no folder yet, or a volume that will not say). Message thread.
