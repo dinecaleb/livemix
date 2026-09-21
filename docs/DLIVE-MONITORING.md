@@ -55,3 +55,11 @@ How solo never changes what the room hears, and how the broadcast and the engine
   `restoreSolo` rebuilds the pairing on opening, so a Mac that lost the built device comes back right. A failed
   join waits for the console device to be republished before reopening it and says if that failed too, instead
   of leaving the desk silent.
+- **A VIRTUAL DEVICE IS NOT A COMBINED ONE (2026-09-21).** The Dante Virtual Soundcard reports the CoreAudio
+  transport type *Virtual*, and `MonitorDevice` had lumped Virtual in with Aggregate as "already a combined device",
+  so the exact setup the feature exists for - broadcast and console on Dante, solo on a USB interface - was refused
+  from the Outputs sheet with the message about a combined device and solo stayed at "Nowhere yet". Only a real
+  aggregate (transport *Aggregate*: an Aggregate or Multi-Output Device) cannot nest; `Device::isVirtual` is a
+  separate flag now, used for one thing: a virtual device (Dante, BlackHole, Loopback) has no headphone socket, so
+  `suggestFrom` never *suggests* it as the headphones while a real interface is there. Picked by hand it is accepted
+  anywhere. Tested in `DawTests` (`Monitoring: the built device carries ...` and `... chosen sensibly ...`).

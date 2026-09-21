@@ -68,14 +68,21 @@ namespace
     int outputChannelCount (AudioObjectID device) { return channelCount (device, kAudioObjectPropertyScopeOutput); }
     int inputChannelCount (AudioObjectID device)  { return channelCount (device, kAudioObjectPropertyScopeInput); }
 
-    bool isAggregateDevice (AudioObjectID device)
+    UInt32 transportType (AudioObjectID device)
     {
         auto addr = address (kAudioDevicePropertyTransportType);
         UInt32 transport = 0;
         UInt32 size = sizeof (transport);
-        if (AudioObjectGetPropertyData (device, &addr, 0, nullptr, &size, &transport) != noErr) return false;
-        return transport == kAudioDeviceTransportTypeAggregate || transport == kAudioDeviceTransportTypeVirtual;
+        if (AudioObjectGetPropertyData (device, &addr, 0, nullptr, &size, &transport) != noErr) return 0;
+        return transport;
     }
+    // Only a real aggregate (an Aggregate or Multi-Output Device) cannot sit inside another one.
+    // A *virtual* device - the Dante Virtual Soundcard above all, but also BlackHole and Loopback -
+    // is a plain CoreAudio device with no hardware behind it and goes inside an aggregate like any
+    // interface does; treating it as combined refused the exact setup this exists for (broadcast
+    // on Dante, solo on a USB interface), with the message about a combined device.
+    bool isAggregateDevice (AudioObjectID device) { return transportType (device) == kAudioDeviceTransportTypeAggregate; }
+    bool isVirtualDevice (AudioObjectID device)   { return transportType (device) == kAudioDeviceTransportTypeVirtual; }
 
     juce::Array<AudioObjectID> allDeviceIds()
     {
@@ -151,6 +158,7 @@ juce::Array<Device> allDevices()
         d.name = deviceStringProperty (id, kAudioObjectPropertyName);
         d.uid = deviceStringProperty (id, kAudioDevicePropertyDeviceUID);
         d.isAggregate = isAggregateDevice (id);
+        d.isVirtual = isVirtualDevice (id);
         d.isDliveBuilt = d.uid == kDliveUid;
         if (d.name.isEmpty() || d.uid.isEmpty()) continue;
         out.add (d);

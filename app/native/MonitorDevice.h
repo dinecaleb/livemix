@@ -42,7 +42,9 @@ namespace MonitorDevice
         int outputChannels = 0;
         bool isAggregate = false;       // already a combined device: never a building block
         bool isDliveBuilt = false;      // one of ours, from a previous run
-        int inputChannels = 0;          // last, so the brace-initialised lists in the tests still read
+        int inputChannels = 0;          // after the flags, so the brace-initialised lists in the tests still read
+        bool isVirtual = false;         // no hardware behind it (Dante Virtual Soundcard, BlackHole, Loopback): a fine
+                                        // building block and a fine broadcast, never suggested as the headphones
     };
 
     bool available();                   // false off macOS: the caller offers the manual route

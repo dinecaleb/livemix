@@ -41,7 +41,8 @@ Suggestion suggestFrom (const juce::Array<Device>& devices, const juce::String& 
 
     // The headphones: the best *other* real device. An interface is preferred over the Mac's
     // own speakers, because a booth has headphones plugged into an interface and nobody wants
-    // to discover their solo came out of the laptop.
+    // to discover their solo came out of the laptop. A virtual device (Dante, BlackHole) has no
+    // headphone socket at all, so it is passed over too - the user can still pick it by hand.
     auto looksBuiltIn = [] (const Device& d)
     {
         const auto n = d.name.toLowerCase();
@@ -52,7 +53,7 @@ Suggestion suggestFrom (const juce::Array<Device>& devices, const juce::String& 
     for (const auto& d : devices)
     {
         if (d.isDliveBuilt || d.isAggregate || d.uid == broadcast->uid) continue;
-        if (looksBuiltIn (d)) continue;
+        if (looksBuiltIn (d) || d.isVirtual) continue;
         headphones = &d;
         break;
     }
@@ -89,7 +90,8 @@ Layout layoutFor (const Device& broadcast, const Device& headphones, const Devic
     if (broadcast.isAggregate || headphones.isAggregate || (input != nullptr && input->isAggregate))
     {
         // An aggregate device cannot hold another one. A combined device the user built is opened as
-        // it is; solo then needs the user's own device to carry a spare pair.
+        // it is; solo then needs the user's own device to carry a spare pair. A *virtual* device is
+        // not one of these: the Dante Virtual Soundcard goes inside the built device like any interface.
         l.problem = "One of those is already a combined device, and a combined device cannot be put inside another. "
                     "Choose the plain devices instead.";
         return l;

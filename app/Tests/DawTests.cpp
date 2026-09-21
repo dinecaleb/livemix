@@ -1833,6 +1833,17 @@ TEST_CASE ("Monitoring: the device solo goes to is chosen sensibly, and says so 
     REQUIRE (again.valid);
     CHECK (again.broadcast.name == "Dante Virtual Soundcard");
     CHECK (again.headphones.name == "Scarlett 2i2 USB");
+
+    // A virtual device has no headphone socket: it is never suggested as the headphones when a real
+    // interface is there, even when it is listed first - but it is a perfectly good broadcast.
+    juce::Array<Device> withVirtual;
+    withVirtual.add ({ "BlackHole 2ch", "uid-blackhole", 2, false, false, 2, true });
+    withVirtual.add ({ "Dante Virtual Soundcard", "uid-dante", 32, false, false, 32, true });
+    withVirtual.add ({ "Scarlett 2i2 USB", "uid-scarlett", 4, false, false, 2 });
+    const auto real = MonitorDevice::suggestFrom (withVirtual, "Dante Virtual Soundcard");
+    REQUIRE (real.valid);
+    CHECK (real.broadcast.name == "Dante Virtual Soundcard");
+    CHECK (real.headphones.name == "Scarlett 2i2 USB");
 }
 
 // ---------------------------------------------------------------------------
@@ -1917,4 +1928,19 @@ TEST_CASE ("Monitoring: the built device carries the console's inputs first and 
     CHECK (MonitorDevice::layoutFor (dante, dante, &dante).problem.isNotEmpty());
     const Device theirs { "My Aggregate", "uid-theirs", 66, true, false, 64 };
     CHECK (MonitorDevice::layoutFor (theirs, scarlett, &theirs).problem.contains ("combined device"));
+    // A *virtual* device is not a combined one. The Dante Virtual Soundcard reports itself as
+    // virtual, and it is the broadcast and the console in the setup this whole thing exists for:
+    // refusing it as "already a combined device" left solo with nowhere to go (2026-09-21).
+    const Device dvs { "Dante Virtual Soundcard", "uid-dvs", 16, false, false, 16, true };
+    {
+        const auto l = MonitorDevice::layoutFor (dvs, scarlett, &dvs);
+        REQUIRE (l.problem.isEmpty());
+        REQUIRE (l.pieces.size() == 2);
+        CHECK (l.pieces[0].uid == "uid-dvs");
+        CHECK (l.carriesInput);
+        CHECK (l.headphoneChannel == 16);
+    }
+    // ... and as the console alone, with the broadcast on the interface the headphones are on.
+    CHECK (MonitorDevice::layoutFor (scarlett, dvs, &dvs).problem.isEmpty());
+    CHECK (MonitorDevice::layoutFor (theirs, scarlett, &dvs).problem.contains ("combined device"));
 }
