@@ -41,29 +41,28 @@ Suggestion suggestFrom (const juce::Array<Device>& devices, const juce::String& 
 
     // The headphones: the best *other* real device. An interface is preferred over the Mac's
     // own speakers, because a booth has headphones plugged into an interface and nobody wants
-    // to discover their solo came out of the laptop. A virtual device (Dante, BlackHole) has no
-    // headphone socket at all, so it is passed over too - the user can still pick it by hand.
-    auto looksBuiltIn = [] (const Device& d)
+    // to discover their solo came out of the laptop. The ranking comes from what CoreAudio says
+    // the device *is* (its transport), never from its name - an interface can be called anything.
+    // Bluetooth headphones beat the laptop speaker (they are at least headphones), a display's
+    // speakers come after, and a virtual device last of all: there is no socket on it.
+    auto rank = [] (const Device& d)
     {
-        const auto n = d.name.toLowerCase();
-        return n.contains ("built-in") || n.contains ("macbook") || n.contains ("imac")
-            || n.contains ("mac mini") || n.contains ("display") || n.contains ("airpods");
+        switch (d.kind)
+        {
+            case Device::Kind::Interface: return 0;
+            case Device::Kind::Bluetooth: return 1;
+            case Device::Kind::BuiltIn:   return 2;
+            case Device::Kind::Display:   return 3;
+            case Device::Kind::Virtual:   return 4;
+        }
+        return 5;
     };
     const Device* headphones = nullptr;
     for (const auto& d : devices)
     {
         if (d.isDliveBuilt || d.isAggregate || d.uid == broadcast->uid) continue;
-        if (looksBuiltIn (d) || d.isVirtual) continue;
-        headphones = &d;
-        break;
+        if (headphones == nullptr || rank (d) < rank (*headphones)) headphones = &d;
     }
-    if (headphones == nullptr)
-        for (const auto& d : devices)
-        {
-            if (d.isDliveBuilt || d.isAggregate || d.uid == broadcast->uid) continue;
-            headphones = &d;
-            break;
-        }
 
     if (headphones == nullptr)
     {

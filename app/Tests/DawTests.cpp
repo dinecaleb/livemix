@@ -1796,54 +1796,53 @@ TEST_CASE ("SessionStore: a session saved before AMBIENCE existed opens with its
 TEST_CASE ("Monitoring: the device solo goes to is chosen sensibly, and says so when it cannot be")
 {
     using MonitorDevice::Device;
+    using Kind = Device::Kind;
+    // What a device *is* comes from CoreAudio's transport type, never from its name: the names
+    // here are deliberately unhelpful, because a booth's interface can be called anything.
     juce::Array<Device> devices;
-    devices.add ({ "Dante Virtual Soundcard", "uid-dante", 32, false, false });
-    devices.add ({ "MacBook Pro Speakers",    "uid-builtin", 2, false, false });
-    devices.add ({ "Scarlett 2i2 USB",        "uid-scarlett", 4, false, false });
+    devices.add ({ "Console", "uid-console", 32, false, false, 32, Kind::Virtual });
+    devices.add ({ "Speakers", "uid-builtin", 2, false, false, 0, Kind::BuiltIn });
+    devices.add ({ "GF340A", "uid-gf", 4, false, false, 2, Kind::Interface });
 
     // The broadcast is whatever is already carrying the mix; the headphones are the interface,
-    // not the laptop.
-    const auto s = MonitorDevice::suggestFrom (devices, "Dante Virtual Soundcard");
+    // not the laptop, wherever they sit in the list.
+    const auto s = MonitorDevice::suggestFrom (devices, "Console");
     REQUIRE (s.valid);
-    CHECK (s.broadcast.name == "Dante Virtual Soundcard");
-    CHECK (s.headphones.name == "Scarlett 2i2 USB");
-    CHECK (s.why.contains ("Scarlett"));
+    CHECK (s.broadcast.uid == "uid-console");
+    CHECK (s.headphones.uid == "uid-gf");
+    CHECK (s.why.contains ("GF340A"));
 
-    // With no interface the built-in output is better than nothing, and is offered.
+    // With no interface the built-in output is better than nothing, and is offered - and a pair
+    // of Bluetooth headphones is better still. A virtual device is never suggested for listening:
+    // there is no socket on it.
     juce::Array<Device> noInterface;
-    noInterface.add ({ "Dante Virtual Soundcard", "uid-dante", 32, false, false });
-    noInterface.add ({ "MacBook Pro Speakers", "uid-builtin", 2, false, false });
-    const auto fallback = MonitorDevice::suggestFrom (noInterface, "Dante Virtual Soundcard");
+    noInterface.add ({ "Loop 2ch", "uid-loop", 2, false, false, 2, Kind::Virtual });
+    noInterface.add ({ "Console", "uid-console", 32, false, false, 32, Kind::Virtual });
+    noInterface.add ({ "Speakers", "uid-builtin", 2, false, false, 0, Kind::BuiltIn });
+    const auto fallback = MonitorDevice::suggestFrom (noInterface, "Console");
     REQUIRE (fallback.valid);
-    CHECK (fallback.headphones.name == "MacBook Pro Speakers");
+    CHECK (fallback.headphones.uid == "uid-builtin");
+    noInterface.add ({ "Buds", "uid-buds", 2, false, false, 1, Kind::Bluetooth });
+    CHECK (MonitorDevice::suggestFrom (noInterface, "Console").headphones.uid == "uid-buds");
 
     // One device and nothing else: said plainly, never guessed at.
     juce::Array<Device> alone;
-    alone.add ({ "Dante Virtual Soundcard", "uid-dante", 32, false, false });
-    const auto none = MonitorDevice::suggestFrom (alone, "Dante Virtual Soundcard");
+    alone.add ({ "Console", "uid-console", 32, false, false, 32, Kind::Virtual });
+    const auto none = MonitorDevice::suggestFrom (alone, "Console");
     CHECK (! none.valid);
     CHECK (none.problem.contains ("only one output device"));
 
-    // A combined device DLIVE built earlier is never itself a building block.
+    // A combined device DLIVE built earlier is never itself a building block, and neither is one
+    // the user built.
     juce::Array<Device> withOurs;
     withOurs.add ({ "DLIVE Monitoring", "com.dine.dlive.monitoring", 34, true, true });
-    withOurs.add ({ "Dante Virtual Soundcard", "uid-dante", 32, false, false });
-    withOurs.add ({ "Scarlett 2i2 USB", "uid-scarlett", 4, false, false });
+    withOurs.add ({ "Console", "uid-console", 32, false, false, 32, Kind::Virtual });
+    withOurs.add ({ "Theirs", "uid-theirs", 6, true, false });
+    withOurs.add ({ "GF340A", "uid-gf", 4, false, false, 2, Kind::Interface });
     const auto again = MonitorDevice::suggestFrom (withOurs, "DLIVE Monitoring");
     REQUIRE (again.valid);
-    CHECK (again.broadcast.name == "Dante Virtual Soundcard");
-    CHECK (again.headphones.name == "Scarlett 2i2 USB");
-
-    // A virtual device has no headphone socket: it is never suggested as the headphones when a real
-    // interface is there, even when it is listed first - but it is a perfectly good broadcast.
-    juce::Array<Device> withVirtual;
-    withVirtual.add ({ "BlackHole 2ch", "uid-blackhole", 2, false, false, 2, true });
-    withVirtual.add ({ "Dante Virtual Soundcard", "uid-dante", 32, false, false, 32, true });
-    withVirtual.add ({ "Scarlett 2i2 USB", "uid-scarlett", 4, false, false, 2 });
-    const auto real = MonitorDevice::suggestFrom (withVirtual, "Dante Virtual Soundcard");
-    REQUIRE (real.valid);
-    CHECK (real.broadcast.name == "Dante Virtual Soundcard");
-    CHECK (real.headphones.name == "Scarlett 2i2 USB");
+    CHECK (again.broadcast.uid == "uid-console");
+    CHECK (again.headphones.uid == "uid-gf");
 }
 
 // ---------------------------------------------------------------------------
@@ -1931,7 +1930,7 @@ TEST_CASE ("Monitoring: the built device carries the console's inputs first and 
     // A *virtual* device is not a combined one. The Dante Virtual Soundcard reports itself as
     // virtual, and it is the broadcast and the console in the setup this whole thing exists for:
     // refusing it as "already a combined device" left solo with nowhere to go (2026-09-21).
-    const Device dvs { "Dante Virtual Soundcard", "uid-dvs", 16, false, false, 16, true };
+    const Device dvs { "Console", "uid-dvs", 16, false, false, 16, Device::Kind::Virtual };
     {
         const auto l = MonitorDevice::layoutFor (dvs, scarlett, &dvs);
         REQUIRE (l.problem.isEmpty());

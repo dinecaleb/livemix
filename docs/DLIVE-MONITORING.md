@@ -59,7 +59,9 @@ How solo never changes what the room hears, and how the broadcast and the engine
   transport type *Virtual*, and `MonitorDevice` had lumped Virtual in with Aggregate as "already a combined device",
   so the exact setup the feature exists for - broadcast and console on Dante, solo on a USB interface - was refused
   from the Outputs sheet with the message about a combined device and solo stayed at "Nowhere yet". Only a real
-  aggregate (transport *Aggregate*: an Aggregate or Multi-Output Device) cannot nest; `Device::isVirtual` is a
-  separate flag now, used for one thing: a virtual device (Dante, BlackHole, Loopback) has no headphone socket, so
-  `suggestFrom` never *suggests* it as the headphones while a real interface is there. Picked by hand it is accepted
-  anywhere. Tested in `DawTests` (`Monitoring: the built device carries ...` and `... chosen sensibly ...`).
+  aggregate (transport *Aggregate*: an Aggregate or Multi-Output Device) cannot nest. In the same change the picker
+  stopped reading device *names* altogether ("macbook", "built-in", "airpods" used to mark the laptop speaker, and an
+  interface can be called anything): `Device::kind` comes from the transport type (Interface / Bluetooth / BuiltIn /
+  Display / Virtual) and `suggestFrom` ranks the headphones by it - an interface first, Bluetooth headphones over the
+  laptop speaker, a display's speakers after that, a virtual device last because there is no socket on it. Picked by
+  hand any of them is accepted. Tested in `DawTests` (`Monitoring: the built device carries ...` and `... chosen sensibly ...`).

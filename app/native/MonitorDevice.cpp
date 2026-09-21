@@ -82,7 +82,20 @@ namespace
     // interface does; treating it as combined refused the exact setup this exists for (broadcast
     // on Dante, solo on a USB interface), with the message about a combined device.
     bool isAggregateDevice (AudioObjectID device) { return transportType (device) == kAudioDeviceTransportTypeAggregate; }
-    bool isVirtualDevice (AudioObjectID device)   { return transportType (device) == kAudioDeviceTransportTypeVirtual; }
+    Device::Kind kindOf (AudioObjectID device)
+    {
+        switch (transportType (device))
+        {
+            case kAudioDeviceTransportTypeVirtual:      return Device::Kind::Virtual;
+            case kAudioDeviceTransportTypeBuiltIn:      return Device::Kind::BuiltIn;
+            case kAudioDeviceTransportTypeBluetooth:
+            case kAudioDeviceTransportTypeBluetoothLE:  return Device::Kind::Bluetooth;
+            case kAudioDeviceTransportTypeHDMI:
+            case kAudioDeviceTransportTypeDisplayPort:
+            case kAudioDeviceTransportTypeAirPlay:      return Device::Kind::Display;
+            default:                                    return Device::Kind::Interface;   // USB, Thunderbolt, FireWire, PCI, AVB, unknown
+        }
+    }
 
     juce::Array<AudioObjectID> allDeviceIds()
     {
@@ -158,7 +171,7 @@ juce::Array<Device> allDevices()
         d.name = deviceStringProperty (id, kAudioObjectPropertyName);
         d.uid = deviceStringProperty (id, kAudioDevicePropertyDeviceUID);
         d.isAggregate = isAggregateDevice (id);
-        d.isVirtual = isVirtualDevice (id);
+        d.kind = kindOf (id);
         d.isDliveBuilt = d.uid == kDliveUid;
         if (d.name.isEmpty() || d.uid.isEmpty()) continue;
         out.add (d);

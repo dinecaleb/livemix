@@ -43,8 +43,19 @@ namespace MonitorDevice
         bool isAggregate = false;       // already a combined device: never a building block
         bool isDliveBuilt = false;      // one of ours, from a previous run
         int inputChannels = 0;          // after the flags, so the brace-initialised lists in the tests still read
-        bool isVirtual = false;         // no hardware behind it (Dante Virtual Soundcard, BlackHole, Loopback): a fine
-                                        // building block and a fine broadcast, never suggested as the headphones
+        // What the device is, from CoreAudio's transport type - never from its name. A name is a
+        // label the maker chose ("LOGIC OUT", "GF340A") and says nothing reliable about whether
+        // there is a headphone socket behind it; the transport does.
+        enum class Kind
+        {
+            Interface,                  // USB, Thunderbolt, FireWire, PCI, AVB, or anything not listed below
+            Bluetooth,                  // AirPods and the like: headphones, but not the booth's
+            BuiltIn,                    // the Mac's own speakers
+            Display,                    // HDMI / DisplayPort / AirPlay
+            Virtual                     // no hardware behind it (Dante Virtual Soundcard, BlackHole, Loopback):
+                                        // a fine building block and a fine broadcast, never a headphone socket
+        };
+        Kind kind = Kind::Interface;
     };
 
     bool available();                   // false off macOS: the caller offers the manual route
