@@ -77,8 +77,8 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   It also opens in its own window (View > Open Mixer in a New Window, or the button on the
   page); the detached page is a second `MixerPage` on the same `MixController`, so both consoles always agree.
   TRACKS (`app/ui/TracksPage`) is drawn and hit-tested by hand: a tool row (row height S/M/L, Snap, Follow,
-  Split, Marker, what is selected, the loop and the zoom) and then one 46 px ruler band that holds the loop
-  strip along its top (drag it to mark a loop), the marker lane inside it (click to jump, drag to move,
+  Split, Marker, Loop, what is selected and the zoom) and then one 44 px ruler band that holds the loop
+  strip along its top, the marker lane under it (click to jump, drag to move,
   double-click empty to add, right-click to rename or delete, `M` / Edit menu to add at the playhead) and the
   ticks along its foot. Snap is magnetic to the grid, the markers, the playhead, the loop
   and every other clip edge (`snapSample`). `keyCell` is the one place the R/A/M/S keys are positioned (a 2 x 2
@@ -94,6 +94,21 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   foot reads it) while a *double*-click opens it in the Inspector - the header's own controls
   keep their single clicks - and pinch on the trackpad (or Cmd-wheel) zooms about the pointer
   via `zoomAround`.
+  **The loop** (2026-09-21): drag the empty strip along the top of the ruler to mark one; the bar it draws has
+  a grip at each end (drag to change it), its middle moves it, a click on it switches it on or off, and so does
+  the Loop button in the tool row. The part that goes round is drawn over the lanes too - an edge line either
+  way, a wash while it is on - *after* the lanes, which are opaque planes and hid it before. `snapSample` takes
+  `ignoreLoop` for the loop's own drags: with the loop's edges as snap targets the edge under the pointer snapped
+  back to where it was a moment ago and a slow drag never got anywhere, which is what "I can't extend it" was.
+  **TUNE on the header** (`tuneCell`): the chip between the name and the keys, calling `onTuneStrip` - the same
+  TUNE CHANNEL the header's menu offers; a panel too narrow for it keeps the name and drops the chip.
+  **Audio files from the Finder** (`FileDragAndDropTarget`, `addAudioFiles`): dropped on a track they become
+  clips on it at the drop moment (snapped; on the channel panel means the start), the files after the first
+  going down the tracks below; dropped below the last track each file is a new track - a new *input* on device
+  channels past every assigned one, named and source-guessed from the file name like a multitrack import, an
+  unrecognised source left disabled for the header's menu to say - and the session is rebuilt the way the
+  ASSIGN page rebuilds it. Clips-only drops are undoable; a drop that made tracks is not (the undo stack holds
+  projects, not sessions).
   A track and its input are two lists joined by index (`Project::tracks` / `MixSession::inputs`),
   so `Project::syncTracks (previous, next)` remaps the tracks whenever the assignments are
   rebuilt - each track follows its own input by device channel, then by name - and

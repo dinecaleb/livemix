@@ -1,6 +1,7 @@
 #include "TracksPage.h"
 #include "ChainStrip.h"
 #include "UI/Widgets.h"
+#include "native/StemNames.h"
 #include <algorithm>
 
 namespace livemix
@@ -16,9 +17,10 @@ namespace
     constexpr int kMaxHeaderWidth = 640;
     constexpr int kDividerGrip = 4;        // how close the pointer has to be to grab it
     constexpr int kToolbarHeight = 46;
-    constexpr int kRulerHeight = 38;
-    constexpr int kLoopStrip = 8;          // the top of the ruler: drag here to mark a loop
-    constexpr int kMarkerTop = 7;          // the marker lane, inside the ruler
+    constexpr int kRulerHeight = 44;
+    constexpr int kLoopStrip = 12;         // the top of the ruler: drag here to mark a loop
+    constexpr int kLoopGrip = 6;           // how close to a loop's edge counts as grabbing that edge
+    constexpr int kMarkerTop = 14;         // the marker lane, inside the ruler, under the loop strip
     constexpr int kMarkerHeight = 18;
     constexpr int kMinTrackHeight = 38;
     constexpr int kMaxTrackHeight = 260;
@@ -125,7 +127,11 @@ TracksPage::TracksPage (MixController& c, AppServices& s) : controller (c), serv
     make (recordAllButton, "All to record",
           "Set every track to record, and click again to set none. Nothing is captured until you press Record.",
           [this] { setAllToRecord (! allSetToRecord()); });
-    for (auto* b : { zoomOutButton.get(), zoomInButton.get(), zoomFitButton.get(), splitButton.get(), markerButton.get(), recordAllButton.get() })
+    make (loopButton, "Loop",
+          "Play the marked part round and round. Drag along the top of the ruler to mark it; "
+          "drag its ends to change it, drag its middle to move it, click it to switch it on or off.",
+          [this] { toggleLoop(); });
+    for (auto* b : { zoomOutButton.get(), zoomInButton.get(), zoomFitButton.get(), splitButton.get(), markerButton.get(), recordAllButton.get(), loopButton.get() })
     {
         b->setQuiet (true);
         b->setFontPx (12.0f);
@@ -388,7 +394,7 @@ int TracksPage::markerAt (juce::Point<int> p) const
 }
 
 // Magnetism: the grid, the markers, the playhead, the loop and every other clip edge.
-juce::int64 TracksPage::snapSample (juce::int64 sample, int ignoreTrack, int ignoreClip) const
+juce::int64 TracksPage::snapSample (juce::int64 sample, int ignoreTrack, int ignoreClip, bool ignoreLoop) const
 {
     if (! snap) return sample;
     const auto& project = services.daw().getProject();
@@ -405,7 +411,7 @@ juce::int64 TracksPage::snapSample (juce::int64 sample, int ignoreTrack, int ign
 
     consider (0);
     consider (services.daw().getTransport().getPosition());
-    if (project.loopEnd > project.loopStart) { consider (project.loopStart); consider (project.loopEnd); }
+    if (! ignoreLoop && project.loopEnd > project.loopStart) { consider (project.loopStart); consider (project.loopEnd); }
     for (const auto& m : project.markers) consider (m.position);
     for (int t = 0; t < int (project.tracks.size()); ++t)
         for (int i = 0; i < int (project.tracks[size_t (t)].clips.size()); ++i)
@@ -450,6 +456,11 @@ void TracksPage::refresh()
     // The R keys can be changed from a header, from the Track menu or from the toolbar itself,
     // so the button follows the session rather than its own last click.
     if (const bool all = allSetToRecord(); all != recordAllOn) { recordAllOn = all; updateToolbar(); }
+    {
+        const auto& project = services.daw().getProject();
+        const bool on = project.loopEnabled && project.loopEnd > project.loopStart;
+        if (loopButton->getToggleState() != on) updateToolbar();
+    }
 
     // One meter reading per track per tick: consuming it twice would halve what is shown.
     const int tracks = numTracks();
@@ -531,6 +542,21 @@ void TracksPage::refresh()
 
 // The level meter down the right edge of a header. One place, so the repaint that keeps it
 // moving and the paint that draws it can never disagree about where it is.
+// TUNE lives on the header, between the name and the keys, so a channel can be tuned from the
+// place its clips and its fader already are. The name has first claim on the width: a narrow
+// panel keeps the name and drops the chip, which is still in the header's menu.
+juce::Rectangle<int> TracksPage::tuneCell (int track) const
+{
+    if (track < 0 || track >= numTracks()) return {};
+    const int top = trackTop (track), h = trackHeight (track);
+    const bool compact = compactHeader (track);
+    const int w = 42, ch = compact ? 16 : 18;
+    const int right = keyCell (track, 0).getX() - 10;
+    const int nameRoom = 12 + 7 + 8 + 20 + 96;     // the dot, the number and enough of a name to read
+    if (right - w < nameRoom) return {};
+    return { right - w, top + (h - ch) / 2, w, ch };
+}
+
 juce::Rectangle<int> TracksPage::meterCell (int track) const
 {
     if (track < 0 || track >= numTracks()) return {};
@@ -1100,13 +1126,6 @@ void TracksPage::paint (juce::Graphics& g)
         g.setColour (Dine::window);
         g.fillRect (lanes);
 
-        if (project.loopEnabled && project.loopEnd > project.loopStart)
-        {
-            const int x1 = sampleToX (project.loopStart), x2 = sampleToX (project.loopEnd);
-            g.setColour (Dine::monitor.withAlpha (0.06f));
-            g.fillRect (juce::Rectangle<int> (x1, lanes.getY(), juce::jmax (1, x2 - x1), lanes.getHeight()));
-        }
-
         // The ruler's grid, carried down through the lanes so an edit has something to read against.
         const double grid = gridSeconds();
         const double rate = juce::jmax (1.0, project.sampleRate);
@@ -1143,6 +1162,46 @@ void TracksPage::paint (juce::Graphics& g)
             if (x < lanes.getX() || x > lanes.getRight()) continue;
             g.setColour (juce::Colours::white.withAlpha (0.14f));
             g.fillRect (float (x), float (lanes.getY()), 0.5f, float (lanes.getHeight()));
+        }
+
+        // The loop, over the lanes: a wash between its edges while it is on, and its two edges
+        // either way, so the part that will go round is read on every track and not only on
+        // the ruler. Drawn after the lanes - they are opaque planes and covered it before.
+        if (project.loopEnd > project.loopStart)
+        {
+            const int x1 = sampleToX (project.loopStart), x2 = sampleToX (project.loopEnd);
+            if (x2 >= lanes.getX() && x1 <= lanes.getRight())
+            {
+                if (project.loopEnabled)
+                {
+                    g.setColour (Dine::monitor.withAlpha (0.07f));
+                    g.fillRect (juce::Rectangle<int> (x1, lanes.getY(), juce::jmax (1, x2 - x1), lanes.getHeight()));
+                }
+                g.setColour (Dine::monitor.withAlpha (project.loopEnabled ? 0.55f : 0.28f));
+                g.fillRect (float (x1), float (lanes.getY()), 1.0f, float (lanes.getHeight()));
+                g.fillRect (float (x2) - 1.0f, float (lanes.getY()), 1.0f, float (lanes.getHeight()));
+            }
+        }
+
+        // A file being dragged over the page: the track it would land on (or the band below the
+        // last one, for a new track) and the moment it would start.
+        if (dropTrack != -2)
+        {
+            auto band = dropTrack >= 0 ? juce::Rectangle<int> (lanes.getX(), trackTop (dropTrack), lanes.getWidth(), trackHeight (dropTrack))
+                                       : juce::Rectangle<int> (lanes.getX(), juce::jmax (lanes.getY(), lanesTop() + totalTrackHeight() - scrollY),
+                                                               lanes.getWidth(), kMinTrackHeight);
+            g.setColour (Dine::accent.withAlpha (0.12f));
+            g.fillRect (band);
+            g.setColour (Dine::accent);
+            g.fillRect (band.withHeight (1));
+            g.fillRect (band.withTop (band.getBottom() - 1));
+            const int x = juce::jmax (lanes.getX(), dropX);
+            g.fillRect (float (x), float (band.getY()), 2.0f, float (band.getHeight()));
+            if (dropTrack < 0)
+            {
+                g.setFont (Dine::caps (10.0f, 0.08f, 500));
+                g.drawText ("NEW TRACK", band.reduced (12, 0), juce::Justification::centredLeft);
+            }
         }
 
         if (tracks > 0 && ! project.hasAudio())
@@ -1327,16 +1386,25 @@ void TracksPage::paintRuler (juce::Graphics& g)
     const double rate = juce::jmax (1.0, project.sampleRate);
     const double step = gridSeconds();
 
-    // The loop, as a bar along the top of the ruler.
+    // The loop strip along the top of the ruler: a hairline under it says the strip is there,
+    // and the loop is a bar on it with a grip at each end - grab an end to change it, the
+    // middle to move it, click it to switch it on or off, drag the empty strip to mark a new one.
+    g.setColour (Dine::hairStrong);
+    g.fillRect (area.getX(), area.getY() + kLoopStrip - 1, area.getWidth(), 1);
     if (project.loopEnd > project.loopStart)
     {
         const int x1 = sampleToX (project.loopStart), x2 = sampleToX (project.loopEnd);
         const auto tint = project.loopEnabled ? Dine::monitor : Dine::ink4;
-        auto range = juce::Rectangle<float> (float (x1), float (area.getY()), float (juce::jmax (3, x2 - x1)), 5.0f);
-        juce::Path p;
-        p.addRoundedRectangle (range.getX(), range.getY(), range.getWidth(), range.getHeight(), 3.0f, 3.0f, false, false, true, true);
-        g.setColour (tint.withAlpha (project.loopEnabled ? 1.0f : 0.5f));
-        g.fillPath (p);
+        auto range = juce::Rectangle<float> (float (x1), float (area.getY() + 2), float (juce::jmax (8, x2 - x1)), float (kLoopStrip - 5));
+        Dine::fillRounded (g, range, tint.withAlpha (project.loopEnabled ? 1.0f : 0.55f), 2.5f);
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRect (range.getX() + 2.0f, range.getY() + 1.5f, 1.5f, range.getHeight() - 3.0f);
+        g.fillRect (range.getRight() - 3.5f, range.getY() + 1.5f, 1.5f, range.getHeight() - 3.0f);
+        if (range.getWidth() > 60.0f)
+        {
+            g.setFont (Dine::caps (7.5f, 0.1f, 600));
+            g.drawText (project.loopEnabled ? "LOOP" : "LOOP OFF", range.toNearestInt(), juce::Justification::centred);
+        }
     }
 
     // The ticks along the foot: a tall one where the number goes, short ones between.
@@ -1410,7 +1478,8 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
     const bool monitoring = state.monitor != MonitorMode::Off;
 
     // ---- the dot, the number, the name and its note
-    auto text = row.reduced (12, 0).withRight (keyCell (track, 0).getX() - 8);
+    const auto tune = tuneCell (track);
+    auto text = row.reduced (12, 0).withRight ((tune.isEmpty() ? keyCell (track, 0).getX() : tune.getX()) - 8);
     {
         auto dot = text.removeFromLeft (7).withSizeKeepingCentre (7, 7);
         g.setColour (state.armed ? Dine::crit : monitoring ? Dine::monitor : mute ? Dine::warn : tint);
@@ -1458,6 +1527,15 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
         g.setColour (Dine::ink4);
         g.setFont (Dine::text (10.0f));
         g.drawText (note, noteLine, juce::Justification::centredLeft, true);
+    }
+
+    // ---- TUNE: the chip beside the keys, in the accent, the verb the whole app uses
+    if (! tune.isEmpty())
+    {
+        Dine::fillRounded (g, tune.toFloat(), Dine::control, Dine::Radius::chip);
+        g.setColour (project.liveSafe ? Dine::ink4 : Dine::accent);
+        g.setFont (Dine::caps (compact ? 9.0f : 9.5f, 0.1f, 600));
+        g.drawText ("TUNE", tune, juce::Justification::centred);
     }
 
     // ---- R / A / M / S: the console's own keys
@@ -1584,6 +1662,18 @@ void TracksPage::updateToolbar()
     recordAllButton->setStyle (DineButton::Style::Toggle);
     recordAllButton->setQuiet (true);
     recordAllButton->setToggleState (allSetToRecord(), juce::dontSendNotification);
+    {
+        const auto& project = services.daw().getProject();
+        const bool marked = project.loopEnd > project.loopStart;
+        loopButton->setStyle (DineButton::Style::Toggle);
+        loopButton->setQuiet (true);
+        loopButton->setToggleState (marked && project.loopEnabled, juce::dontSendNotification);
+        loopButton->setTooltip (marked ? "Loop " + clockText (project.loopStart, project.sampleRate) + " to "
+                                             + clockText (project.loopEnd, project.sampleRate)
+                                             + (project.loopEnabled ? ". Click to switch it off." : ". Click to switch it on.")
+                                       : juce::String ("Play the marked part round and round. Drag along the top of the ruler to mark it; "
+                                                       "drag its ends to change it, drag its middle to move it, click it to switch it on or off."));
+    }
     repaint (toolbarArea());
 }
 
@@ -1612,6 +1702,7 @@ void TracksPage::resized()
     fromLeft (*splitButton, 60);
     fromLeft (*markerButton, 60);
     fromLeft (*recordAllButton, 60);
+    fromLeft (*loopButton, 60);
 
     auto fromRight = [&row] (DineButton& b, int minWidth)
     {
@@ -1653,10 +1744,28 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
         if (p.y < kToolbarHeight + kLoopStrip)
         {
             if (locked()) return;
-            drag = Drag::LoopRange;
-            loopAnchor = snapSample (xToSample (p.x), -1, -1);
-            project.loopStart = loopAnchor;
-            project.loopEnd = loopAnchor;
+            // A loop already marked: its ends are grips, its middle moves it (and a click there
+            // switches it on or off). Anywhere else on the strip starts a new one.
+            const bool marked = project.loopEnd > project.loopStart;
+            const int x1 = marked ? sampleToX (project.loopStart) : 0, x2 = marked ? sampleToX (project.loopEnd) : 0;
+            loopWasEnabled = project.loopEnabled;
+            loopMoved = false;
+            if (marked && std::abs (p.x - x1) <= kLoopGrip)      { drag = Drag::LoopRange; loopAnchor = project.loopEnd; }
+            else if (marked && std::abs (p.x - x2) <= kLoopGrip) { drag = Drag::LoopRange; loopAnchor = project.loopStart; }
+            else if (marked && p.x > x1 && p.x < x2)
+            {
+                drag = Drag::LoopMove;
+                dragAnchorSample = xToSample (p.x);
+                dragClipStart = project.loopStart;
+                dragClipLength = project.loopEnd - project.loopStart;
+            }
+            else
+            {
+                drag = Drag::LoopRange;
+                loopAnchor = snapSample (xToSample (p.x), -1, -1, true);
+                project.loopStart = loopAnchor;
+                project.loopEnd = loopAnchor;
+            }
             repaint();
             return;
         }
@@ -1710,6 +1819,16 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
             dragStartX = p.x;
             dragFaderNorm = faderRange().convertTo0to1 (
                 juce::jlimit (-60.0f, 12.0f, controller.getBase().strips[size_t (track)].faderDb));
+            return;
+        }
+
+        // TUNE, from the header itself.
+        if (tuneCell (track).contains (p))
+        {
+            selection = { track, -1 };
+            updateChainStrip();
+            repaint();
+            if (onTuneStrip) onTuneStrip (track);
             return;
         }
 
@@ -1804,9 +1923,24 @@ void TracksPage::mouseDrag (const juce::MouseEvent& e)
 
         case Drag::LoopRange:
         {
-            const juce::int64 at = snapSample (xToSample (p.x), -1, -1);
+            // The loop's own edges are left out of the snap, or the edge being dragged snaps
+            // back to where it was a moment ago and a slow drag never gets anywhere.
+            const juce::int64 at = juce::jmax ((juce::int64) 0, snapSample (xToSample (p.x), -1, -1, true));
             project.loopStart = juce::jmin (loopAnchor, at);
             project.loopEnd = juce::jmax (loopAnchor, at);
+            loopMoved = true;
+            repaint();
+            break;
+        }
+
+        case Drag::LoopMove:
+        {
+            const juce::int64 delta = xToSample (p.x) - dragAnchorSample;
+            if (! loopMoved && std::abs (delta) < juce::int64 (samplesPerPixel() * 3.0)) break;   // still a click
+            const juce::int64 start = juce::jmax ((juce::int64) 0, snapSample (dragClipStart + delta, -1, -1, true));
+            project.loopStart = start;
+            project.loopEnd = start + dragClipLength;
+            loopMoved = true;
             repaint();
             break;
         }
@@ -1912,7 +2046,14 @@ void TracksPage::mouseUp (const juce::MouseEvent&)
     if (drag == Drag::Playhead || drag == Drag::Marker)
         services.daw().locate (services.daw().getTransport().getPosition());
 
-    if (drag == Drag::LoopRange)
+    if (drag == Drag::LoopMove && ! loopMoved)
+    {
+        // A click on the loop: on or off, where it is.
+        drag = Drag::None;
+        toggleLoop();
+        return;
+    }
+    if (drag == Drag::LoopRange || drag == Drag::LoopMove)
     {
         if (project.loopEnd - project.loopStart < juce::int64 (samplesPerPixel() * 4.0))
         {
@@ -1921,12 +2062,15 @@ void TracksPage::mouseUp (const juce::MouseEvent&)
         }
         else
         {
-            services.daw().setLoop (true, project.loopStart, project.loopEnd);
-            if (onToast) onToast ("Loop " + clockText (project.loopStart, project.sampleRate) + " to "
+            // A new or resized loop is wanted, so it goes on; a moved one keeps whatever it was.
+            const bool on = drag == Drag::LoopRange ? true : loopWasEnabled;
+            services.daw().setLoop (on, project.loopStart, project.loopEnd);
+            if (onToast) onToast (juce::String (on ? "Loop " : "Loop (off) ") + clockText (project.loopStart, project.sampleRate) + " to "
                                   + clockText (project.loopEnd, project.sampleRate) + ".");
         }
         services.saveSession();
         if (onTimelineChanged) onTimelineChanged();
+        updateToolbar();
     }
 
     if (drag == Drag::Marker && undoPushed)
@@ -2021,7 +2165,17 @@ void TracksPage::mouseMove (const juce::MouseEvent& e)
     if (overDivider)
         cursor = juce::MouseCursor::LeftRightResizeCursor;
     else if (p.y >= kToolbarHeight && p.y < kToolbarHeight + kLoopStrip && p.x >= headerWidth)
-        cursor = juce::MouseCursor::LeftRightResizeCursor;
+    {
+        const auto& project = services.daw().getProject();
+        const bool marked = project.loopEnd > project.loopStart;
+        const int x1 = marked ? sampleToX (project.loopStart) : 0, x2 = marked ? sampleToX (project.loopEnd) : 0;
+        if (marked && (std::abs (p.x - x1) <= kLoopGrip || std::abs (p.x - x2) <= kLoopGrip))
+            cursor = juce::MouseCursor::LeftRightResizeCursor;
+        else if (marked && p.x > x1 && p.x < x2)
+            cursor = juce::MouseCursor::DraggingHandCursor;
+        else
+            cursor = juce::MouseCursor::CrosshairCursor;
+    }
     else if (hoverMarker >= 0)
         cursor = juce::MouseCursor::PointingHandCursor;
     else if (p.x < headerWidth && p.y >= lanesTop())
@@ -2065,6 +2219,8 @@ juce::String TracksPage::getTooltip()
             default: return "Solo: hear this source alone.";
         }
     }
+    if (tuneCell (track).contains (p))
+        return "TUNE this channel: DLIVE listens to it on its own and sets its chain. RE-TUNE any time, while the band plays.";
     if (faderCell (track).contains (p))
         return controller.getStripLink (track) != 0
                    ? "Level for this track. Linked with " + juce::String (controller.linkedNames (track))
@@ -2075,6 +2231,176 @@ juce::String TracksPage::getTooltip()
         return juce::String (controller.getSession().inputs[size_t (track)].name)
              + " - drag up or down to move this channel. The mixer and the Inspector follow.";
     return {};
+}
+
+void TracksPage::toggleLoop()
+{
+    auto& project = services.daw().getProject();
+    if (project.loopEnd <= project.loopStart)
+    {
+        if (onToast) onToast ("Drag along the top of the ruler to mark the part to loop first.");
+        return;
+    }
+    const bool on = ! project.loopEnabled;
+    services.daw().setLoop (on, project.loopStart, project.loopEnd);
+    services.saveSession();
+    if (onTimelineChanged) onTimelineChanged();
+    updateToolbar();
+    repaint();
+    if (onToast) onToast (on ? "Loop on: " + clockText (project.loopStart, project.sampleRate) + " to "
+                                   + clockText (project.loopEnd, project.sampleRate) + "."
+                             : juce::String ("Loop off. The marked part is kept."));
+}
+
+// ---------------------------------------------------------------- files from the Finder
+bool TracksPage::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (const auto& f : files)
+        if (formats.findFormatForFileExtension (juce::File (f).getFileExtension()) != nullptr) return true;
+    return false;
+}
+
+int TracksPage::dropTargetAt (int x, int y) const
+{
+    juce::ignoreUnused (x);
+    if (y < lanesTop() || y >= getHeight() - footHeight()) return -2;
+    const int track = trackAtY (y);
+    return track >= 0 ? track : -1;
+}
+
+void TracksPage::fileDragEnter (const juce::StringArray& files, int x, int y) { fileDragMove (files, x, y); }
+
+void TracksPage::fileDragMove (const juce::StringArray&, int x, int y)
+{
+    const int target = dropTargetAt (x, y);
+    const int at = juce::jmax (headerWidth, x);
+    if (target == dropTrack && at == dropX) return;
+    dropTrack = target;
+    dropX = at;
+    repaint();
+}
+
+void TracksPage::fileDragExit (const juce::StringArray&)
+{
+    dropTrack = -2;
+    repaint();
+}
+
+void TracksPage::filesDropped (const juce::StringArray& files, int x, int y)
+{
+    const int target = dropTargetAt (x, y);
+    dropTrack = -2;
+    repaint();
+    if (target == -2)
+    {
+        if (onToast) onToast ("Drop audio on a track, or below the last track to make a new one.");
+        return;
+    }
+    // Dropped on the channel panel: the file starts at the beginning. On the timeline: where it was let go.
+    const juce::int64 at = x >= headerWidth ? juce::jmax ((juce::int64) 0, snapSample (xToSample (x), -1, -1)) : 0;
+    addAudioFiles (files, target, at);
+}
+
+// The files become clips - and, when there are more files than tracks under the drop, new
+// tracks. A new track is a new *input* (a track and its input are one thing seen twice), so
+// the session is rebuilt the way the ASSIGN page rebuilds it; the file's own name names it and
+// guesses its source the way a multitrack import does, and an unrecognised source is left for
+// the user to say, the header's menu being the place.
+void TracksPage::addAudioFiles (const juce::StringArray& files, int track, juce::int64 at)
+{
+    if (locked()) return;
+    if (services.daw().isRecording()) { if (onToast) onToast ("Stop recording before adding files."); return; }
+
+    juce::StringArray sorted (files);
+    sorted.sort (true);
+    struct Loaded { AudioClip clip; int channels = 1; juce::String stem; };
+    std::vector<Loaded> loaded;
+    auto& project = services.daw().getProject();
+    for (const auto& path : sorted)
+    {
+        const juce::File file (path);
+        if (formats.findFormatForFileExtension (file.getFileExtension()) == nullptr) continue;
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+        if (reader == nullptr || reader->lengthInSamples <= 0) continue;
+        Loaded item;
+        item.stem = file.getFileNameWithoutExtension();
+        item.channels = juce::jlimit (1, 2, int (reader->numChannels));
+        item.clip.name = StemNames::cleanName (item.stem);
+        item.clip.file = file.getFullPathName();
+        item.clip.start = at;
+        item.clip.offset = 0;
+        item.clip.fileSampleRate = reader->sampleRate;
+        item.clip.length = reader->sampleRate > 0.0 && project.sampleRate > 0.0
+                             ? juce::int64 (double (reader->lengthInSamples) * project.sampleRate / reader->sampleRate)
+                             : reader->lengthInSamples;
+        loaded.push_back (std::move (item));
+    }
+    if (loaded.empty())
+    {
+        if (onToast) onToast ("None of those files could be read as audio.");
+        return;
+    }
+
+    const int first = track >= 0 ? track : numTracks();
+    const int room = juce::jmax (0, numTracks() - first);
+    const int wanted = int (loaded.size()) - room;
+    int added = 0, unrecognised = 0;
+    if (wanted > 0)
+    {
+        // New inputs, on device channels past every channel already assigned: a file track has
+        // no live input, and one it could never collide with keeps the console's own tracks safe.
+        auto session = controller.getSession();
+        int nextChannel = 0;
+        for (const auto& in : session.inputs) nextChannel = juce::jmax (nextChannel, juce::jmax (in.inputA, in.inputB) + 1);
+        for (int i = room; i < int (loaded.size()); ++i)
+        {
+            if (int (session.inputs.size()) >= kMaxStrips) break;
+            const auto& item = loaded[size_t (i)];
+            InputAssignment in;
+            in.name = item.clip.name.toStdString();
+            in.inputA = nextChannel;
+            in.inputB = item.channels > 1 ? nextChannel + 1 : -1;
+            nextChannel += item.channels;
+            ChannelRole role = ChannelRole::LeadVocal;
+            in.enabled = StemNames::guessRole (item.stem, role);
+            in.role = role;
+            if (! in.enabled) ++unrecognised;
+            session.inputs.push_back (in);
+            ++added;
+        }
+        controller.setSession (session);
+        services.daw().setSession (session);          // syncTracks: every existing track keeps its clips
+        services.reconfigure();
+    }
+    else
+    {
+        pushUndo();                                   // clips only: the session did not change shape
+    }
+
+    int placed = 0;
+    ClipRef firstClip;
+    for (int i = 0; i < int (loaded.size()); ++i)
+    {
+        const int t = first + i;
+        if (t >= numTracks()) break;
+        auto& clips = project.tracks[size_t (t)].clips;
+        clips.push_back (loaded[size_t (i)].clip);
+        if (placed == 0) firstClip = { t, int (clips.size()) - 1 };
+        ++placed;
+    }
+    selection = firstClip;
+    commit();
+    rebuild();
+    updateChainStrip();
+    if (added > 0 && onSessionChanged) onSessionChanged();
+
+    juce::String said = placed == 1 ? "Added 1 clip" : "Added " + juce::String (placed) + " clips";
+    if (added > 0) said += added == 1 ? " on 1 new track" : " on " + juce::String (added) + " new tracks";
+    if (placed < int (loaded.size())) said += " (" + juce::String (int (loaded.size()) - placed) + " left out: the session is full)";
+    said += ".";
+    if (unrecognised > 0) said += " DLIVE could not tell what " + juce::String (unrecognised == 1 ? "one of them is" : "some of them are")
+                                + ": right-click the header to say the source.";
+    if (onToast) onToast (said);
 }
 
 // Pinch on the trackpad: zoom the timeline, about the fingers.

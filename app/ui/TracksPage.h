@@ -20,7 +20,7 @@ namespace livemix
 // The whole surface is drawn and hit-tested by hand rather than built from thousands of
 // child components, so 64 tracks scroll and zoom as smoothly as eight. Waveforms come
 // from juce::AudioThumbnail, which reads and caches peaks on its own thread.
-class TracksPage : public juce::Component, public juce::TooltipClient
+class TracksPage : public juce::Component, public juce::TooltipClient, public juce::FileDragAndDropTarget
 {
 public:
     enum class RowHeight { Small = 0, Medium, Large };
@@ -57,6 +57,17 @@ public:
     void zoomToFit();
     void setRowHeight (RowHeight);
     void addMarkerAtPlayhead();
+    // The loop: on or off, without touching where it is. Marking one is a drag along the top
+    // of the ruler; the button (and this) only decide whether the transport goes round it.
+    void toggleLoop();
+    // Audio files dropped from the Finder. Dropped on a track they land on it at the drop
+    // moment (the files after the first go down the tracks below, the way every DAW does it);
+    // dropped below the last track, each file becomes a new track with the file on it.
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void fileDragEnter (const juce::StringArray& files, int x, int y) override;
+    void fileDragMove (const juce::StringArray& files, int x, int y) override;
+    void fileDragExit (const juce::StringArray& files) override;
+    void filesDropped (const juce::StringArray& files, int x, int y) override;
     // Rearranging the channels. A track and its input are the same thing seen twice, so moving
     // a row moves the input: the timeline, the mixer's bank, TUNE's rail and the Inspector all
     // read the new order, and every channel keeps its chain, its level and its clips.
@@ -94,7 +105,7 @@ public:
 
 private:
     enum class Drag { None, Playhead, ClipMove, ClipTrimStart, ClipTrimEnd, TrackHeight, Scroll,
-                      LoopRange, Marker, Fader, TrackOrder, PanelWidth };
+                      LoopRange, LoopMove, Marker, Fader, TrackOrder, PanelWidth };
     struct ClipRef { int track = -1; int index = -1; bool valid() const noexcept { return track >= 0 && index >= 0; } };
 
     // Geometry
@@ -122,6 +133,9 @@ private:
     // The level meter down the right edge of a header, so only it is repainted when only it
     // moved - a 24-channel timeline redrawn whole at 30 Hz is what made DLIVE feel slow.
     juce::Rectangle<int> meterCell (int track) const;
+    // TUNE, on the header itself: the chip between the name and the keys, or empty when the
+    // row is too narrow to carry it (the name comes first).
+    juce::Rectangle<int> tuneCell (int track) const;
     void dragFader (int track, int x, bool fine, bool alone = false);   // alone: Cmd held, the link is left out
     bool compactHeader (int track) const;
     // The grab zone for the panel / timeline divider.
@@ -130,7 +144,13 @@ private:
     int dropSlotAtY (int y) const;
     int markerAt (juce::Point<int> p) const;
     juce::Rectangle<int> markerFlag (int index) const;
-    juce::int64 snapSample (juce::int64 sample, int ignoreTrack, int ignoreClip) const;
+    // `ignoreLoop`: while the loop itself is being dragged its own edges are not targets,
+    // or the edge under the pointer snaps back to where it was a moment ago and never moves.
+    juce::int64 snapSample (juce::int64 sample, int ignoreTrack, int ignoreClip, bool ignoreLoop = false) const;
+    // Where a file drag would land: the track under the pointer, -1 for "a new track below
+    // the last one", -2 when nothing is being dragged over the page.
+    int dropTargetAt (int x, int y) const;
+    void addAudioFiles (const juce::StringArray& files, int track, juce::int64 at);
 
     void paintHeader (juce::Graphics&, int track, juce::Rectangle<int>);
     void paintLane (juce::Graphics&, int track, juce::Rectangle<int>);
@@ -193,6 +213,8 @@ private:
     int dragOrderFrom = -1, dragOrderSlot = -1;
     bool dragOrderLifted = false;
     juce::int64 loopAnchor = 0;
+    bool loopWasEnabled = false, loopMoved = false;   // a click inside the loop toggles it; a drag moves it
+    int dropTrack = -2, dropX = -1;                   // a file drag in progress (see dropTargetAt)
     double dragStartScrollX = 0.0;
 
     // How wide the channel panel is. One width for every row, dragged by the divider between
@@ -219,7 +241,7 @@ private:
     int footHeight() const noexcept { return footShown ? ChainStrip::height : 0; }
     std::array<std::unique_ptr<DineButton>, 3> rowTabs;      // S / M / L row height
     std::unique_ptr<DineButton> zoomOutButton, zoomFitButton, zoomInButton;
-    std::unique_ptr<DineButton> snapButton, followButton, splitButton, markerButton, recordAllButton;
+    std::unique_ptr<DineButton> snapButton, followButton, splitButton, markerButton, recordAllButton, loopButton;
     bool recordAllOn = false;          // what the All-to-record button is showing
 };
 
