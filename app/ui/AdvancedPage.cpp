@@ -1,6 +1,9 @@
 #include "AdvancedPage.h"
 #include "Core/DbUtils.h"
 #include "DSP/ChannelProcessor.h"
+#include "State/ParameterSpecs.h"
+#include "UI/LiveMixLookAndFeel.h"
+#include <ctime>
 
 namespace livemix
 {
@@ -469,7 +472,23 @@ public:
     }
 
     std::function<void (int)> onPick;
+    std::function<void (int)> onRestore;       // HISTORY: put record `index` back on this channel
     std::function<void()> onRetune, onRevertAll, onTuneChannel;
+
+    // Scrolls the column so HISTORY is the first thing in it.
+    void showHistory()
+    {
+        if (list.history.empty()) return;
+        view.setViewPosition (0, list.historyTop());
+    }
+
+    void setHistory (const std::vector<HistoryView>& v)
+    {
+        if (v == list.history) return;
+        list.history = v;
+        list.setSize (view.getWidth(), list.heightFor (view.getWidth()));
+        list.repaint();
+    }
 
     // `channel` is false for a bus: a bus is not a source, so there is nothing to listen to
     // on its own - it is tuned by what feeds it.
@@ -479,6 +498,7 @@ public:
         sentence = sentenceText;
         isMaster = masterSelected;
         if (tuneChannel.isVisible() != channel) tuneChannel.setVisible (channel);
+        view.setViewPosition (0, 0);       // a channel's trail starts at its top
         resized();
         repaint();
     }
@@ -671,9 +691,19 @@ private:
     public:
         explicit List (Trail& owner) : trail (owner) {}
 
+        static constexpr int kHistoryHeadH = 34;
+
+        int historyTop() const
+        {
+            int y = 0;
+            for (int h : heights) y += h;
+            return y;
+        }
+
         int heightFor (int width)
         {
             heights.clear();
+            historyHeights.clear();
             int y = 0;
             const auto whyFont = Dine::text (12.0f);
             for (const auto& v : views)
@@ -684,12 +714,72 @@ private:
                 heights.push_back (h);
                 y += h;
             }
+            if (! history.empty())
+            {
+                y += kHistoryHeadH;
+                for (const auto& v : history)
+                {
+                    const int h = 12 + 16 + 5 + 14 + (v.lines.isEmpty() ? 0 : 5 + v.lines.size() * 16) + 12 + 3;
+                    historyHeights.push_back (h);
+                    y += h;
+                }
+            }
             return juce::jmax (y, 1);
         }
 
         void paint (juce::Graphics& g) override
         {
             auto r = getLocalBounds().reduced (18, 0);
+            paintStages (g, r);
+            paintHistory (g, r);
+        }
+
+        // HISTORY: newest first, each row a setting this channel had and a way to have it
+        // back. The chip is the only control: the row itself is for reading.
+        void paintHistory (juce::Graphics& g, juce::Rectangle<int>& r)
+        {
+            chips.clear();
+            if (history.empty()) return;
+            auto head = r.removeFromTop (kHistoryHeadH).withTrimmedTop (14);
+            Dine::drawSection (g, head, "HISTORY");
+            for (size_t i = 0; i < history.size() && i < historyHeights.size(); ++i)
+            {
+                const auto& v = history[i];
+                auto row = r.removeFromTop (historyHeights[i]).withTrimmedBottom (3);
+                Dine::fillRounded (g, row.toFloat(), Dine::item, Dine::Radius::control);
+                auto body = row.reduced (12, 12);
+
+                auto top = body.removeFromTop (16);
+                const juce::String chipText = "PUT BACK";
+                const int chipW = Dine::textWidth (Dine::caps (9.0f, 0.06f, 500), chipText) + 14;
+                auto chip = top.removeFromRight (chipW);
+                Dine::drawStatusChip (g, chip.toFloat(), chipText, Dine::accent);
+                chips.push_back (chip);
+                top.removeFromRight (8);
+                g.setColour (Dine::ink4);
+                g.setFont (Dine::mono (10.0f));
+                const int whenW = Dine::textWidth (Dine::mono (10.0f), v.when);
+                g.drawText (v.when, top.removeFromRight (whenW), juce::Justification::centredRight);
+                top.removeFromRight (8);
+                g.setColour (Dine::ink);
+                g.setFont (Dine::text (13.0f));
+                g.drawText (v.what, top, juce::Justification::centredLeft, true);
+
+                body.removeFromTop (5);
+                g.setColour (Dine::ink2);
+                g.setFont (Dine::mono (11.0f, 500));
+                g.drawText (v.summary, body.removeFromTop (14), juce::Justification::centredLeft, true);
+                if (v.lines.isEmpty()) continue;
+                body.removeFromTop (5);
+                g.setColour (Dine::ink3);
+                g.setFont (Dine::text (12.0f));
+                for (const auto& line : v.lines)
+                    g.drawText (line, body.removeFromTop (16), juce::Justification::centredLeft, true);
+            }
+        }
+
+        void paintStages (juce::Graphics& g, juce::Rectangle<int>& r)
+        {
             for (size_t i = 0; i < views.size() && i < heights.size(); ++i)
             {
                 const auto& v = views[i];
@@ -721,7 +811,10 @@ private:
 
         void mouseUp (const juce::MouseEvent& e) override
         {
-            if (e.mouseWasDraggedSinceMouseDown() || ! trail.onPick) return;
+            if (e.mouseWasDraggedSinceMouseDown()) return;
+            for (size_t i = 0; i < chips.size(); ++i)
+                if (chips[i].contains (e.getPosition())) { if (trail.onRestore) trail.onRestore (int (i)); return; }
+            if (! trail.onPick) return;
             int y = 0;
             for (size_t i = 0; i < heights.size(); ++i)
             {
@@ -730,14 +823,23 @@ private:
             }
         }
 
-        void mouseMove (const juce::MouseEvent&) override { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+        void mouseMove (const juce::MouseEvent& e) override
+        {
+            int stagesEnd = 0;
+            for (int h : heights) stagesEnd += h;
+            bool onChip = false;
+            for (const auto& c : chips) if (c.contains (e.getPosition())) onChip = true;
+            setMouseCursor (e.y < stagesEnd || onChip ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        }
 
         std::vector<ChainEditor::StageView> views;
+        std::vector<HistoryView> history;        // newest first
         int selected = 0;
 
     private:
         Trail& trail;
-        std::vector<int> heights;
+        std::vector<int> heights, historyHeights;
+        std::vector<juce::Rectangle<int>> chips;  // where each row's PUT BACK was painted, for the click
     };
 
     MixController& controller;
@@ -773,6 +875,13 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
     trail->onPick = [this] (int stage) { chain->selectStage (stage); };
     trail->onRetune = [this] { if (onRetune) onRetune(); };
     trail->onTuneChannel = [this] { if (onTuneChannel && ! selection.isBus && selection.strip >= 0) onTuneChannel (selection.strip); };
+    trail->onRestore = [this] (int record)
+    {
+        if (selection.isBus || selection.strip < 0) return;
+        // The list is newest first; the controller keeps its records oldest first.
+        const int n = int (controller.getStripHistory (selection.strip).size());
+        if (controller.restoreStripTune (selection.strip, n - 1 - record)) refresh();
+    };
     trail->onRevertAll = [this]
     {
         // Everything DINE set, back the way it set it - the faders included.
@@ -931,6 +1040,12 @@ void AdvancedPage::selectBus (MixBus bus)
     showSelection();
 }
 
+void AdvancedPage::revealHistory()
+{
+    if (! trailShown) setTrailShown (true);
+    trail->showHistory();
+}
+
 void AdvancedPage::selectStage (int index)
 {
     chain->selectStage (index);
@@ -964,9 +1079,80 @@ void AdvancedPage::showSelection()
     trail->setChannel (headline, sentence, selection.isBus && selection.bus == MixBus::Master, ! selection.isBus && selection.strip >= 0);
     trail->setGain (selection.isBus ? MixController::InputAdvice {} : controller.getInputAdvice (selection.strip));
     trail->setStages (chain->stageViews(), chain->selectedStage());
+    trail->setHistory (historyViews());
     path->refresh();
     resized();
     repaint();
+}
+
+// The channel's history in the words the trail uses: what did it, when, how much, and each
+// change as "High-pass 80 Hz -> 100 Hz". Newest first, because the top of the list is what
+// the channel is now. Built only when the record count or the newest record changes.
+std::vector<AdvancedPage::HistoryView> AdvancedPage::historyViews()
+{
+    std::vector<HistoryView> out;
+    if (selection.isBus || selection.strip < 0) return out;
+    const auto& records = controller.getStripHistory (selection.strip);
+    if (records.empty()) return out;
+
+    auto clock = [] (long long ms)
+    {
+        if (ms <= 0) return juce::String();
+        const juce::Time t { juce::int64 (ms) };
+        const bool today = t.toString (true, false) == juce::Time::getCurrentTime().toString (true, false);
+        return today ? t.formatted ("%H:%M") : t.formatted ("%d %b %H:%M");
+    };
+    auto value = [] (const ParameterSpec* spec, float v)
+    {
+        if (spec == nullptr) return juce::String (v, 2);
+        if (spec->type == ParameterSpec::Type::Bool) return juce::String (v >= 0.5f ? "on" : "off");
+        if (spec->type == ParameterSpec::Type::Choice)
+        {
+            const int i = juce::jlimit (0, int (spec->choices.size()) - 1, int (std::round (v)));
+            return spec->choices.empty() ? juce::String (int (v)) : juce::String (spec->choices[size_t (i)]);
+        }
+        return LiveMixLookAndFeel::formatValue (v, juce::String (spec->unit), spec->minValue, spec->maxValue);
+    };
+    auto valueOf = [] (const ChannelParameters& p, const std::string& id) -> float
+    {
+        float found = 0.0f;
+        ChannelParameters copy = p;
+        forEachDspParameter (copy, [&] (const std::string& fieldId, auto& field) { if (fieldId == id) found = float (field); });
+        return found;
+    };
+
+    for (auto it = records.rbegin(); it != records.rend(); ++it)
+    {
+        const auto& r = *it;
+        HistoryView v;
+        v.what = juce::String (r.what);
+        v.when = clock (r.whenMs);
+
+        const auto changes = diffParameters (r.before.channel, r.after.channel);
+        juce::StringArray parts;
+        if (! changes.empty()) parts.add (juce::String (int (changes.size())) + (changes.size() == 1 ? " setting" : " settings"));
+        if (std::fabs (r.after.faderDb - r.before.faderDb) >= 0.05f) parts.add ("level " + db1 (r.after.faderDb) + " dB");
+        if (std::fabs (r.after.inputGainDb - r.before.inputGainDb) >= 0.05f) parts.add ("gain " + db1 (r.after.inputGainDb) + " dB");
+        if (std::fabs (r.after.pan - r.before.pan) >= 0.005f) parts.add ("pan " + panText (r.after.pan));
+        int sends = 0;
+        for (size_t f = 0; f < r.after.sendDb.size(); ++f)
+            if (std::fabs (r.after.sendDb[f] - r.before.sendDb[f]) >= 0.05f) ++sends;
+        if (sends > 0) parts.add (juce::String (sends) + (sends == 1 ? " send" : " sends"));
+        v.summary = parts.joinIntoString ("  " + juce::String (Glyph::dot()) + "  ");
+
+        constexpr int kMaxLines = 4;
+        for (const auto& c : changes)
+        {
+            if (v.lines.size() >= kMaxLines) break;
+            const auto* spec = findParameterSpec (c.paramId);
+            const juce::String name = spec != nullptr ? juce::String (spec->name) : juce::String (c.paramId);
+            v.lines.add (name + "  " + value (spec, valueOf (r.before.channel, c.paramId)) + " to " + value (spec, c.value));
+        }
+        if (int (changes.size()) > kMaxLines)
+            v.lines.set (kMaxLines - 1, "and " + juce::String (int (changes.size()) - (kMaxLines - 1)) + " more");
+        out.push_back (std::move (v));
+    }
+    return out;
 }
 
 void AdvancedPage::refresh()
@@ -1003,6 +1189,19 @@ void AdvancedPage::refresh()
     path->refresh();
     trail->setGain (selection.isBus ? MixController::InputAdvice {} : controller.getInputAdvice (selection.strip));
     trail->setStages (chain->stageViews(), chain->selectedStage());
+    {
+        // The history only ever grows at the end, so the count and the newest record's clock
+        // say whether there is anything new to put into words.
+        const auto& records = selection.isBus || selection.strip < 0 ? controller.getStripHistory (-1) : controller.getStripHistory (selection.strip);
+        const long long newest = records.empty() ? 0 : records.back().whenMs;
+        if (int (records.size()) != historyCount || newest != historyNewest || selection.strip != historyStrip)
+        {
+            historyCount = int (records.size());
+            historyNewest = newest;
+            historyStrip = selection.strip;
+            trail->setHistory (historyViews());
+        }
+    }
     trail->refresh (peak);
 
     // The rail rows, the head, the chain and the trail are all components that repaint

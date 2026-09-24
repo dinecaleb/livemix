@@ -1012,3 +1012,147 @@ TEST_CASE ("OpenAiMixProvider: asks for intent under a strict schema, sends no a
     CHECK (good.intent.targets[0].objectives[0].type == MixObjectiveType::Separation);
     CHECK (good.intent.targets[0].objectives[0].against.index == 4);
 }
+
+// ---------------------------------------------------------------------------
+// Track history: what changed on one channel, and any earlier setting put back
+// ---------------------------------------------------------------------------
+TEST_CASE ("Track history: every tune and hand edit on a channel is remembered, any of them can be put back, and the records survive a save and a rearrangement")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    std::vector<std::string> messages;
+    c.onMessage = [&] (const std::string& m) { messages.push_back (m); };
+    for (int i = 0; i < 5; ++i) CHECK (c.getStripHistory (i).empty());
+    CHECK (c.getStripHistory (-1).empty());
+
+    // A TUNE MIX kept: every channel the plan moved has one record, naming what did it and
+    // holding the strip as it was and as it became. A channel it left alone has none.
+    c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    const MixPlan plan = *c.getPlan();
+    c.keepPlan();
+    int strip = -1;
+    for (int i = 0; i < 5; ++i)
+    {
+        const bool moved = stripTuneDiffers (plan.before.strips[size_t (i)], plan.proposed.strips[size_t (i)]);
+        REQUIRE (c.getStripHistory (i).size() == (moved ? 1u : 0u));
+        if (! moved) continue;
+        const auto& r = c.getStripHistory (i)[0];
+        CHECK (r.what == "TUNE MIX");
+        CHECK (r.strip == i);
+        CHECK (r.tune == c.getTuneCount());
+        CHECK (r.whenMs > 0);
+        CHECK (! stripTuneDiffers (r.before, plan.before.strips[size_t (i)]));
+        CHECK (! stripTuneDiffers (r.after, c.getKept().strips[size_t (i)]));
+        if (strip < 0) strip = i;
+    }
+    REQUIRE (strip >= 0);
+    const std::string name = band().inputs[size_t (strip)].name;
+    const StripParameters tuned = c.getKept().strips[size_t (strip)];
+
+    // A hand edit of the chain is a record of its own. A fader move is not: it is not tuning,
+    // and a drag would write thirty of them a second. Keys are never part of a setting.
+    c.setStripMute (strip, true);
+    ChannelParameters edited = tuned.channel;
+    edited.hpfEnabled = true;
+    edited.hpfHz = tuned.channel.hpfHz + 30.0f;
+    c.setStripChannel (strip, edited);
+    REQUIRE (c.getStripHistory (strip).size() == 2);
+    CHECK (c.getStripHistory (strip)[1].what == "Inspector edit");
+    CHECK (! c.getStripHistory (strip)[1].after.mute);
+    c.setStripMute (strip, false);
+    c.setStripFader (strip, tuned.faderDb - 3.0f);
+    CHECK (c.getStripHistory (strip).size() == 2);
+    ChannelParameters same = c.getKept().strips[size_t (strip)].channel;
+    c.setStripChannel (strip, same);                     // nothing changed: nothing to remember
+    CHECK (c.getStripHistory (strip).size() == 2);
+
+    // PUT BACK: the tune's own setting returns - chain, level, gain, pan and sends - on this
+    // channel alone. It is a record of its own, and an undo step with the channel's name on it.
+    const int other = (strip + 1) % 5;
+    const StripParameters otherWas = c.getKept().strips[size_t (other)];
+    const int undoBefore = int (c.canUndoMix());
+    REQUIRE (c.restoreStripTune (strip, 0));
+    CHECK (! stripTuneDiffers (c.getKept().strips[size_t (strip)], tuned));
+    CHECK_NEAR (c.getKept().strips[size_t (strip)].faderDb, tuned.faderDb, 0.01);
+    CHECK (! stripTuneDiffers (c.getKept().strips[size_t (other)], otherWas));
+    REQUIRE (c.getStripHistory (strip).size() == 3);
+    CHECK (c.getStripHistory (strip)[2].what == "Put back: TUNE MIX");
+    CHECK (c.undoMixLabel() == "putting " + name + " back");
+    REQUIRE (! messages.empty());
+    CHECK (messages.back().find (name + " is back to what TUNE MIX set") != std::string::npos);
+    (void) undoBefore;
+    c.undoMix();
+    CHECK_NEAR (c.getKept().strips[size_t (strip)].channel.hpfHz, edited.hpfHz, 0.01);
+    CHECK_NEAR (c.getKept().strips[size_t (strip)].faderDb, tuned.faderDb - 3.0f, 0.01);
+    c.redoMix();
+    CHECK (! stripTuneDiffers (c.getKept().strips[size_t (strip)], tuned));
+
+    // Out of range is refused quietly.
+    CHECK (! c.restoreStripTune (strip, 99));
+    CHECK (! c.restoreStripTune (-1, 0));
+    CHECK (! c.restoreStripTune (strip, -1));
+
+    // Under LIVE SAFE the chain is let through and the level moves by one step, as any
+    // Inspector edit would - and the sentence says so.
+    c.setStripFader (strip, tuned.faderDb - 20.0f);
+    c.setLiveSafe (true);
+    messages.clear();
+    REQUIRE (c.restoreStripTune (strip, 0));
+    CHECK_NEAR (c.getKept().strips[size_t (strip)].faderDb, tuned.faderDb - 20.0f + c.getLiveSafePolicy().maxFaderStepDb, 0.01);
+    CHECK (diffParameters (c.getKept().strips[size_t (strip)].channel, tuned.channel).empty());
+    REQUIRE (! messages.empty());
+    CHECK (messages.back().find ("LIVE SAFE") != std::string::npos);
+    c.setLiveSafe (false);
+
+    // The session carries it: what is saved is what comes back.
+    const auto records = c.getAllStripHistory();
+    REQUIRE (! records.empty());
+    SessionStore::Document d;
+    d.session = c.getSession();
+    d.hasMix = true;
+    d.mix = c.getKept();
+    d.history = records;
+    SessionStore::Document back;
+    REQUIRE (SessionStore::fromVar (juce::JSON::parse (juce::JSON::toString (SessionStore::toVar (d))), back));
+    REQUIRE (back.history.size() == records.size());
+    for (size_t k = 0; k < records.size(); ++k)
+    {
+        CHECK (back.history[k].strip == records[k].strip);
+        CHECK (back.history[k].what == records[k].what);
+        CHECK (back.history[k].tune == records[k].tune);
+        CHECK (back.history[k].whenMs == records[k].whenMs);
+        CHECK (! stripTuneDiffers (back.history[k].before, records[k].before));
+        CHECK (! stripTuneDiffers (back.history[k].after, records[k].after));
+    }
+    // A document from before the history existed simply has none.
+    SessionStore::Document older;
+    d.history.clear();
+    REQUIRE (SessionStore::fromVar (juce::JSON::parse (juce::JSON::toString (SessionStore::toVar (d))), older));
+    CHECK (older.history.empty());
+
+    // A rearrangement: each record follows its input, and one whose input became a different
+    // source is dropped with the chain it described.
+    const size_t onStrip = c.getStripHistory (strip).size();
+    MixSession moved = band();
+    auto in = moved.inputs[size_t (strip)];
+    moved.inputs.erase (moved.inputs.begin() + strip);
+    moved.inputs.insert (moved.inputs.begin(), in);
+    MixController c2;
+    c2.setSession (moved);
+    c2.prepare (kSr, kBlock);
+    c2.carryStripHistory (records, band());
+    CHECK (c2.getStripHistory (0).size() == onStrip);
+    CHECK (c2.getAllStripHistory().size() == records.size());
+    for (const auto& r : c2.getStripHistory (0)) CHECK (r.strip == 0);
+    moved.inputs[0].role = ChannelRole::Piano;
+    c2.setSession (moved);
+    c2.prepare (kSr, kBlock);
+    CHECK (c2.getAllStripHistory().empty());             // a rebuilt graph starts clean ...
+    c2.carryStripHistory (records, band());
+    CHECK (c2.getStripHistory (0).empty());              // ... and the records of a source that changed stay gone
+    CHECK (c2.getAllStripHistory().size() == records.size() - onStrip);
+}

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <functional>
@@ -13,6 +14,7 @@
 #include "Mix/LiveSafe.h"
 #include "Mix/MonitorBus.h"
 #include "MixAI/TuneLiveCoordinator.h"
+#include "MixHistory.h"
 
 namespace livemix
 {
@@ -209,6 +211,24 @@ public:
     void undoMix();
     void redoMix();
     void clearMixHistory() { history.clear(); future.clear(); }
+
+    // ---- Track history: what changed on one channel, and any earlier setting put back ----
+    //
+    // UNDO walks the whole mix back one change at a time. This is the other way an engineer
+    // looks at it: one channel, every tune that landed on it - TUNE MIX, TUNE CHANNEL, TUNE
+    // LIVE MIX, a Mix Buddy request - and every hand edit of its chain, oldest first, each with
+    // what the strip was and what it became. Putting one back restores that record's chain,
+    // input gain, level, pan and sends on that one channel and nothing else. It is an ordinary
+    // mix change: LIVE SAFE bounds the level and gain steps the way it bounds any other, UNDO
+    // takes it back, it is remembered here as a record of its own, and the next TUNE replaces
+    // it the way it replaces a fader. The history is saved with the session and follows its
+    // input across a rearrangement, so Sunday's records are there on Monday.
+    const std::vector<StripTuneRecord>& getStripHistory (int strip) const;
+    bool restoreStripTune (int strip, int record);     // false when refused or out of range; the sentence goes to onMessage
+    std::vector<StripTuneRecord> getAllStripHistory() const;                                      // session save
+    void restoreStripHistory (const std::vector<StripTuneRecord>& records);                     // session restore (same layout)
+    void carryStripHistory (const std::vector<StripTuneRecord>& records, const MixSession& previousSession);
+    static constexpr int kMaxStripHistory = 24;         // per channel; the oldest goes first
 
     // ---- AI MIX CHAT ----
     // The chat is not a second mixing engine. A request in plain words goes through exactly
@@ -459,6 +479,11 @@ private:
     static constexpr size_t kMaxHistory = 64;
     void applySnapshot (const MixSnapshot&);
     MixSnapshot snapshotNow (const std::string& what) const;
+    // Per channel, oldest first. Cleared with the graph in prepare(); the host carries the
+    // saved records back on afterwards (carryStripHistory), as it carries the kept mix.
+    std::array<std::vector<StripTuneRecord>, kMaxStrips> stripHistory;
+    bool liveKept = false;              // the plan on preview came from TUNE LIVE MIX (or the chat), so KEEP names it so
+    void recordStripTune (int strip, const std::string& what, const StripParameters& before, const StripParameters& after);
 
     std::vector<ChatTurn> chat;
     bool chatRun = false;               // this live run came from the chat, not from TUNE LIVE MIX

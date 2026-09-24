@@ -682,6 +682,19 @@ int main (int argc, char** argv)
     view.getAdvancedPage().select (0); // Kick — a channel, not a bus
     rig.feed (0.3);
     rig.snap (dir, "11-inspector-strip");
+    {
+        // HISTORY: TUNE MIX's record on the kick, then a hand edit of its high-pass, newest
+        // first, each with PUT BACK. The column is scrolled to the section.
+        auto edited = rig.controller.getKept().strips[0].channel;
+        edited.hpfEnabled = true;
+        edited.hpfHz = 80.0f;
+        rig.controller.setStripChannel (0, edited);
+        rig.feed (0.3);
+        view.getAdvancedPage().revealHistory();
+        rig.feed (0.2);
+        rig.snap (dir, "11d-inspector-history");
+        view.getAdvancedPage().select (0);       // back to the top of the column for the shots that follow
+    }
     view.getAdvancedPage().selectStage (3);  // corrective EQ: the curve, its nodes and the band cards
     rig.feed (0.3);
     rig.snap (dir, "11b-inspector-eq");

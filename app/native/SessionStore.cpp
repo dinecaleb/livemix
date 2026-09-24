@@ -54,28 +54,83 @@ namespace
         });
     }
 
+    juce::var stripToVar (const StripParameters& s)
+    {
+        auto* so = new juce::DynamicObject();
+        so->setProperty ("channel", channelToVar (s.channel));
+        so->setProperty ("inputGainDb", s.inputGainDb);
+        so->setProperty ("faderDb", s.faderDb);
+        so->setProperty ("pan", s.pan);
+        so->setProperty ("mute", s.mute);
+        so->setProperty ("solo", s.solo);
+        if (s.linkGroup != 0) so->setProperty ("linkGroup", s.linkGroup);   // linked faders; absent = not linked
+        juce::Array<juce::var> sends;
+        for (float db : s.sendDb) sends.add (db);
+        so->setProperty ("sendDb", sends);
+        return juce::var (so);
+    }
+
+    void stripFromVar (const juce::var& v, StripParameters& s)
+    {
+        auto* so = v.getDynamicObject();
+        if (so == nullptr) return;
+        channelFromVar (so->getProperty ("channel"), s.channel);
+        s.inputGainDb = float (double (so->getProperty ("inputGainDb")));
+        s.faderDb = float (double (so->getProperty ("faderDb")));
+        s.pan = float (double (so->getProperty ("pan")));
+        s.mute = bool (so->getProperty ("mute"));
+        s.solo = bool (so->getProperty ("solo"));
+        s.linkGroup = so->hasProperty ("linkGroup") ? juce::jmax (0, int (so->getProperty ("linkGroup"))) : 0;
+        if (auto* sends = so->getProperty ("sendDb").getArray())
+            for (int f = 0; f < std::min (int (FxSlot::Count), sends->size()); ++f) s.sendDb[size_t (f)] = float (double (sends->getReference (f)));
+    }
+
+    // The track history: one record per tune or hand edit that landed on a channel, with the
+    // strip as it was and as it became, so the Inspector can put any of them back.
+    juce::var historyToVar (const std::vector<StripTuneRecord>& records)
+    {
+        juce::Array<juce::var> out;
+        for (const auto& r : records)
+        {
+            auto* ro = new juce::DynamicObject();
+            ro->setProperty ("strip", r.strip);
+            ro->setProperty ("what", juce::String (r.what));
+            ro->setProperty ("tune", r.tune);
+            ro->setProperty ("whenMs", juce::int64 (r.whenMs));
+            ro->setProperty ("before", stripToVar (r.before));
+            ro->setProperty ("after", stripToVar (r.after));
+            out.add (juce::var (ro));
+        }
+        return out;
+    }
+
+    void historyFromVar (const juce::var& v, std::vector<StripTuneRecord>& records)
+    {
+        records.clear();
+        auto* arr = v.getArray();
+        if (arr == nullptr) return;
+        for (const auto& rv : *arr)
+        {
+            auto* ro = rv.getDynamicObject();
+            if (ro == nullptr) continue;
+            StripTuneRecord r;
+            r.strip = int (ro->getProperty ("strip"));
+            r.what = ro->getProperty ("what").toString().toStdString();
+            r.tune = int (ro->getProperty ("tune"));
+            r.whenMs = (long long) juce::int64 (ro->getProperty ("whenMs"));
+            stripFromVar (ro->getProperty ("before"), r.before);
+            stripFromVar (ro->getProperty ("after"), r.after);
+            if (r.strip >= 0 && r.strip < kMaxStrips) records.push_back (std::move (r));
+        }
+    }
+
     juce::var mixToVar (const MixParameters& m)
     {
         auto* obj = new juce::DynamicObject();
         obj->setProperty ("numStrips", m.numStrips);
         obj->setProperty ("tempoBpm", m.tempoBpm);   // what the synced delays are in time with
         juce::Array<juce::var> strips;
-        for (int i = 0; i < m.numStrips; ++i)
-        {
-            const auto& s = m.strips[size_t (i)];
-            auto* so = new juce::DynamicObject();
-            so->setProperty ("channel", channelToVar (s.channel));
-            so->setProperty ("inputGainDb", s.inputGainDb);
-            so->setProperty ("faderDb", s.faderDb);
-            so->setProperty ("pan", s.pan);
-            so->setProperty ("mute", s.mute);
-            so->setProperty ("solo", s.solo);
-            if (s.linkGroup != 0) so->setProperty ("linkGroup", s.linkGroup);   // linked faders; absent = not linked
-            juce::Array<juce::var> sends;
-            for (float db : s.sendDb) sends.add (db);
-            so->setProperty ("sendDb", sends);
-            strips.add (juce::var (so));
-        }
+        for (int i = 0; i < m.numStrips; ++i) strips.add (stripToVar (m.strips[size_t (i)]));
         obj->setProperty ("strips", strips);
         juce::Array<juce::var> buses;
         for (const auto& b : m.buses)
@@ -149,20 +204,7 @@ namespace
         if (obj->hasProperty ("tempoBpm")) m.tempoBpm = juce::jlimit (20.0f, 300.0f, float (double (obj->getProperty ("tempoBpm"))));
         if (auto* strips = obj->getProperty ("strips").getArray())
             for (int i = 0; i < std::min (m.numStrips, strips->size()); ++i)
-            {
-                auto* so = strips->getReference (i).getDynamicObject();
-                if (so == nullptr) continue;
-                auto& s = m.strips[size_t (i)];
-                channelFromVar (so->getProperty ("channel"), s.channel);
-                s.inputGainDb = float (double (so->getProperty ("inputGainDb")));
-                s.faderDb = float (double (so->getProperty ("faderDb")));
-                s.pan = float (double (so->getProperty ("pan")));
-                s.mute = bool (so->getProperty ("mute"));
-                s.solo = bool (so->getProperty ("solo"));
-                s.linkGroup = so->hasProperty ("linkGroup") ? juce::jmax (0, int (so->getProperty ("linkGroup"))) : 0;
-                if (auto* sends = so->getProperty ("sendDb").getArray())
-                    for (int f = 0; f < std::min (int (FxSlot::Count), sends->size()); ++f) s.sendDb[size_t (f)] = float (double (sends->getReference (f)));
-            }
+                stripFromVar (strips->getReference (i), m.strips[size_t (i)]);
         if (auto* buses = obj->getProperty ("buses").getArray())
             for (int b = 0; b < std::min (int (MixBus::Count), buses->size()); ++b)
             {
@@ -387,6 +429,7 @@ juce::var toVar (const Document& d)
     obj->setProperty ("tuneCount", d.tuneCount);
     obj->setProperty ("hasMix", d.hasMix);
     if (d.hasMix) obj->setProperty ("mix", mixToVar (d.mix));
+    if (! d.history.empty()) obj->setProperty ("history", historyToVar (d.history));   // the track history; absent = none yet
     obj->setProperty ("project", projectToVar (d.project));
     // Stored for REVIEW CHANGES and for the record. Nothing reads it back into the mix: the
     // parameters that actually run are in "mix", which is the only thing the engine is given.
@@ -452,6 +495,7 @@ bool fromVar (const juce::var& v, Document& d)
     d.tuneCount = int (obj->getProperty ("tuneCount"));
     d.hasMix = bool (obj->getProperty ("hasMix"));
     if (d.hasMix) mixFromVar (obj->getProperty ("mix"), d.mix);
+    historyFromVar (obj->getProperty ("history"), d.history);       // absent before the track history existed
     projectFromVar (obj->getProperty ("project"), d.project);      // absent in version 1: no timeline yet
     d.tuneLive = obj->getProperty ("tuneLive");                     // absent until a live run has been made
     referenceFromVar (obj->getProperty ("reference"), d.reference);  // absent unless the mix is aimed at a recording

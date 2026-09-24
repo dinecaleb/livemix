@@ -167,7 +167,12 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   staging) beside a knob for every number it owns - band cards on the EQs, a knob grid and switch chips
   elsewhere. Right, a 272 px column: what TUNE MIX did, a line per stage (what it is set to, TUNED /
   EDITED / NOT USED, and the sentence from the report that explains it - matched by the parameter ids the
-  stage owns), RE-TUNE and REVERT, and the headroom (the master shows its loudness instead). The chip
+  stage owns), RE-TUNE and REVERT, then HISTORY - the channel's own record, newest first: every tune that
+  landed on it (TUNE MIX, TUNE CHANNEL, TUNE LIVE MIX, a Mix Buddy request) and every hand edit of its
+  chain, each with the clock, a count line (settings, level, gain, pan, sends) and the changes in words
+  ("High-pass  80 Hz to 100 Hz"), and a PUT BACK chip that restores that setting on this channel alone
+  (`MixController::restoreStripTune`; `docs/DLIVE-MIX-ENGINEER.md`) - and the headroom (the master shows
+  its loudness instead). `AdvancedPage::revealHistory` scrolls the column to the section. The chip
   labels and readouts come from `chainStages` in `ChainStrip`, so the path, the mixer's INSERTS and the
   strip along the foot of a workspace can never disagree. The limiter stage appears on the master only and
   the width stage on stereo channels only, because that is where `MixEngine` configures them; the sends

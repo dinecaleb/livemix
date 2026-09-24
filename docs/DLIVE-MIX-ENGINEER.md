@@ -102,6 +102,19 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   problem ("the singer is off mic") is named as a capture problem. The transcript and the conversation ride in
   `MixReasoningRequest::conversation`. Beside it is mix-level UNDO / REDO (`markMixChange` / `undoMix` / `redoMix`),
   which LIVE SAFE deliberately never locks.
+- **TRACK HISTORY** (`app/native/MixHistory.h`, `MixController::getStripHistory` / `restoreStripTune`, 2026-09-24)
+  is the other way back: one channel, oldest first, a `StripTuneRecord` for every tune that landed on it and every
+  hand edit of its chain - what did it (`what`), which TUNE, the clock, and the strip before and after. It is
+  written in exactly two places: `keepPlan` (every strip the plan moved; TUNE MIX / TUNE CHANNEL / TUNE LIVE MIX /
+  "Mix Buddy: <request>") and `setStripChannel` ("Inspector edit"). Fader, gain, pan and send moves by hand are
+  not tuning and are not recorded; mute, solo and the link are keys, never part of a record. PUT BACK restores a
+  record's chain, input gain, level, pan and sends on that channel alone: it is an ordinary mix change
+  (`markMixChange ("putting <name> back")`, so UNDO takes it back), LIVE SAFE lets the chain through and bounds
+  the level and gain to one step as it does an Inspector edit (the sentence says so), and it is remembered as a
+  record of its own ("Put back: TUNE MIX"). 24 records per channel. The history is saved in the session document
+  (`SessionStore::Document::history`, absent in older files) and carried across a rearrangement by the same
+  `matchInputs` identity as the kept mix (`carryStripHistory`), dropping the records of an input that became a
+  different source. The Inspector's trail shows it under the stages (`docs/DLIVE-APP.md`).
 - **HOW LOUD THE FINISHED MIX SHOULD BE** is a setting now (`MixSession::delivery`, `DeliveryLoudness`). It used to
   be a hidden consequence of the purpose: "Church Broadcast" quietly meant EBU R128, which is -23 LUFS - right for a
   television feed and about 9 dB under what a church stream is expected to be - and nothing said so. The target is

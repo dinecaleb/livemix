@@ -3,6 +3,7 @@
 #include "Profiles/MixProfileData.h"
 #include <cmath>
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cctype>
 
@@ -218,6 +219,8 @@ void MixController::prepare (double sr, int maxBlockSize)
     // chain on the wrong input. The chat's answers go with it for the same reason.
     history.clear();
     future.clear();
+    for (auto& h : stripHistory) h.clear();
+    liveKept = false;
     tuneLive.clearAnswers();
     stage = engine.getNumStrips() > 0 ? Stage::Ready : Stage::Setup;
     prepared = true;
@@ -290,6 +293,7 @@ void MixController::publish()
 void MixController::startTuneMix (const ListenSettings& s)
 {
     if (liveSafeRefuses (LiveAction::Tune)) return;
+    liveKept = false;
     startListening (s, -1);
 }
 
@@ -300,6 +304,7 @@ void MixController::startTuneChannel (int strip, const ListenSettings& s)
 {
     if (strip < 0 || strip >= engine.getNumStrips()) return;
     if (liveSafeRefuses (LiveAction::TuneChannel)) return;
+    liveKept = false;
     startListening (s, strip);
 }
 
@@ -523,7 +528,7 @@ void MixController::endTuneLive (const std::string& message, bool keepProposal)
         plan.reset();
         stage = restingStage();
     }
-    else stage = Stage::Preview;
+    else { stage = Stage::Preview; liveKept = true; }
     tuningStrip = -1;
     publish();
 
@@ -769,6 +774,16 @@ void MixController::keepPlan()
     // KEEP replaces the whole mix, which is exactly the kind of change somebody wants a way
     // back from. A chat turn has already marked its own step, so it does not mark a second.
     if (! chatRun) markMixChange (isTuningChannel() ? "tune " + getTuningName() : std::string ("TUNE MIX"));
+    // Every channel the plan moved remembers it: what did it, what the strip was, what it is now.
+    {
+        std::string what = isTuningChannel() ? std::string ("TUNE CHANNEL")
+                         : chatRun ? "Mix Buddy: " + (history.empty() ? std::string() : history.back().what)
+                         : liveKept ? std::string ("TUNE LIVE MIX") : std::string ("TUNE MIX");
+        const int n = std::min (plan->before.numStrips, plan->proposed.numStrips);
+        for (int i = 0; i < n; ++i)
+            recordStripTune (i, what, plan->before.strips[size_t (i)], plan->proposed.strips[size_t (i)]);
+    }
+    liveKept = false;
     kept = plan->proposed;
     mixed = true;
     stage = Stage::Mixed;
@@ -1318,10 +1333,99 @@ void MixController::setStripChannel (int strip, const ChannelParameters& c)
 {
     if (! validStrip (kept, strip)) return;
     markMixChange ("a processing change");
+    const StripParameters was = kept.strips[size_t (strip)];
     kept.strips[size_t (strip)].channel = c;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].channel = c;
+    recordStripTune (strip, "Inspector edit", was, kept.strips[size_t (strip)]);
     publish();
     if (onMixChanged) onMixChanged();
+}
+
+// ---- Track history ----
+
+const std::vector<StripTuneRecord>& MixController::getStripHistory (int strip) const
+{
+    static const std::vector<StripTuneRecord> none;
+    if (strip < 0 || strip >= kMaxStrips) return none;
+    return stripHistory[size_t (strip)];
+}
+
+void MixController::recordStripTune (int strip, const std::string& what, const StripParameters& before, const StripParameters& after)
+{
+    if (strip < 0 || strip >= kMaxStrips || ! stripTuneDiffers (before, after)) return;
+    StripTuneRecord r;
+    r.strip = strip;
+    r.what = what;
+    r.tune = tuneCount;
+    r.whenMs = std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::system_clock::now().time_since_epoch()).count();
+    r.before = before;
+    r.after = after;
+    // Keys are not a setting: what is put back never mutes, solos or links a channel.
+    r.before.mute = r.after.mute = false;
+    r.before.solo = r.after.solo = false;
+    r.before.linkGroup = r.after.linkGroup = 0;
+    auto& list = stripHistory[size_t (strip)];
+    list.push_back (std::move (r));
+    if (int (list.size()) > kMaxStripHistory) list.erase (list.begin());
+}
+
+bool MixController::restoreStripTune (int strip, int record)
+{
+    if (! validStrip (kept, strip)) return false;
+    const auto& list = stripHistory[size_t (strip)];
+    if (record < 0 || record >= int (list.size())) return false;
+    // A put-back is an Inspector edit in every way that matters to LIVE SAFE: the chain is
+    // let through, and the level and the gain move by no more than a step would.
+    if (liveSafeRefuses (LiveAction::ChannelProcessing)) return false;
+    const StripTuneRecord chosen = list[size_t (record)];      // a copy: the list grows below
+    auto& s = kept.strips[size_t (strip)];
+    const StripParameters was = s;
+    const std::string name = strip < session.numStrips() ? session.inputs[size_t (strip)].name : std::string ("this channel");
+    markMixChange ("putting " + name + " back");
+
+    liveSafe::Verdict v;
+    s.channel = chosen.after.channel;
+    s.inputGainDb = liveSafe::limitStepDb (safety, LiveAction::InputGain, s.inputGainDb, chosen.after.inputGainDb, v);
+    const bool gainLimited = v.limited;
+    s.faderDb = liveSafe::limitStepDb (safety, LiveAction::Fader, s.faderDb, chosen.after.faderDb, v);
+    const bool faderLimited = v.limited;
+    s.pan = chosen.after.pan;
+    s.sendDb = chosen.after.sendDb;
+    if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)] = s;
+    recordStripTune (strip, "Put back: " + chosen.what, was, s);
+    publish();
+    if (onMixChanged) onMixChanged();
+    if (onMessage)
+    {
+        std::string m = name + " is back to what " + chosen.what + " set.";
+        if (gainLimited || faderLimited) m += " LIVE SAFE kept the level move to one step; press again for the rest.";
+        onMessage (m);
+    }
+    return true;
+}
+
+std::vector<StripTuneRecord> MixController::getAllStripHistory() const
+{
+    std::vector<StripTuneRecord> out;
+    for (const auto& list : stripHistory) out.insert (out.end(), list.begin(), list.end());
+    return out;
+}
+
+void MixController::restoreStripHistory (const std::vector<StripTuneRecord>& records)
+{
+    for (auto& h : stripHistory) h.clear();
+    for (const auto& r : records)
+    {
+        if (r.strip < 0 || r.strip >= kMaxStrips) continue;
+        auto& list = stripHistory[size_t (r.strip)];
+        list.push_back (r);
+        if (int (list.size()) > kMaxStripHistory) list.erase (list.begin());
+    }
+}
+
+void MixController::carryStripHistory (const std::vector<StripTuneRecord>& records, const MixSession& previousSession)
+{
+    restoreStripHistory (livemix::carryStripHistory (records, previousSession, session));
 }
 
 void MixController::setBusChannel (MixBus bus, const ChannelParameters& c)

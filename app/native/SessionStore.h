@@ -6,6 +6,7 @@
 #include "Mix/MixMacros.h"
 #include "Mix/ReferenceMix.h"
 #include "Mix/OutputFeeds.h"
+#include "MixHistory.h"
 #include "Project.h"
 
 namespace livemix
@@ -42,6 +43,10 @@ namespace SessionStore
         MixParameters mix;          // the kept mix (without macros); valid when hasMix
         OutputFeeds outputs;        // where the sound leaves the device (monitoring, not mix)
         int tuneCount = 0;
+        // The track history: every tune and hand edit that landed on each channel, as the
+        // strip before and after, so the Inspector can show what changed and put an earlier
+        // setting back on Monday as it could on Sunday. Empty until something is tuned.
+        std::vector<StripTuneRecord> history;
         // The last TUNE LIVE MIX run, as a record: what it intended, what it built and what
         // it refused. Reading only - the mix itself is in `mix`, so opening yesterday's
         // session sounds exactly as it did without contacting any provider, ever. Null when

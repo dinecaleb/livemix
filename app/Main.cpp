@@ -430,6 +430,7 @@ namespace
                 // getKept() here is the rebuilt session's baselines, so an input that is new to
                 // the session - or one that became a different source - starts from its own.
                 controller.carryKept (pending->mix, pending->session, pending->tuneCount);
+                controller.carryStripHistory (pending->history, pending->session);   // the records follow their inputs the same way
                 for (int i = 0; i < int (MixMacro::Count); ++i) controller.setMacro (MixMacro (i), pending->macros.get (MixMacro (i)));
             }
             pending.reset();
@@ -449,7 +450,7 @@ namespace
             // The kept mix outlives setSession (only prepare() clears it), so a snapshot taken
             // after the assignments changed still has the faders and chains to put back.
             snap.hasMix = controller.hasKeptMix();
-            if (snap.hasMix) snap.mix = controller.getKept();
+            if (snap.hasMix) { snap.mix = controller.getKept(); snap.history = controller.getAllStripHistory(); }
             else if (pending.has_value() && pending->hasMix) snap = *pending;
             pending = snap;
         }
@@ -473,7 +474,7 @@ namespace
             d.outputs = controller.getOutputFeeds();
             d.tuneCount = controller.getTuneCount();
             d.hasMix = controller.isPrepared() && controller.hasKeptMix();
-            if (d.hasMix) d.mix = controller.getKept();
+            if (d.hasMix) { d.mix = controller.getKept(); d.history = controller.getAllStripHistory(); }
             d.reference = controller.getReference();      // what the mix is aimed at, already measured
             d.trackPanelWidth = panelWidth;
             if (controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready)
@@ -488,7 +489,7 @@ namespace
                 d.tuneLive = record;
             }
             else if (pending.has_value()) d.tuneLive = pending->tuneLive;
-            else if (pending.has_value() && pending->hasMix) { d.hasMix = true; d.mix = pending->mix; d.tuneCount = pending->tuneCount; }
+            else if (pending.has_value() && pending->hasMix) { d.hasMix = true; d.mix = pending->mix; d.history = pending->history; d.tuneCount = pending->tuneCount; }
             if (! SessionStore::save (d, file)) return false;
             dawEngine.getProject().folder = file.getParentDirectory();
             lastSessionPointer().replaceWithText (file.getFullPathName());

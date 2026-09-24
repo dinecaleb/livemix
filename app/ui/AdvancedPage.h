@@ -50,6 +50,7 @@ public:
     void selectBus (MixBus bus);
     MixBus selectedBus() const noexcept { return selection.isBus ? selection.bus : MixBus::Count; }
     void selectStage (int index);             // ... and one stage of its chain
+    void revealHistory();                     // scroll the trail to the channel's HISTORY (a menu, the snapshot tool)
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -61,6 +62,15 @@ private:
     struct Selection { bool isBus = false; int strip = -1; MixBus bus = MixBus::Master; };
 
     void showSelection();
+    // One row of the channel's HISTORY, in the trail's words: what did it, when, how much,
+    // and each change as "High-pass  80 Hz to 100 Hz".
+    struct HistoryView
+    {
+        juce::String what, when, summary;
+        juce::StringArray lines;
+        bool operator== (const HistoryView& o) const { return what == o.what && when == o.when && summary == o.summary && lines == o.lines; }
+    };
+    std::vector<HistoryView> historyViews();
     void paintWorkspaceBands (juce::Graphics&, juce::Rectangle<int>) const;
     int railWidth() const noexcept  { return ! railAvailable ? 0 : railShown ? kRailW : Dine::Metric::panelTab; }
     int trailWidth() const noexcept { return trailShown ? kTrailW : Dine::Metric::panelTab; }
@@ -81,6 +91,8 @@ private:
     std::unique_ptr<DinePanelTab> railTab, trailTab;
     bool railShown = true, trailShown = true, railAvailable = true;
     int builtForStrips = -1;
+    int historyCount = -1, historyStrip = -2;   // what the trail's HISTORY was last built from
+    long long historyNewest = 0;
     // What this page's own paint last drew. A full repaint of the Inspector on a large
     // console costs more than a 30 Hz frame has, so a frame that would draw the same thing is
     // skipped; everything that really moves (meters, the chain, the trail) is a child
