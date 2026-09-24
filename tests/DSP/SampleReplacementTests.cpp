@@ -348,3 +348,104 @@ TEST_CASE ("ChannelProcessor: the sample stage exists only where it is configure
     for (int i = 0; i + 128 <= d.numSamples(); i += 128) { auto vd = d.view (i, 128); drum.process (vd); auto ve = e.view (i, 128); plainRef.process (ve); }
     CHECK (d.data[0] == e.data[0]);
 }
+
+TEST_CASE ("SampleBank: the pitch of a hit is measured from its body, and a sample that follows the drum plays at the drum's pitch")
+{
+    // A decaying tone at a known pitch is read within 2 %; a synthesised tom (whose body
+    // glides down into its pitch) within 15 % of where it settles, and the bank records that.
+    for (float hz : { 60.0f, 90.0f, 150.0f, 220.0f })
+    {
+        std::vector<float> tone (int (kSr * 0.3));
+        for (size_t i = 0; i < tone.size(); ++i) tone[i] = std::sin (2.0f * float (M_PI) * hz * float (i) / float (kSr)) * std::exp (-float (i) / float (kSr * 0.2));
+        const float measured = measureFundamental (tone, kSr);
+        CHECK (std::fabs (measured - hz) / hz < 0.02f);
+    }
+    const float settles[] = { 120.0f, 88.0f, 64.0f };
+    for (int variant = 0; variant < 3; ++variant)
+    {
+        const auto b = synthesizeBank (RoleFamily::Tom, variant, kSr);
+        REQUIRE (b.fundamentalHz > 0.0f);
+        CHECK (std::fabs (b.fundamentalHz - settles[variant]) / settles[variant] < 0.15f);
+        CHECK_NEAR (measureFundamental (b.layers.back().hits[0], kSr), b.fundamentalHz, 0.01f);
+    }
+    // Nothing periodic: noise says 0.
+    std::vector<float> noise (int (kSr * 0.2));
+    std::mt19937 rng (3);
+    std::uniform_real_distribution<float> d (-1.0f, 1.0f);
+    for (auto& v : noise) v = d (rng);
+    CHECK (measureFundamental (noise, kSr) == 0.0f);
+
+    // Follow the drum: a 100 Hz bank asked to play an 80 Hz drum runs at 0.8x, so its hit lasts 1.25x longer.
+    auto bank = synthesizeBank (RoleFamily::Tom, 0, kSr);
+    bank.fundamentalHz = 100.0f;
+    SampleReplacer r;
+    r.prepare (kSr, 128, 1);
+    r.setBank (&bank);
+    SampleReplacer::Params p;
+    p.enabled = true; p.followDrum = true; p.drumHz = 80.0f;
+    r.setParams (p);
+    CHECK_NEAR (r.currentRate(), 0.8, 1.0e-6);
+    p.drumHz = 30.0f;                            // five semitones is the most it will follow
+    r.setParams (p);
+    CHECK_NEAR (r.currentRate(), std::pow (2.0, -5.0 / 12.0), 1.0e-6);
+    p.followDrum = false; p.rateSemitones = 12.0f;
+    r.setParams (p);
+    CHECK_NEAR (r.currentRate(), 2.0, 1.0e-6);
+    p.rateSemitones = 0.0f; p.followDrum = true; p.drumHz = 0.0f;   // unknown drum: as recorded
+    r.setParams (p);
+    CHECK_NEAR (r.currentRate(), 1.0, 1.0e-6);
+}
+
+TEST_CASE ("KitTriggerTable: a soft tom hit within two milliseconds of a hard snare is the snare through the air and plays nothing")
+{
+    auto snareBank = synthesizeBank (RoleFamily::Snare, 0, kSr);
+    auto tomBank = synthesizeBank (RoleFamily::Tom, 0, kSr);
+    KitTriggerTable kit;
+    SampleReplacer snare, tom;
+    snare.prepare (kSr, 128, 1);
+    tom.prepare (kSr, 128, 1);
+    snare.setBank (&snareBank);
+    tom.setBank (&tomBank);
+    snare.setKit (&kit, RoleFamily::Snare);
+    tom.setKit (&kit, RoleFamily::Tom);
+    SampleReplacer::Params p;
+    p.enabled = true; p.blend = 1.0f; p.thresholdDb = -36.0f; p.riseDb = 6.0f; p.detHpfHz = 30.0f; p.detLpfHz = 8000.0f;
+    p.gainDb = -6.0f;                            // both strips' hit level: a full hit reads about -6 dBFS
+    snare.setParams (p);
+    tom.setParams (p);
+
+    auto burst = [] (testsig::Buffer& b, int at, float amp)
+    {
+        for (int i = 0; i < 480 && at + i < b.numSamples(); ++i) b.data[0][size_t (at + i)] = amp * std::sin (2.0f * float (M_PI) * 200.0f * float (i) / float (kSr)) * std::exp (-float (i) / 240.0f);
+    };
+    // At 100 ms the tom itself is hit hard, and the snare microphone hears that 20 dB down.
+    // At 400 ms the snare is hit hard; the tom microphone hears it 20 dB down at the same moment.
+    testsig::Buffer snareMic (1, int (kSr * 0.6)), tomMic (1, int (kSr * 0.6));
+    burst (tomMic, 4800, 0.5f);
+    burst (snareMic, 4800 + 24, 0.05f);          // half a millisecond later through the air
+    burst (snareMic, 19200, 0.5f);
+    burst (tomMic, 19200 + 24, 0.05f);
+
+    long long pos = 0;
+    for (int i = 0; i + 128 <= snareMic.numSamples(); i += 128)
+    {
+        auto vs = snareMic.view (i, 128); snare.detect (vs, pos); snare.apply (vs);
+        auto vt = tomMic.view (i, 128); tom.detect (vt, pos); tom.apply (vt);
+        pos += 128;
+    }
+    // The snare heard both events (its own, and the tom's soft arrival - nothing vetoes a snare);
+    // the tom recognised both but played only its own.
+    CHECK (snare.getHitCount() == 2);
+    CHECK (tom.getHitCount() == 2);
+    CHECK (tom.getVetoCount() == 1);
+    CHECK (snare.getVetoCount() == 0);
+    // Around 100 ms the tom microphone plays its sample. Around 400 ms no new voice starts: what
+    // is there is the first sample's decaying tail, so the level after the snare's hit is no
+    // higher than the level just before it (blend 1: the microphone itself is gone).
+    float atTom = 0.0f, before = 0.0f, after = 0.0f;
+    for (int i = 4800; i < 4800 + 2400; ++i) atTom = std::max (atTom, std::fabs (tomMic.data[0][size_t (i)]));
+    for (int i = 19200 - 2400; i < 19200; ++i) before = std::max (before, std::fabs (tomMic.data[0][size_t (i)]));
+    for (int i = 19200; i < 19200 + 2400; ++i) after = std::max (after, std::fabs (tomMic.data[0][size_t (i)]));
+    CHECK (atTom > 0.3f);
+    CHECK (after <= before);
+}

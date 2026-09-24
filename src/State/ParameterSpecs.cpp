@@ -94,6 +94,8 @@ namespace
         v.push_back (f (replaceRate, "Sample Pitch", -5.0f, 5.0f, d.replaceRateSemitones));
         v.push_back (f (replaceGain, "Sample Level", -60.0f, 12.0f, d.replaceGainDb, "dB"));
         v.push_back (c (replaceSound, "Sample Sound", { "Sound 1", "Sound 2", "Sound 3", "Sound 4", "Sound 5", "Sound 6", "Sound 7", "Sound 8" }, d.replaceSound));
+        v.push_back (b (replaceFollow, "Sample Follows Drum", d.replaceFollowDrum));
+        v.push_back (f (replaceDrumHz, "Sample Drum Pitch", 0.0f, 2000.0f, d.replaceDrumHz, "Hz"));
 
         v.push_back (b (corrEqOn, "Corrective EQ", d.correctiveEqEnabled));
         for (int i = 0; i < kCorrectiveBands; ++i)

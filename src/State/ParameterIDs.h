@@ -65,6 +65,8 @@ namespace livemix::ParamID
     inline constexpr const char* replaceRate      = "replaceRate";      // semitones, varispeed
     inline constexpr const char* replaceGain      = "replaceGain";      // dBFS peak of a full-velocity hit
     inline constexpr const char* replaceSound     = "replaceSound";     // which bank, 0..7
+    inline constexpr const char* replaceFollow    = "replaceFollow";    // pitch the sample to the drum
+    inline constexpr const char* replaceDrumHz    = "replaceDrumHz";    // the drum's measured fundamental, Hz (0 = unknown)
     // Corrective EQ (3 bands) -- ids are corrEq{n}{On,Type,Freq,Gain,Q}
     inline constexpr const char* corrEqOn      = "corrEqOn";
     // Tone EQ (4 bands) -- ids are toneEq{n}{On,Type,Freq,Gain,Q}

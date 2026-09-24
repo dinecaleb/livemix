@@ -49,6 +49,8 @@ struct ChannelParameters
     float replaceRateSemitones = 0.0f;  // -5..5
     float replaceGainDb = -12.0f;       // the sample's peak on a full-velocity hit, dBFS
     int replaceSound = 0;               // which bank of the family's eight
+    bool replaceFollowDrum = false;     // pitch the sample to the drum's measured fundamental (toms)
+    float replaceDrumHz = 0.0f;         // that fundamental, as TUNE measured it; 0 = unknown
 
     // Corrective EQ
     bool correctiveEqEnabled = true;
@@ -166,6 +168,8 @@ void forEachDspField (Params& p, F&& f)
     f (id (replaceRate), p.replaceRateSemitones);
     f (id (replaceGain), p.replaceGainDb);
     f (id (replaceSound), p.replaceSound);
+    f (id (replaceFollow), p.replaceFollowDrum);
+    f (id (replaceDrumHz), p.replaceDrumHz);
 
     f (id (corrEqOn), p.correctiveEqEnabled);
     for (int i = 0; i < kCorrectiveBands; ++i)

@@ -10,6 +10,9 @@ Every build, test, snapshot and stems command, and where the real recordings are
   `dist/DLIVE-<version>-<date>.zip` + `dist/NOTES.txt` — send both; the signature is ad-hoc, so the tester opens it
   once by right-click > Open. Every build/run/share command, and what to tell the tester: `BUILD-RUN-SHARE.md`.
   Engine-only iteration (fast, no JUCE): `cmake -S . -B build-engine -G Ninja -DLIVEMIX_BUILD_PLUGIN=OFF && cmake --build build-engine && build-engine/tests/livemix_tests`.
+- Sample replacement on real drums: `build/app/dlive_trigger_check "<folder of takes>" [seconds] [offset] [name filter]`
+  (`app/Tools/TriggerCheck.cpp`) fits the stage as TUNE does and runs the detector over every kick, snare and tom take,
+  printing hits, a level histogram, gaps and kick / snare coincidences; the QUEENSVIEW takes are the reference set.
 - Real stems for listening/offline checks: `/Users/calebwork/Downloads/stems recording` (church multitracks). Run
   `build/modules/Drums/livemix_tune_stems "<Source>" <file.aif> [seconds] [gospel|worship]` to see measurements + decisions.
 - Verify UI changes with `cmake --build build --target livemix_ui_snapshots && build/modules/Drums/livemix_ui_snapshots <dir>`

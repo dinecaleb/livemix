@@ -174,6 +174,8 @@ private:
 
     std::atomic<MixTap*> tap { nullptr };
     std::atomic<const SampleBankTable*> sampleBanks { nullptr };
+    KitTriggerTable kitTriggers;                                 // the drum strips' word to each other (audio thread only)
+    long long samplePosition = 0;                                // running, from prepare()
     std::atomic<float> lastMicros { 0.0f }, peakMicros { 0.0f };
     std::atomic<int> blockCount { 0 };
 };

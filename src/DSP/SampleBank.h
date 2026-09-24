@@ -68,6 +68,11 @@ inline constexpr bool sampleReplacementAppropriate (RoleFamily f) noexcept
 // peak-normalises to 0 dBFS. A hit that never rises above the trim level comes back empty.
 void prepareHit (std::vector<float>& hit, float trimBelowDb = -40.0f);
 
+// The pitch of a drum hit: the strongest periodicity between 35 and 500 Hz in the body after
+// the attack (autocorrelation over 5 to 125 ms). 0 when nothing periodic enough was found - a
+// snare's rattle, a hit too short to say. What lets a tom sample follow the drum's own pitch.
+float measureFundamental (const std::vector<float>& hit, double sampleRate);
+
 // Placeholder sounds, synthesised, so the stage works and is tested before a recorded bank
 // exists: variant 0..2 per family (kick: tight / deep / soft-beater; snare: tight / fat /
 // rimshot-bright; tom: high / mid / floor). Four velocity layers, two round-robins each.

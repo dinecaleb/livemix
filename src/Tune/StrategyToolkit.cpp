@@ -571,20 +571,32 @@ void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneD
     const bool bleedKnown = a.bleedLevelDb > -119.0f;
     const float bleedDb = bleedKnown ? a.bleedLevelDb + trim : L.floorDb;
     const float hitDb = a.eventLevelDb > -119.0f ? a.eventLevelDb + trim : L.hitDb;
+    // The microphone's peak in normal playing (spike-resistant): where the sample's own peak
+    // goes, so a 50 % blend moves the drum's level by nothing. The event level is a 10 ms frame
+    // level, 10 dB or more under the peak on a kick, and on a tom it is mostly bleed.
+    const float peakDb = a.musicalPeakDb > -119.0f ? a.musicalPeakDb + trim : hitDb;
     float threshold = bleedKnown ? bleedDb + 0.6f * (hitDb - bleedDb) : L.floorDb + 0.5f * (hitDb - L.floorDb);
     threshold = std::max (threshold, bleedDb + 6.0f);
-    threshold = roundDb (clamp (threshold, -70.0f, hitDb - 3.0f));
-    // The sample's peak lands where the microphone's hits do, so a 50 % blend moves the level by nothing.
-    const float level = roundDb (clamp (hitDb, -40.0f, 0.0f));
+    // A tom is sparse and hears the whole kit: its real hits sit near its peak and everything
+    // far under that is another drum, so its trigger never opens more than 12 dB under the
+    // peak (kick and snare, played constantly, 18 dB). QUEENSVIEW, 2026-09-24: with the halfway
+    // rule alone a rack tom fired 114 times a minute for two real hits.
+    const bool tom = roleFamily (ctx.role) == RoleFamily::Tom;
+    threshold = std::max (threshold, peakDb - (tom ? 12.0f : 18.0f));
+    threshold = roundDb (clamp (threshold, -70.0f, peakDb - 3.0f));
+    const float level = roundDb (clamp (peakDb, -40.0f, 0.0f));
     // The band: the profile's, with the low edge kept under the drum's own fundamental.
     const float detHpf = std::round (clamp (fundamentalHz > 0.0f ? std::min (t.sampleDetHpfHz, 0.7f * fundamentalHz) : t.sampleDetHpfHz, 20.0f, 2000.0f));
     const float detLpf = std::round (clamp (t.sampleDetLpfHz, detHpf * 2.0f, 20000.0f));
     const float mask = std::round (clamp (t.sampleMaskMs, 1.0f, 500.0f));
     const float rise = std::round (clamp (t.sampleRiseDb, 0.0f, 40.0f));
 
+    // The drum's own pitch, for a sample that follows it (toms). Kept when the listen found none.
+    const float drumHz = fundamentalHz > 0.0f ? std::round (fundamentalHz * 10.0f) * 0.1f : cur.replaceDrumHz;
     const bool same = std::fabs (cur.replaceThresholdDb - threshold) < 0.5f && std::fabs (cur.replaceGainDb - level) < 0.5f
                    && std::fabs (cur.replaceDetHpfHz - detHpf) < 0.5f && std::fabs (cur.replaceDetLpfHz - detLpf) < 0.5f
-                   && std::fabs (cur.replaceMaskMs - mask) < 0.5f && std::fabs (cur.replaceRiseDb - rise) < 0.5f;
+                   && std::fabs (cur.replaceMaskMs - mask) < 0.5f && std::fabs (cur.replaceRiseDb - rise) < 0.5f
+                   && std::fabs (cur.replaceDrumHz - drumHz) < 0.05f;
     if (same) return;
 
     std::string what = "Sample trigger fitted: threshold " + fmtDb (threshold, 0) + ", sample at " + fmtDb (level, 0);
@@ -594,8 +606,9 @@ void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneD
           + "; the trigger sits between the two, and only an onset that jumps " + num ("%.0f dB", double (rise)) + " counts."
         : "The listen found no separable bleed on this microphone; the trigger sits halfway between the floor ("
           + num ("%.0f dBFS", double (L.floorDb)) + ") and the " + plural (eventNoun (ctx)) + " (" + num ("%.0f dBFS", double (hitDb)) + ").";
-    why += " The sample's own peak is placed at the microphone's hit level, so blending it in changes the drum's level by nothing. "
-           "It plays only while the stage is switched on";
+    why += " The sample's own peak is placed at the microphone's own peak (" + num ("%.0f dBFS", double (peakDb)) + "), so blending it in changes the drum's level by nothing.";
+    if (fundamentalHz > 0.0f && cur.replaceFollowDrum) why += " The drum rings at " + fmtHz (fundamentalHz) + ", and a sample that follows the drum plays at that pitch.";
+    why += " It plays only while the stage is switched on";
     why += cur.replaceEnabled ? "." : " - it is off; switch it on from the Sample stage to hear it.";
     d.move (Recommendation::Kind::Sample, TuneSection::Bleed, what, why, bleedKnown ? Confidence::High : Confidence::Medium,
             [=] (ChannelParameters& p)
@@ -603,6 +616,7 @@ void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneD
                 p.replaceThresholdDb = threshold; p.replaceGainDb = level;
                 p.replaceDetHpfHz = detHpf; p.replaceDetLpfHz = detLpf;
                 p.replaceMaskMs = mask; p.replaceRiseDb = rise;
+                p.replaceDrumHz = drumHz;
             });
 }
 

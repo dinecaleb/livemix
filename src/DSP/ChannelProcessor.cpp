@@ -123,6 +123,7 @@ void ChannelProcessor::setParameters (const ChannelParameters& p) noexcept
         rp.detHpfHz = p.replaceDetHpfHz; rp.detLpfHz = p.replaceDetLpfHz; rp.maskMs = p.replaceMaskMs; rp.steady = p.replaceSteady;
         rp.offsetMs = p.replaceOffsetMs; rp.polarityFlip = p.replacePolarity != 0; rp.rateSemitones = p.replaceRateSemitones;
         rp.gainDb = p.replaceGainDb;
+        rp.followDrum = p.replaceFollowDrum; rp.drumHz = p.replaceDrumHz;
         sampler.setParams (rp);
     }
 }
@@ -197,7 +198,7 @@ void ChannelProcessor::process (AudioBlockView& block) noexcept LIVEMIX_NONBLOCK
     // The sample stage's detector hears the microphone before the filters and the gate;
     // its sample lands after the gate, so a gate never chops a sample's tail.
     const bool sampling = options.sampleReplacement && params.replaceEnabled;
-    if (sampling) sampler.detect (block);
+    if (sampling) sampler.detect (block, blockStart);
     filters.process (block);
     gate.process (block);
     if (sampling) sampler.apply (block);

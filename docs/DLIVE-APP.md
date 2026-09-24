@@ -178,8 +178,9 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   the width stage on stereo channels only, because that is where `MixEngine` configures them; a kick, snare or
   tom strip carries the SAMPLE stage between GATE and EQ (`hasSampleStage` in `ChainStrip.h` is the one rule every
   list reads): its lamp switches the sample in, and its device has BLEND, SENSITIVITY, LEVEL, PITCH, ALIGN, RISE,
-  MASK, the two LISTEN bands, SOUND (the names the `SampleLibrary` loaded), FEEL (follows the drummer / steady)
-  and POLARITY - `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md`; the sends
+  MASK, the two LISTEN bands, SOUND (the names the `SampleLibrary` loaded), FEEL (follows the drummer / steady),
+  TUNING (as recorded / follows the drum) and POLARITY; its value carries "N hits, M held" and its chip's bar
+  lights while a sample plays - `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md`; the sends
   close the path where the session uses FX. "Hand-edited" is a diff against `getPlan()->proposed`, which is
   also what `Back to DINE` and REVERT put back. Edits go through `MixController::setStripChannel` /
   `setBusChannel` as a whole `ChannelParameters`: they live on the kept mix beside the faders, survive a

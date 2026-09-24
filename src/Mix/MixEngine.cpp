@@ -48,6 +48,8 @@ void MixEngine::prepare (double sampleRate, int maxBlockSize, const MixSession& 
     graph = RoutingGraph::build (session);
     numStrips = graph.numStrips();
 
+    kitTriggers = KitTriggerTable {};
+    samplePosition = 0;
     strips.clear();
     strips.reserve (size_t (numStrips));
     for (int i = 0; i < numStrips; ++i)
@@ -62,6 +64,7 @@ void MixEngine::prepare (double sampleRate, int maxBlockSize, const MixSession& 
         o.widthMeter = s->channels == 2;
         o.sampleReplacement = sampleReplacementAppropriate (roleFamily (route.role));   // kick, snare, toms
         s->processor.configure (o);
+        if (o.sampleReplacement) s->processor.setKit (&kitTriggers, roleFamily (route.role));
         s->processor.prepare (sr, maxBlock, s->channels);
         s->inputGain.prepare (sr, kGainSmoothMs);
         s->gainL.prepare (sr, kGainSmoothMs);
@@ -329,6 +332,7 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             }
             AudioBlockView view { s.ptrs.data(), s.channels, n };
             if (listening) t->pushStripInput (i, view);
+            s.processor.setBlockStart (samplePosition);
             s.processor.process (view);
             if (listening) t->pushStripProcessed (i, view);
 
@@ -627,6 +631,7 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
     lastMicros.store (micros, std::memory_order_relaxed);
     if (micros > peakMicros.load (std::memory_order_relaxed)) peakMicros.store (micros, std::memory_order_relaxed);
     blockCount.fetch_add (1, std::memory_order_relaxed);
+    samplePosition += numSamples;
 }
 
 int MixEngine::getLatencySamples() const noexcept

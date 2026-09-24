@@ -119,6 +119,7 @@ std::unique_ptr<SampleBank> SampleLibrary::decodeSound (const juce::File& entry,
         bank->layers.push_back (std::move (layer));
     }
     if (bank->layers.empty()) return nullptr;
+    bank->fundamentalHz = measureFundamental (bank->layers.back().hits[0], bank->sampleRate);
     return bank;
 }
 

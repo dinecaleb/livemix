@@ -45,6 +45,36 @@ void prepareHit (std::vector<float>& hit, float trimBelowDb)
     }
 }
 
+float measureFundamental (const std::vector<float>& hit, double sampleRate)
+{
+    const int start = int (0.005 * sampleRate);
+    const int end = std::min (int (hit.size()), int (0.125 * sampleRate));
+    const int n = end - start;
+    const int minLag = int (sampleRate / 500.0), maxLag = int (sampleRate / 35.0);
+    if (n < 2 * maxLag || minLag < 2) return 0.0f;
+    const float* x = hit.data() + start;
+    double energy = 0.0;
+    for (int i = 0; i < n; ++i) energy += double (x[i]) * x[i];
+    if (energy <= 1.0e-9) return 0.0f;
+    // Normalised autocorrelation; the first clear peak above 0.5 wins over a higher one at a
+    // multiple, so the fundamental is found rather than an octave below it.
+    int bestLag = 0;
+    double best = 0.0;
+    double prev = 0.0;
+    bool rising = false;
+    for (int lag = minLag; lag <= maxLag; ++lag)
+    {
+        double acc = 0.0;
+        for (int i = 0; i + lag < n; ++i) acc += double (x[i]) * x[i + lag];
+        const double r = acc / energy;
+        if (r > prev) rising = true;
+        else if (rising && prev > 0.5 && prev > best) { best = prev; bestLag = lag - 1; if (best > 0.8) break; }
+        else if (r < prev) rising = false;
+        prev = r;
+    }
+    return bestLag > 0 ? float (sampleRate / bestLag) : 0.0f;
+}
+
 namespace
 {
     // A drum, as a synthesis: a pitched body that falls in pitch and level, a click or a
@@ -137,6 +167,9 @@ SampleBank synthesizeBank (RoleFamily family, int variant, double sampleRate)
         }
         b.layers.push_back (std::move (layer));
     }
+    // What the sample really rings at, measured the way a loaded sound's pitch is; the
+    // nominal above is where the body settles, and the glide pulls the measurement up a little.
+    if (const float measured = measureFundamental (b.layers.back().hits[0], sampleRate); measured > 0.0f) b.fundamentalHz = measured;
     return b;
 }
 

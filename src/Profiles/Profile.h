@@ -73,6 +73,7 @@ struct SourceTargets
     float sampleRiseDb = 6.0f;
     float sampleBlend = 0.4f;
     const char* sampleSound = "";      // the profile's pick from the family's bank list, by name ("" = the first)
+    bool sampleFollowDrum = false;     // toms: the sample plays at the drum's measured pitch
 
     // ---- Saturation ----
     bool saturationAppropriate = true;

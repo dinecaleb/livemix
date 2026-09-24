@@ -70,6 +70,9 @@ public:
     // The bank the sample stage plays. Audio-thread safe (an atomic pointer); the bank
     // outlives the engine - see SampleBankTable.
     void setSampleBank (const SampleBank* b) noexcept { sampler.setBank (b); }
+    void setKit (KitTriggerTable* table, RoleFamily family) noexcept { sampler.setKit (table, family); }
+    // The engine's running sample position of the next block (audio thread, before process()).
+    void setBlockStart (long long position) noexcept { blockStart = position; }
     const LoudnessMeter& getLoudness() const noexcept { return loudness; }
     LoudnessMeter& getLoudness() noexcept { return loudness; }
 
@@ -92,6 +95,7 @@ private:
     StereoWidth width;
     Limiter limiter;
     SampleReplacer sampler;
+    long long blockStart = 0;
     LoudnessMeter loudness;
 
     // Long-term (≈2 s) mean-square tracking for loudness-matched A/B.

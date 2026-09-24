@@ -286,7 +286,43 @@ reads a chain and as a device in the Inspector; five engine tests, a tune test a
 section of its own. Measured (`livemix_benchmark`): six kick strips with the stage on cost about 7 µs more
 per 128-sample block than with it off.
 
-Still Phase 2: the cross-strip veto, tuning a tom sample to the drum's fundamental automatically (the pitch
-knob exists; the bank records its fundamental for synthesised sounds only), velocity layers for the shipped
-bank (each sound is one recording; a folder of files is the way to add layers), a hit lamp on the stage, and
-Phase 0's measurement over the QUEENSVIEW takes to calibrate the thresholds.
+## Phase 2 and Phase 0 (the same day)
+
+- **Follows the drum.** `measureFundamental` reads a hit's pitch (autocorrelation over 5 to 125 ms, the first
+  clear peak between 35 and 500 Hz) for every loaded sound and for the placeholders; TUNE writes the drum's
+  own fundamental into `replaceDrumHz`; with TUNING set to "Follows the drum" (the toms' default) the sample
+  plays at `drumHz / the bank's pitch`, never more than five semitones either way, times the PITCH knob.
+- **The cross-strip veto.** `KitTriggerTable` in `MixEngine`: each drum strip notes its last hit (time, and
+  how far under the strip's own loudest recent hit it was; the loudest falls 1 dB a second so one accident
+  fades). A tom hit more than 9 dB under the tom's own loudest, within two milliseconds of a kick or snare
+  hit that was within 9 dB of theirs, is that drum through the air and plays nothing. Strips run in order,
+  so a strip sees the hits of the strips before it in the same block and everything from the blocks
+  before; the stage reads "N hits, M held" in the Inspector.
+- **A hit readout.** The path chip's bar lights while a sample plays; the stage's value carries the count.
+- **Phase 0, on the QUEENSVIEW takes** (`build/app/dlive_trigger_check "<folder>" 60 <offset> _002`): the tool
+  measures each kick, snare and tom take as a listen does, fits the stage as TUNE fits it, runs the detector
+  as the engine runs it, and prints hits, a level histogram, gaps and coincidences. The first run said the
+  kick and snare trigger cleanly (tight clusters, no soft hits) and the toms did not: the listen's "event
+  level" on a tom microphone is mostly the rest of the kit, so the halfway-to-the-floor threshold sat in the
+  bleed - the rack tom fired 141 times a minute for two real hits. Three rules changed from that table:
+
+  | Rule | Before | After |
+  | --- | --- | --- |
+  | The sample's level | the event level (a 10 ms frame level, 12 dB under a kick's peak) | the microphone's musical peak |
+  | A tom's threshold | halfway between floor and events when no bleed was separable | never more than 12 dB under the peak (kick and snare: 18) |
+  | The veto's "soft" | 6 dB under the fitted level | 9 dB under the strip's own loudest recent hit |
+
+  | Take, 60 s window | hits a minute before | after | kick / snare coincidences after |
+  | --- | --- | --- | --- |
+  | Kick, from 120 s / 300 s | 205 / 182 | 205 / 182 | - |
+  | Snare | 53 / 44 | 53 / 44 | - |
+  | Floor tom | 158 / 39 | 53 / 31 | 5 / 0 |
+  | Rack tom 1 | 141 / 114 | 16 / 21 | 8 / 10 |
+  | Rack tom 2 | 11 / 10 | 11 / 8 | 0 / 0 |
+
+  Whether 16 rack-tom hits a minute are all real needs ears on the take; the histogram (most within 3 dB
+  of the threshold) says some are still bleed, and the veto holds back the ones that coincide with a snare
+  once the tom has been hit for real. Ground truth by hand-marking the takes is the next measurement.
+
+Still open: velocity layers for the shipped bank (each sound is one recording; a folder of files is the way
+to add layers), and hand-marked ground truth for the detection delay and the miss rate on real drums.

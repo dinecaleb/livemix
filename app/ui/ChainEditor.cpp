@@ -295,6 +295,7 @@ namespace
                 const int i = juce::jlimit (0, juce::jmax (0, sounds.size() - 1), p.replaceSound);
                 juce::String out = juce::String (juce::roundToInt (p.replaceBlend * 100.0f)) + " %";
                 if (i < sounds.size()) out += "  " + Glyph::dot() + "  " + sounds[i];
+                if (p.replaceFollowDrum && p.replaceDrumHz > 0.0f) out += "  " + Glyph::dot() + "  pitched to the drum (" + hzText (p.replaceDrumHz) + ")";
                 return out;
             };
             Field sound;
@@ -314,6 +315,7 @@ namespace
                          number ("Listen below", &ChannelParameters::replaceDetLpfHz, 100.0, 20000.0, 10.0, 3000.0, Fmt::Hz),
                          sound,
                          toggle ("Feel", &ChannelParameters::replaceSteady, "Follows the drummer", "Steady"),
+                         toggle ("Tuning", &ChannelParameters::replaceFollowDrum, "As recorded", "Follows the drum"),
                          choice ("Polarity", &ChannelParameters::replacePolarity, { "Normal", "Flipped" }) };
             v.push_back (std::move (s));
         }
@@ -1751,6 +1753,7 @@ void ChainEditor::updateViews()
             case StageId::Comp:    return juce::jmax (0.0f, -proc->getCompressor().getGainReductionDb());
             case StageId::DeEss:   return juce::jmax (0.0f, -proc->getDeEsser().getGainReductionDb());
             case StageId::Limiter: return juce::jmax (0.0f, -proc->getLimiter().getGainReductionDb());
+            case StageId::Sample:  return proc->getOptions().sampleReplacement && proc->getSampler().isPlaying() ? 6.0f : 0.0f;   // the bar lights while a sample plays
             default:               return 0.0f;
         }
     };
@@ -1805,6 +1808,15 @@ void ChainEditor::updateViews()
         {
             v.label = readouts[i].label;
             v.value = readouts[i].value;
+            // The sample stage says how many hits it has played (and held back as bleed) since the
+            // graph was built - in its sentence, where there is room; the chip keeps the blend.
+            if (s.id == StageId::Sample && proc != nullptr && proc->getOptions().sampleReplacement && v.on)
+            {
+                const int hits = proc->getSampler().getHitCount(), held = proc->getSampler().getVetoCount();
+                juce::String count = juce::String (hits) + (hits == 1 ? " hit played" : " hits played");
+                if (held > 0) count += ", " + juce::String (held) + " held back as another drum's bleed";
+                v.why = count + ".  " + v.why;
+            }
         }
         else
         {

@@ -16,6 +16,13 @@ target_compile_definitions(dlive_mix_stems PRIVATE
     JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
 target_include_directories(dlive_mix_stems PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
 
+# dlive_trigger_check: sample replacement's Phase 0 - the trigger over real drum takes, fitted
+# as TUNE fits it, reporting hits, levels, gaps and coincidences. See app/Tools/TriggerCheck.cpp.
+add_executable(dlive_trigger_check Tools/TriggerCheck.cpp)
+target_link_libraries(dlive_trigger_check PRIVATE livemix_engine juce::juce_audio_formats juce::juce_audio_basics juce::juce_core juce::juce_recommended_config_flags)
+target_compile_definitions(dlive_trigger_check PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
+target_include_directories(dlive_trigger_check PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+
 # ---------------------------------------------------------------------------
 # DLIVE standalone application (JUCE GUI app) and its headless UI snapshot tool.
 # The UI code is shared by both targets; only the entry point and the device host differ.

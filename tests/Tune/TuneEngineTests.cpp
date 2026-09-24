@@ -297,6 +297,7 @@ TEST_CASE ("Tune: the sample trigger is fitted from the listen on the inside and
         a.noiseFloorDb = a.hitLevelDb - 30.0f;
         a.bleedLevelDb = a.hitLevelDb - 20.0f;
         a.eventLevelDb = a.hitLevelDb + 2.0f;
+        a.musicalPeakDb = a.hitLevelDb + 9.0f;
         auto ctx = context (role, a);
         CHECK (! ctx.current.replaceEnabled);
         auto r = TuneEngine::tune (ctx);
@@ -306,12 +307,15 @@ TEST_CASE ("Tune: the sample trigger is fitted from the listen on the inside and
         CHECK (item->kind == Recommendation::Kind::Sample);
         CHECK (item->why.find ("switch it on") != std::string::npos);          // it says the stage is off
         const float threshold = changeValue (*item, "replaceThreshold");
-        const float level = changeValue (*item, "replaceGain");
+        const float level = changeValue (*item, "replaceGain", ctx.current.replaceGainDb);   // no change recorded when the fit equals the baseline
         const float trim = ctx.current.inputTrimDb;
-        // Between the bleed and the hits, and never within 6 dB of the bleed.
+        // Between the bleed and the hits, never within 6 dB of the bleed, and never far under
+        // the microphone's peak (12 dB on a tom, 18 on a kick or snare); the sample's level is that peak.
+        const bool tom = roleFamily (role) == RoleFamily::Tom;
         CHECK (threshold > a.bleedLevelDb + trim + 5.9f);
-        CHECK (threshold < a.eventLevelDb + trim);
-        CHECK_NEAR (level, std::round ((a.eventLevelDb + trim) * 2.0f) * 0.5f, 0.01f);
+        CHECK (threshold < a.musicalPeakDb + trim);
+        CHECK (threshold >= a.musicalPeakDb + trim - (tom ? 12.0f : 18.0f) - 0.01f);
+        CHECK_NEAR (level, std::round ((a.musicalPeakDb + trim) * 2.0f) * 0.5f, 0.01f);
         CHECK (! r.proposed.replaceEnabled);                                   // the switch is the engineer's
         CHECK_NEAR (r.proposed.replaceBlend, ctx.current.replaceBlend, 1.0e-6f);
         // The band never opens below the drum's own fundamental.
