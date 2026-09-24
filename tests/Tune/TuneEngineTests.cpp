@@ -335,3 +335,78 @@ TEST_CASE ("Tune: the sample trigger is fitted from the listen on the inside and
         CHECK (find (r, TuneSection::Bleed, "Sample trigger fitted") == nullptr);
     }
 }
+
+TEST_CASE ("Tune: a sampled drum microphone is gated far harder, and the rest of the kit cleans up around the samples")
+{
+    // The kick with its sample on: the gate closes further, holds less and lets go sooner than on its own.
+    auto a = onTarget (ChannelRole::KickIn);
+    a.bleedEstimate = 0.5f; a.noiseFloorDb = a.hitLevelDb - 25.0f; a.bleedLevelDb = a.hitLevelDb - 20.0f; a.musicalPeakDb = a.hitLevelDb + 9.0f;
+    auto plain = context (ChannelRole::KickIn, a);
+    auto sampled = plain;
+    sampled.current.replaceEnabled = true;
+    sampled.sampled = true;
+    sampled.kitSampled = true;
+    const auto rPlain = TuneEngine::tune (plain);
+    const auto rSampled = TuneEngine::tune (sampled);
+    REQUIRE (rPlain.valid && rSampled.valid);
+    CHECK (rSampled.proposed.gateEnabled);
+    CHECK (rSampled.proposed.gateRangeDb > rPlain.proposed.gateRangeDb + 5.0f);
+    CHECK (rSampled.proposed.gateThresholdDb > rPlain.proposed.gateThresholdDb);
+    CHECK (rSampled.proposed.gateReleaseMs < rPlain.proposed.gateReleaseMs);
+    CHECK (rSampled.proposed.gateRatio >= 8.0f);
+    const auto* item = find (rSampled, TuneSection::Bleed, "Gate tightened for the sample");
+    REQUIRE (item != nullptr);
+    CHECK (item->why.find ("carries this drum's body") != std::string::npos);
+    // The sample switch is the engineer's: it is still on, and untouched.
+    CHECK (rSampled.proposed.replaceEnabled);
+    // ... and it holds: the same listen with the same switches fits the same gate.
+    sampled.current = rSampled.proposed;
+    const auto again = TuneEngine::tune (sampled);
+    CHECK (find (again, TuneSection::Bleed, "Gate tightened for the sample") == nullptr);
+    CHECK (again.parametersChanged == 0);
+
+    // The hi-hat in a sampled kit: a gentle expander (never on its own), and the high-pass at the top of its range.
+    auto h = onTarget (ChannelRole::HiHat);
+    h.bleedEstimate = 0.5f; h.noiseFloorDb = h.hitLevelDb - 20.0f;
+    auto hatPlain = context (ChannelRole::HiHat, h);
+    auto hatKit = hatPlain;
+    hatKit.kitSampled = true;
+    const auto hp = TuneEngine::tune (hatPlain);
+    const auto hk = TuneEngine::tune (hatKit);
+    REQUIRE (hp.valid && hk.valid);
+    CHECK (! hp.proposed.gateEnabled);
+    CHECK (hk.proposed.gateEnabled);
+    CHECK_NEAR (hk.proposed.gateRangeDb, 10.0f, 0.01f);
+    CHECK_NEAR (hk.proposed.gateRatio, 2.0f, 0.01f);
+    const auto& hatTargets = StyleProfile::targets (ChannelRole::HiHat, StyleProfileId::ModernGospel);
+    CHECK (hk.proposed.hpfEnabled);
+    CHECK_NEAR (hk.proposed.hpfHz, hatTargets.hpfMaxHz, 1.0f);
+    CHECK (hk.proposed.hpfHz >= hp.proposed.hpfHz);
+
+    // The overheads and the room: never gated, high-pass at the top of the range.
+    for (auto role : { ChannelRole::Overhead, ChannelRole::Room })
+    {
+        auto o = onTarget (role);
+        auto kit = context (role, o);
+        kit.kitSampled = true;
+        const auto r = TuneEngine::tune (kit);
+        REQUIRE (r.valid);
+        CHECK (! r.proposed.gateEnabled);
+        const auto& targets = StyleProfile::targets (role, StyleProfileId::ModernGospel);
+        CHECK (r.proposed.hpfEnabled);
+        CHECK_NEAR (r.proposed.hpfHz, targets.hpfMaxHz, 1.0f);
+    }
+
+    // A tom without its own sample in a sampled kit: the expander comes on at half the bleed it would otherwise need, and closes further.
+    auto tm = onTarget (ChannelRole::RackTom);
+    tm.bleedEstimate = 0.2f; tm.noiseFloorDb = tm.hitLevelDb - 25.0f;     // under the profile's gate threshold on its own
+    auto tomPlain = context (ChannelRole::RackTom, tm);
+    tomPlain.current.gateEnabled = false;
+    auto tomKit = tomPlain;
+    tomKit.kitSampled = true;
+    const auto tp = TuneEngine::tune (tomPlain);
+    const auto tk = TuneEngine::tune (tomKit);
+    REQUIRE (tp.valid && tk.valid);
+    CHECK (! tp.proposed.gateEnabled);
+    CHECK (tk.proposed.gateEnabled);
+}

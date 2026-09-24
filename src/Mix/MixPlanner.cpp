@@ -1,4 +1,5 @@
 #include "MixPlanner.h"
+#include "DSP/SampleBank.h"
 #include "Tune/TuneEngine.h"
 #include "Tune/SourceStrategy.h"
 #include "Intelligence/SafetyValidator.h"
@@ -274,6 +275,12 @@ MixPlan plan (const MixPlanContext& ctx)
 
     // ---- 1. Every source on its own: the existing Tune, unchanged ----
     plan.strips.resize (size_t (n));
+    // A sampled kit: any kick, snare or tom whose sample stage is on. The engineer's switch,
+    // read once for every strip, so the hi-hat and the overheads are tuned for the kit they
+    // are actually in.
+    bool kitSampled = false;
+    for (int k = 0; k < ctx.graph.numStrips() && k < ctx.current.numStrips; ++k)
+        if (sampleReplacementAppropriate (roleFamily (ctx.graph.strips[size_t (k)].role)) && ctx.current.strips[size_t (k)].channel.replaceEnabled) kitSampled = true;
     for (int i = 0; i < n; ++i)
     {
         const auto& route = ctx.graph.strips[size_t (i)];
@@ -308,6 +315,8 @@ MixPlan plan (const MixPlanContext& ctx)
         tc.profile = profile;
         tc.current = ctx.current.strips[size_t (i)].channel;
         tc.hasOutput = false;   // the mix balances with faders below, not with the strip's output trim
+        tc.sampled = sampleReplacementAppropriate (roleFamily (route.role)) && tc.current.replaceEnabled;
+        tc.kitSampled = kitSampled;
         sp.tune = TuneEngine::tune (tc);
 
         // Input gain: the console move Tune recommends, done digitally where DLIVE owns the input stage, in one

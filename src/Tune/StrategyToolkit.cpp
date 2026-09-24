@@ -623,6 +623,71 @@ void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneD
 void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, float fundamentalHz)
 {
     const auto& cur = d.proposed;
+    const RoleFamily family = roleFamily (ctx.role);
+    const bool closeDrum = family == RoleFamily::Kick || family == RoleFamily::Snare || family == RoleFamily::Tom || family == RoleFamily::HiHat;
+
+    // ---- a sampled microphone: the sample carries the drum's body, the microphone supplies the
+    // attack, and everything the microphone hears between hits is dirt under a clean sample.
+    // The gate is far harder than a profile would ever fit on a microphone that is on its own.
+    if (ctx.sampled && closeDrum)
+    {
+        const auto& a = ctx.analysis;
+        const Levels L = levels (ctx);
+        const float floorGap = L.hitDb - L.floorDb;
+        if (floorGap < 6.0f) return;                      // nothing to gate between: leave what is there
+        const float detHpf = clamp (std::max (t.gateDetectorHpfHz, fundamentalHz > 0.0f ? 0.7f * fundamentalHz : 0.0f), 0.0f, 250.0f);
+        const float threshold = roundDb (clamp (L.floorDb + 0.6f * floorGap, -70.0f, L.hitDb - 9.0f));
+        const float range = std::round (clamp (t.gateMaxRangeDb + 15.0f, 20.0f, 50.0f));
+        const float hold = a.meanDecayMs > 0.0f ? std::round (clamp (0.4f * a.meanDecayMs, 25.0f, 120.0f)) : 40.0f;
+        const float release = a.meanDecayMs > 0.0f ? std::round (clamp (0.5f * a.meanDecayMs, 40.0f, 200.0f)) : 80.0f;
+        const bool same = cur.gateEnabled && std::fabs (cur.gateThresholdDb - threshold) < 1.0f && std::fabs (cur.gateRangeDb - range) < 1.0f
+                       && std::fabs (cur.gateHoldMs - hold) < 1.0f && std::fabs (cur.gateReleaseMs - release) < 1.0f && cur.gateRatio >= 8.0f;
+        if (same) return;
+        d.move (Recommendation::Kind::Gate, TuneSection::Bleed,
+                "Gate tightened for the sample: threshold " + fmtDb (threshold, 0) + ", " + num ("%.0f dB range", double (range)),
+                "The sample carries this drum's body now, so the microphone only has to supply the attack: between " + plural (eventNoun (ctx))
+                + " it closes " + num ("%.0f dB", double (range)) + " (it sits at " + num ("%.0f dBFS", double (L.floorDb)) + " there, the "
+                + plural (eventNoun (ctx)) + " reach " + num ("%.0f dBFS", double (L.hitDb)) + "), holds " + num ("%.0f ms", double (hold))
+                + " and lets go in " + num ("%.0f ms", double (release)) + ", so nothing the microphone hears of the rest of the kit is left under a clean sample.",
+                Confidence::High,
+                [=] (ChannelParameters& p)
+                {
+                    p.gateEnabled = true; p.gateThresholdDb = threshold; p.gateRangeDb = range;
+                    p.gateHoldMs = hold; p.gateReleaseMs = release;
+                    if (p.gateRatio < 8.0f) p.gateRatio = 10.0f;
+                    if (p.gateHysteresisDb < 3.0f) p.gateHysteresisDb = 4.0f;
+                    if (detHpf >= 20.0f) p.gateScHpfHz = detHpf;
+                });
+        return;
+    }
+
+    // ---- a hi-hat in a sampled kit: the profile never gates a hat on its own (it plays
+    // through everything), but once the kick and snare are carried by samples, what the hat
+    // microphone hears of them is the dirt in a clean kit. A gentle expander, never a gate.
+    if (ctx.kitSampled && family == RoleFamily::HiHat && ! t.gateAppropriate)
+    {
+        const auto& a = ctx.analysis;
+        const Levels L = levels (ctx);
+        const float floorGap = L.hitDb - L.floorDb;
+        if (a.bleedEstimate > 0.25f && floorGap >= 10.0f)
+        {
+            const float threshold = roundDb (clamp (L.floorDb + 0.35f * floorGap, -70.0f, L.hitDb - 12.0f));
+            const float range = 10.0f;
+            if (cur.gateEnabled && std::fabs (cur.gateThresholdDb - threshold) < 2.0f && std::fabs (cur.gateRangeDb - range) < 1.0f) return;
+            d.move (Recommendation::Kind::Gate, TuneSection::Bleed, "Gentle expander for the sampled kit: threshold " + fmtDb (threshold, 0) + ", 10 dB range",
+                    "The kick and snare are carried by samples now, so what this microphone hears of them between the hat's own strokes is the dirt left in an otherwise clean kit. "
+                    "A shallow expander (10 dB, 2:1) turns it down without ever cutting into the hat.",
+                    Confidence::Medium,
+                    [=] (ChannelParameters& p)
+                    {
+                        p.gateEnabled = true; p.gateThresholdDb = threshold; p.gateRangeDb = range;
+                        p.gateRatio = 2.0f; p.gateAttackMs = 0.5f; p.gateHoldMs = 60.0f; p.gateReleaseMs = 120.0f; p.gateHysteresisDb = 3.0f;
+                        p.gateScHpfHz = 200.0f;
+                    });
+        }
+        return;
+    }
+
     if (! t.gateAppropriate)
     {
         if (cur.gateEnabled)
@@ -652,10 +717,16 @@ void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, 
         return;
     }
 
-    if (bleed > t.bleedGateThreshold)
+    // A drum microphone without a sample in a sampled kit (a kick-out, a snare-bottom, a tom on
+    // its own): its bleed of the sampled drums is the dirt now, so the expander is fitted more
+    // readily and closes further than the profile would ask on a kit that is all microphones.
+    const bool kitNeighbour = ctx.kitSampled && closeDrum && ! ctx.sampled;
+    const float gateFrom = kitNeighbour ? 0.5f * t.bleedGateThreshold : t.bleedGateThreshold;
+    const float extraRange = kitNeighbour ? 6.0f : 0.0f;
+    if (bleed > gateFrom)
     {
-        const float threshold = roundDb (clamp (L.floorDb + 0.4f * floorGap, -70.0f, L.hitDb - 12.0f));
-        const float range = std::round (clamp (10.0f + 30.0f * bleed, 8.0f, t.gateMaxRangeDb));
+        const float threshold = roundDb (clamp (L.floorDb + (kitNeighbour ? 0.5f : 0.4f) * floorGap, -70.0f, L.hitDb - 12.0f));
+        const float range = std::round (clamp (10.0f + 30.0f * bleed + extraRange, 8.0f, t.gateMaxRangeDb + extraRange));
         const float hold = a.meanDecayMs > 0.0f ? std::round (clamp (0.6f * a.meanDecayMs, 40.0f, 200.0f)) : cur.gateHoldMs;
         const float release = a.meanDecayMs > 0.0f ? std::round (clamp (0.8f * a.meanDecayMs, 60.0f, 300.0f)) : cur.gateReleaseMs;
         const bool small = cur.gateEnabled && std::fabs (cur.gateThresholdDb - threshold) < 2.0f && std::fabs (cur.gateRangeDb - range) < 3.0f;
@@ -663,6 +734,7 @@ void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, 
         std::string what = (cur.gateEnabled ? "Expander re-fitted: threshold " : "Expander enabled: threshold ") + fmtDb (threshold, 0) + ", " + num ("%.0f dB range", double (range));
         std::string why = "Between " + plural (eventNoun (ctx)) + " the channel sits at " + num ("%.0f dBFS", double (L.floorDb)) + " while " + plural (eventNoun (ctx)) + " reach " + num ("%.0f dBFS", double (L.hitDb))
                         + ": bleed from nearby sources. The range is conservative (expansion, not a hard mute) so soft " + plural (eventNoun (ctx)) + " survive";
+        if (kitNeighbour) why += "; the kick and snare are carried by samples now, so what this microphone hears of them is the dirt in a clean kit and it closes further than it otherwise would";
         if (a.meanDecayMs > 0.0f) why += ", and hold/release follow the measured decay (" + num ("%.0f ms", double (a.meanDecayMs)) + ")";
         if (detHpf >= 20.0f) why += "; the detector ignores energy below " + fmtHz (detHpf) + " so low bleed does not open it";
         why += ".";

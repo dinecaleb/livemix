@@ -27,6 +27,15 @@ struct TuneContext
     // validator and the explanations are untouched - only the aim moves - so a reference can
     // never reach a parameter by a path a profile could not. Null = the profile's own targets.
     const SourceTargets* targetsOverride = nullptr;
+    // Sample replacement, which changes what a drum microphone is for. `sampled`: this strip's
+    // own sample stage is switched on, so the sample carries the drum's body and the microphone
+    // only has to supply the attack - its gate can be far harder. `kitSampled`: any kick, snare
+    // or tom in the session is sampled, so what the other drum microphones hear of those drums
+    // is now the dirt in an otherwise clean kit, and they are cleaned up harder too. Both are
+    // the engineer's switches (TUNE never sets a sample on), so the same settings and the same
+    // listen still give the same plan. MixPlanner fills them; a plug-in has neither.
+    bool sampled = false;
+    bool kitSampled = false;
 };
 
 struct TuneSectionSummary

@@ -102,7 +102,11 @@ namespace
         {
             removeDcOffset (ctx, d);
             const float low = bandExcess (ctx, t, Band::Low) + std::max (0.0f, bandExcess (ctx, t, Band::Sub));
-            if (low > 0.0f)
+            if (ctx.kitSampled)
+                placeHighPass (ctx, t, d, t.hpfMaxHz,
+                               ("The kick and snare are carried by samples now, so their weight comes from the samples and what the " + std::string (room ? "room" : "overheads")
+                                + " hear of them low down is only smear: the high-pass goes to the top of its range, " + fmtHz (t.hpfMaxHz) + ", and the cymbals keep everything above it.").c_str());
+            else if (low > 0.0f)
                 placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * (1.0f + 0.12f * std::min (low, 6.0f)),
                                ("Low energy is " + fmtDb (low, 0) + " above the profile tolerance: kick and low spill in the " + std::string (room ? "room" : "overheads") + ". The high-pass is raised so the close mics own the low end.").c_str());
             else if (low < -1.5f && d.proposed.hpfEnabled && templateHighPassHz (ctx, t) > t.hpfMinHz * 1.25f)
@@ -136,7 +140,11 @@ namespace
         {
             removeDcOffset (ctx, d);
             const float low = bandExcess (ctx, t, Band::LowMid) + std::max (0.0f, bandExcess (ctx, t, Band::Low));
-            if (low > 0.0f)
+            if (ctx.kitSampled)
+                placeHighPass (ctx, t, d, t.hpfMaxHz,
+                               ("The kick and snare are carried by samples now, so what this microphone hears of them is only smear under a clean kit: the high-pass goes to the top of its range, "
+                                + fmtHz (t.hpfMaxHz) + ", and the hat keeps everything above it.").c_str());
+            else if (low > 0.0f)
                 placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * (1.0f + 0.1f * std::min (low, 6.0f)),
                                ("Low and low-mid energy is " + fmtDb (low, 0) + " above the profile tolerance: snare and kick spill. The high-pass is raised.").c_str());
             controlHarshness (ctx, t, d);

@@ -113,6 +113,15 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   Kick-out and snare-bottom are never fitted, so two samples never land on one hit. Every number is absolute from
   the capture: a re-tune on the same listen fits the same numbers (tested). `dlive_trigger_check` runs the fit and
   the detector over real takes (`docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md`).
+  **A sampled kit is tuned as one** (`TuneContext::sampled` / `kitSampled`, filled by `MixPlanner` from the strips'
+  own switches - TUNE never turns a sample on, so the same settings and listen still give the same plan). A
+  microphone whose sample is on is gated far harder (`setGate`: threshold at 0.6 of the floor-to-hit gap, range
+  15 dB past the profile's, hold and release at 0.4 / 0.5 of the decay, ratio 10:1) because the sample carries the
+  body and the microphone only supplies the attack. Once any kick, snare or tom is sampled, what the other drum
+  microphones hear of those drums is the dirt in a clean kit: the hi-hat gets a gentle 10 dB expander it never
+  gets on its own, a drum microphone without a sample (kick-out, snare-bottom, a tom on its own) gets its expander
+  at half the bleed and 6 dB deeper, and the hi-hat, overheads and room take their high-pass to the top of the
+  profile's range. A room microphone is still never gated.
 - **TRACK HISTORY** (`app/native/MixHistory.h`, `MixController::getStripHistory` / `restoreStripTune`, 2026-09-24)
   is the other way back: one channel, oldest first, a `StripTuneRecord` for every tune that landed on it and every
   hand edit of its chain - what did it (`what`), which TUNE, the clock, and the strip before and after. It is

@@ -299,6 +299,10 @@ per 128-sample block than with it off.
   so a strip sees the hits of the strips before it in the same block and everything from the blocks
   before; the stage reads "N hits, M held" in the Inspector.
 - **A hit readout.** The path chip's bar lights while a sample plays; the stage's sentence carries the count.
+- **The kit tuned around the samples.** With a sample on, TUNE gates that microphone far harder (the sample carries
+  the body; the microphone supplies the attack), and once any drum is sampled the hi-hat gets a gentle expander,
+  the unsampled drum microphones close further, and the hat, overheads and room take their high-pass to the top
+  of its range - what they hear of the sampled drums is the dirt in a clean kit (`docs/DLIVE-MIX-ENGINEER.md`).
 - **HEAR IT.** A button on the stage plays the chosen sound once, at the level the stage would play it, into the
   engineer's listen (the monitor bus) and nowhere else; the broadcast never hears an audition, and with no solo
   output the app says so rather than playing it into the room.
