@@ -100,6 +100,7 @@ tests/                      engine + integration tests, benchmark, reference ren
 | Monitoring: the solo bus, two devices, Dante | `docs/DLIVE-MONITORING.md` |
 | The desktop design, macro pads, themes, tutorial, frame budget | `docs/DLIVE-DESIGN.md`, `docs/THEMES.md` |
 | RealtimeSanitizer: wiring, findings, suppressions | `docs/REALTIME-SANITIZER.md` |
+| Drum sample replacement: the scope, not built | `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md` |
 | Milestone reports and the QA notes | `docs/MILESTONE-1..7.md`, `docs/QA-*.md` |
 
 Read the PRD sections 6-8, 42, 48 and `docs/ARCHITECTURE-DINE-CORE.md` before touching the audio path or
