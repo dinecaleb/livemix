@@ -14,6 +14,11 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   versions 1 and 2. Import a folder of stems with `MultitrackImport` (it becomes tracks and clips - there is no
   separate "play a recording" audio path any more). Export is `MixBounce::renderProject`, streamed to disk.
   App tests for all of this: `build/app/dlive_app_tests` (`app/Tests/DawTests.cpp`).
+- A session opens whether or not the console it was recorded on is plugged in (2026-09-24, `app/native/DevicePlan.h`):
+  its own devices when they are here; otherwise whatever is open already; otherwise an output alone so the
+  recording still plays; otherwise no device and the Audio device page. Every case but the first is a sentence on
+  the "Opened" toast naming the missing device and where to fix it - never a refusal. The same plan runs at launch
+  for the last session. `HostServices::openDevicesFor` is the one place that opens devices for a document.
 - DLIVE standalone (2026-09 pivot; see `docs/ARCHITECTURE-DLIVE.md`): the mix layer lives in `src/Mix`
   (`MixSession`/`RoutingGraph` build buses + returns from assignments; `MixEngine` is the real-time graph, parameters
   arrive whole via `Core/TripleBuffer`; `MixCapture`/`OfflineCapture` listen to every input at once; `MixPlanner` =

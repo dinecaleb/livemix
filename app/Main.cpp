@@ -12,6 +12,7 @@
 #include "native/MultitrackImport.h"
 #include "native/SessionStore.h"
 #include "native/SampleLibrary.h"
+#include "native/DevicePlan.h"
 #include "native/MonitorDevice.h"
 #include "ui/MainView.h"
 #include <optional>
@@ -212,22 +213,43 @@ namespace
             pending = doc;
             forgetPairing();
 
-            juce::String err;
-            if (doc.inputDevice.isNotEmpty())
-                err = host.open (doc.inputDevice, doc.outputDevice.isNotEmpty() ? doc.outputDevice : doc.inputDevice);
-            else if (doc.project.hasAudio() && doc.outputDevice.isNotEmpty())
-                err = host.openOutputOnly (doc.outputDevice);
-            else if (host.isOpen())
-                host.reconfigure();
+            // The session opens whether or not its console is here: the device is a preference,
+            // the document is the session. What could not be opened becomes a sentence on the
+            // toast, never a refusal (the whole point of a recording is to open it elsewhere).
+            const auto err = openDevicesFor (doc);
             applyPendingMix();
             restoreSolo (doc, err);
             dawEngine.setSession (doc.session);
             dawEngine.setProject (doc.project);
-            recoveryNote.clear();
             for (const auto& take : dawEngine.recoverUnfinishedTakes())
                 recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + take.note;
             dawEngine.locate (0);
-            if (err.isEmpty()) lastSessionPointer().replaceWithText (file.getFullPathName());
+            lastSessionPointer().replaceWithText (file.getFullPathName());
+            return {};
+        }
+
+        // Opens the devices a session asks for, or the nearest thing this Mac has (DevicePlan.h),
+        // and leaves the sentence about it in the recovery note. Returns the device error when
+        // even the planned device would not open (the note carries it too).
+        juce::String openDevicesFor (const SessionStore::Document& doc)
+        {
+            recoveryNote.clear();
+            juce::StringArray ins, outs;
+            for (const auto& d : host.listInputDevices()) ins.add (d.name);
+            for (const auto& d : host.listOutputDevices()) outs.add (d.name);
+            const auto plan = planDevicesForSession (doc.inputDevice, doc.outputDevice, doc.project.hasAudio(), ins, outs,
+                                                     host.getInputDeviceName(), host.getOutputDeviceName(), host.isOpen());
+            juce::String err;
+            switch (plan.action)
+            {
+                case DevicePlan::Action::OpenBoth:       err = host.open (plan.input, plan.output); break;
+                case DevicePlan::Action::OpenOutputOnly: err = host.openOutputOnly (plan.output); break;
+                case DevicePlan::Action::KeepOpen:       host.reconfigure(); break;
+                case DevicePlan::Action::None:           break;
+            }
+            recoveryNote = plan.note;
+            if (err.isNotEmpty())
+                recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + juce::String ("Its audio device could not be opened (") + err + "). Pick one under Audio device.";
             return err;
         }
 
@@ -609,20 +631,18 @@ public:
 
         if (restored)
         {
+            // The same as opening it from the library: the session comes back whether or not
+            // its console is plugged in today, on whatever device this Mac has.
             services->holdMix (doc);
-            const bool opened = doc.inputDevice.isNotEmpty()
-                                    ? host->open (doc.inputDevice, doc.outputDevice).isEmpty()
-                                    : (doc.project.hasAudio() && doc.outputDevice.isNotEmpty()
-                                           && host->openOutputOnly (doc.outputDevice).isEmpty());
-            if (opened)
-            {
-                services->applyPendingMix();
-                services->restoreSolo (doc, {});
-                dawEngine->setSession (doc.session);
-                dawEngine->setProject (doc.project);
-                window->view().showPage (controller->getSession().inputs.empty() ? MainView::Page::Assign
-                                                                                 : MainView::Page::Tracks);
-            }
+            const auto err = services->openDevicesFor (doc);
+            services->applyPendingMix();
+            services->restoreSolo (doc, err);
+            dawEngine->setSession (doc.session);
+            dawEngine->setProject (doc.project);
+            window->view().showPage (controller->getSession().inputs.empty() ? MainView::Page::Assign
+                                                                             : MainView::Page::Tracks);
+            const auto note = services->takeRecoveryNote();
+            if (note.isNotEmpty()) window->view().showToast (note);
         }
     }
 

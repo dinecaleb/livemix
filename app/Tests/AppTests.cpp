@@ -4,6 +4,7 @@
 #include "TestFramework.h"
 #include "native/MixController.h"
 #include "native/SampleLibrary.h"
+#include "native/DevicePlan.h"
 #include "native/SessionStore.h"
 #include "Mix/MixPlanner.h"
 #include "MixAI/MixReasoningProvider.h"
@@ -1286,4 +1287,57 @@ TEST_CASE ("HEAR IT: an audition plays the strip's sound into the engineer's lis
     CHECK (! c.auditionSample (3));
     REQUIRE (! messages.empty());
     CHECK (messages.back().find ("no sound") != std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// Opening a session whose console is not plugged in
+// ---------------------------------------------------------------------------
+TEST_CASE ("DevicePlan: a session opens on its own devices when they are here, on what is open otherwise, on an output alone for playback, and never refuses")
+{
+    const juce::StringArray ins { "Dante Virtual Soundcard", "MacBook Pro Microphone" };
+    const juce::StringArray outs { "Dante Virtual Soundcard", "MacBook Pro Speakers" };
+
+    // Its own devices are here: open them, no note.
+    auto p = planDevicesForSession ("Dante Virtual Soundcard", "Dante Virtual Soundcard", true, ins, outs, "", "", false);
+    CHECK (p.action == DevicePlan::Action::OpenBoth);
+    CHECK (p.input == "Dante Virtual Soundcard");
+    CHECK (p.output == "Dante Virtual Soundcard");
+    CHECK (p.note.isEmpty());
+
+    // The input is here but the output it used is not: the mix goes out of what there is, and it says so.
+    p = planDevicesForSession ("Dante Virtual Soundcard", "Behringer X32", true, ins, outs, "", "", false);
+    CHECK (p.action == DevicePlan::Action::OpenBoth);
+    CHECK (p.output == "Dante Virtual Soundcard");
+    CHECK (p.note.contains ("Behringer X32"));
+
+    // The console is gone and something is open: keep it, and name the missing console.
+    p = planDevicesForSession ("Behringer X32", "Behringer X32", true, ins, outs, "MacBook Pro Microphone", "MacBook Pro Speakers", true);
+    CHECK (p.action == DevicePlan::Action::KeepOpen);
+    CHECK (p.note.contains ("Behringer X32"));
+    CHECK (p.note.contains ("MacBook Pro Microphone"));
+    CHECK (p.note.contains ("Audio device"));
+
+    // The console is gone and nothing is open: an output alone, so the recording plays.
+    p = planDevicesForSession ("Behringer X32", "Behringer X32", true, ins, outs, "", "", false);
+    CHECK (p.action == DevicePlan::Action::OpenOutputOnly);
+    CHECK (p.output == "Dante Virtual Soundcard");
+    CHECK (p.note.contains ("Behringer X32"));
+    CHECK (p.note.contains ("Playback is on Dante Virtual Soundcard"));
+
+    // A session built from imported stems (no console) with audio: its output if here, else the first.
+    p = planDevicesForSession ("", "MacBook Pro Speakers", true, ins, outs, "", "", false);
+    CHECK (p.action == DevicePlan::Action::OpenOutputOnly);
+    CHECK (p.output == "MacBook Pro Speakers");
+    CHECK (! p.note.contains ("recorded on"));
+
+    // No devices at all: nothing opens, the session still opens, the note points at the page.
+    p = planDevicesForSession ("Behringer X32", "Behringer X32", true, {}, {}, "", "", false);
+    CHECK (p.action == DevicePlan::Action::None);
+    CHECK (p.note.contains ("Behringer X32"));
+    CHECK (p.note.contains ("Audio device"));
+
+    // An empty session (no console, no audio) with nothing open: nothing to open, and it says so plainly.
+    p = planDevicesForSession ("", "", false, ins, outs, "", "", false);
+    CHECK (p.action == DevicePlan::Action::None);
+    CHECK (p.note.contains ("No audio device is open"));
 }
