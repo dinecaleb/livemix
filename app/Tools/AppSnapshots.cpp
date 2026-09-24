@@ -750,6 +750,14 @@ int main (int argc, char** argv)
     rig.snap (dir, "15h-mixer-linked");
     view.getMixerPage().setView (MixerPage::View::Strips);
     rig.feed (0.3);
+    // ... and in the column layout, at its narrowest, after the strips have repainted a few
+    // times over: the mark sits at the right end of the name row and the name is still there.
+    // (A paint that trimmed the strip's own layout took 18 px off the name on every frame.)
+    view.getMixerPage().setStripSize (MixerPage::Size::Narrow);
+    for (int i = 0; i < 4; ++i) { rig.controller.setStripMute (9, i % 2 == 0); rig.feed (0.1); }
+    rig.snap (dir, "15i-mixer-linked-narrow");
+    view.getMixerPage().setStripSize (MixerPage::Size::Normal);
+    rig.feed (0.2);
     view.setBypass (true);
     rig.feed (0.3);
     rig.snap (dir, "15f-mixer-bypass");

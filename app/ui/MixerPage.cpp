@@ -444,13 +444,26 @@ public:
         {
             const auto numFont = Dine::mono (10.0f, 500);
             const auto nameFont = Dine::text (12.0f, selected ? 600 : 400);
-            const int numW = Dine::textWidth (numFont, numberText);
-            const int nameW = juce::jmin (col.name.getWidth() - numW - 5, Dine::textWidth (nameFont, name));
-            auto head = col.name.withSizeKeepingCentre (numW + 5 + nameW, col.name.getHeight());
-            g.setColour (Dine::ink4);
-            g.setFont (numFont);
-            g.drawText (numberText, head.removeFromLeft (numW), juce::Justification::centredLeft);
-            head.removeFromLeft (5);
+            // A linked strip carries its mark at the right end of the name row. The name is what
+            // the row is for: on a narrow strip, when the number and the mark would leave it
+            // less than a few letters, the number gives way (it is still on the tooltip and on
+            // the wider strips). `col` is the layout and is only ever read here - a paint that
+            // trimmed it took a slice off the name on every frame until nothing was left.
+            const int markW = link != 0 ? 16 : 0;
+            const int numFullW = Dine::textWidth (numFont, numberText);
+            const int nameFullW = Dine::textWidth (nameFont, name);
+            const int avail = col.name.getWidth() - markW;
+            const bool showNumber = avail - numFullW - 5 >= juce::jmin (nameFullW, 30);
+            const int numW = showNumber ? numFullW + 5 : 0;
+            const int nameW = juce::jmax (0, juce::jmin (avail - numW, nameFullW));
+            auto head = col.name.withTrimmedRight (markW).withSizeKeepingCentre (numW + nameW, col.name.getHeight());
+            if (showNumber)
+            {
+                g.setColour (Dine::ink4);
+                g.setFont (numFont);
+                g.drawText (numberText, head.removeFromLeft (numFullW), juce::Justification::centredLeft);
+                head.removeFromLeft (5);
+            }
             g.setColour (mute ? Dine::ink3 : Dine::ink);
             g.setFont (nameFont);
             g.drawText (name, head, juce::Justification::centredLeft, true);
@@ -460,7 +473,7 @@ public:
                 g.fillRect (head.getX(), head.getCentreY(), head.getWidth(), 1);
             }
             // Linked faders: the mark at the right end of the name row, in the accent.
-            if (link != 0) Dine::drawLinkGlyph (g, col.name.removeFromRight (18).toFloat().reduced (2.0f, 0.0f), Dine::accent);
+            if (link != 0) Dine::drawLinkGlyph (g, col.name.withTrimmedLeft (col.name.getWidth() - markW).toFloat().reduced (2.0f, 0.0f), Dine::accent);
         }
 
         // ---- gain staging: every strip that can have it, always in its slot
