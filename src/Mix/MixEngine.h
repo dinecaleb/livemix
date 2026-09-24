@@ -183,6 +183,8 @@ private:
     std::atomic<MixTap*> tap { nullptr };
     std::atomic<const SampleBankTable*> sampleBanks { nullptr };
     KitTriggerTable kitTriggers;                                 // the drum strips' word to each other (audio thread only)
+    Smoother broadcastGain;                                      // DIM (-20 dB) / MUTE on every feed but the listen
+    std::vector<float> broadcastRamp;                            // the smoother, per sample, for the block (feeds share it)
     SamplePlayer auditionPlayer;                                 // HEAR IT: one voice into the monitor bus
     std::atomic<const SampleBank*> auditionRequest { nullptr };
     std::atomic<float> auditionGainDb { -12.0f };

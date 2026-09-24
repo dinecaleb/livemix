@@ -303,6 +303,10 @@ per 128-sample block than with it off.
   the body; the microphone supplies the attack), and once any drum is sampled the hi-hat gets a gentle expander,
   the unsampled drum microphones close further, and the hat, overheads and room take their high-pass to the top
   of its range - what they hear of the sampled drums is the dirt in a clean kit (`docs/DLIVE-MIX-ENGINEER.md`).
+- **Two defaults for a first service.** A sampled snare keeps a shallow expander (20 dB, 4:1, threshold low) so its
+  ghost notes - which the sample never fires on - still come through the microphone; a sampled kick or tom closes
+  hard. Toms play their sample as recorded until "Follows the drum" is switched on by ear, because the drum's pitch
+  comes from a listen on a microphone that is mostly bleed.
 - **HEAR IT.** A button on the stage plays the chosen sound once, at the level the stage would play it, into the
   engineer's listen (the monitor bus) and nowhere else; the broadcast never hears an audition, and with no solo
   output the app says so rather than playing it into the room.

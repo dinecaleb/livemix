@@ -445,6 +445,7 @@ namespace
             if (! pending.has_value() || ! controller.isPrepared()) return;
             controller.setOutputFeeds (pending->outputs);   // routing belongs to the device, not the mix
             controller.setReference (pending->reference);   // always, so one session's reference never follows another
+            controller.restoreScenes (pending->scenes);     // the scenes belong to the session; recall checks the inputs by name
             if (pending->hasMix)
             {
                 // The mix follows its input across a rebuild, the way the timeline's clips
@@ -475,6 +476,7 @@ namespace
             snap.hasMix = controller.hasKeptMix();
             if (snap.hasMix) { snap.mix = controller.getKept(); snap.history = controller.getAllStripHistory(); }
             else if (pending.has_value() && pending->hasMix) snap = *pending;
+            snap.scenes = controller.getScenes();
             pending = snap;
         }
 
@@ -498,6 +500,7 @@ namespace
             d.tuneCount = controller.getTuneCount();
             d.hasMix = controller.isPrepared() && controller.hasKeptMix();
             if (d.hasMix) { d.mix = controller.getKept(); d.history = controller.getAllStripHistory(); }
+            d.scenes = controller.getScenes();
             d.reference = controller.getReference();      // what the mix is aimed at, already measured
             d.trackPanelWidth = panelWidth;
             if (controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready)

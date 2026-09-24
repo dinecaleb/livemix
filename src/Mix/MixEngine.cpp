@@ -50,6 +50,9 @@ void MixEngine::prepare (double sampleRate, int maxBlockSize, const MixSession& 
 
     kitTriggers = KitTriggerTable {};
     samplePosition = 0;
+    broadcastGain.prepare (sr, kGainSmoothMs);
+    broadcastGain.snapTo (1.0f);
+    broadcastRamp.assign (size_t (maxBlock), 1.0f);
     auditionPlayer.prepare (sr);
     auditionRequest.store (nullptr, std::memory_order_relaxed);
     strips.clear();
@@ -173,6 +176,8 @@ void MixEngine::applyParameters (const MixParameters& p) noexcept
 
     monitor.gain.setTarget (p.monitor.mute ? 0.0f : dbToGain (clamp (p.monitor.effectiveGainDb(), -60.0f, 12.0f)));
     if (! haveApplied) monitor.gain.snapToTarget();
+    broadcastGain.setTarget (p.broadcastMute ? 0.0f : p.broadcastDim ? dbToGain (-20.0f) : 1.0f);
+    if (! haveApplied) broadcastGain.snapToTarget();
 
     for (int i = 0; i < n; ++i)
     {
@@ -584,6 +589,12 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
         for (int o = 0; o < numOutputs; ++o)
             if (out[size_t (o)] != nullptr) std::memset (out[size_t (o)], 0, sizeof (float) * size_t (n));
 
+        // DIM / MUTE: one ramp for the block, shared by every feed that is not the listen.
+        const bool broadcastFlat = ! broadcastGain.isSmoothing();
+        const float broadcastNow = broadcastGain.getCurrent();
+        if (! broadcastFlat)
+            for (int k = 0; k < n; ++k) broadcastRamp[size_t (k)] = broadcastGain.next();
+
         const int feeds = clamp (appliedFeeds.count, 1, kMaxOutputFeeds);
         for (int f = 0; f < feeds; ++f)
         {
@@ -621,12 +632,14 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             const bool hasR = r >= 0 && r < numOutputs && out[size_t (r)] != nullptr;
             if (! hasL && ! hasR) continue;
 
+            const bool ramped = ! feed.monitor && ! broadcastFlat;
+            if (! feed.monitor && broadcastFlat) gain *= broadcastNow;
             if (feed.mono || (hasL != hasR))
             {
                 const float half = gain * 0.5f;
                 for (int k = 0; k < n; ++k)
                 {
-                    const float mono = (srcL[k] + srcR[k]) * half;
+                    const float mono = (srcL[k] + srcR[k]) * half * (ramped ? broadcastRamp[size_t (k)] : 1.0f);
                     if (hasL) out[size_t (l)][k] += mono;
                     if (hasR && r != l) out[size_t (r)][k] += mono;
                 }
@@ -635,8 +648,9 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             {
                 for (int k = 0; k < n; ++k)
                 {
-                    out[size_t (l)][k] += srcL[k] * gain;
-                    out[size_t (r)][k] += srcR[k] * gain;
+                    const float g = ramped ? gain * broadcastRamp[size_t (k)] : gain;
+                    out[size_t (l)][k] += srcL[k] * g;
+                    out[size_t (r)][k] += srcR[k] * g;
                 }
             }
         }

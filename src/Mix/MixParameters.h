@@ -70,6 +70,12 @@ struct MixParameters
     float fxReturnDb = 0.0f;
     bool fxMute = false;
 
+    // The emergency keys: the broadcast (every feed that is not the engineer's listen) pulled
+    // down 20 dB, or silenced, in one press. Never part of the kept mix, never saved - a
+    // session must not open muted - and never on the monitor, so the engineer keeps hearing.
+    bool broadcastDim = false;
+    bool broadcastMute = false;
+
     // The engineer's own listen: where solo goes, what the monitor carries, how loud it is.
     // Monitoring, never mix - nothing here changes the master, the plan or an export. It
     // rides in MixParameters rather than beside it only because solo is a per-strip flag and

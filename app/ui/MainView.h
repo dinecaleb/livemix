@@ -8,6 +8,7 @@
 #include "TracksPage.h"
 #include "MixerPage.h"
 #include "OutputsSheet.h"
+#include "CheckSheet.h"
 #include "ChannelTuneSheet.h"
 #include "ChatSheet.h"
 #include "ThemeSheet.h"
@@ -67,6 +68,9 @@ public:
     void closeTutorial();
     static void setAutoTutorial (bool);
     void showOutputs();
+    void showCheck();                       // CHECK INPUTS: every assigned input, its level and one word about it
+    void updateChromeForSnapshot() { updateChrome(); }   // the snapshot tool: the toolbar re-reads the controller now
+    void closeSheetsForSnapshot() { closeSheets(); }
     void showChat();
     void closeSheets();
 
@@ -147,6 +151,7 @@ private:
     std::unique_ptr<TracksPage> tracksPage;
     std::unique_ptr<MixerPage> mixerPage;
     std::unique_ptr<OutputsSheet> outputsSheet;
+    std::unique_ptr<CheckSheet> checkSheet;
     std::unique_ptr<ThemeSheet> themeSheet;
     juce::StringArray themeMenuNames;      // the View > Appearance list, as it was last built
     std::unique_ptr<ChannelTuneSheet> channelSheet;
@@ -164,6 +169,7 @@ private:
     std::unique_ptr<Toast> toast;
     std::unique_ptr<Menu> menu;
     std::unique_ptr<ToolbarToggle> bypassButton;
+    std::unique_ptr<ToolbarToggle> dimButton, muteButton;   // the emergency keys: the broadcast down 20 dB, or silent
     std::unique_ptr<ToolbarToggle> liveSafeButton;
     std::unique_ptr<ToolbarToggle> chatButton;
     std::unique_ptr<ToolbarToggle> tuneLiveButton;   // TUNE LIVE MIX from any workspace, in the title row

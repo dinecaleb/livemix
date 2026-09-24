@@ -34,7 +34,7 @@ private:
     class RecordKey;
     class Chip;
 
-    struct Layout { juce::Rectangle<int> status, tiles, monitor, safe; };
+    struct Layout { juce::Rectangle<int> status, tiles, scenes, monitor, safe; };
     Layout layout() const;
 
     MixController& controller;
@@ -43,6 +43,10 @@ private:
     std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 2> tiles;
     DineButton liveSafeButton { "LIVE SAFE OFF", DineButton::Style::Standard };
     std::array<std::unique_ptr<DineButton>, 6> chips;   // MONITOR SOLO / SOLO IN PLACE / AFL / PFL / Dim / Clear solo
+    // SCENES: the whole mix kept for one part of the service, back in one press. A pad per
+    // slot recalls it; the KEEP chip beside it writes the mix there. Names come from the controller.
+    std::array<std::unique_ptr<DineButton>, 4> scenePads, sceneKeeps;
+    void refreshScenes();
     juce::Slider monitorLevel { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     DinePopup soloDevice;                                // where solo goes: the device only the engineer hears
     std::unique_ptr<RecordKey> recordButton;

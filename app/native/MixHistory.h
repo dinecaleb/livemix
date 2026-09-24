@@ -4,6 +4,7 @@
 #include <vector>
 #include "Mix/MixParameters.h"
 #include "Mix/MixSession.h"
+#include "Mix/MixMacros.h"
 #include "Tune/TuneTypes.h"
 
 namespace livemix
@@ -37,6 +38,24 @@ inline bool stripTuneDiffers (const StripParameters& a, const StripParameters& b
     for (size_t f = 0; f < a.sendDb.size(); ++f)
         if (std::fabs (a.sendDb[f] - b.sendDb[f]) >= 0.05f) return true;
     return ! diffParameters (a.channel, b.channel).empty();
+}
+
+// A scene: the whole mix as it was kept for one part of the service - the band, the pastor,
+// the choir - recalled in one press. It holds the kept mix and the macros, and the names of
+// the inputs it was kept with, so it is recalled onto the same console and refused, with a
+// sentence, onto a different one. Four slots with plain names; saved with the session.
+struct MixScene
+{
+    std::string name;
+    bool kept = false;
+    MixParameters mix;
+    MixMacroValues macros;
+    std::vector<std::string> inputs;     // the session's input names when it was kept
+};
+inline constexpr int kMixScenes = 4;
+inline const char* defaultSceneName (int slot) noexcept
+{
+    switch (slot) { case 0: return "Band"; case 1: return "Speech"; case 2: return "Worship"; default: return "Custom"; }
 }
 
 // The records carried onto a rebuilt session: each one follows its input by the identity

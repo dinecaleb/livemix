@@ -220,6 +220,28 @@ public:
     void redoMix();
     void clearMixHistory() { history.clear(); future.clear(); }
 
+    // ---- The emergency keys: DIM and MUTE on the broadcast ----
+    // One press pulls every feed but the engineer's listen down 20 dB, or silences it. Not a
+    // mix change: nothing is kept, saved or undone - the key is lit while it is on, and pressing
+    // it again is the way back. LIVE SAFE always allows both; they are what it is for.
+    void setBroadcastDim (bool on);
+    void setBroadcastMute (bool on);
+    bool isBroadcastDimmed() const noexcept { return broadcastDim; }
+    bool isBroadcastMuted() const noexcept { return broadcastMute; }
+
+    // ---- Scenes: the whole mix kept for one part of the service, back in one press ----
+    // KEEP writes the kept mix and the macros into a slot under the inputs' names; RECALL puts
+    // them back as one undoable mix change (LIVE SAFE lets it through: returning to a mix that
+    // was working is what a service needs) and is refused with a sentence when the inputs are
+    // not the ones it was kept with. Saved with the session; carried across a rebuild by name.
+    int numScenes() const noexcept { return kMixScenes; }
+    const MixScene& getScene (int slot) const;
+    void keepScene (int slot);
+    bool recallScene (int slot);
+    void renameScene (int slot, const std::string& name);
+    std::vector<MixScene> getScenes() const;
+    void restoreScenes (const std::vector<MixScene>& scenes);
+
     // ---- Track history: what changed on one channel, and any earlier setting put back ----
     //
     // UNDO walks the whole mix back one change at a time. This is the other way an engineer
@@ -491,6 +513,9 @@ private:
     // saved records back on afterwards (carryStripHistory), as it carries the kept mix.
     std::array<std::vector<StripTuneRecord>, kMaxStrips> stripHistory;
     bool liveKept = false;              // the plan on preview came from TUNE LIVE MIX (or the chat), so KEEP names it so
+    bool broadcastDim = false, broadcastMute = false;   // the emergency keys: overlays on what is published, never kept
+    std::array<MixScene, kMixScenes> scenes;
+    std::vector<std::string> inputNamesNow() const;
     void recordStripTune (int strip, const std::string& what, const StripParameters& before, const StripParameters& after);
 
     std::vector<ChatTurn> chat;

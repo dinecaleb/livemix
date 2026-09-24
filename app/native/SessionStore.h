@@ -47,6 +47,9 @@ namespace SessionStore
         // strip before and after, so the Inspector can show what changed and put an earlier
         // setting back on Monday as it could on Sunday. Empty until something is tuned.
         std::vector<StripTuneRecord> history;
+        // The scenes: the whole mix kept for the band, the pastor, the choir - four slots,
+        // recalled in one press on LIVE. Empty slots are saved by name only.
+        std::vector<MixScene> scenes;
         // The last TUNE LIVE MIX run, as a record: what it intended, what it built and what
         // it refused. Reading only - the mix itself is in `mix`, so opening yesterday's
         // session sounds exactly as it did without contacting any provider, ever. Null when

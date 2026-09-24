@@ -10,7 +10,10 @@
 namespace livemix
 {
 
-MixController::MixController() = default;
+MixController::MixController()
+{
+    for (int i = 0; i < kMixScenes; ++i) scenes[size_t (i)].name = defaultSceneName (i);
+}
 MixController::~MixController()
 {
     engine.setTap (nullptr);
@@ -255,8 +258,114 @@ MixParameters MixController::compose() const
         raw.monitor = base.monitor;      // the engineer's listen is not part of the mix being bypassed
         return raw;
     }
-    return MixMacros::applyVoicing (MixMacros::apply (base, macros, engine.getGraph(), session.profile),
-                                    session.voicing, session.profile);
+    auto out = MixMacros::applyVoicing (MixMacros::apply (base, macros, engine.getGraph(), session.profile),
+                                        session.voicing, session.profile);
+    out.broadcastDim = broadcastDim;
+    out.broadcastMute = broadcastMute;
+    return out;
+}
+
+// ---- The emergency keys ----
+
+void MixController::setBroadcastDim (bool on)
+{
+    if (broadcastDim == on) return;
+    broadcastDim = on;
+    publish();
+    if (onMessage) onMessage (on ? "Broadcast dimmed 20 dB. Your own listen is unchanged; press DIM again to bring it back."
+                                 : "Broadcast back to full level.");
+}
+
+void MixController::setBroadcastMute (bool on)
+{
+    if (broadcastMute == on) return;
+    broadcastMute = on;
+    publish();
+    if (onMessage) onMessage (on ? "Broadcast muted. Your own listen is unchanged; press MUTE again to bring it back."
+                                 : "Broadcast unmuted.");
+}
+
+// ---- Scenes ----
+
+std::vector<std::string> MixController::inputNamesNow() const
+{
+    std::vector<std::string> names;
+    for (const auto& in : session.inputs) names.push_back (in.name);
+    return names;
+}
+
+const MixScene& MixController::getScene (int slot) const
+{
+    static const MixScene none;
+    if (slot < 0 || slot >= kMixScenes) return none;
+    return scenes[size_t (slot)];
+}
+
+void MixController::keepScene (int slot)
+{
+    if (slot < 0 || slot >= kMixScenes || ! prepared) return;
+    auto& s = scenes[size_t (slot)];
+    if (s.name.empty()) s.name = defaultSceneName (slot);
+    s.kept = true;
+    s.mix = kept;
+    s.macros = macros;
+    s.inputs = inputNamesNow();
+    if (onMessage) onMessage ("Kept as " + s.name + ". One press on it brings this whole mix back.");
+    if (onMixChanged) onMixChanged();
+}
+
+bool MixController::recallScene (int slot)
+{
+    if (slot < 0 || slot >= kMixScenes || ! prepared) return false;
+    const auto& s = scenes[size_t (slot)];
+    if (! s.kept)
+    {
+        if (onMessage) onMessage (s.name.empty() ? std::string ("Nothing is kept there yet.") : s.name + " has nothing kept yet. Set the mix, then KEEP it there.");
+        return false;
+    }
+    if (s.inputs != inputNamesNow() || s.mix.numStrips != kept.numStrips)
+    {
+        if (onMessage) onMessage (s.name + " was kept with a different set of inputs. Set the mix and KEEP it again.");
+        return false;
+    }
+    markMixChange ("recalling " + s.name);
+    const MixParameters was = kept;
+    kept = s.mix;
+    kept.numStrips = std::min (kept.numStrips, engine.getNumStrips());
+    // Monitoring is the engineer's, not the scene's: what solo goes to and how loud stays.
+    kept.monitor = was.monitor;
+    for (int i = 0; i < kept.numStrips; ++i) kept.strips[size_t (i)].solo = was.strips[size_t (i)].solo;
+    for (int b = 0; b < int (MixBus::Count); ++b) kept.buses[size_t (b)].solo = was.buses[size_t (b)].solo;
+    macros = s.macros;
+    mixed = true;
+    plan.reset();
+    tuningStrip = -1;
+    compare = Compare::After;
+    stage = restingStage();
+    for (int i = 0; i < kept.numStrips && i < was.numStrips; ++i)
+        recordStripTune (i, "Scene: " + s.name, was.strips[size_t (i)], kept.strips[size_t (i)]);
+    publish();
+    if (onMessage) onMessage (s.name + " is back.");
+    if (onMixChanged) onMixChanged();
+    return true;
+}
+
+void MixController::renameScene (int slot, const std::string& name)
+{
+    if (slot < 0 || slot >= kMixScenes) return;
+    scenes[size_t (slot)].name = name.empty() ? defaultSceneName (slot) : name;
+    if (onMixChanged) onMixChanged();
+}
+
+std::vector<MixScene> MixController::getScenes() const
+{
+    return std::vector<MixScene> (scenes.begin(), scenes.end());
+}
+
+void MixController::restoreScenes (const std::vector<MixScene>& list)
+{
+    for (int i = 0; i < kMixScenes; ++i) scenes[size_t (i)] = i < int (list.size()) ? list[size_t (i)] : MixScene {};
+    for (int i = 0; i < kMixScenes; ++i) if (scenes[size_t (i)].name.empty()) scenes[size_t (i)].name = defaultSceneName (i);
 }
 
 void MixController::setOutputFeeds (const OutputFeeds& f)

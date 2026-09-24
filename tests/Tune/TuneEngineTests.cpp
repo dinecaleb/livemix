@@ -410,3 +410,34 @@ TEST_CASE ("Tune: a sampled drum microphone is gated far harder, and the rest of
     CHECK (! tp.proposed.gateEnabled);
     CHECK (tk.proposed.gateEnabled);
 }
+
+TEST_CASE ("Tune: a sampled snare keeps a shallow expander so its ghost notes come through; a sampled kick closes hard")
+{
+    for (auto role : { ChannelRole::SnareTop, ChannelRole::KickIn })
+    {
+        auto a = onTarget (role);
+        a.bleedEstimate = 0.5f; a.noiseFloorDb = a.hitLevelDb - 25.0f; a.bleedLevelDb = a.hitLevelDb - 20.0f; a.musicalPeakDb = a.hitLevelDb + 9.0f;
+        auto ctx = context (role, a);
+        ctx.current.replaceEnabled = true;
+        ctx.sampled = true;
+        ctx.kitSampled = true;
+        const auto r = TuneEngine::tune (ctx);
+        REQUIRE (r.valid);
+        CHECK (r.proposed.gateEnabled);
+        if (role == ChannelRole::SnareTop)
+        {
+            CHECK_NEAR (r.proposed.gateRangeDb, 20.0f, 0.01f);
+            CHECK_NEAR (r.proposed.gateRatio, 4.0f, 0.01f);
+            const auto* item = find (r, TuneSection::Bleed, "Gate tightened for the sample");
+            REQUIRE (item != nullptr);
+            CHECK (item->why.find ("ghost notes") != std::string::npos);
+        }
+        else
+        {
+            CHECK (r.proposed.gateRangeDb >= 40.0f);
+            CHECK_NEAR (r.proposed.gateRatio, 10.0f, 0.01f);
+        }
+    }
+    // Toms play their sample as recorded until the engineer turns following on.
+    CHECK (! StyleProfile::baseline (ChannelRole::RackTom, StyleProfileId::ModernGospel).replaceFollowDrum);
+}

@@ -124,6 +124,56 @@ namespace
         }
     }
 
+    juce::var mixToVar (const MixParameters& m);
+    void mixFromVar (const juce::var& v, MixParameters& m);
+
+    juce::var scenesToVar (const std::vector<MixScene>& scenes)
+    {
+        juce::Array<juce::var> out;
+        for (const auto& s : scenes)
+        {
+            auto* so = new juce::DynamicObject();
+            so->setProperty ("name", juce::String (s.name));
+            so->setProperty ("kept", s.kept);
+            if (s.kept)
+            {
+                so->setProperty ("mix", mixToVar (s.mix));
+                juce::Array<juce::var> macros;
+                for (float v : s.macros.v) macros.add (v);
+                so->setProperty ("macros", macros);
+                juce::Array<juce::var> inputs;
+                for (const auto& n : s.inputs) inputs.add (juce::String (n));
+                so->setProperty ("inputs", inputs);
+            }
+            out.add (juce::var (so));
+        }
+        return out;
+    }
+
+    void scenesFromVar (const juce::var& v, std::vector<MixScene>& scenes)
+    {
+        scenes.clear();
+        auto* arr = v.getArray();
+        if (arr == nullptr) return;
+        for (const auto& sv : *arr)
+        {
+            auto* so = sv.getDynamicObject();
+            if (so == nullptr) continue;
+            MixScene s;
+            s.name = so->getProperty ("name").toString().toStdString();
+            s.kept = bool (so->getProperty ("kept"));
+            if (s.kept)
+            {
+                mixFromVar (so->getProperty ("mix"), s.mix);
+                if (auto* macros = so->getProperty ("macros").getArray())
+                    for (int i = 0; i < std::min (int (MixMacro::Count), macros->size()); ++i) s.macros.set (MixMacro (i), float (double (macros->getReference (i))));
+                if (auto* inputs = so->getProperty ("inputs").getArray())
+                    for (const auto& n : *inputs) s.inputs.push_back (n.toString().toStdString());
+            }
+            scenes.push_back (std::move (s));
+        }
+    }
+
     juce::var mixToVar (const MixParameters& m)
     {
         auto* obj = new juce::DynamicObject();
@@ -430,6 +480,7 @@ juce::var toVar (const Document& d)
     obj->setProperty ("hasMix", d.hasMix);
     if (d.hasMix) obj->setProperty ("mix", mixToVar (d.mix));
     if (! d.history.empty()) obj->setProperty ("history", historyToVar (d.history));   // the track history; absent = none yet
+    if (! d.scenes.empty()) obj->setProperty ("scenes", scenesToVar (d.scenes));       // the scenes; absent = none kept
     obj->setProperty ("project", projectToVar (d.project));
     // Stored for REVIEW CHANGES and for the record. Nothing reads it back into the mix: the
     // parameters that actually run are in "mix", which is the only thing the engine is given.
@@ -496,6 +547,7 @@ bool fromVar (const juce::var& v, Document& d)
     d.hasMix = bool (obj->getProperty ("hasMix"));
     if (d.hasMix) mixFromVar (obj->getProperty ("mix"), d.mix);
     historyFromVar (obj->getProperty ("history"), d.history);       // absent before the track history existed
+    scenesFromVar (obj->getProperty ("scenes"), d.scenes);          // absent before scenes existed
     projectFromVar (obj->getProperty ("project"), d.project);      // absent in version 1: no timeline yet
     d.tuneLive = obj->getProperty ("tuneLive");                     // absent until a live run has been made
     referenceFromVar (obj->getProperty ("reference"), d.reference);  // absent unless the mix is aimed at a recording

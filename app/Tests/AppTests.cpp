@@ -1341,3 +1341,143 @@ TEST_CASE ("DevicePlan: a session opens on its own devices when they are here, o
     CHECK (p.action == DevicePlan::Action::None);
     CHECK (p.note.contains ("No audio device is open"));
 }
+
+// ---------------------------------------------------------------------------
+// The emergency keys, and scenes
+// ---------------------------------------------------------------------------
+TEST_CASE ("DIM and MUTE: the broadcast drops or goes silent on every feed but the engineer's listen, and nothing is kept, saved or undone")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    OutputFeeds feeds = OutputFeeds::mainOnly();
+    feeds.count = 2;
+    feeds.feeds[1].monitor = true; feeds.feeds[1].left = 2; feeds.feeds[1].right = 3; feeds.feeds[1].mono = false; feeds.feeds[1].mute = false;
+    c.setOutputFeeds (feeds);
+    c.setStripSolo (0, true);                         // the listen carries the kick
+
+    std::vector<std::vector<float>> in (6, std::vector<float> (size_t (kBlock), 0.0f));
+    std::vector<const float*> ip;
+    for (auto& v : in) ip.push_back (v.data());
+    std::vector<std::vector<float>> out (4, std::vector<float> (size_t (kBlock), 0.0f));
+    float* op[4] = { out[0].data(), out[1].data(), out[2].data(), out[3].data() };
+    auto run = [&] (int blocks)
+    {
+        float broadcast = 0.0f, listen = 0.0f;
+        for (int b = 0; b < blocks; ++b)
+        {
+            for (int i = 0; i < kBlock; ++i) in[0][size_t (i)] = 0.5f * std::sin (2.0f * float (M_PI) * 100.0f * float (b * kBlock + i) / float (kSr));
+            c.process (ip.data(), 6, op, 4, kBlock);
+            if (b < blocks * 3 / 4) continue;         // let the smoothers land: the last quarter is measured
+            for (int i = 0; i < kBlock; ++i)
+            {
+                broadcast = std::max ({ broadcast, std::fabs (out[0][size_t (i)]), std::fabs (out[1][size_t (i)]) });
+                listen = std::max ({ listen, std::fabs (out[2][size_t (i)]), std::fabs (out[3][size_t (i)]) });
+            }
+        }
+        return std::make_pair (broadcast, listen);
+    };
+    const auto plain = run (240);
+    REQUIRE (plain.first > 0.01f);
+    REQUIRE (plain.second > 0.01f);
+
+    c.setBroadcastDim (true);
+    CHECK (c.isBroadcastDimmed());
+    const auto dimmed = run (240);
+    CHECK_NEAR (20.0f * std::log10 (dimmed.first / plain.first), -20.0f, 0.5f);
+    CHECK_NEAR (dimmed.second, plain.second, 0.01f);   // the listen is untouched
+    CHECK (! c.canUndoMix());                          // not a mix change
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), c.getKept()) == 0);
+
+    c.setBroadcastMute (true);
+    const auto muted = run (240);
+    CHECK (muted.first < 1.0e-4f);
+    CHECK_NEAR (muted.second, plain.second, 0.01f);
+    // LIVE SAFE never locks them.
+    c.setLiveSafe (true);
+    c.setBroadcastMute (false);
+    c.setBroadcastDim (false);
+    CHECK (! c.isBroadcastMuted());
+    CHECK (! c.isBroadcastDimmed());
+    const auto back = run (240);
+    CHECK_NEAR (back.first, plain.first, 0.01f);
+    // Never saved: a session must not open muted.
+    c.setBroadcastMute (true);
+    SessionStore::Document d;
+    d.session = c.getSession(); d.hasMix = true; d.mix = c.getKept();
+    SessionStore::Document backDoc;
+    REQUIRE (SessionStore::fromVar (juce::JSON::parse (juce::JSON::toString (SessionStore::toVar (d))), backDoc));
+    CHECK (! backDoc.mix.broadcastMute);
+}
+
+TEST_CASE ("Scenes: KEEP holds the whole mix under a name, RECALL brings it back as one undoable change, and a scene kept on other inputs is refused")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    std::vector<std::string> messages;
+    c.onMessage = [&] (const std::string& m) { messages.push_back (m); };
+    REQUIRE (c.numScenes() == 4);
+    CHECK (c.getScene (0).name == "Band");
+    CHECK (c.getScene (1).name == "Speech");
+    CHECK (! c.getScene (0).kept);
+
+    // Nothing kept yet: refused, with the sentence.
+    CHECK (! c.recallScene (0));
+    CHECK (messages.back().find ("nothing kept") != std::string::npos);
+
+    // The band mix: kick up, keys down, a macro; kept as Band.
+    c.setStripFader (0, 3.0f);
+    c.setStripFader (2, -6.0f);
+    c.setMacro (MixMacro::Drums, 70.0f);
+    c.keepScene (0);
+    CHECK (c.getScene (0).kept);
+    // The speech mix: everything but the lead down; kept as Speech.
+    c.setStripFader (0, -20.0f);
+    c.setStripFader (2, -20.0f);
+    c.setStripFader (3, 2.0f);
+    c.setMacro (MixMacro::Drums, 30.0f);
+    c.keepScene (1);
+
+    // Recall Band: faders and macros as kept, one undo step, the strip history says so.
+    c.setStripSolo (1, true);                         // solo is the engineer's and survives a recall
+    REQUIRE (c.recallScene (0));
+    CHECK_NEAR (c.getKept().strips[0].faderDb, 3.0f, 0.01f);
+    CHECK_NEAR (c.getKept().strips[2].faderDb, -6.0f, 0.01f);
+    CHECK_NEAR (c.getMacros().get (MixMacro::Drums), 70.0f, 0.01f);
+    CHECK (c.getKept().strips[1].solo);
+    CHECK (c.undoMixLabel() == "recalling Band");
+    REQUIRE (! c.getStripHistory (0).empty());
+    CHECK (c.getStripHistory (0).back().what == "Scene: Band");
+    c.undoMix();
+    CHECK_NEAR (c.getKept().strips[0].faderDb, -20.0f, 0.01f);
+    // Under LIVE SAFE a recall goes through.
+    c.setLiveSafe (true);
+    REQUIRE (c.recallScene (1));
+    CHECK_NEAR (c.getKept().strips[3].faderDb, 2.0f, 0.01f);
+    c.setLiveSafe (false);
+
+    // Saved with the session, by name, and refused on a different set of inputs.
+    c.renameScene (2, "Choir");
+    SessionStore::Document d;
+    d.session = c.getSession(); d.hasMix = true; d.mix = c.getKept(); d.scenes = c.getScenes();
+    SessionStore::Document back;
+    REQUIRE (SessionStore::fromVar (juce::JSON::parse (juce::JSON::toString (SessionStore::toVar (d))), back));
+    REQUIRE (back.scenes.size() == 4u);
+    CHECK (back.scenes[0].kept);
+    CHECK (back.scenes[2].name == "Choir");
+    CHECK (! back.scenes[2].kept);
+    CHECK_NEAR (back.scenes[0].mix.strips[0].faderDb, 3.0f, 0.01f);
+    CHECK (back.scenes[0].inputs.size() == 5u);
+
+    MixSession other = band();
+    other.inputs[1].name = "Bass DI";
+    MixController c2;
+    c2.setSession (other);
+    c2.prepare (kSr, kBlock);
+    c2.onMessage = [&] (const std::string& m) { messages.push_back (m); };
+    c2.restoreScenes (back.scenes);
+    CHECK (c2.getScene (0).kept);
+    CHECK (! c2.recallScene (0));
+    CHECK (messages.back().find ("different set of inputs") != std::string::npos);
+}

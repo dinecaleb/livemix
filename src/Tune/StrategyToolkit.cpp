@@ -636,26 +636,33 @@ void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, 
         const float floorGap = L.hitDb - L.floorDb;
         if (floorGap < 6.0f) return;                      // nothing to gate between: leave what is there
         const float detHpf = clamp (std::max (t.gateDetectorHpfHz, fundamentalHz > 0.0f ? 0.7f * fundamentalHz : 0.0f), 0.0f, 250.0f);
-        const float threshold = roundDb (clamp (L.floorDb + 0.6f * floorGap, -70.0f, L.hitDb - 9.0f));
-        const float range = std::round (clamp (t.gateMaxRangeDb + 15.0f, 20.0f, 50.0f));
+        // A snare's ghost notes live 20 to 30 dB under its hits and the sample never fires on
+        // them, so a snare keeps a shallower, gentler expander with its threshold low: the
+        // ghost notes come through the microphone, the sample carries the hits. A kick or a
+        // tom has no ghost notes to keep and closes hard.
+        const bool snare = family == RoleFamily::Snare;
+        const float threshold = roundDb (clamp (L.floorDb + (snare ? 0.4f : 0.6f) * floorGap, -70.0f, L.hitDb - (snare ? 14.0f : 9.0f)));
+        const float range = snare ? 20.0f : std::round (clamp (t.gateMaxRangeDb + 15.0f, 20.0f, 50.0f));
+        const float ratio = snare ? 4.0f : 10.0f;
         const float hold = a.meanDecayMs > 0.0f ? std::round (clamp (0.4f * a.meanDecayMs, 25.0f, 120.0f)) : 40.0f;
         const float release = a.meanDecayMs > 0.0f ? std::round (clamp (0.5f * a.meanDecayMs, 40.0f, 200.0f)) : 80.0f;
         const bool same = cur.gateEnabled && std::fabs (cur.gateThresholdDb - threshold) < 1.0f && std::fabs (cur.gateRangeDb - range) < 1.0f
-                       && std::fabs (cur.gateHoldMs - hold) < 1.0f && std::fabs (cur.gateReleaseMs - release) < 1.0f && cur.gateRatio >= 8.0f;
+                       && std::fabs (cur.gateHoldMs - hold) < 1.0f && std::fabs (cur.gateReleaseMs - release) < 1.0f && std::fabs (cur.gateRatio - ratio) < 0.5f;
         if (same) return;
-        d.move (Recommendation::Kind::Gate, TuneSection::Bleed,
-                "Gate tightened for the sample: threshold " + fmtDb (threshold, 0) + ", " + num ("%.0f dB range", double (range)),
-                "The sample carries this drum's body now, so the microphone only has to supply the attack: between " + plural (eventNoun (ctx))
+        std::string why = "The sample carries this drum's body now, so the microphone only has to supply the attack: between " + plural (eventNoun (ctx))
                 + " it closes " + num ("%.0f dB", double (range)) + " (it sits at " + num ("%.0f dBFS", double (L.floorDb)) + " there, the "
                 + plural (eventNoun (ctx)) + " reach " + num ("%.0f dBFS", double (L.hitDb)) + "), holds " + num ("%.0f ms", double (hold))
-                + " and lets go in " + num ("%.0f ms", double (release)) + ", so nothing the microphone hears of the rest of the kit is left under a clean sample.",
+                + " and lets go in " + num ("%.0f ms", double (release)) + ".";
+        why += snare ? " On a snare the expander stays shallow and its threshold low, so the ghost notes - which the sample never fires on - still come through the microphone."
+                     : " Nothing the microphone hears of the rest of the kit is left under a clean sample.";
+        d.move (Recommendation::Kind::Gate, TuneSection::Bleed,
+                "Gate tightened for the sample: threshold " + fmtDb (threshold, 0) + ", " + num ("%.0f dB range", double (range)), why,
                 Confidence::High,
                 [=] (ChannelParameters& p)
                 {
-                    p.gateEnabled = true; p.gateThresholdDb = threshold; p.gateRangeDb = range;
+                    p.gateEnabled = true; p.gateThresholdDb = threshold; p.gateRangeDb = range; p.gateRatio = ratio;
                     p.gateHoldMs = hold; p.gateReleaseMs = release;
-                    if (p.gateRatio < 8.0f) p.gateRatio = 10.0f;
-                    if (p.gateHysteresisDb < 3.0f) p.gateHysteresisDb = 4.0f;
+                    if (p.gateHysteresisDb < 3.0f) p.gateHysteresisDb = snare ? 3.0f : 4.0f;
                     if (detHpf >= 20.0f) p.gateScHpfHz = detHpf;
                 });
         return;

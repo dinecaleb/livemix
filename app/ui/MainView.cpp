@@ -565,6 +565,10 @@ public:
                 m.addSeparator();
                 m.addItem (608, "Open Mixer in a New Window");
                 m.addItem (609, "Outputs" + juce::String (Glyph::ellip()));
+                m.addItem (630, "Check Inputs" + juce::String (Glyph::ellip()));
+                m.addSeparator();
+                m.addItem (631, "Dim the Broadcast (20 dB)", true, view.controller.isBroadcastDimmed());
+                m.addItem (632, "Mute the Broadcast", true, view.controller.isBroadcastMuted());
                 m.addSeparator();
                 m.addItem (610, (view.sidebarShown ? "Hide Sidebar" : "Show Sidebar") + juce::String ("   ")
                                     + juce::String (juce::CharPointer_UTF8 ("\xe2\x8c\x83\xe2\x8c\x98")) + "S");
@@ -698,6 +702,17 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     bypassButton->onClick = [this] { setBypass (! controller.isBypassed()); };
     addChildComponent (*bypassButton);
 
+    // The emergency keys. One press each way; lit while on; never a mix change, so nothing to
+    // save or undo, and LIVE SAFE never locks them. Only the engineer's own listen is spared.
+    dimButton = std::make_unique<ToolbarToggle> ("DIM");
+    dimButton->setTooltip ("Pull the broadcast and the room down 20 dB, now. Your own listen is unchanged. Press again to bring it back.");
+    dimButton->onClick = [this] { controller.setBroadcastDim (! controller.isBroadcastDimmed()); updateChrome(); };
+    addChildComponent (*dimButton);
+    muteButton = std::make_unique<ToolbarToggle> ("MUTE");
+    muteButton->setTooltip ("Silence the broadcast and the room, now. Your own listen is unchanged. Press again to bring it back.");
+    muteButton->onClick = [this] { controller.setBroadcastMute (! controller.isBroadcastMuted()); updateChrome(); };
+    addChildComponent (*muteButton);
+
     liveSafeButton = std::make_unique<ToolbarToggle> ("LIVE SAFE");
     liveSafeButton->setTooltip ("Locks the sound: re-routes and re-tunes are blocked, and a fader cannot move more "
                                 "than 6 dB at a time. Mute, solo, the monitor and the recording always stay free.");
@@ -803,6 +818,7 @@ MainView::~MainView()
     stopTimer();
     mixerWindow.reset();
     outputsSheet.reset();
+    checkSheet.reset();
     themeSheet.reset();
     channelSheet.reset();
     chatSheet.reset();
@@ -916,6 +932,10 @@ void MainView::updateChrome()
     show (outputButton, running || inWorkspace);
     show (*bypassButton, inWorkspace && mixable);
     bypassButton->setOn (controller.isBypassed());
+    show (*dimButton, inWorkspace && mixable);
+    dimButton->setOn (controller.isBroadcastDimmed());
+    show (*muteButton, inWorkspace && mixable);
+    muteButton->setOn (controller.isBroadcastMuted());
     show (*liveSafeButton, inWorkspace && mixable);
     liveSafeButton->setOn (project.liveSafe);
     liveSafeButton->setSuffix (project.liveSafe ? "ON" : "OFF");
@@ -1143,6 +1163,7 @@ void MainView::setBypass (bool on)
 void MainView::closeSheets()
 {
     outputsSheet.reset();
+    checkSheet.reset();
     themeSheet.reset();
     channelSheet.reset();
     chatSheet.reset();
@@ -1180,6 +1201,20 @@ void MainView::applyThemeNamed (const juce::String& name)
     updateChrome();
     if (menu != nullptr) menu->menuItemsChanged();       // the macOS menu is cached until the model says it changed
     showToast ("Appearance: " + theme.name);
+}
+
+void MainView::showCheck()
+{
+    if (checkSheet != nullptr) { checkSheet->refresh(); return; }
+    checkSheet = std::make_unique<CheckSheet> (controller, services);
+    checkSheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->checkSheet.reset(); safe->updateChrome(); } });
+    };
+    addAndMakeVisible (*checkSheet);
+    resized();
+    checkSheet->toFront (true);
 }
 
 void MainView::showOutputs()
@@ -1648,6 +1683,9 @@ void MainView::handleCommand (int id)
         case 607: tracksPage->zoomToFit(); break;
         case 608: openMixerWindow(); break;
         case 609: showOutputs(); break;
+        case 630: showCheck(); break;
+        case 631: controller.setBroadcastDim (! controller.isBroadcastDimmed()); updateChrome(); break;
+        case 632: controller.setBroadcastMute (! controller.isBroadcastMuted()); updateChrome(); break;
         case 620: showThemes(); break;
         case 621: showThemes(); if (themeSheet != nullptr) themeSheet->importTheme(); break;
         case 622: ThemeStore::folder().createDirectory(); ThemeStore::folder().revealToUser(); break;
@@ -1723,7 +1761,7 @@ bool MainView::keyPressed (const juce::KeyPress& key)
     if (code == 'M')                       { handleCommand (203); return true; }
     if (code == '[')                       { handleCommand (611); return true; }
     if (code == ']')                       { handleCommand (612); return true; }
-    if (code == juce::KeyPress::escapeKey) { if (chatSheet != nullptr || outputsSheet != nullptr || themeSheet != nullptr) { closeSheets(); return true; } }
+    if (code == juce::KeyPress::escapeKey) { if (chatSheet != nullptr || outputsSheet != nullptr || checkSheet != nullptr || themeSheet != nullptr) { closeSheets(); return true; } }
     if (code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey)
     {
         if (page == Page::Tracks) { handleCommand (202); return true; }
@@ -1915,6 +1953,7 @@ void MainView::timerCallback()
     else if (page == Page::Inspector) advancedPage->refresh();
 
     if (channelSheet != nullptr) channelSheet->refresh();
+    if (checkSheet != nullptr) checkSheet->refresh();
     if (chatSheet != nullptr) chatSheet->refresh();
 
     const bool slow = (++slowTicks % 30) == 0;
@@ -2054,7 +2093,9 @@ void MainView::resized()
     auto right = bar;
     const int transportNeed = transportBar->isVisible() ? transportBar->idealWidth() + 16 : 0;
     const int clusterNeed = (bypassButton->isVisible() ? bypassButton->idealWidth() + 16 : 0)
-                          + (liveSafeButton->isVisible() ? liveSafeButton->idealWidth() + 10 : 0);
+                          + (liveSafeButton->isVisible() ? liveSafeButton->idealWidth() + 10 : 0)
+                          + (dimButton->isVisible() ? dimButton->idealWidth() + 8 : 0)
+                          + (muteButton->isVisible() ? muteButton->idealWidth() + 16 : 0);
     if (outputButton.isVisible())
     {
         const int room = bar.getWidth() - transportNeed - clusterNeed - 24;
@@ -2072,6 +2113,19 @@ void MainView::resized()
     {
         const int w = bypassButton->idealWidth();
         bypassButton->setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
+        right.removeFromRight (16);
+    }
+    // The emergency keys sit left of the cluster, a pair, so the hand finds them without reading.
+    if (muteButton->isVisible())
+    {
+        const int w = muteButton->idealWidth();
+        muteButton->setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
+        right.removeFromRight (8);
+    }
+    if (dimButton->isVisible())
+    {
+        const int w = dimButton->idealWidth();
+        dimButton->setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
         right.removeFromRight (16);
     }
     auto left = bar.withRight (right.getRight());
@@ -2105,7 +2159,7 @@ void MainView::resized()
     // A sheet covers the workspace column; the chat is a panel down the right of it.
     auto column = columnBounds();
     for (juce::Component* sheetComponent : { (juce::Component*) outputsSheet.get(), (juce::Component*) themeSheet.get(),
-                                             (juce::Component*) channelSheet.get() })
+                                             (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)
     {

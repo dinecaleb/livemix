@@ -14,6 +14,20 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   versions 1 and 2. Import a folder of stems with `MultitrackImport` (it becomes tracks and clips - there is no
   separate "play a recording" audio path any more). Export is `MixBounce::renderProject`, streamed to disk.
   App tests for all of this: `build/app/dlive_app_tests` (`app/Tests/DawTests.cpp`).
+- **Before the service (2026-09-24).** Three things an engineer reaches for during a service, each one press:
+  - The emergency keys, DIM and MUTE, on the toolbar beside BYPASS (and under View): the broadcast and the room
+    pulled down 20 dB, or silenced, on every feed but the engineer's listen (`MixController::setBroadcastDim /
+    Mute`, an overlay in `compose()` that the engine ramps per block on the non-monitor feeds). Lit while on; never
+    kept, saved or undone - a session must not open muted; LIVE SAFE never locks them.
+  - SCENES, a row on LIVE between the group tiles and the monitor card: four pads (Band, Speech, Worship, Custom)
+    with a KEEP chip each. KEEP writes the kept mix and the macros into the slot under the inputs' names; a press
+    on the pad brings the whole mix back as one undoable change (LIVE SAFE lets it through; solo and the monitor
+    are the engineer's and stay), and is refused with a sentence on a different set of inputs. `MixScene` in
+    `app/native/MixHistory.h`; saved in the session document (`scenes`); each recall is a record in every
+    changed channel's history ("Scene: Band").
+  - CHECK INPUTS (View > Check Inputs..., `app/ui/CheckSheet`): every assigned input with its level now, its peak
+    since the sheet opened, and one word - OK, SILENT (nothing above -60 dBFS for three seconds), LOW (never above
+    -30), HOT (over -6), CLIP - under a headline that counts them ("13 inputs · 11 OK · 2 silent"). Reading only.
 - A session opens whether or not the console it was recorded on is plugged in (2026-09-24, `app/native/DevicePlan.h`):
   its own devices when they are here; otherwise whatever is open already; otherwise an output alone so the
   recording still plays; otherwise no device and the Audio device page. Every case but the first is a sentence on

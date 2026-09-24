@@ -846,6 +846,21 @@ int main (int argc, char** argv)
     rig.controller.setBusSolo (MixBus::Vocals, false);
     rig.feed (0.3);
 
+    // SCENES: the band's mix kept, then the pastor's; two pads lit, two empty. And the
+    // emergency keys: DIM lit on the toolbar while the broadcast is 20 dB down.
+    rig.controller.keepScene (0);
+    rig.controller.setStripFader (0, -20.0f);
+    rig.controller.setStripFader (12, 3.0f);
+    rig.controller.keepScene (1);
+    rig.controller.recallScene (0);
+    rig.controller.setBroadcastDim (true);
+    view.updateChromeForSnapshot();
+    rig.feed (0.5);
+    rig.snap (dir, "17c-live-scenes-dimmed");
+    rig.controller.setBroadcastDim (false);
+    view.updateChromeForSnapshot();
+    rig.feed (0.3);
+
     // TUNE CHANNEL: one source listened to and tuned on its own, over whatever workspace
     // it was clicked on. Here: the lead vocal, from the console.
     view.showPage (MainView::Page::Mixer);
@@ -878,6 +893,13 @@ int main (int argc, char** argv)
     view.showOutputs();
     rig.feed (0.4);
     rig.snap (dir, "18-outputs");
+    view.closeSheetsForSnapshot();
+    // CHECK INPUTS: every assigned input with its level and one word, at the moment the band is playing.
+    view.showCheck();
+    rig.feed (3.5);                         // three seconds decide "silent"
+    rig.snap (dir, "18b-check-inputs");
+    view.closeSheetsForSnapshot();
+    rig.feed (0.2);
 
     // MIX CHAT: a change asked for in words. It works with no account and no network - with no
     // cloud model configured the sentence is read by DLIVE's own parser, which is deterministic

@@ -1,4 +1,5 @@
 #include "LivePage.h"
+#include "native/MixHistory.h"
 #include "OutputsSheet.h"
 #include "UI/Widgets.h"
 #include <cmath>
@@ -14,6 +15,7 @@ namespace
     constexpr int kPadX = 24, kPadY = 22, kGap = 20;
     constexpr int kStatusH = 100;
     constexpr int kSafeW = 330;
+    constexpr int kScenesH = 78;
     // The monitor card's rows, measured once: the caption, a gap, the chips, a gap, the level, a gap, the sentence.
     constexpr int kMonCaption = 14, kMonCaptionGap = 12, kMonRowGap = 20, kMonNoteGap = 16, kMonNote = 18;
 
@@ -280,6 +282,24 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         repaint();
     };
 
+    // ---- scenes: one press brings a whole mix back
+    for (int i = 0; i < 4; ++i)
+    {
+        scenePads[size_t (i)] = std::make_unique<DineButton> (juce::String (defaultSceneName (i)), DineButton::Style::Toggle);
+        scenePads[size_t (i)]->setFontPx (13.0f);
+        scenePads[size_t (i)]->setClickingTogglesState (false);
+        scenePads[size_t (i)]->setTooltip ("Bring this whole mix back - every fader, chain and macro - in one press. UNDO takes it back. LIVE SAFE never locks it.");
+        scenePads[size_t (i)]->onClick = [this, i] { controller.recallScene (i); refreshScenes(); };
+        addAndMakeVisible (*scenePads[size_t (i)]);
+        sceneKeeps[size_t (i)] = std::make_unique<DineButton> ("Keep", DineButton::Style::Ghost);
+        sceneKeeps[size_t (i)]->setFontPx (11.0f);
+        sceneKeeps[size_t (i)]->setCaps (true);
+        sceneKeeps[size_t (i)]->setTooltip ("Keep the mix as it is now under this name.");
+        sceneKeeps[size_t (i)]->onClick = [this, i] { controller.keepScene (i); services.saveSession(); refreshScenes(); };
+        addAndMakeVisible (*sceneKeeps[size_t (i)]);
+    }
+    refreshScenes();
+
     // ---- the engineer's own listen: six chips and a level
     const char* labels[6] = { "MONITOR SOLO", "SOLO IN PLACE", "AFL", "PFL", "DIM", "CLEAR SOLO" };
     const char* tips[6] = {
@@ -354,6 +374,7 @@ void LivePage::refreshMonitor()
 
 void LivePage::rebuild()
 {
+    refreshScenes();
     for (auto& t : tiles) if (t != nullptr) t->refresh();
     refreshMonitor();
     repaint();
@@ -370,6 +391,8 @@ void LivePage::updateDiskNote()
 
 void LivePage::refresh()
 {
+    refreshScenes();                 // the pads follow the controller: a scene kept from anywhere shows here
+
     for (auto& t : tiles) if (t != nullptr) t->refresh();
     updateDiskNote();
 
@@ -450,7 +473,9 @@ LivePage::Layout LivePage::layout() const
     auto r = getLocalBounds().reduced (kPadX, kPadY);
     l.status = r.removeFromTop (kStatusH);
     r.removeFromTop (kGap);
-    l.tiles = r.removeFromTop (juce::jmin (200, juce::jmax (180, r.getHeight() - kGap - 190)));
+    l.tiles = r.removeFromTop (juce::jmin (200, juce::jmax (160, r.getHeight() - kGap - kScenesH - kGap - 190)));
+    r.removeFromTop (kGap);
+    l.scenes = r.removeFromTop (kScenesH);
     r.removeFromTop (kGap);
     auto lower = r.withHeight (juce::jlimit (190, 260, r.getHeight()));
     l.safe = lower.removeFromRight (kSafeW);
@@ -499,6 +524,13 @@ void LivePage::paint (juce::Graphics& g)
         row.removeFromLeft (12);
         card (row, "Master headroom", look.headroom, look.headroomNote, Dine::card,
               headroomDb < 0.5f ? Dine::crit : headroomDb < 3.0f ? Dine::warn : Dine::ink, true);
+    }
+
+    // ---- scenes
+    {
+        Dine::fillRounded (g, l.scenes.toFloat(), Dine::tile, Dine::Radius::card);
+        auto inner = l.scenes.reduced (18, 14);
+        Dine::drawSection (g, inner.removeFromTop (kMonCaption), "SCENES  " + juce::String (Glyph::dot()) + "  KEEP THE MIX FOR EACH PART OF THE SERVICE, BRING IT BACK IN ONE PRESS");
     }
 
     // ---- the engineer's listen
@@ -580,6 +612,22 @@ void LivePage::resized()
         }
     }
     {
+        auto inner = l.scenes.reduced (18, 14);
+        inner.removeFromTop (kMonCaption + 8);
+        auto row = inner.removeFromTop (Dine::Metric::control);
+        const int gap = 10;
+        const int cell = (row.getWidth() - gap * 3) / 4;
+        for (int i = 0; i < 4; ++i)
+        {
+            auto c = row.removeFromLeft (cell);
+            row.removeFromLeft (gap);
+            const int keepW = juce::jmax (52, sceneKeeps[size_t (i)]->idealWidth());
+            sceneKeeps[size_t (i)]->setBounds (c.removeFromRight (keepW));
+            c.removeFromRight (6);
+            scenePads[size_t (i)]->setBounds (c);
+        }
+    }
+    {
         auto inner = l.monitor.reduced (18, 18);
         inner.removeFromTop (kMonCaption + kMonCaptionGap);
         auto chipRow = inner.removeFromTop (Dine::Metric::control);
@@ -603,6 +651,26 @@ void LivePage::resized()
     {
         auto inner = l.safe.reduced (18, 18);
         liveSafeButton.setBounds (inner.removeFromTop (44));
+    }
+}
+
+} // namespace livemix
+
+namespace livemix
+{
+
+// The pads read the controller: the name, and lit while that scene is the one kept.
+void LivePage::refreshScenes()
+{
+    for (int i = 0; i < 4; ++i)
+    {
+        const auto& scene = controller.getScene (i);
+        auto& pad = *scenePads[size_t (i)];
+        const juce::String text = juce::String (scene.name.empty() ? defaultSceneName (i) : scene.name.c_str()) + (scene.kept ? "" : "  " + juce::String (Glyph::dash()));
+        if (pad.getButtonText() != text) pad.setButtonText (text);
+        pad.setToggleState (scene.kept, juce::dontSendNotification);
+        pad.setTooltip (scene.kept ? "Bring the " + juce::String (scene.name) + " mix back - every fader, chain and macro - in one press. UNDO takes it back."
+                                   : "Nothing is kept here yet. Set the mix, then KEEP.");
     }
 }
 
