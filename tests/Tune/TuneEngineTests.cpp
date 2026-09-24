@@ -287,3 +287,47 @@ TEST_CASE ("Profiles: Modern Worship is a documented variant of Modern Gospel, n
     CHECK (! g.baselines[int (RoleFamily::Overhead)].gateEnabled);
     CHECK (StyleProfile::baseline (ChannelRole::FloorTom, StyleProfileId::ModernGospel).hpfHz < StyleProfile::baseline (ChannelRole::RackTom, StyleProfileId::ModernGospel).hpfHz);
 }
+
+TEST_CASE ("Tune: the sample trigger is fitted from the listen on the inside and top microphones, never switched on, and never on the outside or bottom ones")
+{
+    for (auto role : { ChannelRole::KickIn, ChannelRole::SnareTop, ChannelRole::RackTom, ChannelRole::FloorTom })
+    {
+        auto a = onTarget (role);
+        a.bleedEstimate = 0.5f;
+        a.noiseFloorDb = a.hitLevelDb - 30.0f;
+        a.bleedLevelDb = a.hitLevelDb - 20.0f;
+        a.eventLevelDb = a.hitLevelDb + 2.0f;
+        auto ctx = context (role, a);
+        CHECK (! ctx.current.replaceEnabled);
+        auto r = TuneEngine::tune (ctx);
+        REQUIRE (r.valid);
+        const auto* item = find (r, TuneSection::Bleed, "Sample trigger fitted");
+        REQUIRE (item != nullptr);
+        CHECK (item->kind == Recommendation::Kind::Sample);
+        CHECK (item->why.find ("switch it on") != std::string::npos);          // it says the stage is off
+        const float threshold = changeValue (*item, "replaceThreshold");
+        const float level = changeValue (*item, "replaceGain");
+        const float trim = ctx.current.inputTrimDb;
+        // Between the bleed and the hits, and never within 6 dB of the bleed.
+        CHECK (threshold > a.bleedLevelDb + trim + 5.9f);
+        CHECK (threshold < a.eventLevelDb + trim);
+        CHECK_NEAR (level, std::round ((a.eventLevelDb + trim) * 2.0f) * 0.5f, 0.01f);
+        CHECK (! r.proposed.replaceEnabled);                                   // the switch is the engineer's
+        CHECK_NEAR (r.proposed.replaceBlend, ctx.current.replaceBlend, 1.0e-6f);
+        // The band never opens below the drum's own fundamental.
+        CHECK (r.proposed.replaceDetHpfHz <= 0.7f * a.fundamentalHz + 0.5f);
+        // And it holds: the same listen fits the same numbers.
+        ctx.current = r.proposed;
+        auto again = TuneEngine::tune (ctx);
+        CHECK (find (again, TuneSection::Bleed, "Sample trigger fitted") == nullptr);
+    }
+    for (auto role : { ChannelRole::KickOut, ChannelRole::SnareBottom, ChannelRole::Overhead, ChannelRole::Room, ChannelRole::HiHat })
+    {
+        auto a = onTarget (role);
+        a.bleedEstimate = 0.5f;
+        a.bleedLevelDb = a.hitLevelDb - 20.0f;
+        auto r = TuneEngine::tune (context (role, a));
+        REQUIRE (r.valid);
+        CHECK (find (r, TuneSection::Bleed, "Sample trigger fitted") == nullptr);
+    }
+}

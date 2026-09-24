@@ -36,6 +36,9 @@ struct ParameterSpec
 // struct defaults (off) inside the plugin.
 const std::vector<ParameterSpec>& channelParameterSpecs (Product p);
 const std::vector<ParameterSpec>& allParameterSpecs();       // Dine Drums table (older name)
+// Every DSP field with its bounds, whether or not any plug-in exposes it (DLIVE's sample
+// replacement stage lives here only). Not a product table: no shell or macro parameters.
+const std::vector<ParameterSpec>& dspParameterSpecs();
 bool productUsesParameter (Product p, const std::string& id);
 
 // Looks a parameter up by id across every product table (channel products first,

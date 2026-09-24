@@ -34,6 +34,22 @@ struct ChannelParameters
     float gateRatio = 4.0f;
     float gateScHpfHz = 0.0f;   // detector (sidechain) high-pass; < 20 = off. Stops kick/rumble opening tom/snare gates.
 
+    // Sample replacement (DLIVE, drum strips only): a sample blended in on every hit the
+    // detector finds. The stage sits between the gate and the corrective EQ (DSP/SampleReplacer.h).
+    bool replaceEnabled = false;
+    float replaceBlend = 0.4f;          // 0..1
+    float replaceThresholdDb = -30.0f;
+    float replaceRiseDb = 6.0f;         // the jump, in 2 ms, that makes a hit
+    float replaceDetHpfHz = 40.0f;
+    float replaceDetLpfHz = 8000.0f;
+    float replaceMaskMs = 40.0f;
+    bool replaceSteady = false;
+    float replaceOffsetMs = 0.0f;       // 0..5
+    int replacePolarity = 0;            // 0 normal, 1 flipped
+    float replaceRateSemitones = 0.0f;  // -5..5
+    float replaceGainDb = -12.0f;       // the sample's peak on a full-velocity hit, dBFS
+    int replaceSound = 0;               // which bank of the family's eight
+
     // Corrective EQ
     bool correctiveEqEnabled = true;
     std::array<EQBandParams, ParamID::kCorrectiveBands> correctiveBands {};
@@ -136,6 +152,20 @@ void forEachDspField (Params& p, F&& f)
     f (id (gateHysteresis), p.gateHysteresisDb);
     f (id (gateRatio), p.gateRatio);
     f (id (gateScHpf), p.gateScHpfHz);
+
+    f (id (replaceOn), p.replaceEnabled);
+    f (id (replaceBlend), p.replaceBlend);
+    f (id (replaceThreshold), p.replaceThresholdDb);
+    f (id (replaceRise), p.replaceRiseDb);
+    f (id (replaceDetHpf), p.replaceDetHpfHz);
+    f (id (replaceDetLpf), p.replaceDetLpfHz);
+    f (id (replaceMask), p.replaceMaskMs);
+    f (id (replaceSteady), p.replaceSteady);
+    f (id (replaceOffset), p.replaceOffsetMs);
+    f (id (replacePolarity), p.replacePolarity);
+    f (id (replaceRate), p.replaceRateSemitones);
+    f (id (replaceGain), p.replaceGainDb);
+    f (id (replaceSound), p.replaceSound);
 
     f (id (corrEqOn), p.correctiveEqEnabled);
     for (int i = 0; i < kCorrectiveBands; ++i)

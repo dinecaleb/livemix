@@ -86,6 +86,10 @@ namespace tune
     void shapeAir (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d);
     void setCompression (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d);
     void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, float fundamentalHz);
+    // Sample replacement (kick / snare / toms): the detector's threshold, band, mask and the
+    // sample's level, all from the listen; the switch, the blend and the sound are the
+    // engineer's and are never touched. Nothing happens for a family it is not for.
+    void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, float fundamentalHz);
     void setMixGain (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d);
     void stereoBalanceNote (const TuneContext& ctx, TuneDecisions& d);
     // Voices: de-esser fitted to the measured sibilance. Keys / master: stereo width and correlation.

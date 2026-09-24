@@ -60,6 +60,7 @@ void MixEngine::prepare (double sampleRate, int maxBlockSize, const MixSession& 
         s->bus = route.bus;
         ChannelProcessor::Options o;
         o.widthMeter = s->channels == 2;
+        o.sampleReplacement = sampleReplacementAppropriate (roleFamily (route.role));   // kick, snare, toms
         s->processor.configure (o);
         s->processor.prepare (sr, maxBlock, s->channels);
         s->inputGain.prepare (sr, kGainSmoothMs);
@@ -181,6 +182,11 @@ void MixEngine::applyParameters (const MixParameters& p) noexcept
         }
         else
             s.processor.setParameters (sp.channel);
+        if (s.processor.getOptions().sampleReplacement)
+        {
+            const SampleBankTable* table = sampleBanks.load (std::memory_order_acquire);
+            s.processor.setSampleBank (table != nullptr ? table->bank (roleFamily (graph.strips[size_t (i)].role), sp.channel.replaceSound) : nullptr);
+        }
 
         s.inputGain.setTarget (dbToGain (sp.inputGainDb));
         const bool busSolo = p.buses[size_t (s.bus)].solo;

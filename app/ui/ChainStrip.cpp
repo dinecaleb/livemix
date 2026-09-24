@@ -36,7 +36,7 @@ namespace
     }
 }
 
-std::vector<ChainStage> chainStages (const ChannelParameters& p, bool includeLimiter, bool stereo)
+std::vector<ChainStage> chainStages (const ChannelParameters& p, bool includeLimiter, bool stereo, bool includeSample)
 {
     std::vector<ChainStage> out;
     auto add = [&out] (const char* label, juce::String value, bool active)
@@ -55,6 +55,8 @@ std::vector<ChainStage> chainStages (const ChannelParameters& p, bool includeLim
     }
 
     add ("GATE", p.gateEnabled ? signed1 (p.gateThresholdDb) : Glyph::dash(), p.gateEnabled);
+    if (includeSample)
+        add ("SAMPLE", p.replaceEnabled ? juce::String (juce::roundToInt (p.replaceBlend * 100.0f)) + "%" : Glyph::dash(), p.replaceEnabled);
 
     {
         const int n = countBands (p.correctiveBands.data(), ParamID::kCorrectiveBands);
@@ -80,10 +82,10 @@ std::vector<ChainStage> chainStages (const ChannelParameters& p, bool includeLim
     return out;
 }
 
-std::vector<ChainStage> activeChainStages (const ChannelParameters& p, bool includeLimiter, bool stereo)
+std::vector<ChainStage> activeChainStages (const ChannelParameters& p, bool includeLimiter, bool stereo, bool includeSample)
 {
     std::vector<ChainStage> out;
-    for (auto& s : chainStages (p, includeLimiter, stereo))
+    for (auto& s : chainStages (p, includeLimiter, stereo, includeSample))
         if (s.active && s.label != "INPUT" && s.label != "OUT") out.push_back (s);
     return out;
 }
@@ -96,10 +98,10 @@ ChainStrip::ChainStrip()
 }
 
 void ChainStrip::setSource (const juce::String& n, juce::Colour c, const ChannelParameters& p,
-                            bool includeLimiter, bool stereo)
+                            bool includeLimiter, bool stereo, bool includeSample)
 {
     // This is called at the page's rate, so it only repaints when what it draws has changed.
-    auto next = chainStages (p, includeLimiter, stereo);
+    auto next = chainStages (p, includeLimiter, stereo, includeSample);
     bool same = hasSource && n == name && c == tint && next.size() == stages.size();
     for (size_t i = 0; same && i < next.size(); ++i)
         same = next[i].label == stages[i].label && next[i].value == stages[i].value

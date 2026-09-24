@@ -953,7 +953,7 @@ void MainView::updateChainFoot()
     {
         const auto& r = graph.strips[size_t (strip)];
         chainFoot->setSource (juce::String (r.name), Dine::busTint (r.bus), state.strips[size_t (strip)].channel,
-                              false, r.inputB >= 0);
+                              false, r.inputB >= 0, hasSampleStage (r.role));
     }
     else if (bus != MixBus::Count)
     {

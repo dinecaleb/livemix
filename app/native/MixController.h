@@ -88,6 +88,10 @@ public:
     int getBlockSize() const noexcept { return blockSize; }
     const MixEngine& getEngine() const noexcept { return engine; }
     const RoutingGraph& getGraph() const noexcept { return engine.getGraph(); }
+    // Sample replacement: the sounds the drum strips can play (app/native/SampleLibrary owns
+    // them for the app's lifetime). Message thread; the engine reads a pointer, never a copy.
+    void setSampleBanks (const SampleBankTable* table) noexcept { engine.setSampleBanks (table); }
+    const SampleBankTable* getSampleBanks() const noexcept { return engine.getSampleBanks(); }
 
     // Audio thread.
     void process (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples) noexcept

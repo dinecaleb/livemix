@@ -51,6 +51,20 @@ namespace livemix::ParamID
     inline constexpr const char* gateRatio     = "gateRatio";
     inline constexpr const char* gateScHpf     = "gateScHpf";   // detector high-pass, Hz (0 = off)
 
+    // Sample replacement (DLIVE drum strips: kick, snare, toms). The detector, the blend, the sound.
+    inline constexpr const char* replaceOn        = "replaceOn";
+    inline constexpr const char* replaceBlend     = "replaceBlend";     // 0 = the microphone, 1 = the sample
+    inline constexpr const char* replaceThreshold = "replaceThreshold"; // dBFS at the detector
+    inline constexpr const char* replaceRise      = "replaceRise";      // dB a hit must jump in two milliseconds
+    inline constexpr const char* replaceDetHpf    = "replaceDetHpf";    // detector band, Hz
+    inline constexpr const char* replaceDetLpf    = "replaceDetLpf";
+    inline constexpr const char* replaceMask      = "replaceMask";      // ms, no second hit inside it
+    inline constexpr const char* replaceSteady    = "replaceSteady";    // every hit at full level
+    inline constexpr const char* replaceOffset    = "replaceOffset";    // ms, the sample later than the hit
+    inline constexpr const char* replacePolarity  = "replacePolarity";  // 0 normal, 1 flipped
+    inline constexpr const char* replaceRate      = "replaceRate";      // semitones, varispeed
+    inline constexpr const char* replaceGain      = "replaceGain";      // dBFS peak of a full-velocity hit
+    inline constexpr const char* replaceSound     = "replaceSound";     // which bank, 0..7
     // Corrective EQ (3 bands) -- ids are corrEq{n}{On,Type,Freq,Gain,Q}
     inline constexpr const char* corrEqOn      = "corrEqOn";
     // Tone EQ (4 bands) -- ids are toneEq{n}{On,Type,Freq,Gain,Q}

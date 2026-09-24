@@ -3,6 +3,7 @@
 // No device, no UI: the engine is fed synthetic audio through MixController::process().
 #include "TestFramework.h"
 #include "native/MixController.h"
+#include "native/SampleLibrary.h"
 #include "native/SessionStore.h"
 #include "Mix/MixPlanner.h"
 #include "MixAI/MixReasoningProvider.h"
@@ -1155,4 +1156,72 @@ TEST_CASE ("Track history: every tune and hand edit on a channel is remembered, 
     c2.carryStripHistory (records, band());
     CHECK (c2.getStripHistory (0).empty());              // ... and the records of a source that changed stay gone
     CHECK (c2.getAllStripHistory().size() == records.size() - onStrip);
+}
+
+// ---------------------------------------------------------------------------
+// Sample replacement: the built-in bank, and the sounds reaching a drum strip
+// ---------------------------------------------------------------------------
+TEST_CASE ("SampleLibrary: the built-in bank loads from the project, decodes to mono at its own rate, and reaches the kick strip through the controller")
+{
+    SampleLibrary library;
+    library.load();
+    REQUIRE (library.table() != nullptr);
+    // What ships: three kicks, four snares, four toms, named as the files are, decoded at 44.1 kHz.
+    CHECK (library.numSounds (RoleFamily::Kick) == 3);
+    CHECK (library.numSounds (RoleFamily::Snare) == 4);
+    CHECK (library.numSounds (RoleFamily::Tom) == 4);
+    const auto kicks = library.soundNames (RoleFamily::Kick);
+    CHECK (kicks.contains ("Punch kick"));
+    CHECK (kicks.contains ("Perfect kick"));
+    CHECK (kicks.contains ("Soft kick"));
+    CHECK (library.soundNames (RoleFamily::Tom).contains ("16 inch floor tom"));
+    for (auto family : { RoleFamily::Kick, RoleFamily::Snare, RoleFamily::Tom })
+        for (int i = 0; i < library.numSounds (family); ++i)
+        {
+            const auto* b = library.table()->bank (family, i);
+            REQUIRE (b != nullptr);
+            CHECK_NEAR (b->sampleRate, 44100.0, 1.0);
+            REQUIRE (b->layers.size() == 1u);
+            REQUIRE (b->layers[0].hits.size() == 1u);
+            const auto& hit = b->layers[0].hits[0];
+            CHECK (hit.size() > 4410u);                     // more than a tenth of a second of drum
+            float peak = 0.0f;
+            for (float v : hit) peak = std::max (peak, std::fabs (v));
+            CHECK_NEAR (peak, 1.0f, 1.0e-4f);               // peak-normalised
+            float early = 0.0f;
+            for (size_t k = 0; k < 96 && k < hit.size(); ++k) early = std::max (early, std::fabs (hit[k]));
+            CHECK (early > 0.005f);                         // trimmed to its onset
+        }
+    // A family with nothing on disk is never empty: the placeholders stand in.
+    CHECK (library.numSounds (RoleFamily::LeadVocal) == 0);
+    CHECK (library.whereLoadedFrom().size() >= 1);
+
+    // Through the controller: the kick strip plays sound 0 until told otherwise, the bass strip
+    // has no stage at all, and changing the kick's sound changes what its stage holds.
+    MixController c;
+    c.setSampleBanks (library.table());
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    f.play (0.1);
+    CHECK (c.getEngine().getStrip (0).getOptions().sampleReplacement);          // Kick
+    CHECK (! c.getEngine().getStrip (1).getOptions().sampleReplacement);        // Bass
+    CHECK (c.getEngine().getStrip (0).getSampler().getBank() == library.table()->bank (RoleFamily::Kick, 0));
+    auto kick = c.getKept().strips[0].channel;
+    kick.replaceSound = 2;
+    kick.replaceEnabled = true;
+    c.setStripChannel (0, kick);
+    f.play (0.1);
+    CHECK (c.getEngine().getStrip (0).getSampler().getBank() == library.table()->bank (RoleFamily::Kick, 2));
+    CHECK (c.getEngine().getStrip (0).getSampler().getParams().enabled);
+    CHECK (c.getEngine().getLatencySamples() == c.getEngine().getBus (MixBus::Master).getLatencySamples());   // the stage adds none
+    // The stage is saved with the mix like any other setting.
+    SessionStore::Document d;
+    d.session = c.getSession();
+    d.hasMix = true;
+    d.mix = c.getKept();
+    SessionStore::Document back;
+    REQUIRE (SessionStore::fromVar (juce::JSON::parse (juce::JSON::toString (SessionStore::toVar (d))), back));
+    CHECK (back.mix.strips[0].channel.replaceEnabled);
+    CHECK (back.mix.strips[0].channel.replaceSound == 2);
 }

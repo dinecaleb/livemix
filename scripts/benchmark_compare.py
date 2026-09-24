@@ -45,6 +45,8 @@ def parse(text):
             section = "channel"
         elif "FxChain benchmark" in line:
             section = "fx"
+        elif "Sample replacement benchmark" in line:
+            section = "sample"
         m = ROW.match(line)
         if m:
             rows[(section, int(m.group(1)), int(m.group(2)))] = float(m.group(3))

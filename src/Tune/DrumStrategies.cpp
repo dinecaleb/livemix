@@ -32,6 +32,7 @@ namespace
             shapeAttack (ctx, t, d);
             setCompression (ctx, t, d);
             setGate (ctx, t, d, f);
+            setSampleReplacement (ctx, t, d, f);
         }
     };
 
@@ -54,6 +55,7 @@ namespace
             shapeAir (ctx, t, d);
             setCompression (ctx, t, d);
             setGate (ctx, t, d, f);
+            setSampleReplacement (ctx, t, d, f);
         }
     };
 
@@ -85,6 +87,7 @@ namespace
                             Confidence::Medium, [=] (ChannelParameters& p) { p.transientEnabled = true; p.transientSustain = cut; });
             }
             setGate (ctx, t, d, f);
+            setSampleReplacement (ctx, t, d, f);
         }
     };
 

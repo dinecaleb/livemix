@@ -5,6 +5,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_events/juce_events.h>
 #include "native/DawEngine.h"
+#include "native/SampleLibrary.h"
 #include "native/MixController.h"
 #include "ui/MainView.h"
 #include "native/ThemeStore.h"
@@ -89,6 +90,7 @@ namespace
 
     struct Rig
     {
+        SampleLibrary samples;                  // before the controller: destroyed after it
         MixController controller;
         DawEngine dawEngine { controller };
         FakeServices services { controller, dawEngine };
@@ -106,6 +108,8 @@ namespace
             // asked for, and a first-run coach over the console would be in all of them.
             MainView::setAutoTutorial (false);
             MainView::setStoredThemeUsed (false);   // every render starts from the design, whatever this Mac chose
+            samples.load();
+            controller.setSampleBanks (samples.table());
             view = std::make_unique<MainView> (controller, services);
             view->setSize (1520, 960);
             view->setVisible (true);
@@ -695,12 +699,25 @@ int main (int argc, char** argv)
         rig.snap (dir, "11d-inspector-history");
         view.getAdvancedPage().select (0);       // back to the top of the column for the shots that follow
     }
-    view.getAdvancedPage().selectStage (3);  // corrective EQ: the curve, its nodes and the band cards
+    view.getAdvancedPage().selectStage (4);  // corrective EQ: the curve, its nodes and the band cards (the kick's chain has a sample stage before it)
     rig.feed (0.3);
     rig.snap (dir, "11b-inspector-eq");
-    view.getAdvancedPage().selectStage (5);  // the compressor: its in/out line and the live reduction
+    view.getAdvancedPage().selectStage (6);  // the compressor: its in/out line and the live reduction
     rig.feed (0.3);
     rig.snap (dir, "11c-inspector-comp");
+    {
+        // SAMPLE: the kick's stage switched on at the profile's blend, with the built-in sounds
+        // in its list; the path's chip and the strip along the foot say so too.
+        auto withSample = rig.controller.getKept().strips[0].channel;
+        withSample.replaceEnabled = true;
+        rig.controller.setStripChannel (0, withSample);
+        view.getAdvancedPage().selectStage (3);
+        rig.feed (0.5);
+        rig.snap (dir, "11e-inspector-sample");
+        withSample.replaceEnabled = false;
+        rig.controller.setStripChannel (0, withSample);
+        rig.feed (0.2);
+    }
     view.getAdvancedPage().selectStage (0);  // back to the input, so the next channel opens where it left off
     view.getAdvancedPage().select (1); // Snare — often has a snare-plate send after Tune
     rig.feed (0.3);

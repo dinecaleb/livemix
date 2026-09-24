@@ -175,7 +175,11 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   its loudness instead). `AdvancedPage::revealHistory` scrolls the column to the section. The chip
   labels and readouts come from `chainStages` in `ChainStrip`, so the path, the mixer's INSERTS and the
   strip along the foot of a workspace can never disagree. The limiter stage appears on the master only and
-  the width stage on stereo channels only, because that is where `MixEngine` configures them; the sends
+  the width stage on stereo channels only, because that is where `MixEngine` configures them; a kick, snare or
+  tom strip carries the SAMPLE stage between GATE and EQ (`hasSampleStage` in `ChainStrip.h` is the one rule every
+  list reads): its lamp switches the sample in, and its device has BLEND, SENSITIVITY, LEVEL, PITCH, ALIGN, RISE,
+  MASK, the two LISTEN bands, SOUND (the names the `SampleLibrary` loaded), FEEL (follows the drummer / steady)
+  and POLARITY - `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md`; the sends
   close the path where the session uses FX. "Hand-edited" is a diff against `getPlan()->proposed`, which is
   also what `Back to DINE` and REVERT put back. Edits go through `MixController::setStripChannel` /
   `setBusChannel` as a whole `ChannelParameters`: they live on the kept mix beside the faders, survive a

@@ -38,6 +38,8 @@ namespace
         t.compDetectorHpfHz = 60.0f;
         t.transientMaxAttack = 0.5f; t.transientMaxSustainCut = 0.3f; t.transientRiseLowDb = 14.0f;
         t.bleedGateThreshold = 0.35f; t.gateMaxRangeDb = 30.0f; t.gateDetectorHpfHz = 30.0f;
+        t.sampleAppropriate = true; t.sampleDetHpfHz = 30.0f; t.sampleDetLpfHz = 250.0f; t.sampleMaskMs = 40.0f; t.sampleRiseDb = 6.0f;
+        t.sampleBlend = 0.4f; t.sampleSound = "Tight kick";
         t.satMaxDrive = 0.25f;
         t.mixPeakTargetDb = -10.0f; t.kitBalanceRelDb = 0.0f;
         return t;
@@ -60,6 +62,8 @@ namespace
         t.compDetectorHpfHz = 100.0f;
         t.transientMaxAttack = 0.5f; t.transientMaxSustainCut = 0.3f; t.transientRiseLowDb = 15.0f;
         t.bleedGateThreshold = 0.35f; t.gateMaxRangeDb = 25.0f; t.gateDetectorHpfHz = 150.0f;
+        t.sampleAppropriate = true; t.sampleDetHpfHz = 150.0f; t.sampleDetLpfHz = 4000.0f; t.sampleMaskMs = 30.0f; t.sampleRiseDb = 8.0f;
+        t.sampleBlend = 0.3f; t.sampleSound = "Tight snare";
         t.satMaxDrive = 0.25f;
         t.mixPeakTargetDb = -10.0f; t.kitBalanceRelDb = 0.0f;
         return t;
@@ -103,6 +107,8 @@ namespace
         t.compDetectorHpfHz = 60.0f;
         t.transientMaxAttack = 0.45f; t.transientMaxSustainCut = 0.35f; t.transientRiseLowDb = 14.0f;
         t.bleedGateThreshold = 0.3f; t.gateMaxRangeDb = 30.0f; t.gateDetectorHpfHz = 80.0f;
+        t.sampleAppropriate = true; t.sampleDetHpfHz = 60.0f; t.sampleDetLpfHz = 1000.0f; t.sampleMaskMs = 60.0f; t.sampleRiseDb = 6.0f;
+        t.sampleBlend = 0.5f; t.sampleSound = "Mid tom";
         t.satMaxDrive = 0.2f;
         t.mixPeakTargetDb = -13.0f; t.kitBalanceRelDb = -3.0f;
         return t;
@@ -185,6 +191,7 @@ namespace
         p.gateEnabled = true; p.gateThresholdDb = -35.0f; p.gateRangeDb = 24.0f;
         p.gateAttackMs = 0.3f; p.gateHoldMs = 80.0f; p.gateReleaseMs = 120.0f; p.gateHysteresisDb = 3.0f; p.gateRatio = 6.0f;
         p.gateScHpfHz = 30.0f;
+        p.replaceDetHpfHz = 30.0f; p.replaceDetLpfHz = 250.0f; p.replaceMaskMs = 40.0f; p.replaceRiseDb = 6.0f; p.replaceBlend = 0.4f;
         p.correctiveBands[0] = band (true, FilterType::Peak, 350.0f, -3.0f, 1.5f);
         p.compEnabled = true; p.compThresholdDb = -18.0f; p.compRatio = 4.0f; p.compAttackMs = 15.0f; p.compReleaseMs = 100.0f; p.compKneeDb = 6.0f;
         p.compScHpfHz = 60.0f;
@@ -204,6 +211,7 @@ namespace
         p.gateEnabled = true; p.gateThresholdDb = -30.0f; p.gateRangeDb = 20.0f;
         p.gateAttackMs = 0.2f; p.gateHoldMs = 60.0f; p.gateReleaseMs = 90.0f; p.gateHysteresisDb = 3.0f; p.gateRatio = 6.0f;
         p.gateScHpfHz = 150.0f;
+        p.replaceDetHpfHz = 150.0f; p.replaceDetLpfHz = 4000.0f; p.replaceMaskMs = 30.0f; p.replaceRiseDb = 8.0f; p.replaceBlend = 0.3f;
         p.correctiveBands[0] = band (true, FilterType::Peak, 450.0f, -2.0f, 1.5f);
         p.compEnabled = true; p.compThresholdDb = -15.0f; p.compRatio = 4.0f; p.compAttackMs = 8.0f; p.compReleaseMs = 80.0f; p.compKneeDb = 6.0f;
         p.compScHpfHz = 100.0f;
@@ -238,6 +246,7 @@ namespace
         p.gateEnabled = true; p.gateThresholdDb = -32.0f; p.gateRangeDb = 24.0f;
         p.gateAttackMs = 0.3f; p.gateHoldMs = 120.0f; p.gateReleaseMs = 160.0f; p.gateHysteresisDb = 4.0f; p.gateRatio = 6.0f;
         p.gateScHpfHz = 80.0f;
+        p.replaceDetHpfHz = 60.0f; p.replaceDetLpfHz = 1000.0f; p.replaceMaskMs = 60.0f; p.replaceRiseDb = 6.0f; p.replaceBlend = 0.5f;
         p.correctiveBands[0] = band (true, FilterType::Peak, 400.0f, -3.0f, 1.5f);
         p.compEnabled = true; p.compThresholdDb = -18.0f; p.compRatio = 3.0f; p.compAttackMs = 15.0f; p.compReleaseMs = 120.0f; p.compKneeDb = 6.0f;
         p.compScHpfHz = 60.0f;

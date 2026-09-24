@@ -3,6 +3,7 @@
 #include <vector>
 #include "AppTheme.h"
 #include "DSP/ChannelParameters.h"
+#include "DSP/SampleBank.h"
 
 namespace livemix
 {
@@ -19,11 +20,15 @@ struct ChainStage
 };
 
 // Every stage, in chain order. `includeLimiter` is true only where MixEngine configures
-// one (the master); `stereo` decides whether the width stage is there at all.
-std::vector<ChainStage> chainStages (const ChannelParameters&, bool includeLimiter, bool stereo);
+// one (the master); `stereo` decides whether the width stage is there at all; `includeSample`
+// is true on the strips MixEngine gives a sample stage (kick, snare, toms: hasSampleStage).
+std::vector<ChainStage> chainStages (const ChannelParameters&, bool includeLimiter, bool stereo, bool includeSample = false);
 
 // Only the stages that are doing something, for a short list such as INSERTS.
-std::vector<ChainStage> activeChainStages (const ChannelParameters&, bool includeLimiter, bool stereo);
+std::vector<ChainStage> activeChainStages (const ChannelParameters&, bool includeLimiter, bool stereo, bool includeSample = false);
+
+// Whether a strip of this role carries the sample stage - the one rule, read by every list.
+inline bool hasSampleStage (ChannelRole role) noexcept { return sampleReplacementAppropriate (roleFamily (role)); }
 
 // The strip along the foot of TRACKS and MIXER: the selected channel's colour and name,
 // then its chain stage by stage with the arrows between, then a right-hand note. It is a
@@ -36,7 +41,7 @@ public:
     std::function<void()> onOpen;
 
     void setSource (const juce::String& name, juce::Colour tint, const ChannelParameters&,
-                    bool includeLimiter, bool stereo);
+                    bool includeLimiter, bool stereo, bool includeSample = false);
     void setEmpty (const juce::String& message);
     void setNote (const juce::String& text);          // the right-hand meta, e.g. the session's clock
 

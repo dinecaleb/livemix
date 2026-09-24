@@ -11,6 +11,7 @@
 #include "native/MixController.h"
 #include "native/MultitrackImport.h"
 #include "native/SessionStore.h"
+#include "native/SampleLibrary.h"
 #include "native/MonitorDevice.h"
 #include "ui/MainView.h"
 #include <optional>
@@ -584,6 +585,11 @@ public:
     void initialise (const juce::String&) override
     {
         controller = std::make_unique<MixController>();
+        // The drum sounds, decoded once. The library outlives the controller (declared before
+        // it), so the engine never reads a bank that has gone.
+        samples = std::make_unique<SampleLibrary>();
+        samples->load();
+        controller->setSampleBanks (samples->table());
         dawEngine = std::make_unique<DawEngine> (*controller);
         host = std::make_unique<AudioHost> (*controller, *dawEngine);
         services = std::make_unique<HostServices> (*controller, *dawEngine, *host);
@@ -652,6 +658,7 @@ public:
     }
 
 private:
+    std::unique_ptr<SampleLibrary> samples;      // before the controller: destroyed after it
     std::unique_ptr<MixController> controller;
     std::unique_ptr<DawEngine> dawEngine;
     std::unique_ptr<AudioHost> host;

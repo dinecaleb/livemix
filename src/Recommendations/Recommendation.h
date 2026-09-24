@@ -52,7 +52,7 @@ inline constexpr const char* tuneSectionNameFor (TuneSection s, bool drums) noex
 
 struct Recommendation
 {
-    enum class Kind : int { CaptureGain = 0, MixGain, Gate, Compression, EQ, Transient, Filter, Info };
+    enum class Kind : int { CaptureGain = 0, MixGain, Gate, Compression, EQ, Transient, Filter, Info, Sample };
 
     static constexpr TuneSection sectionFor (Kind k) noexcept
     {
@@ -65,6 +65,7 @@ struct Recommendation
             case Kind::EQ:          return TuneSection::Tone;
             case Kind::Filter:      return TuneSection::Tone;
             case Kind::Transient:   return TuneSection::Attack;
+            case Kind::Sample:      return TuneSection::Bleed;
             case Kind::Info:
             default:                return TuneSection::Notes;
         }

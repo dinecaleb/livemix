@@ -31,6 +31,7 @@ void ChannelProcessor::prepare (double sampleRate, int maxBlockSize, int numChan
     width.prepare (sr, maxBlockSize, channels);
     width.setMeteringEnabled (options.widthMeter);
     if (options.limiter) limiter.prepare (sr, maxBlockSize, channels);
+    if (options.sampleReplacement) sampler.prepare (sr, maxBlockSize, channels);
     if (options.loudnessMeter) loudness.prepare (sr, maxBlockSize, channels);
 
     setParameters (params);
@@ -55,6 +56,7 @@ void ChannelProcessor::reset() noexcept
     deEsser.reset();
     width.reset();
     if (options.limiter) limiter.reset();
+    if (options.sampleReplacement) sampler.reset();
     if (options.loudnessMeter) loudness.reset();
 }
 
@@ -112,6 +114,16 @@ void ChannelProcessor::setParameters (const ChannelParameters& p) noexcept
         Limiter::Params lp;
         lp.enabled = p.limiterEnabled; lp.ceilingDb = p.limiterCeilingDb; lp.releaseMs = p.limiterReleaseMs;
         limiter.setParams (lp);
+    }
+
+    if (options.sampleReplacement)
+    {
+        SampleReplacer::Params rp;
+        rp.enabled = p.replaceEnabled; rp.blend = p.replaceBlend; rp.thresholdDb = p.replaceThresholdDb; rp.riseDb = p.replaceRiseDb;
+        rp.detHpfHz = p.replaceDetHpfHz; rp.detLpfHz = p.replaceDetLpfHz; rp.maskMs = p.replaceMaskMs; rp.steady = p.replaceSteady;
+        rp.offsetMs = p.replaceOffsetMs; rp.polarityFlip = p.replacePolarity != 0; rp.rateSemitones = p.replaceRateSemitones;
+        rp.gainDb = p.replaceGainDb;
+        sampler.setParams (rp);
     }
 }
 
@@ -182,8 +194,13 @@ void ChannelProcessor::process (AudioBlockView& block) noexcept LIVEMIX_NONBLOCK
                 for (int i = 0; i < n; ++i) block.channels[ch][i] *= g;
     }
 
+    // The sample stage's detector hears the microphone before the filters and the gate;
+    // its sample lands after the gate, so a gate never chops a sample's tail.
+    const bool sampling = options.sampleReplacement && params.replaceEnabled;
+    if (sampling) sampler.detect (block);
     filters.process (block);
     gate.process (block);
+    if (sampling) sampler.apply (block);
     correctiveEq.process (block);
     deEsser.process (block);
     compressor.process (block);

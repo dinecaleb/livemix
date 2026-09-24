@@ -37,7 +37,8 @@ set(DLIVE_APP_SOURCES
     native/Recorder.cpp
     native/TimelinePlayer.cpp
     native/MultitrackImport.cpp
-    native/ReferenceAudio.cpp)
+    native/ReferenceAudio.cpp
+    native/SampleLibrary.cpp)
 
 set(DLIVE_UI_SOURCES
     ${DLIVE_APP_SOURCES}
@@ -88,11 +89,17 @@ target_compile_definitions(DLive PRIVATE ${DLIVE_DEFINES}
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:DLive,JUCE_VERSION>")
 target_link_libraries(DLive PRIVATE ${DLIVE_LIBS}
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
+# The built-in drum samples (app/Samples, with their licence) ride in the bundle; a build that
+# is run from the tree, and every tool, reads the source folder instead.
+add_custom_command(TARGET DLive POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/Samples" "$<TARGET_BUNDLE_CONTENT_DIR:DLive>/Resources/Samples"
+    COMMENT "Copying the built-in drum samples into the DLIVE bundle")
+target_compile_definitions(DLive PRIVATE DLIVE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
 
 if (LIVEMIX_BUILD_TESTS)
     add_executable(dlive_ui_snapshots Tools/AppSnapshots.cpp ${DLIVE_UI_SOURCES})
     target_include_directories(dlive_ui_snapshots PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
-    target_compile_definitions(dlive_ui_snapshots PRIVATE ${DLIVE_DEFINES} JUCE_STANDALONE_APPLICATION=1)
+    target_compile_definitions(dlive_ui_snapshots PRIVATE ${DLIVE_DEFINES} JUCE_STANDALONE_APPLICATION=1 DLIVE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
     target_link_libraries(dlive_ui_snapshots PRIVATE ${DLIVE_LIBS} juce::juce_recommended_config_flags)
 endif()
 
@@ -106,7 +113,7 @@ if (LIVEMIX_BUILD_TESTS)
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp)
     target_include_directories(dlive_app_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)
     target_compile_definitions(dlive_app_tests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
-        JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
+        JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 DLIVE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
     target_link_libraries(dlive_app_tests PRIVATE livemix_engine juce::juce_core juce::juce_audio_formats
         juce::juce_audio_basics juce::juce_events juce::juce_recommended_config_flags)
     add_test(NAME dlive_app_tests COMMAND dlive_app_tests)

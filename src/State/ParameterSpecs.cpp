@@ -38,6 +38,8 @@ namespace
         const bool deEss = starts ("deEss");
         const bool width = starts ("width");
         const bool limiter = starts ("limiter");
+        // Sample replacement is DLIVE's (a drum strip in the live mix); no plug-in carries it.
+        if (starts ("replace")) return false;
         switch (p)
         {
             case Product::Drums:  return ! deEss && ! width && ! limiter;
@@ -78,6 +80,20 @@ namespace
         v.push_back (f (gateHysteresis, "Gate Hysteresis", 0.0f, 12.0f, d.gateHysteresisDb, "dB"));
         v.push_back (f (gateRatio, "Gate Ratio", 1.0f, 20.0f, d.gateRatio, ":1", 4.0f));
         v.push_back (f (gateScHpf, "Gate Detector HPF", 0.0f, 500.0f, d.gateScHpfHz, "Hz"));
+
+        v.push_back (b (replaceOn, "Sample", d.replaceEnabled));
+        v.push_back (f (replaceBlend, "Sample Blend", 0.0f, 1.0f, d.replaceBlend));
+        v.push_back (f (replaceThreshold, "Sample Threshold", -80.0f, 0.0f, d.replaceThresholdDb, "dB"));
+        v.push_back (f (replaceRise, "Sample Rise", 0.0f, 40.0f, d.replaceRiseDb, "dB"));
+        v.push_back (f (replaceDetHpf, "Sample Detector HPF", 20.0f, 2000.0f, d.replaceDetHpfHz, "Hz", 150.0f));
+        v.push_back (f (replaceDetLpf, "Sample Detector LPF", 100.0f, 20000.0f, d.replaceDetLpfHz, "Hz", 3000.0f));
+        v.push_back (f (replaceMask, "Sample Mask", 1.0f, 500.0f, d.replaceMaskMs, "ms", 60.0f));
+        v.push_back (b (replaceSteady, "Sample Steady", d.replaceSteady));
+        v.push_back (f (replaceOffset, "Sample Align", 0.0f, 5.0f, d.replaceOffsetMs, "ms"));
+        v.push_back (c (replacePolarity, "Sample Polarity", { "Normal", "Flipped" }, d.replacePolarity));
+        v.push_back (f (replaceRate, "Sample Pitch", -5.0f, 5.0f, d.replaceRateSemitones));
+        v.push_back (f (replaceGain, "Sample Level", -60.0f, 12.0f, d.replaceGainDb, "dB"));
+        v.push_back (c (replaceSound, "Sample Sound", { "Sound 1", "Sound 2", "Sound 3", "Sound 4", "Sound 5", "Sound 6", "Sound 7", "Sound 8" }, d.replaceSound));
 
         v.push_back (b (corrEqOn, "Corrective EQ", d.correctiveEqEnabled));
         for (int i = 0; i < kCorrectiveBands; ++i)
@@ -198,6 +214,12 @@ const std::vector<ParameterSpec>& allParameterSpecs()
     return channelParameterSpecs (Product::Drums);
 }
 
+const std::vector<ParameterSpec>& dspParameterSpecs()
+{
+    static const std::vector<ParameterSpec> all = dspSpecs();
+    return all;
+}
+
 bool productUsesParameter (Product p, const std::string& id)
 {
     static std::map<int, std::set<std::string>> sets = [] {
@@ -216,6 +238,8 @@ const ParameterSpec* findParameterSpec (const std::string& id)
         // Drums first (released), then the others; DSP ids are identical wherever they appear.
         for (int i = 0; i < int (Product::Count); ++i)
             for (const auto& s : channelParameterSpecs (Product (i))) m.emplace (s.id, &s);
+        // ... then every DSP field, so a stage no plug-in carries (sample replacement) is still bounded and named.
+        for (const auto& s : dspParameterSpecs()) m.emplace (s.id, &s);
         return m;
     }();
     auto it = index.find (id);

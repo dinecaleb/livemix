@@ -160,7 +160,7 @@ void TracksPage::updateChainStrip()
     {
         const auto& input = controller.getSession().inputs[size_t (selection.track)];
         chainStrip.setSource (juce::String (input.name), laneColourFor (input.role),
-                              params.strips[size_t (selection.track)].channel, false, input.isStereo());
+                              params.strips[size_t (selection.track)].channel, false, input.isStereo(), hasSampleStage (input.role));
     }
     else
     {

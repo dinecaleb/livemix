@@ -14,6 +14,10 @@ add_library(livemix_engine STATIC
     DSP/StereoWidth.cpp
     DSP/Limiter.cpp
     DSP/LoudnessMeter.cpp
+    DSP/SampleBank.cpp
+    DSP/SampleTrigger.cpp
+    DSP/SamplePlayer.cpp
+    DSP/SampleReplacer.cpp
     DSP/ChannelProcessor.cpp
     DSP/EqResponse.cpp
     Analysis/AnalysisAccumulator.cpp

@@ -357,7 +357,9 @@ public:
             if (h != chainFingerprint)
             {
                 chainFingerprint = h;
-                insertList = activeChainStages (*channel, kind == Kind::Master, stereo);
+                const bool sample = kind == Kind::Channel && strip >= 0 && strip < controller.getGraph().numStrips()
+                                    && hasSampleStage (controller.getGraph().strips[size_t (strip)].role);
+                insertList = activeChainStages (*channel, kind == Kind::Master, stereo, sample);
                 body = true;
             }
         }
@@ -1231,7 +1233,7 @@ void MixerPage::updateChainStrip()
         {
             const auto& r = controller.getGraph().strips[size_t (selected)];
             chainStrip.setSource (juce::String (r.name), Dine::busTint (r.bus), state.strips[size_t (selected)].channel,
-                                  false, r.inputB >= 0);
+                                  false, r.inputB >= 0, hasSampleStage (r.role));
         }
         else if (selectedBusValue != MixBus::Count)
         {

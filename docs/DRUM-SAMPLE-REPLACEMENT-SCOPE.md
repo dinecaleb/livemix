@@ -1,10 +1,11 @@
 # Drum sample replacement in DLIVE: scope
 
-Written 2026-09-24, before any implementation. The question: replace or blend the live kick, snare and tom
-hits with samples, in a live mix, without breaking what DLIVE promises - a sample-synchronous channel path,
-honest latency, an audio thread that never allocates, a Tune that is deterministic and idempotent, and plain
-words on the surface. This document says how each part would work, what it would cost, what it would
-threaten, and what to build first. Nothing here is implemented.
+Written 2026-09-24, before any implementation; Phase 1 was built the same day (see **What was built** at the
+end). The question: replace or blend the live kick, snare and tom hits with samples, in a live mix, without
+breaking what DLIVE promises - a sample-synchronous channel path, honest latency, an audio thread that never
+allocates, a Tune that is deterministic and idempotent, and plain words on the surface. This document says
+how each part works, what it costs and what it threatens; where the build differed from the plan, the
+section at the end says so.
 
 ## The short answer
 
@@ -253,3 +254,39 @@ in the callback. Loading a bank is a message-thread decode of about 20 ms per dr
 2. DLIVE only first, or the Dine Drums plug-in in the same step (recommended: DLIVE only).
 3. The word on the surface: "Sample" (proposed), "Reinforce", or "Trigger" (engineer's word, Advanced only).
 4. Whether Phase 0's numbers are good enough to skip the lookahead switch for good.
+
+## What was built (Phase 1, 2026-09-24)
+
+Everything in the plan for Phase 1, with three changes the diagnostics forced:
+
+- **The onset rule is a jump, not a ratio to a slow follower.** A slow follower with a fast enough attack
+  chased the drum's own swell and blocked the second hit; a slow enough one let a decaying tail count as a
+  rise. The detector now fires when the fast follower is above the threshold *and* has jumped by the
+  profile's rise (kick 6 dB, snare 8, toms 6) within the last two milliseconds; after the mask it re-arms
+  once the hit has fallen 6 dB from its peak. A ring, a tail and a roll's stroke are now told apart by the
+  thing that differs: whether the level jumped. `src/DSP/SampleTrigger`.
+- **The hit is reported 1.5 ms after it is recognised**, with the loudest level in that time as its velocity.
+  At the crossing itself the level *is* the threshold, so velocity and confidence read from the crossing were
+  always zero. Those 1.5 ms are the only delay a sample has; the microphone is never delayed. On the
+  synthetic kick that rings for a quarter of a second, a hit is recognised 1 to 3.5 ms after its onset
+  depending on how loud the previous tail still is, and reported 1.5 ms after that. Phase 0's measurement on
+  real takes stands; the timing claims above (0.2 to 1.5 ms) were the estimate before the build.
+- **The mask's reference is measured until the body has peaked** (up to 10 ms), so a kick's own swell never
+  re-triggers it; a louder onset after that still does.
+
+The rest is as planned: `SampleReplacer` between the gate and the corrective EQ on kick, snare and tom
+strips only (`MixEngine` configures it by role family; a plug-in never has it; off it is bit-transparent
+and the reference renders pass); thirteen `replace*` parameters appended to `ChannelParameters`, bounded in
+`dspParameterSpecs()` so the safety validator and the history can name them; per-family numbers in
+`ProfileData.cpp`; `tune::setSampleReplacement` fitting threshold, level, band, mask and rise from the
+listen and never touching the switch, blend or sound; a `SampleBank` published by pointer through
+`MixEngine::setSampleBanks`; `app/native/SampleLibrary` decoding the bank (the shipped one in `app/Samples`,
+copied into the bundle; the engineer's own in `~/Music/DLIVE/Samples`); the SAMPLE stage on every list that
+reads a chain and as a device in the Inspector; five engine tests, a tune test and an app test; a benchmark
+section of its own. Measured (`livemix_benchmark`): six kick strips with the stage on cost about 7 µs more
+per 128-sample block than with it off.
+
+Still Phase 2: the cross-strip veto, tuning a tom sample to the drum's fundamental automatically (the pitch
+knob exists; the bank records its fundamental for synthesised sounds only), velocity layers for the shipped
+bank (each sound is one recording; a folder of files is the way to add layers), a hit lamp on the stage, and
+Phase 0's measurement over the QUEENSVIEW takes to calibrate the thresholds.

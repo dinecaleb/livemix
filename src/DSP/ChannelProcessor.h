@@ -10,6 +10,7 @@
 #include "DeEsser.h"
 #include "StereoWidth.h"
 #include "Limiter.h"
+#include "SampleReplacer.h"
 #include "LoudnessMeter.h"
 #include "LevelMeter.h"
 #include "Core/Smoother.h"
@@ -19,13 +20,16 @@ namespace livemix
 {
 
 // The complete Dine channel chain, shared by Drums, Vocals, Keys and Master:
-//   Input meter -> Trim -> Polarity -> HPF/LPF -> Gate -> Corrective EQ -> De-esser ->
+//   Input meter -> Trim -> Polarity -> HPF/LPF -> Gate -> [Sample] -> Corrective EQ -> De-esser ->
 //   Compressor -> Transient -> Tone EQ -> Saturation -> Width -> Output trim ->
 //   [Limiter] -> [Loudness meter] -> Output meter
 // Fixed order. Every stage is minimum-phase and sample-synchronous, so the chain
 // adds no latency and reports 0; only a product that enables the limiter (Dine Master,
 // DLIVE's master bus) reports the limiter's lookahead (Limiter::kLookaheadMs, 1.5 ms),
 // and it does so constantly - on, off or in an A/B - so a host's compensation never jumps.
+// The sample stage exists only where MixEngine configures it (DLIVE's kick, snare and tom
+// strips): its detector reads the channel before the filters, its sample lands after the
+// gate, and off it is bit-transparent and adds nothing.
 class ChannelProcessor : public Processor
 {
 public:
@@ -34,6 +38,7 @@ public:
         bool limiter = false;        // the limiter stage exists (latency is reported even when bypassed)
         bool loudnessMeter = false;  // run the BS.1770 meter on the output
         bool widthMeter = false;     // measure stereo correlation after the width stage
+        bool sampleReplacement = false; // the sample stage exists (a DLIVE drum strip)
     };
     void configure (const Options& o) noexcept { options = o; }
     const Options& getOptions() const noexcept { return options; }
@@ -61,6 +66,10 @@ public:
     const DeEsser& getDeEsser() const noexcept { return deEsser; }
     const StereoWidth& getWidth() const noexcept { return width; }
     const Limiter& getLimiter() const noexcept { return limiter; }
+    const SampleReplacer& getSampler() const noexcept { return sampler; }
+    // The bank the sample stage plays. Audio-thread safe (an atomic pointer); the bank
+    // outlives the engine - see SampleBankTable.
+    void setSampleBank (const SampleBank* b) noexcept { sampler.setBank (b); }
     const LoudnessMeter& getLoudness() const noexcept { return loudness; }
     LoudnessMeter& getLoudness() noexcept { return loudness; }
 
@@ -82,6 +91,7 @@ private:
     DeEsser deEsser;
     StereoWidth width;
     Limiter limiter;
+    SampleReplacer sampler;
     LoudnessMeter loudness;
 
     // Long-term (≈2 s) mean-square tracking for loudness-matched A/B.

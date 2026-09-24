@@ -26,6 +26,7 @@ add_executable(livemix_tests
     Regression/RegressionRenderTests.cpp
     Tune/TuneEngineTests.cpp
     DSP/DetectorFilterTests.cpp
+    DSP/SampleReplacementTests.cpp
     Analysis/TuneCaptureTests.cpp
     FX/FXFoundationTests.cpp
     FX/ReverbTests.cpp

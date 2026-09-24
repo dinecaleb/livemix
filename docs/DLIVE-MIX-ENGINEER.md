@@ -102,6 +102,14 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   problem ("the singer is off mic") is named as a capture problem. The transcript and the conversation ride in
   `MixReasoningRequest::conversation`. Beside it is mix-level UNDO / REDO (`markMixChange` / `undoMix` / `redoMix`),
   which LIVE SAFE deliberately never locks.
+- **SAMPLE REPLACEMENT** (2026-09-24, `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md`): TUNE fits the stage's detector on
+  the kick-in, snare-top and tom strips from the listen - `tune::setSampleReplacement`, an item of
+  `Recommendation::Kind::Sample` in the Bleed section: the threshold between `bleedLevelDb` and the hits (never
+  within 6 dB of the bleed; halfway between the floor and the hits when the listen found no separable bleed), the
+  sample's level at the microphone's own hit level, the profile's band (its low edge under the drum's fundamental),
+  mask and rise - and never the switch, the blend or the sound, which are the engineer's. Kick-out and snare-bottom
+  are never fitted, so two samples never land on one hit. Every number is absolute from the capture: a re-tune on
+  the same listen fits the same numbers (tested).
 - **TRACK HISTORY** (`app/native/MixHistory.h`, `MixController::getStripHistory` / `restoreStripTune`, 2026-09-24)
   is the other way back: one channel, oldest first, a `StripTuneRecord` for every tune that landed on it and every
   hand edit of its chain - what did it (`what`), which TUNE, the clock, and the strip before and after. It is

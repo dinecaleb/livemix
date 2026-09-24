@@ -73,7 +73,7 @@ One build at a time, `--parallel 4`, targeted targets rather than the whole proj
 
 ```
 src/Core, DSP, Analysis, Tune, Profiles, Recommendations, Intelligence, FX, Communication, State, MixAI, Mix
-  DSP/ChannelProcessor      the fixed chain: input, filters, gate, corrective EQ, de-esser, comp, transient,
+  DSP/ChannelProcessor      the fixed chain: input, filters, gate, [sample], corrective EQ, de-esser, comp, transient,
                             tone EQ, saturation, width, output trim, [limiter], [loudness meter]
   State/ParameterSpecs.cpp  every parameter once, per product; visited by forEachDspField (DSP/ChannelParameters.h)
   Tune/                     TuneEngine + one strategy file per family; numbers come from Profiles/
@@ -100,7 +100,7 @@ tests/                      engine + integration tests, benchmark, reference ren
 | Monitoring: the solo bus, two devices, Dante | `docs/DLIVE-MONITORING.md` |
 | The desktop design, macro pads, themes, tutorial, frame budget | `docs/DLIVE-DESIGN.md`, `docs/THEMES.md` |
 | RealtimeSanitizer: wiring, findings, suppressions | `docs/REALTIME-SANITIZER.md` |
-| Drum sample replacement: the scope, not built | `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md` |
+| Drum sample replacement: the scope and what was built | `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md` |
 | Milestone reports and the QA notes | `docs/MILESTONE-1..7.md`, `docs/QA-*.md` |
 
 Read the PRD sections 6-8, 42, 48 and `docs/ARCHITECTURE-DINE-CORE.md` before touching the audio path or

@@ -20,7 +20,7 @@ namespace
     constexpr int kGraphMinW = 240;
     constexpr float kEqRangeDb = 18.0f;
 
-    enum class Fmt { Db, DbPlain, Hz, Ms, Ratio, Percent, Q, Bipolar };
+    enum class Fmt { Db, DbPlain, Hz, Ms, Ratio, Percent, Q, Bipolar, Semitones };
 
     juce::String signedNumber (double v, int decimals)
     {
@@ -47,6 +47,7 @@ namespace
             case Fmt::Percent: return juce::String (juce::roundToInt (v * 100.0)) + "%";
             case Fmt::Q:       return "Q " + juce::String (v, 2);
             case Fmt::Bipolar: return signedNumber (v * 100.0, 0);
+            case Fmt::Semitones: return std::fabs (v) < 0.05 ? juce::String ("as recorded") : signedNumber (v, 1) + " st";
         }
         return juce::String (v, 1);
     }
@@ -124,7 +125,7 @@ struct ChainEditor::Field
 // from another; the order is the order the audio meets them.
 enum class StageId
 {
-    Input, Filters, Gate, CorrectiveEq, DeEss, Comp, Transient, ToneEq, Sat, Width, Limiter, Output, Sends
+    Input, Filters, Gate, Sample, CorrectiveEq, DeEss, Comp, Transient, ToneEq, Sat, Width, Limiter, Output, Sends
 };
 
 struct ChainEditor::StageSpec
@@ -205,7 +206,9 @@ namespace
     // The chain, in the order the audio meets it - the same list, and the same words, as
     // the strip along the foot of TRACKS and MIXER. A mono input has nothing for the width
     // stage to do and only the master owns a limiter, so those two are asked for.
-    std::vector<StageSpec> chainSpecs (bool stereo, bool hasLimiter)
+    // The chain, in the order the audio meets it. `hasSample` is true on a kick, snare or tom
+    // strip (MixEngine gives those the stage); `sounds` is the SOUND list the library loaded.
+    std::vector<StageSpec> chainSpecs (bool stereo, bool hasLimiter, bool hasSample, const juce::StringArray& sounds)
     {
         std::vector<StageSpec> v;
 
@@ -271,6 +274,47 @@ namespace
                          number ("Hysteresis", &ChannelParameters::gateHysteresisDb, 0.0, 12.0, 0.1, 0.0, Fmt::DbPlain),
                          number ("Ratio", &ChannelParameters::gateRatio, 1.0, 20.0, 0.1, 4.0, Fmt::Ratio),
                          number ("Detector HP", &ChannelParameters::gateScHpfHz, 0.0, 500.0, 1.0, 120.0, Fmt::Hz) };
+            v.push_back (std::move (s));
+        }
+        if (hasSample)
+        {
+            // SAMPLE: a sound blended in on every hit the microphone catches. The microphone
+            // stays; the sample sits with it. Plain words on the knobs; the engineer's words
+            // (trigger, velocity, varispeed) are in the tooltips of the Advanced ones.
+            StageSpec s;
+            s.id = StageId::Sample;
+            s.name = "Sample";
+            s.plain = "A recorded drum, added on every hit this microphone catches. BLEND says how much of it you hear next to the microphone.";
+            s.icon = Dine::Icon::Drum;
+            s.ids = { "replace" };
+            s.isOn = [] (const ChannelParameters& p) { return p.replaceEnabled; };
+            s.setOn = [] (ChannelParameters& p, bool on) { p.replaceEnabled = on; };
+            s.summary = [sounds] (const ChannelParameters& p)
+            {
+                if (! p.replaceEnabled) return juce::String ("off");
+                const int i = juce::jlimit (0, juce::jmax (0, sounds.size() - 1), p.replaceSound);
+                juce::String out = juce::String (juce::roundToInt (p.replaceBlend * 100.0f)) + " %";
+                if (i < sounds.size()) out += "  " + Glyph::dot() + "  " + sounds[i];
+                return out;
+            };
+            Field sound;
+            sound.kind = Field::Kind::Choice;
+            sound.label = "Sound";
+            sound.choices = sounds.isEmpty() ? juce::StringArray { "No sounds loaded" } : sounds;
+            sound.get = [n = juce::jmax (1, sounds.size())] (const ChannelParameters& p) { return double (juce::jlimit (0, n - 1, p.replaceSound)); };
+            sound.set = [] (ChannelParameters& p, double v) { p.replaceSound = juce::roundToInt (v); };
+            s.fields = { number ("Blend", &ChannelParameters::replaceBlend, 0.0, 1.0, 0.01, 0.0, Fmt::Percent),
+                         number ("Sensitivity", &ChannelParameters::replaceThresholdDb, -80.0, 0.0, 0.5, 0.0, Fmt::Db),
+                         number ("Level", &ChannelParameters::replaceGainDb, -60.0, 12.0, 0.5, 0.0, Fmt::Db),
+                         number ("Pitch", &ChannelParameters::replaceRateSemitones, -5.0, 5.0, 0.1, 0.0, Fmt::Semitones),
+                         number ("Align", &ChannelParameters::replaceOffsetMs, 0.0, 5.0, 0.05, 0.0, Fmt::Ms),
+                         number ("Rise", &ChannelParameters::replaceRiseDb, 0.0, 40.0, 0.5, 0.0, Fmt::DbPlain),
+                         number ("Mask", &ChannelParameters::replaceMaskMs, 1.0, 500.0, 1.0, 60.0, Fmt::Ms),
+                         number ("Listen above", &ChannelParameters::replaceDetHpfHz, 20.0, 2000.0, 1.0, 150.0, Fmt::Hz),
+                         number ("Listen below", &ChannelParameters::replaceDetLpfHz, 100.0, 20000.0, 10.0, 3000.0, Fmt::Hz),
+                         sound,
+                         toggle ("Feel", &ChannelParameters::replaceSteady, "Follows the drummer", "Steady"),
+                         choice ("Polarity", &ChannelParameters::replacePolarity, { "Normal", "Flipped" }) };
             v.push_back (std::move (s));
         }
         {
@@ -1497,7 +1541,21 @@ void ChainEditor::build()
     // so nowhere else offers one: a control that does nothing is worse than no control.
     const bool hasLimiter = isBus && bus == MixBus::Master;
 
-    stages = chainSpecs (stereo, hasLimiter);
+    // A kick, snare or tom strip carries the sample stage, with the sounds the library loaded.
+    bool hasSample = false;
+    juce::StringArray sounds;
+    if (! isBus)
+    {
+        const auto& g = controller.getGraph();
+        if (strip >= 0 && strip < g.numStrips() && hasSampleStage (g.strips[size_t (strip)].role))
+        {
+            hasSample = true;
+            if (const auto* table = controller.getSampleBanks())
+                for (int i = 0; i < SampleBankTable::kSounds; ++i)
+                    if (const auto* b = table->bank (roleFamily (g.strips[size_t (strip)].role), i)) sounds.add (juce::String (b->name));
+        }
+    }
+    stages = chainSpecs (stereo, hasLimiter, hasSample, sounds);
 
     // The sends leave after the chain, so they close the path - and only where the
     // session actually uses a return.
@@ -1674,7 +1732,9 @@ void ChainEditor::updateViews()
         stereo = strip >= 0 && strip < g.numStrips() && g.strips[size_t (strip)].numChannels() == 2;
     }
     // The same words, in the same order, as the strip along the foot of TRACKS and MIXER.
-    const auto readouts = chainStages (p, isBus && bus == MixBus::Master, stereo);
+    bool hasSample = false;
+    for (const auto& s : stages) hasSample = hasSample || s.id == StageId::Sample;
+    const auto readouts = chainStages (p, isBus && bus == MixBus::Master, stereo, hasSample);
 
     const ChannelProcessor* proc = nullptr;
     if (controller.isPrepared())

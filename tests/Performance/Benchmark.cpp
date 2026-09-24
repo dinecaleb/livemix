@@ -6,6 +6,7 @@
 #include <memory>
 #include <vector>
 #include "DSP/ChannelProcessor.h"
+#include "DSP/SampleBank.h"
 #include "FX/FxChain.h"
 #include "FX/FxProfiles.h"
 #include "Profiles/StyleProfile.h"
@@ -65,6 +66,53 @@ int main()
             const double budgetUs = 1.0e6 * block / sr;
             std::printf ("%-10d %-10d %-14.2f %-14.1f %-12.1f\n", instances, block, usPerBlockInst, usPerBlockAll, 100.0 * usPerBlockAll / budgetUs);
         }
+    }
+
+    // Sample replacement: the full chain with the stage on, on a kick that fires it twice a
+    // second, against the same chain with the stage off. Its own section, so the chain rows
+    // above (and their 15 % fence) never carry a stage that is off by default.
+    {
+        std::printf ("\nSample replacement benchmark @ %.0f Hz, mono, full chain + detector + voices (a kick, two hits a second)\n", sr);
+        std::printf ("%-10s %-10s %-14s %-14s %-12s\n", "instances", "block", "us/block/inst", "us/block/all", "budget%");
+        const auto bank = synthesizeBank (RoleFamily::Kick, 0, sr);
+        for (int block : { 32, 128 })
+            for (bool on : { false, true })
+            {
+                const int instances = on ? 6 : 6;
+                std::vector<std::unique_ptr<ChannelProcessor>> procs;
+                for (int i = 0; i < instances; ++i)
+                {
+                    auto p = std::make_unique<ChannelProcessor>();
+                    ChannelProcessor::Options o; o.sampleReplacement = true;
+                    p->configure (o);
+                    p->prepare (sr, block, 1);
+                    p->setSampleBank (&bank);
+                    auto params = StyleProfile::baseline (ChannelRole::KickIn, StyleProfileId::ModernGospel);
+                    params.replaceEnabled = on; params.replaceThresholdDb = -30.0f; params.replaceGainDb = -12.0f;
+                    p->setParameters (params);
+                    procs.push_back (std::move (p));
+                }
+                testsig::Buffer src (1, block * 64);
+                testsig::fillDrumHits (src, sr, 0.6f, 0.002f, 0.5f, 0.1f, 60.0f);
+                testsig::Buffer work (1, block);
+                const int totalBlocks = int (sr * seconds) / block;
+                auto start = std::chrono::steady_clock::now();
+                for (int b = 0; b < totalBlocks; ++b)
+                {
+                    const int off = (b % 64) * block;
+                    for (auto& p : procs)
+                    {
+                        std::copy (src.data[0].begin() + off, src.data[0].begin() + off + block, work.data[0].begin());
+                        auto v = work.view();
+                        p->process (v);
+                    }
+                }
+                auto end = std::chrono::steady_clock::now();
+                const double usPerBlockAll = std::chrono::duration<double, std::micro> (end - start).count() / totalBlocks;
+                const double budgetUs = 1.0e6 * block / sr;
+                // The "instances" column carries on/off so the two rows are distinct keys: 6 strips off, 106 = 6 strips on.
+                std::printf ("%-10d %-10d %-14.2f %-14.1f %-12.1f\n", on ? 100 + instances : instances, block, usPerBlockAll / instances, usPerBlockAll, 100.0 * usPerBlockAll / budgetUs);
+            }
     }
 
     // Dine FX: reverb + delay chains (Vocal Throw runs both engines), stereo, 128 blocks of source.

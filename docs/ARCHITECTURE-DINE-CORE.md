@@ -25,7 +25,7 @@ Dine Core (src/)
 |---|---|---|
 | Product definition | `ProductDefinition` (`Core/ProductDefinition.h`, data `Profiles/ProductData.cpp`): sources, five knobs (id, plain label, tooltip), chain stages, wording, kit / loudness flags | `FxType` families |
 | Parameter struct + visitor | one `ChannelParameters` + `forEachDspField`; one spec table per product (`channelParameterSpecs (Product)`, `usesStage` hides stages a product does not need; hidden fields stay at defaults) | `FxParameters`, `forEachFxField`, `fxParameterSpecs` |
-| Chain | `ChannelProcessor`: filters, gate, corrective EQ, de-esser, comp, transient, tone EQ, saturation, width, trim, [limiter], [loudness meter] (`Options` per product) | `FxChain` = `DelayAlgorithm` + `ReverbAlgorithm` |
+| Chain | `ChannelProcessor`: filters, gate, [sample], corrective EQ, de-esser, comp, transient, tone EQ, saturation, width, trim, [limiter], [loudness meter] (`Options` per product; the sample stage - `SampleReplacer` = `SampleTrigger` + `SamplePlayer` over a `SampleBank` - on DLIVE's drum strips only) | `FxChain` = `DelayAlgorithm` + `ReverbAlgorithm` |
 | Roles | `ChannelRole` (35 sources, 24 families, `productOf`) | `FxType` (14 types, 2 families) |
 | Strategies | `DrumStrategies`, `VocalStrategies`, `KeysStrategies`, `MasterStrategy`, `GuitarStrategies`, `BassStrategies`, all on the `tune::` toolkit (+ `controlSibilance`, `setWidth`, `setLoudness`) | none yet (FX Tune is the next step) |
 | Profile data | `ProfileData.cpp`: `SourceTargets` + baseline per family, Worship deltas, per-role refinements (delivery loudness) | `FxProfiles.cpp` |

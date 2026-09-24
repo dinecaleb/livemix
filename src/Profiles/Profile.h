@@ -62,6 +62,18 @@ struct SourceTargets
     float gateMaxRangeDb = 30.0f;      // conservative: expansion, not a hard mute
     float gateDetectorHpfHz = 0.0f;
 
+    // ---- Sample replacement (DLIVE, kick / snare / toms) ----
+    // The detector's band and mask for this family, the rise a close hit shows, and the blend
+    // TUNE proposes when the engineer switches the stage on. TUNE fits the threshold and the
+    // sample's level from the listen; it never switches the stage on by itself.
+    bool sampleAppropriate = false;
+    float sampleDetHpfHz = 40.0f;
+    float sampleDetLpfHz = 8000.0f;
+    float sampleMaskMs = 40.0f;
+    float sampleRiseDb = 6.0f;
+    float sampleBlend = 0.4f;
+    const char* sampleSound = "";      // the profile's pick from the family's bank list, by name ("" = the first)
+
     // ---- Saturation ----
     bool saturationAppropriate = true;
     float satMaxDrive = 0.3f;

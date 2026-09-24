@@ -66,6 +66,13 @@ public:
     void setTap (MixTap* newTap) noexcept { tap.store (newTap, std::memory_order_release); }
 
     int getLatencySamples() const noexcept;
+
+    // Sample replacement: the sounds the drum strips can play, by family and slot. Message
+    // thread; the table and every bank in it outlive the engine (the app owns them for its
+    // lifetime), so the audio thread only ever reads a pointer that is always valid. A strip
+    // picks its bank from the table whenever a snapshot lands (its `replaceSound`).
+    void setSampleBanks (const SampleBankTable* table) noexcept { sampleBanks.store (table, std::memory_order_release); }
+    const SampleBankTable* getSampleBanks() const noexcept { return sampleBanks.load (std::memory_order_acquire); }
     double getSampleRate() const noexcept { return sr; }
     int getNumStrips() const noexcept { return numStrips; }
     const RoutingGraph& getGraph() const noexcept { return graph; }
@@ -166,6 +173,7 @@ private:
     bool haveApplied = false;
 
     std::atomic<MixTap*> tap { nullptr };
+    std::atomic<const SampleBankTable*> sampleBanks { nullptr };
     std::atomic<float> lastMicros { 0.0f }, peakMicros { 0.0f };
     std::atomic<int> blockCount { 0 };
 };
