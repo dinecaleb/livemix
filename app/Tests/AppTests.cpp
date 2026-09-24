@@ -1225,3 +1225,65 @@ TEST_CASE ("SampleLibrary: the built-in bank loads from the project, decodes to 
     CHECK (back.mix.strips[0].channel.replaceEnabled);
     CHECK (back.mix.strips[0].channel.replaceSound == 2);
 }
+
+TEST_CASE ("HEAR IT: an audition plays the strip's sound into the engineer's listen and never into the broadcast")
+{
+    SampleLibrary library;
+    library.load();
+    MixController c;
+    c.setSampleBanks (library.table());
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    std::vector<std::string> messages;
+    c.onMessage = [&] (const std::string& m) { messages.push_back (m); };
+
+    // Silent inputs, four output channels: the broadcast on 1-2, the listen on 3-4.
+    std::vector<std::vector<float>> in (6, std::vector<float> (size_t (kBlock), 0.0f));
+    std::vector<const float*> ip;
+    for (auto& v : in) ip.push_back (v.data());
+    std::vector<std::vector<float>> out (4, std::vector<float> (size_t (kBlock), 0.0f));
+    float* op[4] = { out[0].data(), out[1].data(), out[2].data(), out[3].data() };
+    auto run = [&] (int blocks)
+    {
+        float broadcast = 0.0f, listen = 0.0f;
+        for (int b = 0; b < blocks; ++b)
+        {
+            c.process (ip.data(), 6, op, 4, kBlock);
+            for (int i = 0; i < kBlock; ++i)
+            {
+                broadcast = std::max ({ broadcast, std::fabs (out[0][size_t (i)]), std::fabs (out[1][size_t (i)]) });
+                listen = std::max ({ listen, std::fabs (out[2][size_t (i)]), std::fabs (out[3][size_t (i)]) });
+            }
+        }
+        return std::make_pair (broadcast, listen);
+    };
+
+    // No solo output yet: refused, and the sentence says where to set it up.
+    CHECK (! c.auditionSample (0));
+    REQUIRE (! messages.empty());
+    CHECK (messages.back().find ("nowhere to go") != std::string::npos);
+    auto quiet = run (20);
+    CHECK (quiet.first == 0.0f);
+    CHECK (quiet.second == 0.0f);
+
+    // The listen on channels 3-4: the audition lands there, at the stage's level, and the broadcast stays silent.
+    OutputFeeds feeds = OutputFeeds::mainOnly();
+    feeds.count = 2;
+    feeds.feeds[1].monitor = true;
+    feeds.feeds[1].left = 2;
+    feeds.feeds[1].right = 3;
+    feeds.feeds[1].mono = false;
+    feeds.feeds[1].mute = false;
+    c.setOutputFeeds (feeds);
+    run (4);
+    REQUIRE (c.auditionSample (0));
+    auto heard = run (int (kSr / kBlock));           // a second: the whole hit
+    CHECK (heard.first == 0.0f);
+    CHECK (heard.second > 0.1f);
+    CHECK (heard.second <= 1.0f);
+    // A vocal strip has no sound to hear.
+    messages.clear();
+    CHECK (! c.auditionSample (3));
+    REQUIRE (! messages.empty());
+    CHECK (messages.back().find ("no sound") != std::string::npos);
+}

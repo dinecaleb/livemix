@@ -50,6 +50,8 @@ void MixEngine::prepare (double sampleRate, int maxBlockSize, const MixSession& 
 
     kitTriggers = KitTriggerTable {};
     samplePosition = 0;
+    auditionPlayer.prepare (sr);
+    auditionRequest.store (nullptr, std::memory_order_relaxed);
     strips.clear();
     strips.reserve (size_t (numStrips));
     for (int i = 0; i < numStrips; ++i)
@@ -303,6 +305,8 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
                 for (int ch = 0; ch < 2; ++ch) std::memset (fx[size_t (f)].ptrs[size_t (ch)], 0, sizeof (float) * size_t (n));
         if (monitorRouted)
             for (int ch = 0; ch < 2; ++ch) std::memset (monitor.ptrs[size_t (ch)], 0, sizeof (float) * size_t (n));
+        else
+            auditionRequest.store (nullptr, std::memory_order_relaxed);   // nowhere to hear it: the request is dropped, never kept for later
 
         // ---- Strips ----
         for (int i = 0; i < numStrips; ++i)
@@ -548,6 +552,17 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
                     std::memcpy (monitor.ptrs[0], fl, sizeof (float) * size_t (n));
                     std::memcpy (monitor.ptrs[1], fr, sizeof (float) * size_t (n));
                 }
+            }
+            // HEAR IT: an audition lands here and nowhere else, before the listen's own level.
+            if (const SampleBank* want = auditionRequest.exchange (nullptr, std::memory_order_acq_rel))
+            {
+                auditionPlayer.setBank (want);
+                auditionPlayer.trigger (0, 1.0f, dbToGain (clamp (auditionGainDb.load (std::memory_order_relaxed), -60.0f, 0.0f)), 1.0);
+            }
+            if (auditionPlayer.isPlaying())
+            {
+                AudioBlockView listen { monitor.ptrs.data(), 2, n };
+                auditionPlayer.render (listen, 1.0f);
             }
             if (monitor.gain.isSmoothing())
             {

@@ -1661,6 +1661,18 @@ void ChainEditor::buildControls()
                 controls.push_back (std::move (chip));
             }
         }
+        if (s.id == StageId::Sample)
+        {
+            // HEAR IT: the chosen sound, once, where solo goes. Nothing about the mix changes.
+            // After the fields: the knobs and chips are refreshed by their position in the list.
+            auto hear = std::make_unique<DineButton> ("Hear it", DineButton::Style::Filled);
+            hear->setCaps (true);
+            hear->setFontPx (11.5f);
+            hear->setTooltip ("Plays this sound once in your own listen (where solo goes). The broadcast never hears it.");
+            hear->onClick = [this] { controller.auditionSample (strip); };
+            controlsHolder.addAndMakeVisible (*hear);
+            controls.push_back (std::move (hear));
+        }
     }
     resized();
 }

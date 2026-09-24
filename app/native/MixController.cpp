@@ -1341,6 +1341,26 @@ void MixController::setStripChannel (int strip, const ChannelParameters& c)
     if (onMixChanged) onMixChanged();
 }
 
+bool MixController::auditionSample (int strip)
+{
+    if (! prepared || ! validStrip (kept, strip) || strip >= engine.getGraph().numStrips()) return false;
+    const auto& route = engine.getGraph().strips[size_t (strip)];
+    const SampleBankTable* table = engine.getSampleBanks();
+    const SampleBank* bank = table != nullptr ? table->bank (roleFamily (route.role), kept.strips[size_t (strip)].channel.replaceSound) : nullptr;
+    if (bank == nullptr || bank->empty())
+    {
+        if (onMessage) onMessage ("There is no sound to hear on " + route.name + ".");
+        return false;
+    }
+    if (! hasMonitorOutput())
+    {
+        if (onMessage) onMessage ("Solo has nowhere to go yet, so there is nowhere to hear it. Pick the device you listen on: the Solo picker on LIVE, or Outputs > Solo.");
+        return false;
+    }
+    engine.auditionSample (bank, kept.strips[size_t (strip)].channel.replaceGainDb);
+    return true;
+}
+
 // ---- Track history ----
 
 const std::vector<StripTuneRecord>& MixController::getStripHistory (int strip) const

@@ -298,7 +298,10 @@ per 128-sample block than with it off.
   hit that was within 9 dB of theirs, is that drum through the air and plays nothing. Strips run in order,
   so a strip sees the hits of the strips before it in the same block and everything from the blocks
   before; the stage reads "N hits, M held" in the Inspector.
-- **A hit readout.** The path chip's bar lights while a sample plays; the stage's value carries the count.
+- **A hit readout.** The path chip's bar lights while a sample plays; the stage's sentence carries the count.
+- **HEAR IT.** A button on the stage plays the chosen sound once, at the level the stage would play it, into the
+  engineer's listen (the monitor bus) and nowhere else; the broadcast never hears an audition, and with no solo
+  output the app says so rather than playing it into the room.
 - **Phase 0, on the QUEENSVIEW takes** (`build/app/dlive_trigger_check "<folder>" 60 <offset> _002`): the tool
   measures each kick, snare and tom take as a listen does, fits the stage as TUNE fits it, runs the detector
   as the engine runs it, and prints hits, a level histogram, gaps and coincidences. The first run said the

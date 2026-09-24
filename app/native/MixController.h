@@ -92,6 +92,10 @@ public:
     // them for the app's lifetime). Message thread; the engine reads a pointer, never a copy.
     void setSampleBanks (const SampleBankTable* table) noexcept { engine.setSampleBanks (table); }
     const SampleBankTable* getSampleBanks() const noexcept { return engine.getSampleBanks(); }
+    // HEAR IT: play the strip's chosen sound once, where solo goes, at the level the stage would
+    // play it. Monitoring, never mix: the broadcast does not hear it and nothing is kept. False,
+    // with the sentence in onMessage, when solo has nowhere to go or the strip has no sound.
+    bool auditionSample (int strip);
 
     // Audio thread.
     void process (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples) noexcept

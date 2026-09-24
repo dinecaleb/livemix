@@ -73,6 +73,14 @@ public:
     // picks its bank from the table whenever a snapshot lands (its `replaceSound`).
     void setSampleBanks (const SampleBankTable* table) noexcept { sampleBanks.store (table, std::memory_order_release); }
     const SampleBankTable* getSampleBanks() const noexcept { return sampleBanks.load (std::memory_order_acquire); }
+    // Hear a sound before using it: plays the bank's loudest hit once, at `gainDb` peak, into the
+    // engineer's listen (the monitor bus) and nowhere else - the broadcast never hears an
+    // audition. Message thread; nothing happens when no feed carries the monitor.
+    void auditionSample (const SampleBank* bank, float gainDb) noexcept
+    {
+        auditionGainDb.store (gainDb, std::memory_order_relaxed);
+        auditionRequest.store (bank, std::memory_order_release);
+    }
     double getSampleRate() const noexcept { return sr; }
     int getNumStrips() const noexcept { return numStrips; }
     const RoutingGraph& getGraph() const noexcept { return graph; }
@@ -175,6 +183,9 @@ private:
     std::atomic<MixTap*> tap { nullptr };
     std::atomic<const SampleBankTable*> sampleBanks { nullptr };
     KitTriggerTable kitTriggers;                                 // the drum strips' word to each other (audio thread only)
+    SamplePlayer auditionPlayer;                                 // HEAR IT: one voice into the monitor bus
+    std::atomic<const SampleBank*> auditionRequest { nullptr };
+    std::atomic<float> auditionGainDb { -12.0f };
     long long samplePosition = 0;                                // running, from prepare()
     std::atomic<float> lastMicros { 0.0f }, peakMicros { 0.0f };
     std::atomic<int> blockCount { 0 };
