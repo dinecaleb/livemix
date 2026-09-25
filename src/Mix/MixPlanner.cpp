@@ -367,7 +367,8 @@ MixPlan plan (const MixPlanContext& ctx)
         tc.profile = profile;
         tc.current = ctx.current.strips[size_t (i)].channel;
         tc.hasOutput = false;   // the mix balances with faders below, not with the strip's output trim
-        tc.sampled = sampleReplacementAppropriate (roleFamily (route.role)) && tc.current.replaceEnabled;
+        tc.hasSampleStage = sampleReplacementAppropriate (roleFamily (route.role));
+        tc.sampled = tc.hasSampleStage && tc.current.replaceEnabled;
         tc.kitSampled = kitSampled;
         sp.tune = TuneEngine::tune (tc);
 
@@ -406,6 +407,7 @@ MixPlan plan (const MixPlanContext& ctx)
     if (plan.stripsHeard == 0)
     {
         plan.proposed = plan.before;          // a refused listen changes nothing, not even a chain
+        plan.noChangeRequired = true;
         plan.headline = "MIX: NO SIGNAL";
         plan.notes.push_back ("No input carried a usable signal during the listen. Have the band play and Tune Mix again.");
         plan.valid = true;
@@ -428,6 +430,7 @@ MixPlan plan (const MixPlanContext& ctx)
     if (everythingSteady || mixNeverMoved)
     {
         plan.proposed = plan.before;          // ... including the chains the strips were given above
+        plan.noChangeRequired = true;
         plan.headline = "MIX: THAT WAS NOT A PERFORMANCE";
         plan.notes.push_back (everythingSteady
             ? "Every input DLIVE could hear carried a steady signal rather than somebody playing: never quiet, and never far above "

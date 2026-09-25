@@ -19,10 +19,22 @@ file under `docs/` — read the one for the area you are touching before changin
 - **Tune is deterministic, repeatable and idempotent.** Analysis + profile targets + source strategy give a
   bounded starting point; the same listen and settings give the same mix; a re-tune on the same capture says
   NO CHANGE REQUIRED (tested). Cut rules compute from the profile template, never from the current value;
-  every level decision is absolute from the capture, never "current + delta". Strategies edit a
-  `ChannelParameters` inside `TuneDecisions::move()` and changes are recorded by diffing - never hand-write a
-  `ParameterChange` list. A high-pass never goes above 0.8 x the measured fundamental; a sustained source never
-  gets an expander; a room microphone is never gated.
+  every level decision is absolute from the capture, never "current + delta" - a bound measured from
+  `atCapture` (the mix the listen ran through) is still absolute, which is how the re-tune step limit and the
+  group balance stay idempotent. Strategies edit a `ChannelParameters` inside `TuneDecisions::move()` and
+  changes are recorded by diffing - never hand-write a `ParameterChange` list. A high-pass never goes above
+  0.8 x the measured fundamental (`capHighPassToFundamental`, which outranks the profile's own minimum); a
+  sustained source never gets an expander; a room microphone is never gated; a boost and a cut never land
+  inside the same octave in one pass.
+- **A mix has one thing it is built around.** `MixPlanner`'s `focal` - the pinned input, else the lead
+  microphone somebody is really singing into - is what every hierarchy rule means by "the lead". Levels are
+  measured from where a source will actually land, never from where the profile wishes it were. The master is
+  fitted to a band, so a sermon-only listen leaves it alone and sets the speech group by what leaves the mix.
+  A listen with no performance in it is refused rather than mixed.
+- **Only one thing moves a level by itself, and it is off by default.** Speech priority ducks DRUMS, BASS and
+  MUSIC into the master while the speech group is open. Never the voices, never the room, never the returns,
+  and never the engineer's listen - it is applied where a group is summed into the master, after the monitor
+  has taken its copy.
 - **AI is optional, validated and never auto-applied.** Default Off, explicit user action only, a
   `SafetyValidator` / `MixSafetyValidator` on every path, the deterministic result as the fallback on any
   failure, AI output never enters the proposed parameters, nothing AI-related on the audio thread, and a
@@ -33,10 +45,12 @@ file under `docs/` — read the one for the area you are touching before changin
 - **Never rename a released parameter ID**; sessions, presets and automation depend on them. Enums that are
   stored (`StyleProfileId`, `MixBus`, roles) are appended to, never reordered; a stored-layout change bumps
   `SessionStore`'s version and remaps the old one.
-- **Latency is reported honestly.** The channel path is sample-synchronous and minimum-phase and adds none;
-  the lookahead limiter (`Limiter::kLookaheadMs` = 1.5 ms) exists only where the stage is turned on (Dine
-  Master, DLIVE's master bus) and is reported through `setLatencySamples` constantly, on, off or in an A/B.
-  Do not change DSP behaviour without meaning to: `tests/reference/*.f32` regression renders must keep passing.
+- **Latency is reported honestly, and so is the ceiling.** The channel path is sample-synchronous and
+  minimum-phase and adds none; the lookahead limiter (`Limiter::kLookaheadMs` = 1.5 ms) exists only where the
+  stage is turned on (Dine Master, DLIVE's master bus) and is reported through `setLatencySamples` constantly,
+  on, off or in an A/B. Its ceiling is a **true** peak: the detector is 4x oversampled, because a number
+  printed as dBTP has to be one. Do not change DSP behaviour without meaning to: `tests/reference/*.f32`
+  regression renders must keep passing.
 - **Plain words on the surface.** Anything a volunteer sees in Simple view or on a DLIVE workspace is plain
   language (WARMTH, CLARITY, SMOOTH, STEADY, CLEAN-UP, LOUD, "Only I hear it", "set to record"); engineer terms
   (gate, comp, de-ess, AFL, aggregate device, arm) appear once each, in Advanced or a tooltip. The verbs are

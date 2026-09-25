@@ -106,11 +106,17 @@ namespace
     }
 
     // Host parameters round-trip through a normalised (often skewed) float: compare with a small tolerance.
+    // Fields this product does not expose can never come back through the bridge: they are not
+    // in its parameter table, so they sit at the struct default whatever a role baseline says.
+    // Sample replacement is the case - a DLIVE drum strip starts with its own detector band,
+    // and no plug-in carries the stage at all - so the round trip is asked only about the
+    // parameters the product actually has.
     int mismatches (const ChannelParameters& a, const ChannelParameters& b, bool report = true)
     {
         int n = 0;
         for (const auto& c : diffParameters (a, b))
         {
+            if (! productUsesParameter (kProduct, c.paramId)) continue;
             float va = 0.0f;
             ChannelParameters copy = a;
             forEachDspParameter (copy, [&] (const std::string& id, auto& v) { if (id == c.paramId) va = float (v); });

@@ -2,6 +2,7 @@
 #include "Tune/TuneEngine.h"
 #include "Tune/SourceStrategy.h"
 #include "Profiles/StyleProfile.h"
+#include "DSP/SampleBank.h"
 #include "State/ParameterIDs.h"
 #include <cmath>
 
@@ -38,6 +39,7 @@ namespace
         c.role = role;
         c.profile = profile;
         c.current = StyleProfile::baseline (role, profile);
+        c.hasSampleStage = sampleReplacementAppropriate (roleFamily (role));   // a DLIVE drum strip, as MixPlanner builds it
         return c;
     }
 

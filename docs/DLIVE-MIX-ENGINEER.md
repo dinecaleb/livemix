@@ -2,6 +2,69 @@
 
 TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE SAFE, repeatability, MIX BUDDY, delivery loudness, RAISE LOUDNESS and MASTER SOUND, the AMBIENCE bus, input mappings, the six sound profiles and linked faders. Moved verbatim from the old CLAUDE.md (2026-09-19); the architecture is `docs/ARCHITECTURE-DLIVE-AI.md` and `docs/ARCHITECTURE-DLIVE.md`.
 
+- **WHAT THE MIX IS BUILT AROUND (2026-09-25).** Every rule that said "the lead" used to find one for
+  itself - the vocal pocket took the loudest, the follow-down rule the first in the list, the backing
+  hierarchy a third answer. There is one now: `MixPlanner`'s `focal`, meaning the source the mix is built
+  around. Unpinned it is the lead microphone somebody is really singing into (the widest gap between its
+  own level and what it hears between phrases, not the loudest - a spare open on a wedge is louder than a
+  singer two feet off a capsule). Pinned, it is whatever the engineer says: `InputAssignment::focus`,
+  FOCUS on the TUNE input rail, `MixController::setFocusInput`, stored with the session, at most one.
+  Beside it: several lead microphones sung into *together* are held so their sum is one lead's level
+  (singers taking a verse each - over half the listen silent - are not a duet and are left alone), and the
+  **group balance** finally reads `busBelowVocalsDb` (DRUMS -1, BASS -3, MUSIC -5, SPEECH level,
+  AMBIENCE -12 in gospel). That table settles what per-source numbers cannot: how loud a group ends up
+  also depends on how many microphones are in it. Group faders are fitted from each bus's predicted
+  output, bounded to `maxBusFaderMoveDb` 6, computed from the listen alone so a re-plan lands identically.
+  Masking is measured from **fitted** levels now, not from the profile's targets: the balance is fitted
+  once before the relationships and again over the chains they change, so the keys are never cut to make
+  room for a voice that never reached the mix.
+- **A SERMON IS NOT A SONG (2026-09-25).** A service is a sequence of performances and the listen only
+  hears the one that is happening, but the master was re-fitted to whatever that was - so the band came
+  back through a master built for one voice, and the next TUNE MIX moved it back. A listen where the only
+  source playing is the spoken word (`sermonListen`) now leaves the master exactly as the band set it and
+  sets the speech group by **what leaves the mix**: the delivery target read through the master already
+  there, so the words land where the song lands. Where a fader cannot carry it, the plan names the
+  microphone and says to turn its preamp up. The microphones open across a stage during a sermon - the
+  overheads, the drum room - are spill then, the way a speech microphone is spill during a song; a
+  congregation microphone deliberately is not. Measured on the planner's song → sermon → song sequence:
+  the band comes back within 0.5 LU of where it left instead of 2.3 dB hotter.
+- **A LISTEN WITH NO PERFORMANCE IN IT IS REFUSED (2026-09-25).** Two ways of asking, both in
+  `MixPlanner`: every input DLIVE could hear was steady (never quiet, never far above its own average,
+  `stuckSourceCrestDb` 4), or what arrived at the mix never moved at all (`minMasterCrestDb` 4). QUEENSVIEW
+  take 002 at 450 s is the case - a kick channel stuck at -2.5 dBFS with a 2.5 dB crest was the only thing
+  "playing" and the master went 7.5 dB up to meet it. One held chord measures the same way, which is why a
+  single input never decides it. Headline: `MIX: THAT WAS NOT A PERFORMANCE`, and nothing is changed.
+- **A BALANCE THAT HOLDS STILL (2026-09-25).** Three things, because two tunes of the same band one verse
+  apart were moving faders six and eight dB. (1) The level statistics a balance is fitted from are read
+  again over **each third** of the listen and the middle answer taken (`AnalysisAccumulator::levelsOverWindows`,
+  one byte per 10 ms frame); a source that played in only one third keeps the whole-capture answer, which
+  is right for a solo. (2) A `faderDeadbandDb` of 1: half a dB is inside what two listens disagree about.
+  (3) On a mix that has already been tuned (`MixPlanContext::retune`), one fader moves at most
+  `maxRetuneFaderStepDb` 4, the plan says what it stopped short of, and RE-TUNE carries the rest. The flag
+  belongs to the *listen*, not the moment - MATCH TO REFERENCE and TRY ANOTHER MIX re-plan listens from
+  before the last KEEP, and a listen has to plan the same way every time. Every plan now also carries one
+  line naming what it is about to move and by how much, against the mix that is running.
+- **THE LOUDNESS IS GATED, AND THE CEILING IS A TRUE PEAK (2026-09-25).** `AnalysisResult::loudnessGatedLufs`
+  gates the way a delivery meter gates (400 ms blocks on a 100 ms hop, absolute -70, relative -10), which is
+  what the whole gain structure is fitted against: ungated, every pause counted as programme and a sermon or
+  a quiet song asked to be pushed louder than it was. And `Limiter`'s detector is 4x oversampled (a 48-tap
+  polyphase interpolator, 12 taps per phase), so the number the readouts have always called dBTP is one.
+  A session now starts on **Livestream** (-14 LUFS, -1 dBTP); Church Broadcast is the television spec and
+  says so on its card.
+- **SPEECH PRIORITY (2026-09-25)** is the only thing in DLIVE that moves a level on its own, and it is off
+  until somebody turns it on (Mix menu, `MixSession::speechPriority`). While the speech group carries
+  somebody speaking, DRUMS, BASS and MUSIC step back into the master - 4 dB at 150 ms with a 250 ms hold
+  and an 800 ms release, 6 dB under Talk and Podcast, numbers in `MixProfile::speechPriority`. Not the
+  voices (a singer under a preacher is a duet), not the room (a congregation answering is the service),
+  not the returns, and **never the engineer's listen**: the duck is applied where a group is summed into
+  the master, which is after the listen has taken its copy, so a solo is never a lie. Nothing about it
+  allocates or computes a coefficient on the audio thread.
+- **TUNE <GROUP> and KEEP SOME (2026-09-25).** `MixPlanner::busOnly` / `restrictTo`, `MixController::startTuneBus`
+  / `setPlanSelection` / `keepPlanSelection`, the TUNE verb on each group tile and a chip per touched group
+  on the result sheet. A group tune is the same listen and the same planner narrowed to one bus, so the band
+  can be tuned during the song and the pastor during the sermon without either moving the other or the
+  master. KEEP applies exactly what AFTER was playing: `getBase()` is the one place that decides what is
+  heard and `compose()` reads it.
 - **TUNE LIVE MIX** (the AI Mix Engineer, 2026-09-12; see `docs/ARCHITECTURE-DLIVE-AI.md`) is a reasoning layer
   **above** `MixPlanner`, never instead of it. The deterministic plan is built first and always, so a dead network,
   a timeout or a malformed reply leaves the user with a professional mix and a sentence. Everything is JUCE-free in

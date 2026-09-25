@@ -610,7 +610,7 @@ void setCompression (const TuneContext& ctx, const SourceTargets& t, TuneDecisio
 
 void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, float fundamentalHz)
 {
-    if (! t.sampleAppropriate) return;
+    if (! t.sampleAppropriate || ! ctx.hasSampleStage) return;
     // One trigger per drum: the inside / top microphone. The outside and bottom microphones
     // keep their own chains and are never fitted, so two samples never land on one hit.
     if (ctx.role == ChannelRole::KickOut || ctx.role == ChannelRole::SnareBottom) return;
