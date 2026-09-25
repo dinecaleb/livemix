@@ -31,6 +31,9 @@ public:
         float maxWaitSeconds = 30.0f;   // then start anyway (strips that stayed quiet say so)
         float heardDb = -50.0f;         // a strip counts as heard above this
         int triggerStrip = -1;          // wait for this strip alone (TUNE CHANNEL); -1 = anybody starting to play
+        // ... or for any of these strips (TUNE DRUMS: the group), one bit per strip; 0 = not used.
+        // kMaxStrips is 64, so the whole console fits in one word.
+        unsigned long long triggerStrips = 0;
     };
 
     struct Result

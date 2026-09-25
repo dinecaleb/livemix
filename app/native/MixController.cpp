@@ -34,7 +34,7 @@ void MixController::setSession (const MixSession& s)
     // audio yet.
     graphStale = true;
     plan.reset();
-    tuningStrip = -1;
+    clearTuningScope();
     if (! prepared) stage = Stage::Setup;
     else if (stage == Stage::Listening || stage == Stage::Planning || stage == Stage::Preview)
     {
@@ -212,7 +212,7 @@ void MixController::prepare (double sr, int maxBlockSize)
     macros = MixMacroValues {};
     bypassed = false;
     tuneCount = 0;
-    tuningStrip = -1;
+    clearTuningScope();
     mixed = false;
     // The listen described the graph that has just been replaced, so it cannot be re-planned
     // from. The reference is a target rather than a measurement of this session, and survives.
@@ -234,10 +234,10 @@ void MixController::prepare (double sr, int maxBlockSize)
 
 MixParameters MixController::compose() const
 {
-    // The verify listen of a TUNE LIVE MIX run has to hear what was applied, so the proposal
-    // stays audible across it even though the stage says Listening.
-    const bool previewing = plan && (stage == Stage::Preview || liveVerifying);
-    const MixParameters& base = previewing ? (compare == Compare::Before ? plan->before : plan->proposed) : kept;
+    // What is audible: the kept mix, or - while a proposal is on preview - BEFORE, or AFTER
+    // narrowed to whatever KEEP SOME has selected. One place decides it (getBase), so what is
+    // heard and what KEEP applies can never be two different mixes.
+    const MixParameters& base = getBase();
     if (bypassed)
     {
         // The console feed: no processing, no fader moves, no returns. Only the listening
@@ -339,7 +339,7 @@ bool MixController::recallScene (int slot)
     macros = s.macros;
     mixed = true;
     plan.reset();
-    tuningStrip = -1;
+    clearTuningScope();
     compare = Compare::After;
     stage = restingStage();
     for (int i = 0; i < kept.numStrips && i < was.numStrips; ++i)
@@ -417,26 +417,63 @@ void MixController::startTuneChannel (int strip, const ListenSettings& s)
     startListening (s, strip);
 }
 
-void MixController::startListening (const ListenSettings& s, int strip)
+// One group on its own. Again the same listen and the same planner - the whole console is
+// measured, so the group is still decided in mix context - narrowed to this bus when the
+// plan is made. The band can be tuned during the song and the pastor during the sermon, and
+// neither moves the other or the master.
+void MixController::startTuneBus (MixBus bus, const ListenSettings& s)
+{
+    if (int (bus) < 0 || int (bus) >= int (MixBus::Master)) return;
+    if (! engine.getGraph().busUsed[size_t (bus)])
+    {
+        if (onMessage) onMessage (std::string (mixBusName (bus)) + " has nothing assigned to it, so there is nothing to tune.");
+        return;
+    }
+    if (liveSafeRefuses (LiveAction::TuneBus)) return;
+    liveKept = false;
+    startListening (s, -1, int (bus));
+}
+
+void MixController::startListening (const ListenSettings& s, int strip, int bus)
 {
     if (! prepared || stage == Stage::Listening || stage == Stage::Planning) return;
     // A new listen starts from what is audible now - except the verify listen of a live run,
     // which is deliberately listening to a proposal the user has not kept yet.
     if (stage == Stage::Preview && ! liveVerifying) keepPlan();
     listen = s;
+    clearTuningScope();
     tuningStrip = strip;
+    tuningBus = bus;
     atCapture = running;                        // the faders and gains the listen will run with
     MixCapture::Settings cs;
     cs.seconds = s.seconds;
     cs.triggerDb = s.triggerDb;
     cs.maxWaitSeconds = s.maxWaitSeconds;
     cs.triggerStrip = strip;
+    // TUNE <GROUP> waits for anything on the group rather than for the band: the sermon
+    // starts the window when the pastor speaks, not when somebody touches a drum.
+    if (bus >= 0)
+    {
+        const auto& g = engine.getGraph();
+        unsigned long long mask = 0;
+        for (int i = 0; i < g.numStrips() && i < 64; ++i)
+            if (g.strips[size_t (i)].bus == MixBus (bus)) mask |= 1ULL << i;
+        cs.triggerStrips = mask;
+    }
     capture.start (cs);
     stage = Stage::Listening;
 }
 
+void MixController::clearTuningScope() noexcept
+{
+    tuningStrip = -1;
+    tuningBus = -1;
+    planSelection.reset();
+}
+
 std::string MixController::getTuningName() const
 {
+    if (tuningBus >= 0 && tuningBus < int (MixBus::Count)) return mixBusName (MixBus (tuningBus));
     if (tuningStrip < 0 || tuningStrip >= int (session.inputs.size())) return {};
     return session.inputs[size_t (tuningStrip)].name;
 }
@@ -477,7 +514,7 @@ void MixController::startReferenceMatch()
     ctx.atCapture = lastCaptureAt;
     ctx.capture = lastCapture;
     ctx.reference = reference;
-    tuningStrip = -1;
+    clearTuningScope();
     stage = Stage::Planning;
     plan = MixPlanner::plan (ctx);
 
@@ -515,7 +552,7 @@ void MixController::abortTuneMix()
     }
     if (stage != Stage::Listening && stage != Stage::Planning) return;
     capture.abort();
-    tuningStrip = -1;
+    clearTuningScope();
     stage = restingStage();
 }
 
@@ -638,7 +675,7 @@ void MixController::endTuneLive (const std::string& message, bool keepProposal)
         stage = restingStage();
     }
     else { stage = Stage::Preview; liveKept = true; }
-    tuningStrip = -1;
+    clearTuningScope();
     publish();
 
     // A chat turn answers in the chat, not in a toast that scrolls away: what DLIVE decided,
@@ -791,10 +828,13 @@ void MixController::poll()
             return;
         }
 
-        // TUNE CHANNEL keeps only this channel's part of it; everything else is left exactly
-        // where it is, so what is proposed is what the mix becomes when it is kept.
+        // TUNE CHANNEL and TUNE <GROUP> keep only their own part of it; everything else is
+        // left exactly where it is, so what is proposed is what the mix becomes when it is
+        // kept. A group plan's stripsHeard is how many of its sources really played.
         const int channel = tuningStrip;
-        if (channel >= 0) plan = MixPlanner::channelOnly (*plan, channel, session.profile);
+        const int group = tuningBus;
+        if (channel >= 0)    plan = MixPlanner::channelOnly (*plan, channel, session.profile);
+        else if (group >= 0) plan = MixPlanner::busOnly (*plan, MixBus (group), engine.getGraph(), session.profile);
 
         const bool heardIt = plan->valid && (channel < 0 ? plan->stripsHeard > 0
                                                          : channel < int (plan->strips.size()) && plan->strips[size_t (channel)].heard);
@@ -805,10 +845,11 @@ void MixController::poll()
             compare = Compare::After;
             if (onMessage) onMessage (plan->headline);
         }
-        else if (channel >= 0 && plan->valid)
+        else if (isTuningPart() && plan->valid)
         {
-            // The channel said nothing, but the listen still measured every input: the plan is
-            // kept for what it knows (gain staging, mix health) and nothing is proposed.
+            // The channel or the group said nothing, but the listen still measured every
+            // input: the plan is kept for what it knows (gain staging, mix health) and
+            // nothing is proposed.
             if (onMessage) onMessage (plan->headline);
             stage = restingStage();
         }
@@ -816,7 +857,7 @@ void MixController::poll()
         {
             if (onMessage) onMessage (plan ? plan->headline : "MIX: NO SIGNAL");
             plan.reset();
-            tuningStrip = -1;
+            clearTuningScope();
             stage = restingStage();
         }
         publish();
@@ -880,25 +921,66 @@ void MixController::keepPlan()
 {
     if (! plan || stage != Stage::Preview) return;
     if (liveSafeRefuses (LiveAction::KeepPlan)) return;
+    // What AFTER is playing is what KEEP applies: with a KEEP SOME selection that is the
+    // narrowed proposal, and the rest of the mix stays exactly as the listen found it.
+    const MixParameters& taking = planSelection ? selectedProposed : plan->proposed;
     // KEEP replaces the whole mix, which is exactly the kind of change somebody wants a way
     // back from. A chat turn has already marked its own step, so it does not mark a second.
-    if (! chatRun) markMixChange (isTuningChannel() ? "tune " + getTuningName() : std::string ("TUNE MIX"));
+    if (! chatRun) markMixChange (isTuningPart() ? "tune " + getTuningName() : std::string ("TUNE MIX"));
     // Every channel the plan moved remembers it: what did it, what the strip was, what it is now.
     {
         std::string what = isTuningChannel() ? std::string ("TUNE CHANNEL")
+                         : isTuningBus() ? "TUNE " + getTuningName()
                          : chatRun ? "Mix Buddy: " + (history.empty() ? std::string() : history.back().what)
                          : liveKept ? std::string ("TUNE LIVE MIX") : std::string ("TUNE MIX");
-        const int n = std::min (plan->before.numStrips, plan->proposed.numStrips);
+        const int n = std::min (plan->before.numStrips, taking.numStrips);
         for (int i = 0; i < n; ++i)
-            recordStripTune (i, what, plan->before.strips[size_t (i)], plan->proposed.strips[size_t (i)]);
+            recordStripTune (i, what, plan->before.strips[size_t (i)], taking.strips[size_t (i)]);
     }
     liveKept = false;
-    kept = plan->proposed;
+    kept = taking;
+    // The proposal is kept for the Inspector to read "what DLIVE set" from; the selection
+    // that narrowed it has done its work and never outlives the decision.
+    planSelection.reset();
     mixed = true;
     stage = Stage::Mixed;
     compare = Compare::After;
     publish();
     if (onMixChanged) onMixChanged();
+}
+
+// ---- KEEP SOME ----
+// A selection is a filter on a proposal that already exists: nothing is re-decided, and what
+// AFTER plays is exactly what KEEP will apply. It lives only while that proposal is on
+// preview - every new listen starts with the whole of it selected again.
+void MixController::refreshSelection()
+{
+    if (! plan || ! planSelection) { selectedProposed = MixParameters {}; return; }
+    selectedProposed = MixPlanner::restrictTo (*plan, *planSelection, engine.getGraph(), session.profile).proposed;
+}
+
+void MixController::setPlanSelection (const PlanSelection& sel)
+{
+    if (! plan || stage != Stage::Preview) return;
+    if (sel.everything (plan->before.numStrips)) { clearPlanSelection(); return; }
+    planSelection = sel;
+    refreshSelection();
+    publish();
+}
+
+void MixController::clearPlanSelection()
+{
+    if (! planSelection) return;
+    planSelection.reset();
+    selectedProposed = MixParameters {};
+    publish();
+}
+
+void MixController::keepPlanSelection (const PlanSelection& sel)
+{
+    if (! plan || stage != Stage::Preview) return;
+    setPlanSelection (sel);
+    keepPlan();
 }
 
 void MixController::revertPlan()
@@ -907,7 +989,7 @@ void MixController::revertPlan()
     if (liveSafeRefuses (LiveAction::RevertPlan)) return;
     kept = plan->before;
     plan.reset();
-    tuningStrip = -1;
+    clearTuningScope();
     stage = restingStage();
     compare = Compare::After;
     publish();
@@ -962,7 +1044,7 @@ void MixController::applySnapshot (const MixSnapshot& s)
     // Undoing while a plan is on BEFORE / AFTER would leave a preview of something that no
     // longer exists. The preview goes; the mix that came back is what is heard.
     plan.reset();
-    tuningStrip = -1;
+    clearTuningScope();
     compare = Compare::After;
     stage = restingStage();
     publish();

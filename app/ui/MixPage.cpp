@@ -36,11 +36,14 @@ namespace
 
 // ------------------------------------------------------------------ GroupTile
 // One group bus: its name in its colour, a fader and a meter side by side, and its level.
-class MixPage::GroupTile : public juce::Component
+class MixPage::GroupTile : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     GroupTile (MixController& c, int index) : controller (c), group (index)
     {
+        if (index < kGroupBuses)
+            setTooltip ("TUNE listens to the whole band and sets " + groupName (index)
+                        + " alone: its channels and its group chain. Nothing else in the mix, and not the master, moves.");
         addAndMakeVisible (meter);
         addAndMakeVisible (fader);
         fader.setSliderStyle (juce::Slider::LinearVertical);
@@ -64,14 +67,29 @@ public:
     void set (bool isUsed, float peakDb, float holdDb, bool clipped, bool isMuted, float faderDb, int heardState)
     {
         updating = true;
+        const bool wasUsed = used;
         bool body = used != isUsed || heard != heardState || muted != isMuted;
         used = isUsed; heard = heardState; muted = isMuted;
+        if (wasUsed != used) resized();      // the TUNE verb appears with the group
         meter.setLevels (peakDb, holdDb, clipped);
         meter.setMuted (isMuted || ! used);
         if (std::fabs (faderDb - float (fader.getValue())) > 0.01f) { fader.setValue (faderDb, juce::dontSendNotification); repaint (readout); }
         fader.setEnabled (used);
         updating = false;
         if (body) repaint();
+    }
+
+    // TUNE <GROUP>, the same verb the input rail carries for one channel: DLIVE listens to
+    // the whole console and applies only this group, so the band can be tuned during the
+    // song and the pastor during the sermon without either moving the other.
+    std::function<void()> onTune;
+
+    void mouseEnter (const juce::MouseEvent&) override { if (! verbRect.isEmpty()) repaint (verbRect); }
+    void mouseExit  (const juce::MouseEvent&) override { if (! verbRect.isEmpty()) repaint (verbRect); }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (e.mouseWasDraggedSinceMouseDown() || ! verbRect.contains (e.getPosition())) return;
+        if (canTune() && onTune) onTune();
     }
 
     void paint (juce::Graphics& g) override
@@ -94,12 +112,21 @@ public:
         g.setColour (! used ? Dine::ink4 : muted ? Dine::warn : Dine::ink2);
         g.setFont (Dine::mono (11.0f, 500));
         g.drawText (! used ? "not in this mix" : muted ? "NOT HEARD" : dbText (float (fader.getValue())), readout, juce::Justification::centred);
+
+        if (canTune())
+        {
+            g.setColour (isMouseOver (true) ? Dine::accent : Dine::ink3);
+            g.setFont (Dine::caps (9.5f, 0.06f));
+            g.drawText ("TUNE", verbRect, juce::Justification::centred);
+        }
     }
 
     void resized() override
     {
         auto r = getLocalBounds().reduced (10, 14);
         r.removeFromTop (14 + 10);
+        verbRect = canTune() ? r.removeFromBottom (13) : juce::Rectangle<int>();
+        if (canTune()) r.removeFromBottom (4);
         readout = r.removeFromBottom (14);
         r.removeFromBottom (10);
         auto pair = r.withSizeKeepingCentre (20 + 6 + 7, r.getHeight());
@@ -110,12 +137,14 @@ public:
 
 private:
     bool isFx() const noexcept { return group >= kGroupBuses; }
+    // The returns are not a group of sources, so there is nothing to listen to and tune.
+    bool canTune() const noexcept { return used && ! isFx(); }
 
     MixController& controller;
     int group;
     bool used = false, muted = false, updating = false;
     int heard = 0;
-    juce::Rectangle<int> readout;
+    juce::Rectangle<int> readout, verbRect;
     DineMeter meter { DineMeter::Style::Bar };
     juce::Slider fader;
 };
@@ -513,6 +542,24 @@ public:
     ResultSheet (MixController& c, MixPage& p) : controller (c), page (p)
     {
         for (auto* b : { &before, &after, &keep, &revert, &another, &review, &closeButton }) addAndMakeVisible (*b);
+        // KEEP SOME: one chip per group this proposal touches. Switching a group off takes
+        // its part straight back out of what AFTER is playing, so the decision is made by
+        // listening rather than by reading a list.
+        for (int b = 0; b < int (MixBus::Count); ++b)
+        {
+            auto chip = std::make_unique<DineButton> (juce::String (mixBusName (MixBus (b))), DineButton::Style::Toggle);
+            chip->setFontPx (11.0f);
+            chip->setPadX (11);
+            chip->setTooltip (juce::String (mixBusName (MixBus (b))) + ": switch it off and this proposal's changes to it are left out. "
+                              "AFTER plays exactly what KEEP will apply.");
+            chip->onClick = [this, b]
+            {
+                picked[size_t (b)] = ! picked[size_t (b)];
+                applySelection();
+            };
+            addChildComponent (*chip);
+            chips[size_t (b)] = std::move (chip);
+        }
         before.setCaps (true); after.setCaps (true); keep.setCaps (true); revert.setCaps (true);
         before.setClickingTogglesState (false); after.setClickingTogglesState (false);
         for (auto* b : { &before, &after, &keep, &revert, &another }) { b->setFontPx (12.5f); b->setPadX (14); }
@@ -539,8 +586,85 @@ public:
         before.setStyle (showingAfter ? DineButton::Style::Standard : DineButton::Style::Filled);
         after.setStyle (showingAfter ? DineButton::Style::Filled : DineButton::Style::Standard);
         another.setEnabled (controller.canTryAnotherMix());
+        rebuildChips();
         resized();
         repaint();
+    }
+
+    // Which groups this proposal actually changes. Asked of the planner itself - a group is
+    // touched when keeping it alone would change something - so the chips can never offer a
+    // group whose changes are nothing, or hide one whose changes are real.
+    void rebuildChips()
+    {
+        const auto* plan = controller.getPlan();
+        const int stamp = plan == nullptr ? -1
+                        : controller.getTuneCount() * 1000003 + plan->parametersChanged * 101 + plan->fadersChanged * 7 + plan->gainsChanged;
+        if (stamp == builtFor) { paintChips(); return; }
+        builtFor = stamp;
+        groupsTouched = 0;
+        for (int b = 0; b < int (MixBus::Count); ++b)
+        {
+            bool touched = false;
+            if (plan != nullptr && plan->valid)
+            {
+                const auto one = MixPlanner::restrictTo (*plan, MixPlanner::PlanSelection::group (controller.getGraph(), MixBus (b)),
+                                                         controller.getGraph(), controller.getSession().profile);
+                touched = ! one.noChangeRequired;
+            }
+            touchedBus[size_t (b)] = touched;
+            picked[size_t (b)] = true;         // a new proposal arrives whole; switching a group off is the user's move
+            if (touched) ++groupsTouched;
+        }
+        paintChips();
+    }
+
+    void paintChips()
+    {
+        for (int b = 0; b < int (MixBus::Count); ++b)
+        {
+            chips[size_t (b)]->setVisible (showChips() && touchedBus[size_t (b)]);
+            chips[size_t (b)]->setToggleState (picked[size_t (b)], juce::dontSendNotification);
+        }
+        const bool all = everythingPicked();
+        keep.setButtonText (all ? "Keep" : "Keep these");
+        keep.setEnabled (all || anyPicked());
+    }
+
+    // One group is not a choice, so the row only appears when there is something to choose between.
+    bool showChips() const noexcept { return groupsTouched > 1; }
+    bool everythingPicked() const noexcept
+    {
+        for (int b = 0; b < int (MixBus::Count); ++b) if (touchedBus[size_t (b)] && ! picked[size_t (b)]) return false;
+        return true;
+    }
+    bool anyPicked() const noexcept
+    {
+        for (int b = 0; b < int (MixBus::Count); ++b) if (touchedBus[size_t (b)] && picked[size_t (b)]) return true;
+        return false;
+    }
+
+    void applySelection()
+    {
+        if (everythingPicked()) controller.clearPlanSelection();
+        else
+        {
+            MixPlanner::PlanSelection sel;
+            for (int b = 0; b < int (MixBus::Count); ++b)
+            {
+                if (! picked[size_t (b)]) continue;
+                const auto one = MixPlanner::PlanSelection::group (controller.getGraph(), MixBus (b));
+                for (size_t i = 0; i < sel.strips.size(); ++i) sel.strips[i] = sel.strips[i] || one.strips[i];
+                sel.buses[size_t (b)] = true;
+            }
+            controller.setPlanSelection (sel);
+        }
+        // Switching a group off is a decision made by ear: it goes straight onto AFTER.
+        if (controller.getCompare() != MixController::Compare::After) controller.setCompare (MixController::Compare::After);
+        paintChips();
+        repaint();
+        if (page.onToast)
+            page.onToast (everythingPicked() ? juce::String ("Hearing the whole proposal again.")
+                                             : "AFTER is playing only what is switched on. KEEP applies exactly that.");
     }
 
     struct Bullet { juce::String what, why; bool done = true; };
@@ -576,10 +700,13 @@ public:
         return h;
     }
 
+    static constexpr int kChipH = 26;
+    int chipRowHeight() const { return showChips() ? kChipH + 12 : 0; }
+
     juce::Rectangle<int> sheetBounds() const
     {
         const int w = juce::jmin (900, getWidth() - 80);
-        const int content = kPadY + 28 + 20 + Dine::Metric::button + 10 + listHeight() + kPadY;
+        const int content = kPadY + 28 + 20 + Dine::Metric::button + 10 + chipRowHeight() + listHeight() + kPadY;
         const int h = juce::jlimit (240, juce::jmax (240, getHeight() - 40), content);
         return juce::Rectangle<int> (w, h).withCentre (getLocalBounds().getCentre());
     }
@@ -645,6 +772,14 @@ public:
                     head, juce::Justification::centredLeft, true);
 
         r.removeFromTop (20 + Dine::Metric::button + 10);
+        if (showChips())
+        {
+            auto row = r.removeFromTop (kChipH);
+            g.setColour (everythingPicked() ? Dine::ink3 : Dine::accent);
+            g.setFont (Dine::caps (10.0f, 0.08f));
+            g.drawText (everythingPicked() ? "KEEP" : "KEEPING", row.removeFromLeft (kKeepLabelW), juce::Justification::centredLeft);
+            r.removeFromTop (12);
+        }
         for (const auto& b : bullets())
         {
             const int h = bulletHeight (b);
@@ -686,11 +821,31 @@ public:
         revert.setBounds (row.removeFromRight (juce::jmax (90, revert.idealWidth())));
         row.removeFromRight (10);
         another.setBounds (row.removeFromRight (juce::jmax (120, another.idealWidth())));
+
+        if (showChips())
+        {
+            r.removeFromTop (10);
+            auto chipRow = r.removeFromTop (kChipH);
+            chipRow.removeFromLeft (kKeepLabelW);
+            for (int b = 0; b < int (MixBus::Count); ++b)
+            {
+                if (! chips[size_t (b)]->isVisible()) continue;
+                chips[size_t (b)]->setBounds (chipRow.removeFromLeft (juce::jmax (58, chips[size_t (b)]->idealWidth())).withHeight (kChipH));
+                chipRow.removeFromLeft (7);
+            }
+        }
     }
 
 private:
+    static constexpr int kKeepLabelW = 66;
+
     MixController& controller;
     MixPage& page;
+    std::array<std::unique_ptr<DineButton>, size_t (MixBus::Count)> chips;
+    std::array<bool, size_t (MixBus::Count)> picked { };
+    std::array<bool, size_t (MixBus::Count)> touchedBus { };
+    int groupsTouched = 0;
+    int builtFor = -1;
     DineButton before { "Before", DineButton::Style::Standard }, after { "After", DineButton::Style::Filled };
     DineButton keep { "Keep", DineButton::Style::Filled }, revert { "Revert", DineButton::Style::Standard };
     DineButton another { "Try another mix", DineButton::Style::Standard };
@@ -701,7 +856,17 @@ private:
 // ------------------------------------------------------------------ MixPage
 MixPage::MixPage (MixController& c) : controller (c)
 {
-    for (int i = 0; i < kGroupTiles; ++i) { groups[size_t (i)] = std::make_unique<GroupTile> (controller, i); addAndMakeVisible (*groups[size_t (i)]); }
+    for (int i = 0; i < kGroupTiles; ++i)
+    {
+        groups[size_t (i)] = std::make_unique<GroupTile> (controller, i);
+        if (i < kGroupBuses)
+            groups[size_t (i)]->onTune = [this, i]
+            {
+                controller.startTuneBus (MixBus (i));
+                if (onToast) onToast ("Listening to " + groupName (i) + " alone. Every other group, and the master, stay where they are.");
+            };
+        addAndMakeVisible (*groups[size_t (i)]);
+    }
     {
         const auto set = [this] (MixMacro m, float v) { controller.setMacro (m, v); };
         const juce::String times = juce::String::fromUTF8 ("\xC3\x97");

@@ -463,6 +463,103 @@ TEST_CASE ("MixController: TUNE CHANNEL tunes one source and leaves the rest of 
     CHECK (MixPlanner::countParameterChanges (c.getKept(), afterChannel) == 0);
 }
 
+TEST_CASE ("MixController: TUNE <GROUP> tunes one group, and KEEP SOME keeps only what is switched on")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+
+    // A whole mix first, so the group tune and the partial keep have a real mix to leave alone.
+    c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    c.keepPlan();
+    const MixParameters afterMix = c.getKept();
+
+    // ---- TUNE VOCALS: the voices and the vocal group move, the band and the master do not.
+    c.startTuneBus (MixBus::Vocals, { 2.0f, -200.0f, 0.0f });
+    CHECK (c.isListening());
+    CHECK (c.isTuningBus());
+    CHECK (c.isTuningPart());
+    CHECK (! c.isTuningChannel());
+    CHECK (c.getTuningBus() == MixBus::Vocals);
+    CHECK (c.getTuningName() == std::string ("VOCALS"));
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    REQUIRE (c.hasPlan());
+    const auto* plan = c.getPlan();
+    CHECK (plan->headline.find ("VOCALS") == 0);
+    const auto& graph = c.getGraph();
+    for (int i = 0; i < plan->before.numStrips; ++i)
+    {
+        if (graph.strips[size_t (i)].bus == MixBus::Vocals) continue;
+        CHECK (diffParameters (plan->before.strips[size_t (i)].channel, plan->proposed.strips[size_t (i)].channel).empty());
+        CHECK (plan->before.strips[size_t (i)].faderDb == plan->proposed.strips[size_t (i)].faderDb);
+        CHECK (plan->before.strips[size_t (i)].inputGainDb == plan->proposed.strips[size_t (i)].inputGainDb);
+    }
+    for (int b = 0; b < int (MixBus::Count); ++b)
+    {
+        if (MixBus (b) == MixBus::Vocals) continue;
+        CHECK (diffParameters (plan->before.buses[size_t (b)].channel, plan->proposed.buses[size_t (b)].channel).empty());
+    }
+    c.keepPlan();
+    CHECK (c.getStage() == MixController::Stage::Mixed);
+    for (int i = 0; i < c.getKept().numStrips; ++i)
+        if (graph.strips[size_t (i)].bus != MixBus::Vocals)
+            CHECK (diffParameters (afterMix.strips[size_t (i)].channel, c.getKept().strips[size_t (i)].channel).empty());
+    const MixParameters afterVocals = c.getKept();
+
+    // ---- KEEP SOME on a whole-mix proposal: AFTER plays the selection, KEEP applies it.
+    c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    REQUIRE (c.hasPlan());
+    const MixParameters whole = c.getPlan()->proposed;
+    CHECK (! c.hasPlanSelection());
+
+    auto drumsOnly = MixPlanner::PlanSelection::group (c.getGraph(), MixBus::Drums);
+    c.setPlanSelection (drumsOnly);
+    REQUIRE (c.hasPlanSelection());
+    // What is audible is the selection, not the whole proposal: the drum strips are the
+    // proposal's, everything else is the mix as it was before the listen.
+    for (int i = 0; i < c.getBase().numStrips; ++i)
+    {
+        const bool onDrums = c.getGraph().strips[size_t (i)].bus == MixBus::Drums;
+        const auto& want = onDrums ? whole.strips[size_t (i)] : afterVocals.strips[size_t (i)];
+        CHECK (diffParameters (c.getBase().strips[size_t (i)].channel, want.channel).empty());
+        CHECK (c.getBase().strips[size_t (i)].faderDb == want.faderDb);
+    }
+    CHECK (diffParameters (c.getBase().master().channel, afterVocals.master().channel).empty());
+
+    // BEFORE is still the whole mix as it was, whatever is selected.
+    c.setCompare (MixController::Compare::Before);
+    CHECK (MixPlanner::countParameterChanges (c.getBase(), afterVocals) == 0);
+    c.setCompare (MixController::Compare::After);
+
+    // Clearing it puts the whole proposal back.
+    c.clearPlanSelection();
+    CHECK (! c.hasPlanSelection());
+    CHECK (MixPlanner::countParameterChanges (c.getBase(), whole) == 0);
+
+    // KEEP with a selection applies exactly what AFTER was playing, and nothing else.
+    c.keepPlanSelection (drumsOnly);
+    CHECK (c.getStage() == MixController::Stage::Mixed);
+    for (int i = 0; i < c.getKept().numStrips; ++i)
+    {
+        const bool onDrums = c.getGraph().strips[size_t (i)].bus == MixBus::Drums;
+        const auto& want = onDrums ? whole.strips[size_t (i)] : afterVocals.strips[size_t (i)];
+        CHECK (diffParameters (c.getKept().strips[size_t (i)].channel, want.channel).empty());
+    }
+    CHECK (diffParameters (c.getKept().master().channel, afterVocals.master().channel).empty());
+    // A selection never outlives the proposal it narrowed.
+    CHECK (! c.hasPlanSelection());
+
+    // And it is one mix change, so UNDO takes the whole of it back.
+    c.undoMix();
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), afterVocals) == 0);
+}
+
 TEST_CASE ("MixController: a channel that never played is told so, and nothing is proposed for it")
 {
     MixController c;

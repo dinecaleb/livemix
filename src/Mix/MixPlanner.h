@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <string>
 #include <vector>
 #include "MixSession.h"
@@ -93,6 +94,35 @@ namespace MixPlanner
     // channel tune is not a master decision), and every other strip keeps what the listen
     // measured about it, with the moves the full plan would have made taken back out.
     MixPlan channelOnly (const MixPlan& full, int strip, StyleProfileId profile);
+
+    // TUNE <GROUP> (TUNE DRUMS, TUNE VOCALS, TUNE SPEECH ...): the same plan, narrowed to one
+    // group bus. Every strip routed to `bus` is applied - its chain, its input gain, its fader
+    // and its sends - and so is the group's own chain. The other groups, their strips and the
+    // master stay exactly where they are, so tuning the band never moves the pastor's
+    // microphone and tuning the pastor never moves the band. The listen still hears the whole
+    // console: a group is decided in mix context, as a channel is.
+    MixPlan busOnly (const MixPlan& full, MixBus bus, const RoutingGraph& graph, StyleProfileId profile);
+
+    // KEEP SOME: apply part of a proposal. Strips and groups are picked separately; the
+    // MASTER row carries the master's chain and everything that belongs to no single input
+    // (the effects returns and the tempo). Anything not selected is `before` in the result,
+    // so the narrowed plan's `proposed` is exactly what the mix becomes when it is kept.
+    struct PlanSelection
+    {
+        std::array<bool, kMaxStrips> strips {};
+        std::array<bool, int (MixBus::Count)> buses {};
+
+        static PlanSelection all (int numStrips);
+        static PlanSelection none() { return PlanSelection {}; }
+        // The whole of one group: its strips and its own chain.
+        static PlanSelection group (const RoutingGraph& graph, MixBus bus);
+        bool any() const noexcept;
+        bool everything (int numStrips) const noexcept;
+        // Whether a strip is applied: picked itself.
+        bool strip (int i) const noexcept { return i >= 0 && i < kMaxStrips && strips[size_t (i)]; }
+        bool bus (MixBus b) const noexcept { return int (b) >= 0 && int (b) < int (MixBus::Count) && buses[size_t (b)]; }
+    };
+    MixPlan restrictTo (const MixPlan& full, const PlanSelection& selection, const RoutingGraph& graph, StyleProfileId profile);
 
     // Bounded application helpers shared with the app (message thread).
     int countParameterChanges (const MixParameters& from, const MixParameters& to);

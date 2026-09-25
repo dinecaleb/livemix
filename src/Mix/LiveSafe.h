@@ -49,6 +49,7 @@ enum class LiveAction : int
     // Locked: these change the mix wholesale, or stop the audio.
     Tune,               // TUNE MIX / RE-TUNE: a whole new mix, mid-song
     TuneChannel,
+    TuneBus,            // TUNE DRUMS / TUNE VOCALS / TUNE SPEECH: one group
     TuneLive,           // the reasoning layer
     ReferenceMatch,
     KeepPlan,
@@ -123,6 +124,7 @@ namespace liveSafe
             case LiveAction::Macro:             return "a mix control";
             case LiveAction::Tune:              return "TUNE MIX";
             case LiveAction::TuneChannel:       return "TUNE CHANNEL";
+            case LiveAction::TuneBus:           return "tuning a group";
             case LiveAction::TuneLive:          return "TUNE LIVE MIX";
             case LiveAction::ReferenceMatch:    return "MATCH TO REFERENCE";
             case LiveAction::KeepPlan:          return "KEEP";
@@ -145,6 +147,7 @@ namespace liveSafe
         {
             case LiveAction::Tune:
             case LiveAction::TuneChannel:
+            case LiveAction::TuneBus:
             case LiveAction::TuneLive:
             case LiveAction::ReferenceMatch:
             case LiveAction::KeepPlan:
@@ -169,6 +172,7 @@ namespace liveSafe
         {
             case LiveAction::Tune:
             case LiveAction::TuneChannel:
+            case LiveAction::TuneBus:
             case LiveAction::TuneLive:
             case LiveAction::ReferenceMatch:
                 return "a new mix would land in the middle of a song";

@@ -122,7 +122,21 @@ public:
     static ListenSettings channelListen() { return { 12.0f, -45.0f, 20.0f }; }
     int getTuningStrip() const noexcept { return tuningStrip; }      // the strip this listen / plan is about; -1 = the whole mix
     bool isTuningChannel() const noexcept { return tuningStrip >= 0; }
-    std::string getTuningName() const;                               // that channel's name, empty for a mix
+    std::string getTuningName() const;                               // that channel's (or group's) name, empty for a mix
+
+    // ---- TUNE <GROUP>: TUNE DRUMS, TUNE VOCALS, TUNE SPEECH ... ----
+    // The same listen and the same planner again, narrowed to one group bus when the plan is
+    // made (MixPlanner::busOnly): every strip on the group moves - chain, input gain, fader,
+    // sends - and so does the group's own chain; the other groups, their strips and the master
+    // stay where they are. So the band can be tuned during the song and the pastor during the
+    // sermon, and neither touches the other. The listen waits for anything on the group.
+    void startTuneBus (MixBus bus, const ListenSettings& s);
+    void startTuneBus (MixBus bus) { startTuneBus (bus, busListen()); }
+    static ListenSettings busListen() { return { 20.0f, -45.0f, 25.0f }; }
+    bool isTuningBus() const noexcept { return tuningBus >= 0; }
+    MixBus getTuningBus() const noexcept { return tuningBus >= 0 ? MixBus (tuningBus) : MixBus::Count; }
+    // A channel or a group: the listen and the plan are about part of the mix, not all of it.
+    bool isTuningPart() const noexcept { return tuningStrip >= 0 || tuningBus >= 0; }
 
     // ---- TUNE LIVE MIX: the AI mix engineer ----
     // The same listen, the same deterministic plan and the same BEFORE / AFTER as TUNE MIX,
@@ -199,6 +213,17 @@ public:
     Compare getCompare() const noexcept { return compare; }
     void keepPlan();
     void revertPlan();
+    // KEEP SOME. A selection narrows what the preview plays and what KEEP applies
+    // (MixPlanner::restrictTo): pick the groups, or the channels, whose changes are wanted and
+    // hear exactly that on AFTER; keepPlanSelection keeps it and nothing else, and the rest of
+    // the mix is exactly as it was before the listen. Clearing the selection puts the whole
+    // proposal back on AFTER. The selection lives only while a plan is on preview.
+    using PlanSelection = MixPlanner::PlanSelection;
+    void setPlanSelection (const PlanSelection&);
+    void clearPlanSelection();
+    bool hasPlanSelection() const noexcept { return planSelection.has_value(); }
+    const PlanSelection* getPlanSelection() const noexcept { return planSelection ? &*planSelection : nullptr; }
+    void keepPlanSelection (const PlanSelection&);
     int getTuneCount() const noexcept { return tuneCount; }
 
     // ---- Mix history: UNDO and REDO on the mix itself ----
@@ -394,7 +419,9 @@ public:
     const MixParameters& getBase() const noexcept
     {
         const bool previewing = plan && (stage == Stage::Preview || liveVerifying);
-        return previewing ? (compare == Compare::Before ? plan->before : plan->proposed) : kept;
+        if (! previewing) return kept;
+        if (compare == Compare::Before) return plan->before;
+        return planSelection ? selectedProposed : plan->proposed;
     }
     const MixParameters& getRunning() const noexcept { return running; }    // what the engine was last given
     void setKept (const MixParameters& p);                                  // session restore
@@ -469,7 +496,7 @@ public:
 private:
     void publish();
     MixParameters compose() const;
-    void startListening (const ListenSettings&, int strip);   // -1 = the whole mix
+    void startListening (const ListenSettings&, int strip, int bus = -1);   // -1, -1 = the whole mix
 
     MixSession session;
     MixSession preparedSession;         // what the running graph was built for
@@ -498,6 +525,14 @@ private:
     bool bypassed = false;              // hearing the raw inputs; the kept mix is untouched
     int tuneCount = 0;
     int tuningStrip = -1;               // TUNE CHANNEL: the one strip being listened to / previewed
+    int tuningBus = -1;                 // TUNE <GROUP>: the one group bus being listened to / previewed
+    std::optional<PlanSelection> planSelection;   // KEEP SOME: what AFTER plays and KEEP applies, while set
+    MixParameters selectedProposed;               // the proposal narrowed to the selection (recomputed when either changes)
+    void refreshSelection();
+    // A listen, a plan and a preview are always about one scope - the whole mix, one channel
+    // or one group - and a KEEP SOME selection lives inside that scope. Whatever ends one
+    // ends all of them, so there is one place that says so.
+    void clearTuningScope() noexcept;
     bool mixed = false;                 // a plan was kept (or a saved mix restored): the mix is more than the baselines
     ListenSettings listen;
 

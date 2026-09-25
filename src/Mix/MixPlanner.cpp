@@ -1008,5 +1008,199 @@ MixPlan channelOnly (const MixPlan& full, int strip, StyleProfileId profile)
     return out;
 }
 
+
+// ---- KEEP SOME / TUNE <GROUP> ----
+// The plan above with part of it taken back out. `proposed` goes back to `before` for every
+// strip and group that is not selected, and every count is recomputed from what is left, so
+// the narrowed plan's `proposed` is exactly what the mix becomes when it is kept - the same
+// promise channelOnly makes for one strip. Nothing is re-decided: what the listen measured
+// and what the planner concluded stand; only what is applied is smaller.
+namespace
+{
+    void narrow (MixPlan& out, const MixPlan& full, const MixPlanner::PlanSelection& sel)
+    {
+        out.proposed = full.before;
+        const int n = std::min (full.before.numStrips, full.proposed.numStrips);
+        for (int i = 0; i < n; ++i)
+            if (sel.strip (i)) out.proposed.strips[size_t (i)] = full.proposed.strips[size_t (i)];
+        for (int b = 0; b < int (MixBus::Count); ++b)
+            if (sel.bus (MixBus (b))) out.proposed.buses[size_t (b)] = full.proposed.buses[size_t (b)];
+        // The returns and the tempo belong to no single input; they ride with the master.
+        if (sel.bus (MixBus::Master))
+        {
+            out.proposed.fx = full.proposed.fx;
+            out.proposed.tempoBpm = full.proposed.tempoBpm;
+        }
+        for (auto& sp : out.strips)
+        {
+            if (sel.strip (sp.strip)) continue;
+            sp.faderDb = sp.faderBeforeDb;
+            sp.inputGainDb = sp.inputGainBeforeDb;
+            sp.balanced = false;
+        }
+        if (! sel.bus (MixBus::Master)) out.reference = ReferenceMatch {};
+    }
+
+    void recount (MixPlan& out)
+    {
+        out.parametersChanged = out.fadersChanged = out.sendsChanged = out.gainsChanged = 0;
+        const int n = std::min (out.before.numStrips, out.proposed.numStrips);
+        for (int i = 0; i < n; ++i)
+        {
+            const auto& a = out.before.strips[size_t (i)];
+            const auto& b = out.proposed.strips[size_t (i)];
+            out.parametersChanged += int (diffParameters (a.channel, b.channel).size());
+            if (std::fabs (a.faderDb - b.faderDb) >= 0.01f) ++out.fadersChanged;
+            if (std::fabs (a.inputGainDb - b.inputGainDb) >= 0.01f) ++out.gainsChanged;
+            for (int f = 0; f < int (FxSlot::Count); ++f)
+                if (std::fabs (a.sendDb[size_t (f)] - b.sendDb[size_t (f)]) >= 0.01f) ++out.sendsChanged;
+        }
+        for (int b = 0; b < int (MixBus::Count); ++b)
+            out.parametersChanged += int (diffParameters (out.before.buses[size_t (b)].channel, out.proposed.buses[size_t (b)].channel).size());
+        out.noChangeRequired = out.parametersChanged == 0 && out.fadersChanged == 0 && out.sendsChanged == 0 && out.gainsChanged == 0;
+    }
+}
+
+MixPlanner::PlanSelection MixPlanner::PlanSelection::all (int numStrips)
+{
+    PlanSelection s;
+    for (int i = 0; i < numStrips && i < kMaxStrips; ++i) s.strips[size_t (i)] = true;
+    s.buses.fill (true);
+    return s;
+}
+
+MixPlanner::PlanSelection MixPlanner::PlanSelection::group (const RoutingGraph& graph, MixBus bus)
+{
+    PlanSelection s;
+    for (int i = 0; i < graph.numStrips() && i < kMaxStrips; ++i)
+        if (graph.strips[size_t (i)].bus == bus) s.strips[size_t (i)] = true;
+    if (int (bus) >= 0 && int (bus) < int (MixBus::Count)) s.buses[size_t (bus)] = true;
+    return s;
+}
+
+bool MixPlanner::PlanSelection::any() const noexcept
+{
+    for (bool b : strips) if (b) return true;
+    for (bool b : buses) if (b) return true;
+    return false;
+}
+
+bool MixPlanner::PlanSelection::everything (int numStrips) const noexcept
+{
+    for (int i = 0; i < numStrips && i < kMaxStrips; ++i) if (! strips[size_t (i)]) return false;
+    for (bool b : buses) if (! b) return false;
+    return true;
+}
+
+MixPlan restrictTo (const MixPlan& full, const MixPlanner::PlanSelection& sel, const RoutingGraph& graph, StyleProfileId)
+{
+    MixPlan out = full;
+    if (! full.valid) return out;
+    narrow (out, full, sel);
+    recount (out);
+    out.notes.clear();
+    out.stripsWantPreamp = 0;
+    if (out.noChangeRequired)
+    {
+        out.headline = "MIX: NOTHING SELECTED TO KEEP";
+        out.notes.push_back ("None of what was selected changes anything, so keeping it changes nothing.");
+        return out;
+    }
+    // What was kept, by group, in the words the sheet uses.
+    std::vector<std::string> groups;
+    for (int b = 0; b < int (MixBus::Count); ++b)
+    {
+        bool touched = sel.bus (MixBus (b));
+        for (int i = 0; i < graph.numStrips() && ! touched; ++i)
+            if (graph.strips[size_t (i)].bus == MixBus (b) && sel.strip (i)) touched = true;
+        if (touched) groups.push_back (mixBusName (MixBus (b)));
+    }
+    std::string names;
+    for (size_t k = 0; k < groups.size(); ++k) names += (k == 0 ? "" : k + 1 == groups.size() ? " and " : ", ") + groups[k];
+    out.headline = sel.everything (full.before.numStrips) ? full.headline : "MIX: " + names + " KEPT";
+    out.notes.push_back (std::to_string (out.parametersChanged) + (out.parametersChanged == 1 ? " setting" : " settings") + ", "
+                         + std::to_string (out.fadersChanged) + (out.fadersChanged == 1 ? " level" : " levels") + " and "
+                         + std::to_string (out.gainsChanged) + (out.gainsChanged == 1 ? " input gain" : " input gains") + " kept on " + names
+                         + ". Everything else is exactly as it was.");
+    return out;
+}
+
+MixPlan busOnly (const MixPlan& full, MixBus bus, const RoutingGraph& graph, StyleProfileId profile)
+{
+    MixPlan out = full;
+    out.relationships.clear();
+    out.notes.clear();
+    out.reference = ReferenceMatch {};
+    out.stripsWantPreamp = 0;
+    out.stripsHeard = 0;
+    out.stripsFaint = 0;
+    const std::string NAME = mixBusName (bus);
+    if (! full.valid || int (bus) < 0 || int (bus) >= int (MixBus::Master))
+    {
+        out.proposed = full.before;
+        recount (out);
+        out.headline = NAME + ": NOT IN THIS MIX";
+        out.notes.push_back ("That group is not part of this mix. Check the assignments, then tune it again.");
+        return out;
+    }
+    const auto sel = MixPlanner::PlanSelection::group (graph, bus);
+    narrow (out, full, sel);
+
+    // Who on the group played. A strip heard only as spill (the pastor's microphone during
+    // the song) is not a source that played, and the listen says so below.
+    int played = 0, faint = 0, notHeard = 0, heardAny = 0;
+    std::vector<std::string> left;
+    for (const auto& sp : out.strips)
+    {
+        if (! sel.strip (sp.strip)) continue;
+        if (sp.faint) { ++faint; ++out.stripsFaint; left.push_back (upper (sp.name) + ": barely reached DLIVE, check it"); continue; }
+        if (! sp.heard) { ++notHeard; left.push_back (upper (sp.name) + ": not heard, left as it was"); continue; }
+        ++heardAny;
+        if (sp.bleedOnly) { left.push_back (upper (sp.name) + ": heard only as spill, its level left alone"); continue; }
+        ++played;
+        for (const auto& r : sp.mixItems) out.relationships.push_back (r);
+        if (sp.tune.valid && ! sp.bleedOnly)
+        {
+            const auto& R = MixProfile::relationships (profile);
+            const bool health = sp.tune.report.inputHealth != "Healthy" && ! sp.tune.report.inputHealth.empty();
+            if (health || std::fabs (sp.inputGainDb) >= R.digitalGainAdviceDb) ++out.stripsWantPreamp;
+        }
+    }
+    // `stripsHeard` on a group plan is how many of its sources actually played: a microphone
+    // that only picked up the rest of the stage is not a source the group can be tuned from,
+    // and the caller decides whether there is anything to preview from this one number.
+    out.stripsHeard = played;
+    if (played == 0)
+    {
+        // Nothing on the group really played: nothing is proposed for it, and `proposed` is
+        // `before` everywhere so keeping this plan changes nothing.
+        out.proposed = full.before;
+        for (auto& sp : out.strips) { sp.faderDb = sp.faderBeforeDb; sp.inputGainDb = sp.inputGainBeforeDb; sp.balanced = false; }
+        recount (out);
+        out.headline = faint > 0 && notHeard == 0 ? NAME + ": CHECK THESE INPUTS" : NAME + " WAS NOT HEARD";
+        out.notes.push_back (heardAny > 0 ? "The " + NAME + " microphones only picked up the rest of the stage during the listen, so nothing was decided about them. Tune the group again while it plays."
+                                          : "Nothing on " + NAME + " played during the listen, so nothing was decided about it. Tune the group again while it plays.");
+        for (const auto& l : left) out.notes.push_back (l);
+        return out;
+    }
+
+    recount (out);
+    out.headline = out.noChangeRequired ? NAME + ": NO CHANGE REQUIRED" : NAME + " TUNED";
+    if (out.stripsWantPreamp > 0)
+        out.notes.push_back (std::string ("Gain staging first: ") + (out.stripsWantPreamp == 1 ? "one " + NAME + " input still wants its preamp moved at the console." : std::to_string (out.stripsWantPreamp) + " " + NAME + " inputs still want their preamps moved at the console."));
+    if (! out.noChangeRequired)
+        out.notes.push_back (std::to_string (played) + (played == 1 ? " source on " : " sources on ") + NAME + " shaped from what it played: "
+                             + std::to_string (out.parametersChanged) + (out.parametersChanged == 1 ? " setting" : " settings")
+                             + (out.fadersChanged > 0 ? ", " + std::to_string (out.fadersChanged) + (out.fadersChanged == 1 ? " level" : " levels") : "")
+                             + (out.gainsChanged > 0 ? ", " + std::to_string (out.gainsChanged) + (out.gainsChanged == 1 ? " input gain" : " input gains") : "")
+                             + ". The other groups and the master stay exactly where they are.");
+    if (! diffParameters (out.before.buses[size_t (bus)].channel, out.proposed.buses[size_t (bus)].channel).empty())
+        out.notes.push_back ("The " + NAME + " group's own chain was re-fitted to what the group carried.");
+    for (const auto& l : left) out.notes.push_back (l);
+    if (out.noChangeRequired)
+        out.notes.push_back (NAME + " is already where the profile wants it. Nothing was changed.");
+    return out;
+}
+
 } // namespace MixPlanner
 } // namespace livemix

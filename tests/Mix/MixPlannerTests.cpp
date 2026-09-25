@@ -567,3 +567,121 @@ TEST_CASE ("MixPlanner: a saxophone is a horn, not a keyboard")
     if (! second.noChangeRequired) dumpDifferences (plan, second);
     CHECK (second.noChangeRequired);
 }
+
+TEST_CASE ("MixPlanner: TUNE <GROUP> applies one group and leaves every other group and the master exactly where they are")
+{
+    Rig rig (band());
+    auto in = bandAudio();
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    const auto ctx = rig.context (cap);
+    const auto full = MixPlanner::plan (ctx);
+    REQUIRE (full.valid && full.headline == "MIX TUNED");
+
+    const auto drums = MixPlanner::busOnly (full, MixBus::Drums, ctx.graph, ctx.session.profile);
+    REQUIRE (drums.valid);
+    CHECK (drums.headline == "DRUMS TUNED");
+    CHECK (drums.parametersChanged > 0);
+    CHECK (drums.parametersChanged < full.parametersChanged);
+    int drumStrips = 0;
+    for (int i = 0; i < full.before.numStrips; ++i)
+    {
+        const bool onDrums = ctx.graph.strips[size_t (i)].bus == MixBus::Drums;
+        const auto& before = drums.before.strips[size_t (i)];
+        const auto& after = drums.proposed.strips[size_t (i)];
+        if (onDrums)
+        {
+            ++drumStrips;
+            // Exactly what the full plan proposed for this strip: chain, gain, fader and sends.
+            CHECK (diffParameters (after.channel, full.proposed.strips[size_t (i)].channel).empty());
+            CHECK (after.faderDb == full.proposed.strips[size_t (i)].faderDb);
+            CHECK (after.inputGainDb == full.proposed.strips[size_t (i)].inputGainDb);
+        }
+        else
+        {
+            CHECK (diffParameters (before.channel, after.channel).empty());
+            CHECK (before.faderDb == after.faderDb);
+            CHECK (before.inputGainDb == after.inputGainDb);
+            for (int f = 0; f < int (FxSlot::Count); ++f) CHECK (before.sendDb[size_t (f)] == after.sendDb[size_t (f)]);
+            CHECK (drums.strips[size_t (i)].faderDb == drums.strips[size_t (i)].faderBeforeDb);
+        }
+    }
+    CHECK (drumStrips == 6);
+    // The drum group's own chain comes along; every other group and the master do not.
+    CHECK (diffParameters (drums.proposed.buses[size_t (MixBus::Drums)].channel, full.proposed.buses[size_t (MixBus::Drums)].channel).empty());
+    for (int b = 0; b < int (MixBus::Count); ++b)
+    {
+        if (MixBus (b) == MixBus::Drums) continue;
+        CHECK (diffParameters (drums.before.buses[size_t (b)].channel, drums.proposed.buses[size_t (b)].channel).empty());
+        CHECK (drums.before.buses[size_t (b)].faderDb == drums.proposed.buses[size_t (b)].faderDb);
+    }
+    CHECK (! drums.reference.used);
+    // Tuning the drums says nothing about the voices: its lines are the drum strips' own.
+    for (const auto& r : drums.relationships) CHECK (r.what.find ("LEAD") == std::string::npos);
+
+    // The pastor's microphone only heard the band, so TUNE SPEECH proposes nothing and says why.
+    const auto speech = MixPlanner::busOnly (full, MixBus::Speech, ctx.graph, ctx.session.profile);
+    REQUIRE (speech.valid);
+    CHECK (speech.headline == "SPEECH WAS NOT HEARD");
+    CHECK (speech.noChangeRequired);
+    CHECK (MixPlanner::countParameterChanges (speech.before, speech.proposed) == 0);
+    bool saidSpill = false;
+    for (const auto& n : speech.notes) if (n.find ("rest of the stage") != std::string::npos) saidSpill = true;
+    CHECK (saidSpill);
+
+    // Keeping the drums and planning again on the same listen: the drums say NO CHANGE REQUIRED.
+    MixPlanContext again = ctx;
+    again.current = drums.proposed;
+    const auto second = MixPlanner::busOnly (MixPlanner::plan (again), MixBus::Drums, ctx.graph, ctx.session.profile);
+    CHECK (second.headline == "DRUMS: NO CHANGE REQUIRED");
+}
+
+TEST_CASE ("MixPlanner: keeping part of a plan applies exactly what was picked, by group or by channel")
+{
+    Rig rig (band());
+    auto in = bandAudio();
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    const auto ctx = rig.context (cap);
+    const auto full = MixPlanner::plan (ctx);
+    REQUIRE (full.valid);
+
+    // Everything selected is the plan itself.
+    const auto all = MixPlanner::restrictTo (full, MixPlanner::PlanSelection::all (full.before.numStrips), ctx.graph, ctx.session.profile);
+    CHECK (all.headline == full.headline);
+    CHECK (MixPlanner::countParameterChanges (all.proposed, full.proposed) == 0);
+    CHECK (all.parametersChanged == full.parametersChanged);
+
+    // Nothing selected changes nothing.
+    const auto none = MixPlanner::restrictTo (full, MixPlanner::PlanSelection::none(), ctx.graph, ctx.session.profile);
+    CHECK (none.noChangeRequired);
+    CHECK (MixPlanner::countParameterChanges (none.proposed, full.before) == 0);
+
+    // The drums and the master, but not the voices: the vocal strips and the vocal group are
+    // exactly as they were, the drums and the master are exactly what was proposed.
+    auto sel = MixPlanner::PlanSelection::group (ctx.graph, MixBus::Drums);
+    sel.buses[size_t (MixBus::Master)] = true;
+    const auto part = MixPlanner::restrictTo (full, sel, ctx.graph, ctx.session.profile);
+    CHECK (part.headline == "MIX: DRUMS and MASTER KEPT");
+    const int lead = stripIndex (full, "Lead");
+    CHECK (diffParameters (part.before.strips[size_t (lead)].channel, part.proposed.strips[size_t (lead)].channel).empty());
+    CHECK (part.before.strips[size_t (lead)].faderDb == part.proposed.strips[size_t (lead)].faderDb);
+    CHECK (diffParameters (part.before.buses[size_t (MixBus::Vocals)].channel, part.proposed.buses[size_t (MixBus::Vocals)].channel).empty());
+    const int kick = stripIndex (full, "Kick");
+    CHECK (diffParameters (part.proposed.strips[size_t (kick)].channel, full.proposed.strips[size_t (kick)].channel).empty());
+    CHECK (part.proposed.strips[size_t (kick)].faderDb == full.proposed.strips[size_t (kick)].faderDb);
+    CHECK (diffParameters (part.proposed.master().channel, full.proposed.master().channel).empty());
+    CHECK (part.proposed.tempoBpm == full.proposed.tempoBpm);
+    CHECK (part.parametersChanged < full.parametersChanged);
+    CHECK (part.parametersChanged > 0);
+
+    // One channel on its own: the same promise channelOnly makes.
+    MixPlanner::PlanSelection one;
+    one.strips[size_t (lead)] = true;
+    const auto solo = MixPlanner::restrictTo (full, one, ctx.graph, ctx.session.profile);
+    CHECK (solo.headline == "MIX: VOCALS KEPT");
+    const auto channel = MixPlanner::channelOnly (full, lead, ctx.session.profile);
+    CHECK (MixPlanner::countParameterChanges (solo.proposed, channel.proposed) == 0);
+    CHECK (solo.parametersChanged == channel.parametersChanged);
+    CHECK (solo.fadersChanged == channel.fadersChanged);
+}
