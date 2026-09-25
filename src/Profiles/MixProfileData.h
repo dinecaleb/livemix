@@ -130,6 +130,18 @@ namespace MixProfile
         float faintInputDb = -38.0f;       // a raw peak (at the device) that never got above this during the listen is a faint input: the
                                            // source did not really play, or the microphone / cable / preamp is the problem. It is not tuned,
                                            // raised or balanced; the mix says to check it.
+        // Nothing a musician plays is this steady. A source whose loudest moments sit less than
+        // this above its own average, with no quiet anywhere in the listen, is a stuck signal:
+        // a test tone, a feedback ring, a converter fault, a channel left patched to something
+        // that is not an instrument. It is not tuned, not balanced, and it never sets the
+        // master. On the QUEENSVIEW recording a kick channel stuck at -2.5 dBFS with a 2.5 dB
+        // crest was the only thing "playing" in a 30 s window and drove the master 7.5 dB up.
+        float stuckSourceCrestDb = 4.0f;
+        float stuckSourceSilencePercent = 2.0f;
+        // ... and the same question asked of the whole mix. A master output this steady is not
+        // a band and not a voice: the listen heard something that is not a performance, and a
+        // mix fitted to it would be fitted to a fault.
+        float minMasterCrestDb = 4.0f;
         // How long a source's peak takes to arrive once a note or hit starts, ms. A compressor with attack `a` has only reached
         // 1 - exp(-rise / a) of its static reduction by then, so the processed peak lands higher than the static curve says.
         // Used to predict where a strip will peak under the proposed chain when fitting faders (measured on the church stems:

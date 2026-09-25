@@ -43,6 +43,9 @@ void AnalysisAccumulator::prepare (double sampleRate, int numChannels)
     sibilanceHistogram.assign (kSibilanceBins, 0);
     kShelf.setCoefficients (LoudnessMeter::kWeightingShelf (sr));
     kHighpass.setCoefficients (LoudnessMeter::kWeightingHighPass (sr));
+    loudnessHopSamples = std::max (1, int (std::lround (sr / 10.0)));    // 100 ms, the hop a delivery meter gates on
+    loudnessHops.clear();
+    loudnessHops.reserve (size_t (10 * 60));                             // a minute of hops without a reallocation
 
     fft.prepare (kFftSize);
     fftInput.assign (kFftSize, 0.0f);
@@ -103,12 +106,43 @@ void AnalysisAccumulator::reset() noexcept
     sumLR = 0.0;
     kShelf.reset(); kHighpass.reset();
     kSumSquares.fill (0.0);
+    loudnessHopPos = 0;
+    loudnessHopSumSquares = 0.0;
+    loudnessHops.clear();
     interpPeak = 0.0f;
     lastSample.fill (0.0f);
     std::fill (fftInput.begin(), fftInput.end(), 0.0f);
     std::fill (powerAccum.begin(), powerAccum.end(), 0.0f);
     fftPos = 0;
     fftFrames = 0;
+}
+
+// BS.1770 gating, over the 100 ms hops the capture collected: 400 ms blocks on a 100 ms hop,
+// the absolute gate at -70 LUFS, then the relative gate 10 LU under the mean of what survived
+// it. This is the number a delivery meter reports, which is the number the gain structure has
+// to be fitted against - the ungated figure counts every pause as programme and asks for a
+// push the moment a capture has gaps in it.
+float AnalysisAccumulator::gatedLoudnessLufs() const
+{
+    if (loudnessHops.size() < 4) return -120.0f;
+    const size_t blocks = loudnessHops.size() - 3;
+    std::vector<double> power;
+    power.reserve (blocks);
+    for (size_t i = 0; i < blocks; ++i)
+    {
+        const double meanSquare = 0.25 * (loudnessHops[i] + loudnessHops[i + 1] + loudnessHops[i + 2] + loudnessHops[i + 3]);
+        if (LoudnessMeter::lufsFromMeanSquare (meanSquare) > -70.0f) power.push_back (meanSquare);
+    }
+    if (power.empty()) return -120.0f;
+    double sum = 0.0;
+    for (double p : power) sum += p;
+    const float relativeGate = LoudnessMeter::lufsFromMeanSquare (sum / double (power.size())) - 10.0f;
+    double kept = 0.0;
+    size_t keptCount = 0;
+    for (double p : power)
+        if (LoudnessMeter::lufsFromMeanSquare (p) > relativeGate) { kept += p; ++keptCount; }
+    if (keptCount == 0) return -120.0f;
+    return LoudnessMeter::lufsFromMeanSquare (kept / double (keptCount));
 }
 
 void AnalysisAccumulator::consume (const float* interleaved, int numFrames) noexcept
@@ -129,6 +163,7 @@ void AnalysisAccumulator::consume (const float* interleaved, int numFrames) noex
             // K-weighted energy for loudness, interpolated peak for true peak.
             const float k = kHighpass.processSample (ch, kShelf.processSample (ch, x));
             kSumSquares[size_t (ch)] += double (k) * k;
+            loudnessHopSumSquares += double (k) * k;
             const float prev = lastSample[size_t (ch)];
             const float mid = std::fabs (prev + 0.5f * (x - prev));
             if (mid > interpPeak) interpPeak = mid;
@@ -136,6 +171,12 @@ void AnalysisAccumulator::consume (const float* interleaved, int numFrames) noex
             lastSample[size_t (ch)] = x;
         }
         if (channels > 1) sumLR += double (frame[0]) * frame[1];
+        if (++loudnessHopPos >= loudnessHopSamples)
+        {
+            loudnessHops.push_back (loudnessHopSumSquares / double (loudnessHopPos));
+            loudnessHopSumSquares = 0.0;
+            loudnessHopPos = 0;
+        }
         mono /= float (channels);
 
         sumSquares += double (mono) * mono;
@@ -265,6 +306,7 @@ AnalysisResult AnalysisAccumulator::finalise (int droppedFrames)
         for (int ch = 0; ch < channels; ++ch) k += kSumSquares[size_t (ch)] / n;
         r.loudnessLufs = LoudnessMeter::lufsFromMeanSquare (k);
         r.truePeakDb = gainToDb (interpPeak);
+        r.loudnessGatedLufs = gatedLoudnessLufs();
     }
     if (sibilanceFrames >= 10)
     {

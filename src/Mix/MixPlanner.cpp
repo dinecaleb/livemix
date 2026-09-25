@@ -61,6 +61,13 @@ namespace
         return f == RoleFamily::Speech || f == RoleFamily::LeadVocal || f == RoleFamily::BackingVocal || f == RoleFamily::Choir;
     }
 
+    // A microphone that is there for the building rather than for a source in front of it.
+    // What it hears when nobody is playing is the room, which is the point of it.
+    bool hearsTheBuilding (RoleFamily f)
+    {
+        return f == RoleFamily::Room || f == RoleFamily::Overhead || f == RoleFamily::Ambience;
+    }
+
     bool isMusicFamily (RoleFamily f)
     {
         return f == RoleFamily::Piano || f == RoleFamily::ElectricPiano || f == RoleFamily::Organ || f == RoleFamily::Synth
@@ -153,6 +160,7 @@ namespace
         if (a.musicalPeakDb > -119.0f) a.musicalPeakDb += db;
         if (a.eventLevelDb > -119.0f) a.eventLevelDb += db;
         if (a.loudnessLufs > -100.0f) a.loudnessLufs += db;
+        if (a.loudnessGatedLufs > -100.0f) a.loudnessGatedLufs += db;
         for (auto& c : a.channelRmsDb) if (c > -100.0f) c += db;
     }
 
@@ -320,6 +328,18 @@ MixPlan plan (const MixPlanContext& ctx)
                                          "then Tune Mix again. Nothing about it was changed.", Confidence::High));
             continue;
         }
+
+        // A signal with no performance in it: never quiet, and its loudest moments barely above
+        // its own average. A held chord or a pad measures like that too, so on its own this is
+        // not enough to say anything about one input - but when it is true of *everything* the
+        // listen heard, what DLIVE was played is a tone, a ring or a fault, not a band. The
+        // refusal is below, once every input has been looked at.
+        if (sp.heard)
+        {
+            const auto& sa = ctx.capture.strips[size_t (i)];
+            sp.stuck = sa.crestFactorDb < R.stuckSourceCrestDb && sa.silencePercent < R.stuckSourceSilencePercent;
+            if (sp.stuck) ++plan.stripsStuck;
+        }
         if (sp.heard) ++plan.stripsHeard;
 
         TuneContext tc;
@@ -366,8 +386,39 @@ MixPlan plan (const MixPlanContext& ctx)
     }
     if (plan.stripsHeard == 0)
     {
+        plan.proposed = plan.before;          // a refused listen changes nothing, not even a chain
         plan.headline = "MIX: NO SIGNAL";
         plan.notes.push_back ("No input carried a usable signal during the listen. Have the band play and Tune Mix again.");
+        plan.valid = true;
+        return plan;
+    }
+
+    // Was that a performance at all? Two ways of asking, and a mix - above all a master -
+    // fitted to the answer "no" is a mix fitted to a fault, so it is refused with the reason
+    // rather than applied and explained afterwards.
+    //
+    // (1) Everything the listen heard was steady. One held chord measures like that, which is
+    //     why a single input never decides this; every input doing it at once does not happen
+    //     on a stage. QUEENSVIEW, take 002 at 450 s: a kick channel stuck at -2.5 dBFS with a
+    //     2.5 dB crest was the only thing "playing", and the master went 7.5 dB up to meet it.
+    // (2) What arrived at the mix never moved. A band and a voice both have peaks well clear
+    //     of their own average; a tone, a feedback ring and a converter fault do not.
+    const bool everythingSteady = plan.stripsStuck > 0 && plan.stripsStuck == plan.stripsHeard;
+    const auto& mo = ctx.capture.masterOutput;
+    const bool mixNeverMoved = mo.valid && mo.rmsDb > -80.0f && mo.crestFactorDb < R.minMasterCrestDb;
+    if (everythingSteady || mixNeverMoved)
+    {
+        plan.proposed = plan.before;          // ... including the chains the strips were given above
+        plan.headline = "MIX: THAT WAS NOT A PERFORMANCE";
+        plan.notes.push_back (everythingSteady
+            ? "Every input DLIVE could hear carried a steady signal rather than somebody playing: never quiet, and never far above "
+              "its own average. That is a tone, a feedback ring or a fault, not a band. Nothing was changed."
+            : "What reached the mix during the listen never moved - its loudest moments sat only "
+              + num ("%.0f dB", double (mo.crestFactorDb)) + " above its own average. Music and speech are never that steady, so "
+              "something is feeding DLIVE a tone, a feedback ring or a fault. Nothing was changed.");
+        for (const auto& sp : plan.strips)
+            if (sp.stuck) plan.notes.push_back (upper (sp.name) + ": steady all the way through the listen; check what is patched to it.");
+        plan.notes.push_back ("Find it, then Tune Mix again while the band plays.");
         plan.valid = true;
         return plan;
     }
@@ -399,6 +450,41 @@ MixPlan plan (const MixPlanContext& ctx)
                                              "Tune Mix again while the pastor speaks and the band is quiet to set it.", Confidence::High));
             }
     }
+
+    // ... and the other half of the same question. A listen where the only source playing is
+    // the spoken word is a sermon, and the microphones that are left open across a stage
+    // during one - the drum room, the overheads - are not the band playing. They are the PA
+    // and the building coming back, and balancing them as sources puts the preacher's own
+    // voice into the mix a second time, late. A congregation microphone is the exception on
+    // purpose: under a sermon the room *is* what a stream expects to hear.
+    bool sermonListen = false;
+    {
+        bool speechPlayed = false, bandPlayed = false;
+        for (int i = 0; i < n; ++i)
+        {
+            const auto& sp = plan.strips[size_t (i)];
+            if (! sp.heard || sp.bleedOnly) continue;
+            const RoleFamily f = roleFamily (sp.role);
+            if (f == RoleFamily::Speech) speechPlayed = true;
+            else if (! hearsTheBuilding (f)) bandPlayed = true;
+        }
+        sermonListen = speechPlayed && ! bandPlayed;
+    }
+    if (sermonListen)
+        for (int i = 0; i < n; ++i)
+        {
+            auto& sp = plan.strips[size_t (i)];
+            const RoleFamily f = roleFamily (sp.role);
+            if (! sp.heard || sp.bleedOnly || ! (f == RoleFamily::Room || f == RoleFamily::Overhead)) continue;
+            sp.bleedOnly = true;
+            plan.proposed.strips[size_t (i)].inputGainDb = ctx.current.strips[size_t (i)].inputGainDb;
+            sp.inputGainDb = sp.inputGainBeforeDb;
+            sp.mixItems.clear();
+            sp.mixItems.push_back (info (Recommendation::Kind::Info, upper (sp.name) + ": heard as spill while the pastor spoke",
+                                         "There is nothing on the kit during a sermon, so what this microphone picked up is the room and the PA - "
+                                         "the preacher's own voice arriving late. Its level and gain were left alone. Tune Mix again while the band "
+                                         "plays to set it.", Confidence::High));
+        }
 
     // ---- Tempo: what the delays have to be in time with ----
     {
@@ -714,6 +800,63 @@ MixPlan plan (const MixPlanContext& ctx)
         }
     }
 
+    // ---- A sermon listen: the spoken word, and no band behind it ----
+    // A service is not one performance, it is a sequence of them, and the listen only ever
+    // hears the one that is happening. When the only thing playing is the speech group, the
+    // profile's own -16 dBFS is the wrong question to ask: that number is a *balance* - where
+    // a voice sits against a band - and there is no band to sit against. What matters instead
+    // is how loud the words leave the building, and that is the master's own delivery target
+    // read through the master the band already set. So the speech faders are moved together
+    // until the mix DLIVE can hear measures what the stream is asked for, and the master
+    // itself is left exactly as the song left it (below). Come back to the song and the band
+    // is still where it was, at the level it was, through a master that never moved.
+    if (sermonListen && ctx.capture.masterOutput.valid)
+    {
+        const auto& mo = ctx.capture.masterOutput;
+        const float delivered = mo.loudnessGatedLufs > -100.0f ? mo.loudnessGatedLufs : mo.loudnessLufs;
+        const SourceTargets masterT = Profiles::targets (profile, busRole (MixBus::Master, ctx.session.purpose));
+        const float wantedLufs = ctx.session.deliveryTargetLufs() < 0.0f ? ctx.session.deliveryTargetLufs() : masterT.targetLufs;
+        if (delivered > -100.0f && masterT.loudnessTargetAppropriate)
+        {
+            // What the speech faders have already done to the master's input, and what the
+            // master's own compressor will take back off it when it arrives that much louder.
+            const float stripShift = faderShiftDb (ctx, ctx.atCapture, plan.proposed, MixBus::Speech, false);
+            const auto& masterChain = ctx.atCapture.master().channel;
+            const auto& ma = ctx.capture.buses[size_t (MixBus::Master)];
+            const float absorbed = ma.valid ? compressorAverageDeltaDb (masterChain, masterChain, ma.rmsDb, ma.peakDb, stripShift, R.compDetectorCrestShareBus) : 0.0f;
+            const float correction = roundHalf (wantedLufs - (delivered + stripShift + absorbed));
+            if (std::fabs (correction) >= 0.5f)
+            {
+                int moved = 0, shortOf = 0;
+                for (int i = 0; i < n; ++i)
+                {
+                    auto& sp = plan.strips[size_t (i)];
+                    if (! sp.balanced || ctx.graph.strips[size_t (i)].bus != MixBus::Speech) continue;
+                    const float wanted = sp.faderDb + correction;
+                    sp.faderDb = clamp (wanted, -R.maxFaderMoveDb, R.maxFaderMoveDb);
+                    if (std::fabs (wanted - sp.faderDb) >= 0.5f)
+                    {
+                        ++shortOf;
+                        sp.mixItems.push_back (info (Recommendation::Kind::CaptureGain, upper (sp.name) + ": turn this microphone up at the console",
+                                                     "To carry the sermon at the level this delivery asks for, this microphone needs "
+                                                     + num ("%.0f dB", double (std::fabs (wanted - sp.faderDb))) + " more than DLIVE will add to a fader. "
+                                                     "Turn its preamp up at the console - or get the speaker closer to it - and Tune Mix again.", Confidence::High));
+                    }
+                    ++moved;
+                }
+                if (shortOf > 0) ++plan.stripsWantPreamp;
+                if (moved > 0)
+                    plan.relationships.push_back (info (Recommendation::Kind::MixGain,
+                                                        "The spoken word set by what leaves the mix: " + fmtDb (correction, 1),
+                                                        "Nothing but the speech group played during this listen, so there is no band for the voice to be balanced against - what "
+                                                        "decides its level is how loud the words leave DLIVE. Through the master the band already set, the mix measured "
+                                                        + num ("%.1f LUFS", double (delivered)) + " and this delivery asks for " + num ("%.0f LUFS", double (wantedLufs))
+                                                        + ", so the speech group is moved " + fmtDb (correction, 1) + " and the master is left exactly where the song left it. "
+                                                        "That is what keeps a sermon and a song at the same level for the listener.", Confidence::High));
+            }
+        }
+    }
+
     // Faders are written once, after every rule that touches them, so a fader that ends where it started is not a change.
     for (int i = 0; i < n; ++i)
     {
@@ -749,6 +892,19 @@ MixPlan plan (const MixPlanContext& ctx)
         if (sp.heard && ! sp.bleedOnly) busPlayed[size_t (ctx.graph.strips[size_t (i)].bus)] = true;
     }
     busPlayed[size_t (MixBus::Master)] = true;      // the master carries whatever the buses carried
+    // ... except during a sermon. The master's density, its tone and above all its output level
+    // were fitted to the sum of a band; a speech microphone on its own is a different signal
+    // entirely, and re-fitting the master to it means the band comes back through a master
+    // built for one voice - and then the next TUNE MIX moves it back. That swing between the
+    // song and the sermon is exactly what a listener hears as the level "jumping about". The
+    // speech group was just set by what leaves the mix instead, so there is nothing left for
+    // the master to do here.
+    if (sermonListen)
+    {
+        busPlayed[size_t (MixBus::Master)] = false;
+        plan.notes.push_back ("Only the spoken word played, so the master was left exactly as the band set it and the speech group was "
+                              "set by what leaves the mix. Tune Mix again with the band playing to fit the master itself.");
+    }
 
     for (int b = 0; b < int (MixBus::Count); ++b)
     {
@@ -759,9 +915,10 @@ MixPlan plan (const MixPlanContext& ctx)
         if (! bp.used || ! a.valid) continue;
         if (! busPlayed[size_t (b)])
         {
-            plan.notes.push_back (std::string (mixBusName (MixBus (b)))
-                                  + ": nothing on this group played during the listen, so its chain was left alone."
-                                    " Tune Mix again while it does.");
+            if (! (sermonListen && MixBus (b) == MixBus::Master))
+                plan.notes.push_back (std::string (mixBusName (MixBus (b)))
+                                      + ": nothing on this group played during the listen, so its chain was left alone."
+                                        " Tune Mix again while it does.");
             continue;
         }
         const bool isMaster = MixBus (b) == MixBus::Master;
@@ -824,7 +981,9 @@ MixPlan plan (const MixPlanContext& ctx)
         tc.profile = profile;
         tc.current = ctx.current.buses[size_t (b)].channel;
         tc.hasOutput = false;
-        if (isMaster && ctx.capture.masterOutput.valid && ctx.capture.masterOutput.loudnessLufs > -100.0f)
+        const float masterOutLufs = ctx.capture.masterOutput.loudnessGatedLufs > -100.0f
+                                      ? ctx.capture.masterOutput.loudnessGatedLufs : ctx.capture.masterOutput.loudnessLufs;
+        if (isMaster && ctx.capture.masterOutput.valid && masterOutLufs > -100.0f)
         {
             // The loudness rule predicts the output as input loudness + output trim. What actually left the master
             // during the listen is known, so the input loudness is set to make that prediction exact: the
@@ -834,13 +993,15 @@ MixPlan plan (const MixPlanContext& ctx)
             // is not in the measurement, so the master is tuned twice: once to learn its compressor, then again with
             // the loudness that compressor will leave. On the same listen the compressor is unchanged and the second
             // pass equals the first.
-            const float measuredIn = ctx.capture.masterOutput.loudnessLufs - ctx.atCapture.master().channel.outputTrimDb + shift;
+            const float measuredIn = masterOutLufs - ctx.atCapture.master().channel.outputTrimDb + shift;
             tc.analysis.loudnessLufs = measuredIn;
+            tc.analysis.loudnessGatedLufs = measuredIn;
             tc.analysis.truePeakDb = ctx.capture.masterOutput.truePeakDb + shift;
             const TuneResult first = TuneEngine::tune (tc);
             const ChannelParameters& chosen = first.valid ? first.proposed : ctx.current.master().channel;
             const float compDelta = compressorAverageDeltaDb (chosen, ctx.atCapture.master().channel, a.rmsDb, a.peakDb, shift, R.compDetectorCrestShareBus);
             tc.analysis.loudnessLufs = measuredIn + compDelta;
+            tc.analysis.loudnessGatedLufs = tc.analysis.loudnessLufs;
             tc.analysis.truePeakDb += compDelta;
         }
         bp.tune = TuneEngine::tune (tc);

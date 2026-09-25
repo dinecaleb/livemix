@@ -70,6 +70,12 @@ private:
     double sumLR = 0.0;
     Biquad kShelf, kHighpass;
     std::array<double, kMaxChannels> kSumSquares {};
+    // Gated loudness: the K-weighted mean square of every 100 ms hop, kept so finish() can
+    // build the 400 ms blocks a delivery meter gates on.
+    int loudnessHopSamples = 4800, loudnessHopPos = 0;
+    double loudnessHopSumSquares = 0.0;
+    std::vector<double> loudnessHops;
+    float gatedLoudnessLufs() const;
     float interpPeak = 0.0f;
     std::array<float, kMaxChannels> lastSample {};
 

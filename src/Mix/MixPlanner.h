@@ -35,6 +35,7 @@ struct StripPlan
     bool balanced = false;                  // the fader was fitted from the processed level
     bool bleedOnly = false;                 // heard, but only as spill (a speech mic during the song): left alone
     bool faint = false;                     // signal, but never above the profile's faint level at the device: check the mic, nothing changed
+    bool stuck = false;                     // a steady signal with no performance in it (a tone, a ring, a fault): not tuned, not balanced
     bool spillLimited = false;              // the lift stopped short because what the microphone hears between the sounds would come up with it
     TuneResult tune;                        // the source's own Tune (before / proposed / explanations)
     std::vector<Recommendation> mixItems;   // relationship and balance decisions about this strip
@@ -68,6 +69,7 @@ struct MixPlan
     std::vector<std::string> notes;              // plain-language summary lines
     int stripsHeard = 0;
     int stripsFaint = 0;                         // inputs with a signal too faint to be a playing source (check the mic)
+    int stripsStuck = 0;                         // inputs carrying a steady signal rather than a performance (a tone, a ring, a fault)
     int parametersChanged = 0;                   // strip + bus DSP parameters
     int fadersChanged = 0;
     int sendsChanged = 0;

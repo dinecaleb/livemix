@@ -692,13 +692,14 @@ TEST_CASE ("MixPlanner: keeping part of a plan applies exactly what was picked, 
     CHECK (solo.fadersChanged == channel.fadersChanged);
 }
 
-TEST_CASE ("MixPlanner: a sermon microphone is lifted to its level, held gently, and never gated hard")
+namespace
 {
     // The pastor speaks; the band is silent. Phrases of a voice-like tone with consonant-like
-    // crackle, a room under them 14 dB down - a handheld in a live building.
-    Rig rig (band());
-    testsig::Buffer in (15, int (kSr * 8));
+    // crackle, a room under them 14 dB down - a handheld in a live building. `spill` puts the
+    // PA back into the overheads and the drum room, late, the way a real building does.
+    testsig::Buffer sermonAudio (float spill = 0.0f)
     {
+        testsig::Buffer in (15, int (kSr * 8));
         std::mt19937 rng (21);
         std::uniform_real_distribution<float> dist (-1.0f, 1.0f);
         auto& c = in.data[14];
@@ -715,7 +716,21 @@ TEST_CASE ("MixPlanner: a sermon microphone is lifted to its level, held gently,
             }
             c[i] = s;
         }
+        if (spill > 0.0f)
+            for (size_t i = 480; i < c.size(); ++i)                         // 10 ms down the room
+            {
+                in.data[4][i] += spill * c[i - 480];
+                in.data[5][i] += spill * c[i - 480];
+                in.data[6][i] += spill * 1.4f * c[i - 480];
+            }
+        return in;
     }
+}
+
+TEST_CASE ("MixPlanner: a sermon microphone is lifted to its level, held gently, and never gated hard")
+{
+    Rig rig (band());
+    auto in = sermonAudio();
     const auto cap = rig.listen (in);
     REQUIRE (cap.valid);
     const auto ctx = rig.context (cap);
@@ -746,4 +761,113 @@ TEST_CASE ("MixPlanner: a sermon microphone is lifted to its level, held gently,
     const auto group = MixPlanner::busOnly (plan, MixBus::Speech, ctx.graph, ctx.session.profile);
     CHECK (group.headline == "SPEECH TUNED");
     CHECK (group.proposed.strips[size_t (pastor.strip)].faderDb == strip.faderDb);
+}
+
+TEST_CASE ("MixPlanner: a sermon never moves the master, and the song comes back at the level it left")
+{
+    // A service is a sequence of performances, and the listen only ever hears the one that is
+    // happening. The master's density and its output level were fitted to the sum of a band;
+    // re-fitting them to one voice is what makes a stream jump between the song and the sermon.
+    Rig rig (band());
+    auto song = bandAudio();
+    const auto songCap = rig.listen (song);
+    REQUIRE (songCap.valid);
+    const auto songCtx = rig.context (songCap);
+    const auto songPlan = MixPlanner::plan (songCtx);
+    REQUIRE (songPlan.valid && songPlan.headline == "MIX TUNED");
+    const float songDelivered = songCap.masterOutput.loudnessGatedLufs;
+
+    for (float spill : { 0.0f, 0.06f })
+    {
+        // Keep the song's mix, then listen again while only the pastor speaks.
+        Rig sermonRig (band());
+        sermonRig.engine.setParameters (songPlan.proposed);
+        auto speech = sermonAudio (spill);
+        const auto cap = sermonRig.listen (speech);
+        REQUIRE (cap.valid);
+        MixPlanContext ctx = sermonRig.context (cap);
+        ctx.current = songPlan.proposed;
+        ctx.atCapture = songPlan.proposed;
+        const auto plan = MixPlanner::plan (ctx);
+        REQUIRE (plan.valid);
+
+        // The master is exactly as the song left it: chain, trim and fader.
+        CHECK (diffParameters (plan.before.master().channel, plan.proposed.master().channel).empty());
+        CHECK (plan.before.master().faderDb == plan.proposed.master().faderDb);
+        CHECK (plan.proposed.master().channel.outputTrimDb == songPlan.proposed.master().channel.outputTrimDb);
+        bool saidSo = false;
+        for (const auto& note : plan.notes) if (note.find ("left exactly as the band set it") != std::string::npos) saidSo = true;
+        CHECK (saidSo);
+
+        // The pastor was set by what leaves the mix, not by the profile's balance number.
+        const auto& pastor = stripNamed (plan, "Pastor");
+        REQUIRE (pastor.heard);
+        CHECK (! pastor.bleedOnly);
+        CHECK (pastor.balanced);
+        CHECK (hasRelationship (plan, "set by what leaves the mix"));
+
+        // The microphones that hear the building are not the band playing: during a sermon the
+        // overheads and the drum room carry the PA, and their levels are left alone.
+        for (const char* name : { "OH", "Room" })
+        {
+            const auto& mic = stripNamed (plan, name);
+            if (! mic.heard) continue;
+            CHECK (mic.bleedOnly);
+            CHECK (plan.proposed.strips[size_t (mic.strip)].faderDb == plan.before.strips[size_t (mic.strip)].faderDb);
+            CHECK (plan.proposed.strips[size_t (mic.strip)].inputGainDb == plan.before.strips[size_t (mic.strip)].inputGainDb);
+        }
+
+        // ... and the band, coming back through that untouched master, is where it was.
+        Rig backRig (band());
+        backRig.engine.setParameters (plan.proposed);
+        auto again = bandAudio();
+        const auto backCap = backRig.listen (again);
+        REQUIRE (backCap.valid);
+        CHECK_NEAR (backCap.masterOutput.loudnessGatedLufs, songDelivered, 1.0f);
+    }
+}
+
+TEST_CASE ("MixPlanner: a listen with no performance in it is refused, and says what is wrong")
+{
+    // One channel stuck on a steady signal and nothing else playing: the QUEENSVIEW take's
+    // 450 s window, where a kick channel sat at -2.5 dBFS with a 2.5 dB crest and drove the
+    // master 7.5 dB up to meet it.
+    Rig rig (band());
+    testsig::Buffer in (15, int (kSr * 8));
+    sine (in.data[0], 90.0f, 0.55f);
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    const auto ctx = rig.context (cap);
+    const auto plan = MixPlanner::plan (ctx);
+    REQUIRE (plan.valid);
+    CHECK (plan.headline == "MIX: THAT WAS NOT A PERFORMANCE");
+    CHECK (MixPlanner::countParameterChanges (plan.before, plan.proposed) == 0);
+    CHECK (plan.proposed.master().channel.outputTrimDb == plan.before.master().channel.outputTrimDb);
+    bool namedIt = false;
+    for (const auto& note : plan.notes) if (note.find ("KICK") != std::string::npos) namedIt = true;
+    CHECK (namedIt);
+
+    // A band playing is never refused, and one sustained source among it is not a fault.
+    Rig ok (band());
+    auto playing = bandAudio();
+    const auto bandCap = ok.listen (playing);
+    const auto bandPlan = MixPlanner::plan (ok.context (bandCap));
+    CHECK (bandPlan.headline == "MIX TUNED");
+}
+
+TEST_CASE ("Analysis: loudness is gated the way a delivery meter gates it")
+{
+    // Four seconds of tone and four of silence. Ungated, the gaps count as programme and the
+    // figure lands about 3 dB low; gated, the silence is dropped and the number is the one a
+    // broadcaster or a platform would report.
+    Rig rig (band());
+    testsig::Buffer in (15, int (kSr * 8));
+    sine (in.data[10], 220.0f, 0.3f, 0.0f, 4.0f);
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    const auto& a = cap.strips[size_t (8)];        // "Lead"
+    REQUIRE (a.valid);
+    REQUIRE (a.loudnessGatedLufs > -100.0f);
+    CHECK (a.loudnessGatedLufs > a.loudnessLufs + 1.5f);
+    CHECK_NEAR (a.loudnessGatedLufs - a.loudnessLufs, 3.0f, 1.5f);
 }

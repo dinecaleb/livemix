@@ -95,6 +95,14 @@ struct AnalysisResult
     // Loudness (BS.1770, ungated over the capture) and interpolated true peak.
     float loudnessLufs = -120.0f;
     float truePeakDb = -120.0f;
+    // The same loudness, gated the way a delivery meter gates it: 400 ms blocks on a 100 ms
+    // hop, blocks under -70 LUFS dropped, then blocks more than 10 LU under the mean of what
+    // is left dropped too. This is the number a broadcaster, a platform or the app's own
+    // master readout will report, and it is the one the gain structure is fitted against.
+    // The ungated figure counts the gaps as part of the programme, so a capture with pauses
+    // in it - a sermon, a quiet song, a band that stops - reads low and asks to be pushed
+    // louder than it should be. -120 when the capture was too short to gate (under 400 ms).
+    float loudnessGatedLufs = -120.0f;
 
     // Tempo, from the periodicity of the onsets (0 = none found). A tempo-synced delay is only in time if
     // the tempo is right, and a live console has no host play head to read it from: DLIVE measures it.

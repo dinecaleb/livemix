@@ -990,7 +990,12 @@ void setLoudness (const TuneContext& ctx, const SourceTargets& t, TuneDecisions&
                     [=] (ChannelParameters& p) { p.limiterEnabled = true; p.limiterCeilingDb = t.truePeakCeilingDb; });
         return;
     }
-    if (a.loudnessLufs <= -100.0f || a.silencePercent > 60.0f) return;
+    // The delivery number is a gated one - a broadcaster's meter, a platform's meter and the
+    // app's own master readout all drop the gaps before they average - so that is what the
+    // output is fitted against. Ungated, a mix with pauses in it (a sermon, a quiet song, a
+    // band that stops between phrases) reads low and asks to be pushed louder than it is.
+    const float measured = a.loudnessGatedLufs > -100.0f ? a.loudnessGatedLufs : a.loudnessLufs;
+    if (measured <= -100.0f || a.silencePercent > 60.0f) return;
     if (a.peakDb < t.capturePeakMinDb)
     {
         d.note (Recommendation::Kind::MixGain, TuneSection::Mix, "Loudness waits for a healthy input level",
@@ -1001,7 +1006,7 @@ void setLoudness (const TuneContext& ctx, const SourceTargets& t, TuneDecisions&
 
     // The plugin's own gain is on the way; what the capture measured is the input. Predict the output loudness
     // from the input loudness plus the current output trim (the limiter is assumed to only touch peaks).
-    const float predicted = a.loudnessLufs + cur.outputTrimDb;
+    const float predicted = measured + cur.outputTrimDb;
     const float delta = t.targetLufs - predicted;
     const float ceiling = t.truePeakCeilingDb;
     const bool ceilingOk = cur.limiterEnabled && std::fabs (cur.limiterCeilingDb - ceiling) < 0.3f;
