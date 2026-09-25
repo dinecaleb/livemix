@@ -49,6 +49,12 @@ public:
     // microphone somebody is really singing into; pinning settles it when there is more than
     // one and the loudest is not the one. It changes nothing you can hear until the next TUNE.
     void setFocusInput (int strip);
+    // SPEECH PRIORITY: while the speech group carries somebody speaking, the band steps back
+    // into the broadcast. Off by default; the engineer's listen never ducks, so what they hear
+    // is always what is really there. How far and how slowly is the profile's (MixProfile).
+    void setSpeechPriority (bool on);
+    bool getSpeechPriority() const noexcept { return session.speechPriority; }
+    float getSpeechDuckDb() const noexcept { return engine.getSpeechDuckDb(); }
     int getFocusInput() const noexcept { return session.focusInput(); }
     void setPurpose (MixPurpose p);
     void setProfile (StyleProfileId p);

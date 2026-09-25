@@ -255,6 +255,15 @@ float mixLevelTargetDb (StyleProfileId profile, RoleFamily family)
     return db;
 }
 
+const SpeechPriority& speechPriority (StyleProfileId profile)
+{
+    static const SpeechPriority standard;
+    // Talk and Podcast already holds the band 8 dB under the voices as a bed; when somebody is
+    // actually speaking it steps back further, because there the words are the whole programme.
+    static const SpeechPriority talk = [] { SpeechPriority p; p.depthDb = 6.0f; p.releaseMs = 600.0f; return p; }();
+    return profile == StyleProfileId::TalkPodcast ? talk : standard;
+}
+
 float stripPeakCeilingDb (StyleProfileId, RoleFamily family)
 {
     switch (family)

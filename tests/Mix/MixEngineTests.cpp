@@ -528,3 +528,79 @@ TEST_CASE ("OutputFeeds: the broadcast and the engineer's listen are always a st
     CHECK (stored.feeds[1].routed());
     CHECK (stored.feeds[1].left == 8);
 }
+
+TEST_CASE ("MixEngine: speech priority steps the band back into the broadcast, never into the engineer's listen")
+{
+    // A band and a speech microphone. Off, the band is where the faders put it; on, it steps
+    // back while the speech group carries somebody speaking - and the listen never moves. The
+    // kit and the pastor are at different frequencies so each can be measured on its own.
+    MixSession s = smallSession();
+    s.inputs.push_back ({ "Pastor", ChannelRole::Speech, 7, -1 });
+    MixEngine e;
+    e.prepare (kSr, 64, s);
+
+    // How much 110 Hz (the kit, and nothing else) came out of one channel, over the second half.
+    auto bandLevel = [] (const Device& d, int ch)
+    {
+        double re = 0.0, im = 0.0;
+        const int from = int (kSr) / 2, to = int (kSr);
+        for (int i = from; i < to; ++i)
+        {
+            const double ph = 2.0 * M_PI * 110.0 * double (i) / kSr;
+            re += double (d.out.data[size_t (ch)][size_t (i)]) * std::cos (ph);
+            im += double (d.out.data[size_t (ch)][size_t (i)]) * std::sin (ph);
+        }
+        return float (2.0 * std::sqrt (re * re + im * im) / double (to - from));
+    };
+
+    auto measure = [&] (bool speechPriority, bool speaking, float& broadcast, float& listen)
+    {
+        e.reset();
+        auto p = e.getAppliedParameters();
+        p.bypassProcessing = true;                       // the duck, not a chain, is what is measured
+        p.speechDuck.enabled = speechPriority;
+        p.speechDuck.depthDb = 6.0f;
+        p.speechDuck.thresholdDb = -38.0f;
+        p.speechDuck.attackMs = 20.0f; p.speechDuck.releaseMs = 20.0f; p.speechDuck.holdMs = 10.0f;
+        p.buses[size_t (MixBus::Drums)].solo = true;     // the engineer is listening to the kit alone
+        e.setParameters (p);
+
+        OutputFeeds feeds;
+        feeds.count = 2;
+        feeds.feeds[0] = OutputFeed { 0, 1, MixBus::Master, 0.0f, false, false, false };   // the broadcast
+        feeds.feeds[1] = OutputFeed { 2, 3, MixBus::Master, 0.0f, false, false, true };    // the engineer's listen
+        e.setOutputFeeds (feeds);
+
+        Device d (8, 4, int (kSr));
+        sineOnInput (d, 0, 110.0f, 0.3f);                // the kit
+        if (speaking) sineOnInput (d, 7, 300.0f, 0.4f);  // the pastor
+        d.run (e, 64);
+        broadcast = bandLevel (d, 0);
+        listen = bandLevel (d, 2);
+    };
+
+    float offBand = 0.0f, offListen = 0.0f, onQuiet = 0.0f, onQuietListen = 0.0f, onSpeaking = 0.0f, onSpeakingListen = 0.0f;
+    measure (false, true, offBand, offListen);
+    measure (true, false, onQuiet, onQuietListen);
+    measure (true, true, onSpeaking, onSpeakingListen);
+
+    REQUIRE (offBand > 0.001f);
+    REQUIRE (offListen > 0.001f);
+    // Nobody speaking: speech priority changes nothing at all.
+    CHECK_NEAR (gainToDb (onQuiet / offBand), 0.0f, 0.5f);
+    // Speaking: the band steps back, by about the depth and never more.
+    CHECK (gainToDb (onSpeaking / offBand) < -3.0f);
+    CHECK (gainToDb (onSpeaking / offBand) > -7.0f);
+    // The engineer's listen is what is really there, whatever the broadcast is doing.
+    CHECK_NEAR (gainToDb (onSpeakingListen / offListen), 0.0f, 0.5f);
+
+    Device d (8, 4, 4096);
+    sineOnInput (d, 0, 110.0f, 0.3f);
+    sineOnInput (d, 7, 300.0f, 0.4f);
+    d.run (e, 64);                                       // warm the ramps before counting
+    {
+        alloctrack::Scope scope;
+        d.run (e, 64);
+        CHECK (alloctrack::getCount() == 0);
+    }
+}

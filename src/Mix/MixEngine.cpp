@@ -53,6 +53,11 @@ void MixEngine::prepare (double sampleRate, int maxBlockSize, const MixSession& 
     broadcastGain.prepare (sr, kGainSmoothMs);
     broadcastGain.snapTo (1.0f);
     broadcastRamp.assign (size_t (maxBlock), 1.0f);
+    duckScratch.assign (size_t (maxBlock), 1.0f);
+    speechDuckGain = 1.0f;
+    speechHoldLeft = 0.0f;
+    speechWasOpen = false;
+    speechDuckDb.store (0.0f, std::memory_order_relaxed);
     auditionPlayer.prepare (sr);
     auditionRequest.store (nullptr, std::memory_order_relaxed);
     strips.clear();
@@ -146,6 +151,17 @@ void MixEngine::setParameters (const MixParameters& p)
 
 void MixEngine::applyParameters (const MixParameters& p) noexcept
 {
+    // Speech priority: the coefficients, once, here - never in process().
+    {
+        const auto& sd = p.speechDuck;
+        auto coeffFor = [this] (float ms) { return 1.0f - std::exp (-1.0f / std::max (1.0f, float (sr) * 0.001f * std::max (1.0f, ms))); };
+        speechThresholdLin = dbToGain (sd.thresholdDb);
+        speechDepthGain = dbToGain (-std::fabs (sd.depthDb));
+        speechAttackCoeff = coeffFor (sd.attackMs);
+        speechReleaseCoeff = coeffFor (sd.releaseMs);
+        speechOffCoeff = coeffFor (800.0f);            // switched off mid-service: back at a release, never a step
+        speechHoldSamples = sd.holdMs * 0.001f * float (sr);
+    }
     const int n = p.numStrips < numStrips ? p.numStrips : numStrips;
 
     // Solo. By default it feeds the engineer's monitor bus and the main mix never hears
@@ -421,6 +437,39 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
 
         // ---- Buses -> master ----
         Bus& master = buses[size_t (MixBus::Master)];
+
+        // SPEECH PRIORITY: this block's duck gain, one value per sample so a band stepping
+        // back is a move and not a step. Attack while the speech group is open, release when
+        // it has been shut for longer than the hold.
+        float* duckAt = duckScratch.data();
+        if (applied.speechDuck.enabled)
+        {
+            const float target = speechWasOpen ? speechDepthGain : 1.0f;
+            const float coeff = speechWasOpen ? speechAttackCoeff : speechReleaseCoeff;
+            for (int k = 0; k < n; ++k)
+            {
+                speechDuckGain += coeff * (target - speechDuckGain);
+                duckAt[size_t (k)] = speechDuckGain;
+            }
+            speechDuckDb.store (gainToDb (speechDuckGain), std::memory_order_relaxed);
+        }
+        else if (speechDuckGain < 0.9999f)
+        {
+            // Switched off mid-service: the band comes back at a release rather than in one
+            // step, so turning it off is never a jump.
+            for (int k = 0; k < n; ++k)
+            {
+                speechDuckGain += speechOffCoeff * (1.0f - speechDuckGain);
+                duckAt[size_t (k)] = speechDuckGain;
+            }
+            speechDuckDb.store (gainToDb (speechDuckGain), std::memory_order_relaxed);
+        }
+        else
+        {
+            speechDuckGain = 1.0f;
+            speechDuckDb.store (0.0f, std::memory_order_relaxed);
+        }
+
         for (int b = 0; b < int (MixBus::Count); ++b)
         {
             if (MixBus (b) == MixBus::Master || ! graph.busUsed[size_t (b)]) continue;
@@ -453,11 +502,16 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
                     }
                 }
             }
-            if (bus.gain.isSmoothing())
+            // SPEECH PRIORITY: the band steps back into the master while somebody is speaking.
+            // Into the master only - the listen above has already taken its copy, so what the
+            // engineer hears is always what is really there.
+            const bool ducked = applied.speechDuck.enabled
+                             && (MixBus (b) == MixBus::Drums || MixBus (b) == MixBus::Bass || MixBus (b) == MixBus::Music);
+            if (ducked || bus.gain.isSmoothing())
             {
                 for (int k = 0; k < n; ++k)
                 {
-                    const float g = bus.gain.next();
+                    const float g = bus.gain.next() * (ducked ? duckAt[size_t (k)] : 1.0f);
                     master.ptrs[0][k] += bus.ptrs[0][k] * g;
                     master.ptrs[1][k] += bus.ptrs[1][k] * g;
                 }
@@ -467,6 +521,27 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
                 const float g = bus.gain.getCurrent();
                 if (g != 0.0f) { addScaled (master.ptrs[0], bus.ptrs[0], g, n); addScaled (master.ptrs[1], bus.ptrs[1], g, n); }
             }
+        }
+
+        // The detector for the *next* block: how loud the speech group is putting out now.
+        if (applied.speechDuck.enabled && graph.busUsed[size_t (MixBus::Speech)])
+        {
+            const Bus& speech = buses[size_t (MixBus::Speech)];
+            float peak = 0.0f;
+            for (int k = 0; k < n; ++k)
+            {
+                peak = std::max (peak, std::fabs (speech.ptrs[0][k]));
+                peak = std::max (peak, std::fabs (speech.ptrs[1][k]));
+            }
+            const bool open = peak > speechThresholdLin;
+            if (open) speechHoldLeft = speechHoldSamples;
+            else      speechHoldLeft = std::max (0.0f, speechHoldLeft - float (n));
+            speechWasOpen = open || speechHoldLeft > 0.0f;
+        }
+        else
+        {
+            speechWasOpen = false;
+            speechHoldLeft = 0.0f;
         }
 
         // ---- FX returns -> master ----

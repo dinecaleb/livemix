@@ -76,6 +76,20 @@ struct MixParameters
     bool broadcastDim = false;
     bool broadcastMute = false;
 
+    // SPEECH PRIORITY. Off unless the engineer turns it on, and then the only thing in the
+    // engine that moves a level by itself: while the speech group is carrying somebody
+    // speaking, the band steps back into the master by `depthDb` and comes back when they
+    // stop. Set from the session and the profile on every publish, never kept and never
+    // saved with a mix - it is a way of working, not a balance.
+    struct SpeechDuck
+    {
+        bool enabled = false;
+        float depthDb = 4.0f;
+        float thresholdDb = -38.0f;
+        float attackMs = 150.0f, releaseMs = 800.0f, holdMs = 250.0f;
+    };
+    SpeechDuck speechDuck;
+
     // The engineer's own listen: where solo goes, what the monitor carries, how loud it is.
     // Monitoring, never mix - nothing here changes the master, the plan or an export. It
     // rides in MixParameters rather than beside it only because solo is a per-strip flag and

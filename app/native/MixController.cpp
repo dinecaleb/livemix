@@ -74,6 +74,20 @@ void MixController::setFocusInput (int strip)
     if (onMixChanged) onMixChanged();
 }
 
+// SPEECH PRIORITY: the band steps back while somebody is speaking. The only thing in DLIVE
+// that moves a level on its own, which is why it is off until somebody asks for it.
+void MixController::setSpeechPriority (bool on)
+{
+    if (session.speechPriority == on) return;
+    session.speechPriority = on;
+    publish();
+    if (onMessage)
+        onMessage (on ? "Speech priority is on: the band steps back " + std::to_string (int (std::round (MixProfile::speechPriority (session.profile).depthDb)))
+                            + " dB while somebody is speaking, and comes back when they stop. Your listen never ducks."
+                      : std::string ("Speech priority is off: the balance stays where TUNE put it."));
+    if (onMixChanged) onMixChanged();
+}
+
 void MixController::setPurpose (MixPurpose p) { session.purpose = p; }
 
 void MixController::setDelivery (DeliveryLoudness d)
@@ -275,6 +289,17 @@ MixParameters MixController::compose() const
     }
     auto out = MixMacros::applyVoicing (MixMacros::apply (base, macros, engine.getGraph(), session.profile),
                                         session.voicing, session.profile);
+    // SPEECH PRIORITY is a way of working rather than a balance: it is set from the session and
+    // the profile on every publish, never kept with a mix and never saved inside one.
+    {
+        const auto& sp = MixProfile::speechPriority (session.profile);
+        out.speechDuck.enabled = session.speechPriority;
+        out.speechDuck.depthDb = sp.depthDb;
+        out.speechDuck.thresholdDb = sp.thresholdDb;
+        out.speechDuck.attackMs = sp.attackMs;
+        out.speechDuck.releaseMs = sp.releaseMs;
+        out.speechDuck.holdMs = sp.holdMs;
+    }
     out.broadcastDim = broadcastDim;
     out.broadcastMute = broadcastMute;
     return out;

@@ -193,6 +193,27 @@ namespace MixProfile
     };
     const Relationships& relationships (StyleProfileId profile);
 
+    // ---- SPEECH PRIORITY: the band steps back while somebody is speaking ----
+    // The one thing in DLIVE that keeps working after TUNE has finished, and the only place a
+    // level moves on its own. It exists because a preacher over a vamping band is the one
+    // moment a fixed balance cannot serve: the words need to be in front, and the band was
+    // balanced for a song. It is off unless somebody turns it on, and when it is on it is
+    // small, slow and bounded - a band stepping back, never a gate, never a pump.
+    //
+    // It ducks the band (DRUMS, BASS, MUSIC) into the master only. The voices are left alone,
+    // because a singer under a preacher is a duet and not a distraction; the room is left alone,
+    // because a congregation answering is the sound of a service; and the engineer's listen is
+    // left alone, because an engineer has to be able to hear what is really there.
+    struct SpeechPriority
+    {
+        float depthDb = 4.0f;          // how far the band steps back at most
+        float thresholdDb = -38.0f;    // the speech group's own level that counts as somebody speaking
+        float attackMs = 150.0f;       // slow enough that a word does not sound like a gate opening
+        float releaseMs = 800.0f;      // ... and slow enough that the band does not surge between sentences
+        float holdMs = 250.0f;         // the gap between two sentences is not the end of the sermon
+    };
+    const SpeechPriority& speechPriority (StyleProfileId profile);
+
     // The peak rise time (ms) of a source, from Relationships (see compPeakRise*Ms).
     float compPeakRiseMs (StyleProfileId profile, ChannelRole role);
 

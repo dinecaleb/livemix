@@ -504,6 +504,11 @@ public:
                                     ? "Reference: " + juce::String (view.controller.getReference().name) + juce::String (Glyph::ellip())
                                     : "Add a Reference Mix...");
                 m.addSeparator();
+                // SPEECH PRIORITY: the one thing in DLIVE that moves a level by itself, so it
+                // says what it does rather than only what it is called.
+                m.addItem (413, "Speech Priority: the band steps back while somebody speaks", true,
+                           view.controller.getSpeechPriority(), nullptr);
+                m.addSeparator();
                 m.addItem (409, "Mix Buddy" + juce::String (Glyph::ellip()));
                 m.addItem (410, "Try Another Mix", view.controller.canTryAnotherMix());
                 m.addSeparator();
@@ -1649,6 +1654,7 @@ void MainView::handleCommand (int id)
             showToast (MasterVoicing (id - 450) == MasterVoicing::Neutral ? juce::String ("Master back to exactly what TUNE MIX built.")
                                                                           : "Master voiced for " + juce::String (masterVoicingName (MasterVoicing (id - 450))).toLowerCase() + ".");
             break;
+        case 413: controller.setSpeechPriority (! controller.getSpeechPriority()); break;
         case 402: controller.clearSolos(); showToast ("Solo cleared."); break;
         case 403: setBypass (! controller.isBypassed()); break;
         case 406:

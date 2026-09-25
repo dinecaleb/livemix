@@ -57,6 +57,8 @@ public:
     void setOutputFeeds (const OutputFeeds& f);
     const OutputFeeds& getAppliedOutputFeeds() const noexcept { return appliedFeeds; }
     const MixParameters& getAppliedParameters() const noexcept { return applied; } // audio-thread view (read for display only)
+    // What speech priority is doing right now, dB (<= 0). Any thread.
+    float getSpeechDuckDb() const noexcept { return speechDuckDb.load (std::memory_order_relaxed); }
 
     // Audio thread. inputs: device channels; outputs: at least 1 channel (mono sum) or 2 (L/R).
     // Every output channel is written: the feeds decide what lands where, the rest is silence.
@@ -182,6 +184,22 @@ private:
 
     std::atomic<MixTap*> tap { nullptr };
     std::atomic<const SampleBankTable*> sampleBanks { nullptr };
+
+    // SPEECH PRIORITY. The one gain in the engine that moves without being told to. The
+    // detector is the speech group's own processed output, read a block behind - the groups
+    // are processed in console order and SPEECH comes after the band - which at a 150 ms
+    // attack is a millisecond and a half of nothing. `duck` is linear gain, smoothed per
+    // sample so a band stepping back never sounds like a gate.
+    float speechDuckGain = 1.0f;
+    std::vector<float> duckScratch;    // per-sample duck gain for this block (sized in prepare)
+    // Everything the duck needs while the audio runs, worked out when the snapshot arrives:
+    // process() only multiplies and adds.
+    float speechThresholdLin = 0.0f, speechDepthGain = 1.0f;
+    float speechAttackCoeff = 0.0f, speechReleaseCoeff = 0.0f, speechOffCoeff = 0.0f;
+    float speechHoldSamples = 0.0f;
+    float speechHoldLeft = 0.0f;       // samples of hold still owed
+    bool speechWasOpen = false;
+    std::atomic<float> speechDuckDb { 0.0f };   // what it is doing, for the UI
     KitTriggerTable kitTriggers;                                 // the drum strips' word to each other (audio thread only)
     Smoother broadcastGain;                                      // DIM (-20 dB) / MUTE on every feed but the listen
     std::vector<float> broadcastRamp;                            // the smoother, per sample, for the block (feeds share it)
