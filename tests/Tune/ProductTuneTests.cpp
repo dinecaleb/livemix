@@ -237,10 +237,107 @@ TEST_CASE ("Tune (vocals): sharp S sounds add bounded S control; boom raises the
     CHECK (! rp.proposed.transientEnabled && ! rp.proposed.satEnabled);
     CHECK (rp.proposed.gateRangeDb <= StyleProfile::targets (ChannelRole::Speech, StyleProfileId::ModernGospel).gateMaxRangeDb + 0.01f);
 
+    // A loud, spiky sermon is held, never squashed: the ratio stays gentle and the attack lets the words start.
+    auto loud = onTarget (ChannelRole::Speech);
+    loud.crestFactorDb = 24.0f;
+    auto rl = TuneEngine::tune (context (ChannelRole::Speech, loud));
+    REQUIRE (rl.proposed.compEnabled);
+    CHECK (rl.proposed.compRatio <= 4.0f);
+    CHECK (rl.proposed.compAttackMs >= 8.0f);
+    CHECK (rl.proposed.compReleaseMs >= 100.0f);
+
     // A choir is never gated.
     auto ch = onTarget (ChannelRole::Choir);
     ch.bleedEstimate = 0.8f; ch.noiseFloorDb = ch.hitLevelDb - 15.0f;
     CHECK (! TuneEngine::tune (context (ChannelRole::Choir, ch)).proposed.gateEnabled);
+}
+
+TEST_CASE ("Tune (voices): the clean-up on a microphone somebody is speaking into is a courtesy, not a gate")
+{
+    // A live building: the room sits 15 dB under the words, so an expander is fitted.
+    for (auto role : { ChannelRole::Speech, ChannelRole::LeadVocal, ChannelRole::BackingVocal })
+    {
+        auto a = onTarget (role);
+        a.bleedEstimate = 0.8f;
+        a.noiseFloorDb = a.hitLevelDb - 15.0f;
+        a.meanDecayMs = 90.0f;                     // one syllable falling away, not a drum
+        a.silencePercent = 25.0f;
+        a.transientsPerSecond = 4.0f;
+        auto ctx = context (role, a);
+        const auto r = TuneEngine::tune (ctx);
+        REQUIRE (r.valid);
+        if (! r.proposed.gateEnabled) continue;
+        const auto t = StyleProfile::targets (role, StyleProfileId::ModernGospel);
+        // Never the 4:1 a drum microphone is closed with.
+        CHECK (r.proposed.gateRatio <= 2.5f);
+        CHECK (r.proposed.gateRangeDb <= t.gateMaxRangeDb + 0.01f);
+        // It holds long enough for a word and lets go slowly enough for its tail.
+        CHECK (r.proposed.gateHoldMs >= 150.0f);
+        CHECK (r.proposed.gateReleaseMs >= 200.0f);
+        // ... and it holds: the same listen fits the same expander.
+        ctx.current = r.proposed;
+        CHECK (TuneEngine::tune (ctx).parametersChanged == 0);
+    }
+}
+
+TEST_CASE ("Tune (voices): the high-pass never climbs above the speaker's own lowest note, even below the profile's minimum")
+{
+    // A low male voice at 96 Hz on a boomy lectern microphone: the profile would like to
+    // filter at 160, and 0.8 x 96 = 77 is under the speech minimum of 100. The rule wins.
+    auto a = onTarget (ChannelRole::Speech);
+    a.fundamentalHz = 96.0f;
+    a.bandEnergyDb[size_t (Band::Low)] += 12.0f;
+    a.bandEnergyDb[size_t (Band::Sub)] += 6.0f;
+    auto ctx = context (ChannelRole::Speech, a);
+    auto r = TuneEngine::tune (ctx);
+    REQUIRE (r.valid);
+    const auto t = StyleProfile::targets (ChannelRole::Speech, StyleProfileId::ModernGospel);
+    CHECK (t.hpfMinHz > 0.8f * a.fundamentalHz);            // the case this test exists for
+    CHECK (r.proposed.hpfEnabled);
+    CHECK (r.proposed.hpfHz <= 0.8f * a.fundamentalHz + 1.0f);
+    // And it holds.
+    ctx.current = r.proposed;
+    CHECK (TuneEngine::tune (ctx).parametersChanged == 0);
+
+    // A voice whose fundamental sits above the profile's minimum is filtered normally.
+    auto high = onTarget (ChannelRole::Speech);
+    high.fundamentalHz = 240.0f;
+    high.bandEnergyDb[size_t (Band::Low)] += 12.0f;
+    const auto rh = TuneEngine::tune (context (ChannelRole::Speech, high));
+    CHECK (rh.proposed.hpfHz >= t.hpfMinHz - 0.01f);
+}
+
+TEST_CASE ("Tune: a boost and a cut never land inside the same octave in one pass")
+{
+    // Presence under target (so a lift would follow) and a measured peak right beside it.
+    for (auto role : { ChannelRole::Speech, ChannelRole::LeadVocal })
+    {
+        auto a = onTarget (role);
+        const auto t = StyleProfile::targets (role, StyleProfileId::ModernGospel);
+        a.bandEnergyDb[size_t (Band::Presence)] -= 10.0f;                 // well under target: a lift would follow
+        a.resonances = { { t.attackHz * 0.85f, 11.0f } };                 // ... and a hard edge inside the same octave
+        auto ctx = context (role, a);
+        const auto r = TuneEngine::tune (ctx);
+        REQUIRE (r.valid);
+        const auto* cut = find (r, TuneSection::Tone, "Controlled harshness");
+        REQUIRE (cut != nullptr);
+        CHECK (find (r, TuneSection::Attack, "Added definition") == nullptr);
+        // Either the lift was left off, or the template's own lift was taken back out - and
+        // whichever it was, it said so.
+        const auto* left = find (r, TuneSection::Attack, "Definition left where it is");
+        const auto* out = find (r, TuneSection::Attack, "Definition taken back out");
+        CHECK ((left != nullptr) != (out != nullptr));
+        if (left != nullptr) CHECK (left->changes.empty());
+        // The proposal has no bell lifting inside an octave of a bell cutting. The body and
+        // air shelves are deliberately not part of this: a shelf holding the weight up under
+        // a narrow cut that takes the mud out just above it is one shape, made of two filters
+        // doing different jobs, and it is how the warmth of a voice is kept while it is cleaned.
+        const auto& bell = r.proposed.toneBands[2];
+        if (bell.enabled && bell.gainDb > 0.5f)
+            for (const auto& c : r.proposed.correctiveBands)
+                if (c.enabled && c.gainDb <= -1.5f && c.freqHz > 0.0f)
+                    CHECK (! (bell.freqHz < c.freqHz * 2.0f && c.freqHz < bell.freqHz * 2.0f));
+    }
 }
 
 TEST_CASE ("Tune (keys): a wide, out-of-phase piano is narrowed with the low end centred; a mono source is left alone; mud is cut")

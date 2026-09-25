@@ -78,6 +78,12 @@ namespace tune
     float bandExcess (const TuneContext& ctx, const SourceTargets& t, Band b);    // > 0 above tolerance, < 0 below, 0 inside
 
     void placeHighPass (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, float hz, const char* why);
+    // The rule every source shares: a high-pass never climbs above 0.8 x the measured
+    // fundamental. It is the last word on the filter, after whatever placed it, and it is the
+    // one place the profile's own minimum does not apply - a minimum is a floor for a choice,
+    // and a voice or an instrument whose lowest note sits under it keeps its weight anyway.
+    // Nothing happens when the listen found no fundamental it trusts.
+    void capHighPassToFundamental (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, float fundamentalHz);
     void controlLowMid (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d);
     void notchResonance (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, float minHz, float maxHz, const char* character);
     void shapeBody (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, float fundamentalHz);

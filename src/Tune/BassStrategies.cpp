@@ -77,8 +77,8 @@ namespace
             shapeBody (ctx, t, d, f);
             controlLowMid (ctx, t, d);
             notchResonance (ctx, t, d, 200.0f, 600.0f, "a boxy note");
-            shapeAttack (ctx, t, d);       // string definition
             controlHarshness (ctx, t, d);  // fret clank
+            shapeAttack (ctx, t, d);       // string definition, unless the clank cut is already in that octave
             addGrit (ctx, t, d);
             setCompression (ctx, t, d);
             cleanTheFloor (ctx, t, d, f);  // hum / noise between notes; the detector sits under the fundamental

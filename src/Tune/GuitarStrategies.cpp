@@ -67,8 +67,8 @@ namespace
             shapeBody (ctx, t, d, 0.0f);
             controlLowMid (ctx, t, d);
             notchResonance (ctx, t, d, 80.0f, 300.0f, "the body's boom");
-            shapeAttack (ctx, t, d);       // pick definition
             controlHarshness (ctx, t, d);  // pickup quack
+            shapeAttack (ctx, t, d);       // pick definition, unless the quack cut is already in that octave
             shapeAir (ctx, t, d);
             setCompression (ctx, t, d);
             setWidth (ctx, t, d);
@@ -88,8 +88,8 @@ namespace
             shapeBody (ctx, t, d, 0.0f);
             controlLowMid (ctx, t, d);
             notchResonance (ctx, t, d, 200.0f, 700.0f, "a boxy cab resonance");
-            shapeAttack (ctx, t, d);
             controlHarshness (ctx, t, d);  // fizz / ice-pick region
+            shapeAttack (ctx, t, d);
             rollOffFizz (ctx, t, d);
             shapeAir (ctx, t, d);
             setCompression (ctx, t, d);

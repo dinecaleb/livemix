@@ -169,7 +169,11 @@ float mixLevelTargetDb (StyleProfileId profile, RoleFamily family)
     switch (family)
     {
         case RoleFamily::LeadVocal:      db = -18.0f; break;
-        case RoleFamily::Speech:         db = -18.0f; break;
+        // A speaking voice is not a singer with a band under it: when the pastor is on, the
+        // speech microphone is usually the only thing playing, and the master's density was
+        // fitted to the band's sum. Two dB over the lead's number keeps the words at the level
+        // of the song rather than a step under it.
+        case RoleFamily::Speech:         db = -16.0f; break;
         case RoleFamily::BackingVocal:   db = -26.0f; break;
         case RoleFamily::Choir:          db = -25.0f; break;
         case RoleFamily::Kick:           db = -20.0f; break;
@@ -251,9 +255,20 @@ float mixLevelTargetDb (StyleProfileId profile, RoleFamily family)
     return db;
 }
 
-float stripPeakCeilingDb (StyleProfileId)
+float stripPeakCeilingDb (StyleProfileId, RoleFamily family)
 {
-    return -3.0f;
+    switch (family)
+    {
+        // The voices: their peaks are consonants, and the level a listener hears is the
+        // sustained part underneath. The top of the scale is the bound; the group compressor
+        // and the master limiter hold the consonants.
+        case RoleFamily::Speech:
+        case RoleFamily::LeadVocal:
+        case RoleFamily::BackingVocal:
+        case RoleFamily::Choir:
+        case RoleFamily::VocalBus:       return 0.0f;
+        default:                         return -3.0f;
+    }
 }
 
 const Relationships& relationships (StyleProfileId profile)

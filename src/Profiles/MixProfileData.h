@@ -49,9 +49,22 @@ namespace MixProfile
     // level in the mix.
     float mixLevelTargetDb (StyleProfileId profile, RoleFamily family);
 
-    // A processed strip is never allowed to peak above this before its fader, so a loud transient
-    // still has somewhere to go inside the bus. Headroom only: the balance is set by loudness.
-    float stripPeakCeilingDb (StyleProfileId profile);
+    // What a strip is allowed to send into its bus at its loudest, dBFS. Headroom only: the
+    // balance is set by loudness, and this only ever holds a fader back.
+    //
+    // What counts as "loudest" depends on the source, which is why the family is asked for.
+    // A stick on a drum head *is* the sound: it arrives 15 dB over everything else on the
+    // strip and it is what the bus has to have room for, so a close drum microphone is held
+    // well clear of the top. A voice's peaks are its consonants - one to three milliseconds
+    // of a word, 17 to 20 dB over the sustained level of the same sentence - and what a
+    // listener hears as the level of a voice is the sustained part. Holding a speaking voice's
+    // peak under a drum's number is arithmetic that cannot be satisfied: at the 18 dB crest a
+    // spoken voice really measures, a sentence sitting at the profile's -16 dBFS peaks at +2,
+    // so the fader loses by 5 dB every time and the pastor ends up under the mix with his own
+    // consonants to blame. A voice is therefore allowed the whole of the scale and no more,
+    // and its consonants are held where they are meant to be held: by the group's compressor
+    // and the master's limiter, both of which are fitted to what actually arrives.
+    float stripPeakCeilingDb (StyleProfileId profile, RoleFamily family);
 
     // ---- Relationships (used by MixPlanner) ----
     struct Relationships
@@ -107,6 +120,13 @@ namespace MixProfile
         // already sits at its level, or is being brought down, is never touched by it. The usual victim
         // was a barely-used vocal microphone lifted 30 dB, which made it the loudest cymbals in the mix.
         float spillBelowTargetDb = 16.0f;
+        // The same rule for a speech microphone, looser. Between a preacher's phrases the microphone hears
+        // the room - the congregation, the air handling, the PA coming back - not the band, which is quiet
+        // during a sermon; and the room under a sermon is what a stream expects to hear. Held to the singer's
+        // 16 dB, a handheld sermon microphone in a live building was routinely lifted 4 to 8 dB short of its
+        // level and the pastor sat under the mix. 6 dB is where the room stops being room and starts being
+        // the thing a listener notices between words.
+        float speechSpillBelowTargetDb = 6.0f;
         float faintInputDb = -38.0f;       // a raw peak (at the device) that never got above this during the listen is a faint input: the
                                            // source did not really play, or the microphone / cable / preamp is the problem. It is not tuned,
                                            // raised or balanced; the mix says to check it.

@@ -54,6 +54,13 @@ namespace
             || f == RoleFamily::Choir || f == RoleFamily::Speech;
     }
 
+    // A voice: a source whose loudest moments are consonants rather than impacts, and whose
+    // level in the mix is the sustained part underneath them.
+    bool isSustainedVoice (RoleFamily f)
+    {
+        return f == RoleFamily::Speech || f == RoleFamily::LeadVocal || f == RoleFamily::BackingVocal || f == RoleFamily::Choir;
+    }
+
     bool isMusicFamily (RoleFamily f)
     {
         return f == RoleFamily::Piano || f == RoleFamily::ElectricPiano || f == RoleFamily::Organ || f == RoleFamily::Synth
@@ -578,9 +585,15 @@ MixPlan plan (const MixPlanContext& ctx)
         const float effectiveLevel = predictedProcessedActiveRmsDb (ctx, i, plan.proposed.strips[size_t (i)]);
         float fader = roundHalf (target - effectiveLevel);
         // Headroom guard: the balance is a loudness decision, but a strip still must not arrive at its bus
-        // hot enough to leave a transient nowhere to go.
-        const float effectivePeak = predictedProcessedPeakDb (ctx, i, plan.proposed.strips[size_t (i)]);
-        fader = std::min (fader, roundHalf (MixProfile::stripPeakCeilingDb (profile) - effectivePeak));
+        // hot enough to leave a transient nowhere to go. What "loudest" means is the source's own
+        // (MixProfile::stripPeakCeilingDb): a stick hit is the sound and needs room, a consonant is not.
+        float effectivePeak = predictedProcessedPeakDb (ctx, i, plan.proposed.strips[size_t (i)]);
+        // On a voice the guard reads the musical peak rather than the loudest sample: a desk
+        // export routinely carries one click 10 dB above anything the speaker said, and a
+        // voice held down by a click is a voice nobody can hear.
+        if (isSustainedVoice (f) && a.musicalPeakDb > -119.0f && a.peakDb > a.musicalPeakDb)
+            effectivePeak -= a.peakDb - a.musicalPeakDb;
+        fader = std::min (fader, roundHalf (MixProfile::stripPeakCeilingDb (profile, f) - effectivePeak));
         // A close microphone that hears the rest of the kit is only lifted so far: past that the bleed comes
         // up with the instrument and the console preamp is the thing that is actually wrong.
         if (isDrumCloseMic (f))
@@ -613,7 +626,11 @@ MixPlan plan (const MixPlanContext& ctx)
         {
             const float gainDelta = sp.inputGainDb - ctx.atCapture.strips[size_t (i)].inputGainDb;
             const float lift = gainDelta + fader;
-            const float allowedLift = (target - R.spillBelowTargetDb) - a.noiseFloorDb;
+            // A speech microphone has its own, looser number: between a preacher's phrases it hears
+            // the room, not the band, and the room under a sermon is what a stream expects to hear.
+            // Holding it to the singer's rule is what left the pastor a few dB under the mix.
+            const float spillBelow = f == RoleFamily::Speech ? R.speechSpillBelowTargetDb : R.spillBelowTargetDb;
+            const float allowedLift = (target - spillBelow) - a.noiseFloorDb;
             if (lift > 0.0f && lift > allowedLift)
             {
                 const float kept = std::max (allowedLift, 0.0f);

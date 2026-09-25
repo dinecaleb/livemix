@@ -51,8 +51,8 @@ namespace
             shapeBody (ctx, t, d, f);
             controlLowMid (ctx, t, d);
             notchResonance (ctx, t, d, 300.0f, 1500.0f, "ring");
-            shapeAttack (ctx, t, d);
             controlHarshness (ctx, t, d);
+            shapeAttack (ctx, t, d);
             shapeAir (ctx, t, d);
             setCompression (ctx, t, d);
             // The trigger before the gate: a sampled microphone's gate is fitted under it.

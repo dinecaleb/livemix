@@ -381,10 +381,18 @@ namespace
         t.hpfMinHz = 100.0f; t.hpfMaxHz = 160.0f;
         t.attackHz = 3000.0f;
         t.maxEqBoostDb = 3.0f;
-        t.crestFactorMaxDb = 16.0f;
-        t.compTargetGrDb = 6.0f; t.compRatioMin = 3.0f; t.compRatioMax = 6.0f;
-        t.compAttackMinMs = 3.0f; t.compAttackMaxMs = 15.0f; t.compReleaseMinMs = 80.0f; t.compReleaseMaxMs = 250.0f;
-        t.bleedGateThreshold = 0.4f; t.gateMaxRangeDb = 15.0f;
+        // Held, not squashed (2026-09-25). A spoken voice measures a crest of 17 to 20 dB on a
+        // 10 ms frame - consonants are spikes - so a 16 dB ceiling with 6 dB of reduction at up
+        // to 6:1 and a 3 ms attack was always "severe": it flattened every consonant, and a
+        // voice with no consonants reads as both dull and quiet. The words are held with a
+        // gentler ratio, about 4 dB of reduction, and an attack slow enough to let the start of
+        // each word through; the level is held by the fader and the master, not by the ratio.
+        t.crestFactorMaxDb = 18.0f;
+        t.compTargetGrDb = 4.0f; t.compRatioMin = 2.5f; t.compRatioMax = 4.0f;
+        t.compAttackMinMs = 8.0f; t.compAttackMaxMs = 25.0f; t.compReleaseMinMs = 100.0f; t.compReleaseMaxMs = 300.0f;
+        // The expander on a speech microphone is a courtesy, never a gate: a soft word cut by
+        // a 15 dB expander is a word the stream did not hear.
+        t.bleedGateThreshold = 0.55f; t.gateMaxRangeDb = 8.0f;
         t.saturationAppropriate = false;
         t.sibilanceMaxDb = -10.0f; t.deEssMaxRangeDb = 9.0f;
         t.mixPeakTargetDb = -10.0f;
@@ -707,10 +715,10 @@ namespace
     {
         ChannelParameters p = gospelLeadVocalBaseline();
         p.hpfHz = 120.0f;
-        p.gateThresholdDb = -45.0f; p.gateRangeDb = 10.0f;
+        p.gateThresholdDb = -48.0f; p.gateRangeDb = 6.0f;
         p.correctiveBands[0] = band (true, FilterType::Peak, 300.0f, -2.5f, 1.4f);
         p.deEssThresholdDb = -32.0f; p.deEssRangeDb = 6.0f;
-        p.compThresholdDb = -26.0f; p.compRatio = 4.0f; p.compAttackMs = 6.0f; p.compReleaseMs = 150.0f; p.compKneeDb = 8.0f;
+        p.compThresholdDb = -24.0f; p.compRatio = 3.0f; p.compAttackMs = 12.0f; p.compReleaseMs = 180.0f; p.compKneeDb = 8.0f;
         p.toneBands[0] = band (false, FilterType::LowShelf, 180.0f, 0.0f, 0.7f);
         p.toneBands[2] = band (true, FilterType::Peak, 3000.0f, 2.0f, 1.0f);
         p.toneBands[3] = band (false, FilterType::HighShelf, 10000.0f, 0.0f, 0.7f);

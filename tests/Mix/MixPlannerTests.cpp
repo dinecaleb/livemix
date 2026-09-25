@@ -4,6 +4,7 @@
 #include "Mix/OfflineCapture.h"
 #include "Mix/MixPlanner.h"
 #include "Profiles/MixProfileData.h"
+#include "Profiles/StyleProfile.h"
 #include "FX/FxProfiles.h"
 #include <cstdio>
 #include <random>
@@ -223,9 +224,14 @@ TEST_CASE ("MixPlanner: one listen tunes every source, balances the faders and r
         const auto& proposed = plan.proposed.strips[size_t (s.strip)];
         const float target = MixProfile::mixLevelTargetDb (StyleProfileId::ModernGospel, f);
         const float level = MixPlanner::predictedProcessedActiveRmsDb (ctx, s.strip, proposed);
-        const float peak = MixPlanner::predictedProcessedPeakDb (ctx, s.strip, proposed);
+        float peak = MixPlanner::predictedProcessedPeakDb (ctx, s.strip, proposed);
+        // A voice is held to the musical peak, not to the loudest sample: its peaks are
+        // consonants, and one click in a desk export is not the voice at all.
+        const bool voice = f == RoleFamily::Speech || f == RoleFamily::LeadVocal || f == RoleFamily::BackingVocal || f == RoleFamily::Choir;
+        const auto& ana = ctx.capture.strips[size_t (s.strip)];
+        if (voice && ana.musicalPeakDb > -119.0f && ana.peakDb > ana.musicalPeakDb) peak -= ana.peakDb - ana.musicalPeakDb;
         float expected = std::round ((target - level) * 2.0f) * 0.5f;
-        expected = std::min (expected, std::round ((MixProfile::stripPeakCeilingDb (StyleProfileId::ModernGospel) - peak) * 2.0f) * 0.5f);
+        expected = std::min (expected, std::round ((MixProfile::stripPeakCeilingDb (StyleProfileId::ModernGospel, f) - peak) * 2.0f) * 0.5f);
         // A drum close microphone hears the rest of the kit, so the balance only lifts one so far.
         const bool closeMic = f == RoleFamily::Kick || f == RoleFamily::Snare || f == RoleFamily::Tom || f == RoleFamily::HiHat;
         if (closeMic)
@@ -684,4 +690,60 @@ TEST_CASE ("MixPlanner: keeping part of a plan applies exactly what was picked, 
     CHECK (MixPlanner::countParameterChanges (solo.proposed, channel.proposed) == 0);
     CHECK (solo.parametersChanged == channel.parametersChanged);
     CHECK (solo.fadersChanged == channel.fadersChanged);
+}
+
+TEST_CASE ("MixPlanner: a sermon microphone is lifted to its level, held gently, and never gated hard")
+{
+    // The pastor speaks; the band is silent. Phrases of a voice-like tone with consonant-like
+    // crackle, a room under them 14 dB down - a handheld in a live building.
+    Rig rig (band());
+    testsig::Buffer in (15, int (kSr * 8));
+    {
+        std::mt19937 rng (21);
+        std::uniform_real_distribution<float> dist (-1.0f, 1.0f);
+        auto& c = in.data[14];
+        for (size_t i = 0; i < c.size(); ++i)
+        {
+            const float t = float (i) / float (kSr);
+            const float inPhrase = std::fmod (t, 0.6f);
+            float s = 0.02f * dist (rng);                                  // the room, always there
+            if (inPhrase < 0.35f)
+            {
+                const float env = 0.6f + 0.4f * std::sin (2.0f * float (M_PI) * 4.0f * t);   // syllables
+                s += 0.09f * env * (std::sin (2.0f * float (M_PI) * 180.0f * t) + 0.4f * std::sin (2.0f * float (M_PI) * 360.0f * t) + 0.2f * std::sin (2.0f * float (M_PI) * 2400.0f * t));
+                if (std::fmod (t, 0.125f) < 0.006f) s += 0.12f * dist (rng);               // a consonant
+            }
+            c[i] = s;
+        }
+    }
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    const auto ctx = rig.context (cap);
+    const auto plan = MixPlanner::plan (ctx);
+    REQUIRE (plan.valid);
+    const auto& pastor = stripNamed (plan, "Pastor");
+    REQUIRE (pastor.heard);
+    CHECK (! pastor.bleedOnly);
+    CHECK (pastor.balanced);
+    // The room under a sermon is not the band: the speech rule lets the pastor reach the level.
+    CHECK (! pastor.spillLimited);
+    const auto& strip = plan.proposed.strips[size_t (pastor.strip)];
+    const float lands = MixPlanner::predictedProcessedActiveRmsDb (ctx, pastor.strip, strip) + strip.faderDb;
+    CHECK_NEAR (lands, MixProfile::mixLevelTargetDb (ctx.session.profile, RoleFamily::Speech), 2.0f);
+    // Held, not squashed: a gentle ratio, an attack that lets the start of a word through.
+    const auto& t = StyleProfile::targets (ChannelRole::Speech, ctx.session.profile);
+    if (strip.channel.compEnabled)
+    {
+        CHECK (strip.channel.compRatio <= t.compRatioMax + 0.01f);
+        CHECK (strip.channel.compRatio <= 4.0f);
+        CHECK (strip.channel.compAttackMs >= 8.0f);
+        CHECK (strip.channel.compReleaseMs >= 100.0f);
+    }
+    // Any clean-up on a speech microphone is shallow.
+    if (strip.channel.gateEnabled) CHECK (strip.channel.gateRangeDb <= 8.01f);
+
+    // The same listen tuned as the speech group alone lands in the same place.
+    const auto group = MixPlanner::busOnly (plan, MixBus::Speech, ctx.graph, ctx.session.profile);
+    CHECK (group.headline == "SPEECH TUNED");
+    CHECK (group.proposed.strips[size_t (pastor.strip)].faderDb == strip.faderDb);
 }

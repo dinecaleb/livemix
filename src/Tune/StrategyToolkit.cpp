@@ -269,6 +269,26 @@ void placeHighPass (const TuneContext& ctx, const SourceTargets& t, TuneDecision
             [target] (ChannelParameters& p) { p.hpfEnabled = true; p.hpfHz = target; });
 }
 
+void capHighPassToFundamental (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, float fundamentalHz)
+{
+    if (fundamentalHz <= 0.0f) return;
+    const auto& cur = d.proposed;
+    if (! cur.hpfEnabled) return;
+    const float cap = roundHz (0.8f * fundamentalHz);
+    if (cur.hpfHz <= cap + 0.5f) return;
+    // Deliberately not clamped to t.hpfMinHz: that number says how high the filter may be
+    // *chosen*, and this is the rule that says how high it may ever sit.
+    const float target = roundHz (clamp (cap, 20.0f, t.hpfMaxHz));
+    d.move (Recommendation::Kind::Filter, TuneSection::Tone,
+            "High-pass lowered to " + fmtHz (target) + ", under the source's own lowest note",
+            "The listen measured this source's fundamental at " + fmtHz (fundamentalHz) + ", and the high-pass sat at "
+            + fmtHz (cur.hpfHz) + " - above it. A filter there takes the body out of the sound it is meant to be cleaning up: "
+            "a low voice reads as thin and, because the weight is what carries it, quieter than it is. It is lowered to "
+            + fmtHz (target) + " and the cleaning up is left to the rest of the chain.",
+            Confidence::High,
+            [=] (ChannelParameters& p) { p.hpfEnabled = true; p.hpfHz = target; });
+}
+
 void controlLowMid (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d)
 {
     const float lowMid = bandExcess (ctx, t, Band::LowMid);
@@ -387,17 +407,50 @@ void shapeAttack (const TuneContext& ctx, const SourceTargets& t, TuneDecisions&
     auto& peak = d.proposed.toneBands[2];
     const float freq = roundHz (t.attackHz);
 
+    // A boost and a cut never land inside the same octave in one pass. The corrective bands
+    // have already been placed on what the listen actually measured - a resonance, a ring, a
+    // hard edge - and a lift on top of one is two filters arguing about the same octave: what
+    // comes out is a shape nobody chose, and the thing that was cut for a reason comes half
+    // way back. The measured cut stands. A lift that would have followed is left off, and a
+    // lift the profile's own template put there is taken back out, both with the reason.
+    const EQBandParams* clash = nullptr;
+    for (const auto& b : d.proposed.correctiveBands)
+        if (b.enabled && b.gainDb <= -1.5f && b.freqHz > 0.0f && freq < b.freqHz * 2.0f && b.freqHz < freq * 2.0f) { clash = &b; break; }
+    const float currentGain = peak.enabled ? peak.gainDb : 0.0f;
+    bool tookItOut = false;
+    if (clash != nullptr && currentGain > 0.5f)
+    {
+        tookItOut = true;
+        d.move (Recommendation::Kind::EQ, TuneSection::Attack, "Definition taken back out at " + fmtHz (freq),
+                "The listen found something to cut at " + fmtHz (clash->freqHz) + " (" + fmtDb (clash->gainDb)
+                + "), and the lift this source normally carries at " + fmtHz (freq) + " sits inside the same octave. "
+                "One filter pulling where another is pushing is not a tone; it is a wobble, and the part that was cut for a "
+                "reason comes half way back. The cut stays and the lift goes.",
+                Confidence::Medium,
+                [] (ChannelParameters& p) { p.toneBands[2].enabled = false; p.toneBands[2].gainDb = 0.0f; });
+    }
+
     if (presence < 0.0f || soft)
     {
         const float deficit = std::max (-presence, 0.0f);
         const float desired = roundDb (clamp (1.5f + 0.5f * deficit, 1.5f, t.maxEqBoostDb));
-        const float currentGain = peak.enabled ? peak.gainDb : 0.0f;
         if (presence < 0.0f && currentGain < desired - 0.5f)
         {
-            d.move (Recommendation::Kind::EQ, TuneSection::Attack, "Added definition: " + fmtDb (desired) + " at " + fmtHz (freq),
-                    "Presence energy is " + num ("%.0f dB", double (deficit)) + " under the profile target; attack lives here for this source.",
-                    deficit > 3.0f ? Confidence::High : Confidence::Medium,
-                    [=] (ChannelParameters& p) { p.toneBands[2] = { true, FilterType::Peak, freq, desired, 1.0f }; });
+            if (clash != nullptr)
+            {
+                if (! tookItOut)
+                    d.note (Recommendation::Kind::EQ, TuneSection::Attack, "Definition left where it is",
+                            "Presence energy is " + num ("%.0f dB", double (deficit)) + " under the profile target, so a lift at " + fmtHz (freq)
+                            + " would normally follow - but " + fmtDb (clash->gainDb) + " is being taken out at " + fmtHz (clash->freqHz)
+                            + ", inside the same octave. Boosting across a cut that was made on what the listen measured only brings back what "
+                            "was wrong with it. The cut stands; if the source still needs to come forward, its level is the honest way.",
+                            Confidence::Medium);
+            }
+            else
+                d.move (Recommendation::Kind::EQ, TuneSection::Attack, "Added definition: " + fmtDb (desired) + " at " + fmtHz (freq),
+                        "Presence energy is " + num ("%.0f dB", double (deficit)) + " under the profile target; attack lives here for this source.",
+                        deficit > 3.0f ? Confidence::High : Confidence::Medium,
+                        [=] (ChannelParameters& p) { p.toneBands[2] = { true, FilterType::Peak, freq, desired, 1.0f }; });
         }
         if (soft && t.transientAppropriate)
         {
@@ -414,10 +467,12 @@ void shapeAttack (const TuneContext& ctx, const SourceTargets& t, TuneDecisions&
     else if (presence > 0.0f)
     {
         const auto tpl = Profiles::baseline (ctx.profile, ctx.role).toneBands[2];
-        const float currentGain = peak.enabled ? peak.gainDb : 0.0f;
         const float templateGain = tpl.enabled ? tpl.gainDb : 0.0f;
         const float gain = roundDb (clamp (templateGain - 0.6f * presence, -0.5f * t.maxEqCutDb, t.maxEqBoostDb));
-        if (currentGain - gain >= 0.5f)
+        // With a measured cut inside the same octave this band stays out of it altogether: the
+        // broad cut the harshness rule just placed is the move, and a second filter in the same
+        // octave - up or down - is the wobble this rule exists to prevent.
+        if (clash == nullptr && currentGain - gain >= 0.5f)
         {
             const bool disable = std::fabs (gain) < 0.5f;
             d.move (Recommendation::Kind::EQ, TuneSection::Attack, disable ? "Removed the attack boost" : "Eased the attack region: " + fmtDb (gain) + " at " + fmtHz (freq),
@@ -743,17 +798,29 @@ void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, 
     const float extraRange = kitNeighbour ? 6.0f : 0.0f;
     if (bleed > gateFrom)
     {
+        // A voice is not a drum. `meanDecayMs` on a voice is how fast one syllable falls away,
+        // and fitting the hold and the release to that shuts the expander between the syllables
+        // of a word: the tail of every phrase goes, and a soft word after a loud one starts
+        // underneath. So on a voice the decay only ever lengthens them, and the profile's own
+        // gentle ratio stands - the clean-up on a microphone somebody is speaking into is a
+        // courtesy, and a courtesy does not close at 4:1.
+        const bool voice = family == RoleFamily::Speech || family == RoleFamily::LeadVocal
+                        || family == RoleFamily::BackingVocal || family == RoleFamily::Choir;
+        const float holdMin = voice ? 150.0f : 40.0f;
+        const float releaseMin = voice ? 200.0f : 60.0f;
         const float threshold = roundDb (clamp (L.floorDb + (kitNeighbour ? 0.5f : 0.4f) * floorGap, -70.0f, L.hitDb - 12.0f));
         const float range = std::round (clamp (10.0f + 30.0f * bleed + extraRange, 8.0f, t.gateMaxRangeDb + extraRange));
-        const float hold = a.meanDecayMs > 0.0f ? std::round (clamp (0.6f * a.meanDecayMs, 40.0f, 200.0f)) : cur.gateHoldMs;
-        const float release = a.meanDecayMs > 0.0f ? std::round (clamp (0.8f * a.meanDecayMs, 60.0f, 300.0f)) : cur.gateReleaseMs;
+        const float hold = a.meanDecayMs > 0.0f ? std::round (clamp (0.6f * a.meanDecayMs, holdMin, 200.0f)) : std::max (cur.gateHoldMs, holdMin);
+        const float release = a.meanDecayMs > 0.0f ? std::round (clamp (0.8f * a.meanDecayMs, releaseMin, 300.0f)) : std::max (cur.gateReleaseMs, releaseMin);
         const bool small = cur.gateEnabled && std::fabs (cur.gateThresholdDb - threshold) < 2.0f && std::fabs (cur.gateRangeDb - range) < 3.0f;
         if (small) return;
         std::string what = (cur.gateEnabled ? "Expander re-fitted: threshold " : "Expander enabled: threshold ") + fmtDb (threshold, 0) + ", " + num ("%.0f dB range", double (range));
         std::string why = "Between " + plural (eventNoun (ctx)) + " the channel sits at " + num ("%.0f dBFS", double (L.floorDb)) + " while " + plural (eventNoun (ctx)) + " reach " + num ("%.0f dBFS", double (L.hitDb))
                         + ": bleed from nearby sources. The range is conservative (expansion, not a hard mute) so soft " + plural (eventNoun (ctx)) + " survive";
         if (kitNeighbour) why += "; the kick and snare are carried by samples now, so what this microphone hears of them is the dirt in a clean kit and it closes further than it otherwise would";
-        if (a.meanDecayMs > 0.0f) why += ", and hold/release follow the measured decay (" + num ("%.0f ms", double (a.meanDecayMs)) + ")";
+        if (voice) why += ". It holds " + num ("%.0f ms", double (hold)) + " and lets go over " + num ("%.0f ms", double (release))
+                        + " so the tail of a phrase is never cut, and it stays at the gentle ratio a voice is given";
+        else if (a.meanDecayMs > 0.0f) why += ", and hold/release follow the measured decay (" + num ("%.0f ms", double (a.meanDecayMs)) + ")";
         if (detHpf >= 20.0f) why += "; the detector ignores energy below " + fmtHz (detHpf) + " so low bleed does not open it";
         why += ".";
         d.move (Recommendation::Kind::Gate, TuneSection::Bleed, what, why, bleed > 0.6f ? Confidence::High : Confidence::Medium,
@@ -761,7 +828,7 @@ void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, 
                 {
                     p.gateEnabled = true; p.gateThresholdDb = threshold; p.gateRangeDb = range;
                     p.gateHoldMs = hold; p.gateReleaseMs = release;
-                    if (p.gateRatio < 3.0f) p.gateRatio = 4.0f;
+                    if (! voice && p.gateRatio < 3.0f) p.gateRatio = 4.0f;
                     if (p.gateHysteresisDb < 2.0f) p.gateHysteresisDb = 3.0f;
                     if (detHpf >= 20.0f) p.gateScHpfHz = detHpf;
                 });

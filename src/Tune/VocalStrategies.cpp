@@ -38,11 +38,14 @@ namespace
                 placeHighPass (ctx, t, d, cap, ("The high-pass sat above this voice's fundamental (" + fmtHz (f) + "); it is lowered so the voice keeps its weight.").c_str());
             else if (low < -2.0f && d.proposed.hpfEnabled && templateHighPassHz (ctx, t) > t.hpfMinHz * 1.2f)
                 placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * 0.85f, "The voice is thinner than the profile target; the high-pass is lowered a little to let its warmth back in.");
+            // The last word, whatever placed it: a low voice whose fundamental sits under the
+            // profile's own minimum keeps its weight anyway.
+            capHighPassToFundamental (ctx, t, d, f);
             shapeBody (ctx, t, d, f);
             controlLowMid (ctx, t, d);
             notchResonance (ctx, t, d, 500.0f, 1500.0f, "nasal tone");
-            shapeAttack (ctx, t, d);     // presence = the words
             controlHarshness (ctx, t, d);
+            shapeAttack (ctx, t, d);     // presence = the words, unless a measured cut already owns that octave
             shapeAir (ctx, t, d);
             controlSibilance (ctx, t, d);
             setCompression (ctx, t, d);
@@ -81,14 +84,24 @@ namespace
         void decide (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d) const override
         {
             removeDcOffset (ctx, d);
+            // A speaking voice has a lowest note like any other source, and a man's is often
+            // under the profile's own smallest high-pass. Filtering above it is what makes a
+            // pastor sound thin on a stream - and thin reads as quiet, whatever the meter says.
+            const float f = fundamental (ctx, t);
             const float low = bandExcess (ctx, t, Band::Low) + std::max (0.0f, bandExcess (ctx, t, Band::Sub));
             if (low > 0.0f)
-                placeHighPass (ctx, t, d, templateHighPassHz (ctx, t) * (1.0f + 0.12f * std::min (low, 6.0f)),
-                               ("Low energy is " + fmtDb (low, 0) + " above the profile tolerance: boom from a close microphone or a lectern. The high-pass is raised; speech stays clear without it.").c_str());
+            {
+                const float cap = f > 0.0f ? f * 0.8f : t.hpfMaxHz;
+                const float hz = std::min (templateHighPassHz (ctx, t) * (1.0f + 0.12f * std::min (low, 6.0f)), cap);
+                placeHighPass (ctx, t, d, hz,
+                               ("Low energy is " + fmtDb (low, 0) + " above the profile tolerance: boom from a close microphone or a lectern. The high-pass is raised"
+                                + std::string (f > 0.0f ? ", staying under the speaker's own lowest note (" + fmtHz (f) + ")." : "; speech stays clear without it.")).c_str());
+            }
+            capHighPassToFundamental (ctx, t, d, f);
             controlLowMid (ctx, t, d);
             notchResonance (ctx, t, d, 400.0f, 1200.0f, "boxiness");
-            shapeAttack (ctx, t, d);
             controlHarshness (ctx, t, d);
+            shapeAttack (ctx, t, d);
             controlSibilance (ctx, t, d);
             setCompression (ctx, t, d);
             setGate (ctx, t, d, 0.0f);
