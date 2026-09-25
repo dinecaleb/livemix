@@ -280,7 +280,13 @@ MixPlan plan (const MixPlanContext& ctx)
     // are actually in.
     bool kitSampled = false;
     for (int k = 0; k < ctx.graph.numStrips() && k < ctx.current.numStrips; ++k)
-        if (sampleReplacementAppropriate (roleFamily (ctx.graph.strips[size_t (k)].role)) && ctx.current.strips[size_t (k)].channel.replaceEnabled) kitSampled = true;
+    {
+        // A sampled hi-hat does not make a sampled kit: the rules below are about the kick and
+        // the snare being carried by samples, which is what changes what every other drum
+        // microphone hears. The hat's own sample only changes the hat.
+        const RoleFamily kf = roleFamily (ctx.graph.strips[size_t (k)].role);
+        if (sampleReplacementAppropriate (kf) && kf != RoleFamily::HiHat && ctx.current.strips[size_t (k)].channel.replaceEnabled) kitSampled = true;
+    }
     for (int i = 0; i < n; ++i)
     {
         const auto& route = ctx.graph.strips[size_t (i)];

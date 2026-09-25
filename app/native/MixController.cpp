@@ -1450,6 +1450,15 @@ void MixController::setStripChannel (int strip, const ChannelParameters& c)
     if (onMixChanged) onMixChanged();
 }
 
+// The engine reads the table from a pointer on the audio thread, and every strip picks its
+// own bank out of it when a parameter snapshot arrives - so a table published on its own
+// (the engineer imported a sound) reaches nobody until the mix is published again.
+void MixController::setSampleBanks (const SampleBankTable* table)
+{
+    engine.setSampleBanks (table);
+    publish();
+}
+
 bool MixController::auditionSample (int strip)
 {
     if (! prepared || ! validStrip (kept, strip) || strip >= engine.getGraph().numStrips()) return false;

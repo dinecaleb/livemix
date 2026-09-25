@@ -86,6 +86,10 @@ namespace
         t.transientAppropriate = false;
         t.gateAppropriate = false;
         t.saturationAppropriate = false;
+        // A hat can carry a sample too (the engineer's switch; TUNE never turns it on). The
+        // detector listens above the snare's body and the kick entirely: what is left of a
+        // snare in this band is its wires, and the rise rule keeps those out.
+        t.sampleAppropriate = true; t.sampleDetHpfHz = 1500.0f; t.sampleDetLpfHz = 12000.0f; t.sampleMaskMs = 25.0f; t.sampleRiseDb = 8.0f;
         t.mixPeakTargetDb = -22.0f; t.kitBalanceRelDb = -12.0f;
         return t;
     }
@@ -229,6 +233,7 @@ namespace
         ChannelParameters p;
         p.hpfEnabled = true; p.hpfHz = 300.0f;
         p.gateEnabled = false;
+        p.replaceDetHpfHz = 1500.0f; p.replaceDetLpfHz = 12000.0f; p.replaceMaskMs = 25.0f; p.replaceRiseDb = 8.0f; p.replaceBlend = 0.3f;
         p.correctiveBands[0] = band (false, FilterType::Peak, 3500.0f, -1.0f, 2.0f);
         p.compEnabled = true; p.compThresholdDb = -20.0f; p.compRatio = 2.5f; p.compAttackMs = 5.0f; p.compReleaseMs = 100.0f; p.compKneeDb = 8.0f;
         p.transientEnabled = false;

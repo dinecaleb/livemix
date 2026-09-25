@@ -638,10 +638,19 @@ void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, 
         const float detHpf = clamp (std::max (t.gateDetectorHpfHz, fundamentalHz > 0.0f ? 0.7f * fundamentalHz : 0.0f), 0.0f, 250.0f);
         // A snare's ghost notes live 20 to 30 dB under its hits and the sample never fires on
         // them, so a snare keeps a shallower, gentler expander with its threshold low: the
-        // ghost notes come through the microphone, the sample carries the hits. A kick or a
-        // tom has no ghost notes to keep and closes hard.
-        const bool snare = family == RoleFamily::Snare;
-        const float threshold = roundDb (clamp (L.floorDb + (snare ? 0.4f : 0.6f) * floorGap, -70.0f, L.hitDb - (snare ? 14.0f : 9.0f)));
+        // ghost notes come through the microphone, the sample carries the hits. A hat plays
+        // through everything and keeps the same courtesy. A kick or a tom has no ghost notes
+        // to keep and closes hard.
+        const bool snare = family == RoleFamily::Snare || family == RoleFamily::HiHat;
+        float threshold = roundDb (clamp (L.floorDb + (snare ? 0.4f : 0.6f) * floorGap, -70.0f, L.hitDb - (snare ? 14.0f : 9.0f)));
+        // Never above the sample's own trigger: a stroke that fires the sample must open the
+        // microphone too, or the attack is cut and the body arrives from nowhere. The engine
+        // opens the gate on every trigger regardless; this keeps the two numbers honest with
+        // each other, so what the Inspector shows is what happens. The trigger was fitted
+        // just before this (setSampleReplacement runs first on a drum strategy), absolute
+        // from the same listen, so the rule is as repeatable as the rest.
+        if (cur.replaceThresholdDb > -119.0f)
+            threshold = roundDb (clamp (std::min (threshold, cur.replaceThresholdDb - 3.0f), L.floorDb + 3.0f, L.hitDb - 3.0f));
         const float range = snare ? 20.0f : std::round (clamp (t.gateMaxRangeDb + 15.0f, 20.0f, 50.0f));
         const float ratio = snare ? 4.0f : 10.0f;
         const float hold = a.meanDecayMs > 0.0f ? std::round (clamp (0.4f * a.meanDecayMs, 25.0f, 120.0f)) : 40.0f;
@@ -653,8 +662,10 @@ void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, 
                 + " it closes " + num ("%.0f dB", double (range)) + " (it sits at " + num ("%.0f dBFS", double (L.floorDb)) + " there, the "
                 + plural (eventNoun (ctx)) + " reach " + num ("%.0f dBFS", double (L.hitDb)) + "), holds " + num ("%.0f ms", double (hold))
                 + " and lets go in " + num ("%.0f ms", double (release)) + ".";
-        why += snare ? " On a snare the expander stays shallow and its threshold low, so the ghost notes - which the sample never fires on - still come through the microphone."
-                     : " Nothing the microphone hears of the rest of the kit is left under a clean sample.";
+        why += family == RoleFamily::Snare ? " On a snare the expander stays shallow and its threshold low, so the ghost notes - which the sample never fires on - still come through the microphone."
+             : family == RoleFamily::HiHat ? " On a hat the expander stays shallow and its threshold low: the hat plays through everything, and only what sits well under its own strokes is turned down."
+             : " Nothing the microphone hears of the rest of the kit is left under a clean sample.";
+        why += " Every hit the sample fires on opens it too, so a soft stroke is never a sample with no microphone under it.";
         d.move (Recommendation::Kind::Gate, TuneSection::Bleed,
                 "Gate tightened for the sample: threshold " + fmtDb (threshold, 0) + ", " + num ("%.0f dB range", double (range)), why,
                 Confidence::High,

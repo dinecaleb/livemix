@@ -110,26 +110,45 @@ namespace
                 clickAmp = 0.35f;
                 lengthS = 1.0f;
                 break;
+            case RoleFamily::HiHat:
+                // No body to speak of: a bright noise burst, closed short, open long.
+                bodyHz = 0.0f; bodyEndHz = 0.0f; bodyDecayS = 0.001f;
+                clickAmp = 0.5f; clickDecayS = 0.002f;
+                noiseAmp = 1.0f;
+                noiseDecayS = variant == 2 ? 0.35f : variant == 1 ? 0.04f : 0.07f;
+                lengthS = variant == 2 ? 0.9f : 0.25f;
+                break;
             default: break;
         }
         const int n = int (lengthS * sr);
         std::vector<float> out (size_t (n), 0.0f);
         double phase = 0.0;
         // A one-pole low-pass on the noise, opened by velocity: a soft hit is duller.
-        const float noiseCut = 0.15f + 0.6f * velocity;
-        float lp = 0.0f;
+        // A hat's noise is high-passed instead: the wash of a cymbal, not the crack of a snare.
+        const bool hat = family == RoleFamily::HiHat;
+        const float noiseCut = hat ? 0.6f + 0.35f * velocity : 0.15f + 0.6f * velocity;
+        float lp = 0.0f, hpState = 0.0f;
         for (int i = 0; i < n; ++i)
         {
             const float t = float (i) / float (sr);
             const float pitchEnv = std::exp (-t / 0.04f);
             const float hz = bodyEndHz + (bodyHz - bodyEndHz) * pitchEnv;
             phase += 2.0 * 3.14159265358979 * double (hz) / sr;
-            float s = std::sin (float (phase)) * std::exp (-t / bodyDecayS);
+            float s = bodyHz > 0.0f ? std::sin (float (phase)) * std::exp (-t / bodyDecayS) : 0.0f;
             s += clickAmp * (0.4f + 0.6f * velocity) * noise (rng) * std::exp (-t / clickDecayS);
             if (noiseAmp > 0.0f)
             {
-                lp += noiseCut * (noise (rng) - lp);
-                s += noiseAmp * lp * std::exp (-t / noiseDecayS);
+                const float white = noise (rng);
+                lp += noiseCut * (white - lp);
+                float shaped = lp;
+                if (hat)
+                {
+                    // One-pole high-pass on the smoothed noise: the low rumble a synthesised
+                    // burst would otherwise carry has no place in a cymbal.
+                    hpState += 0.05f * (lp - hpState);
+                    shaped = lp - hpState;
+                }
+                s += noiseAmp * shaped * std::exp (-t / noiseDecayS);
             }
             out[size_t (i)] = s;
         }
@@ -149,6 +168,7 @@ SampleBank synthesizeBank (RoleFamily family, int variant, double sampleRate)
         case RoleFamily::Kick:  b.name = variant == 1 ? "Deep kick" : variant == 2 ? "Soft kick" : "Tight kick"; break;
         case RoleFamily::Snare: b.name = variant == 1 ? "Fat snare" : variant == 2 ? "Bright snare" : "Tight snare"; break;
         case RoleFamily::Tom:   b.name = variant == 1 ? "Mid tom" : variant == 2 ? "Floor tom" : "High tom"; break;
+        case RoleFamily::HiHat: b.name = variant == 1 ? "Tight hat" : variant == 2 ? "Open hat" : "Closed hat"; break;
         default:                b.name = "Sound"; break;
     }
     b.fundamentalHz = family == RoleFamily::Kick ? (variant == 1 ? 42.0f : variant == 2 ? 48.0f : 52.0f)

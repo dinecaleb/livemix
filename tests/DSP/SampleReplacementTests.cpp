@@ -449,3 +449,110 @@ TEST_CASE ("KitTriggerTable: a soft tom hit within two milliseconds of a hard sn
     CHECK (atTom > 0.3f);
     CHECK (after <= before);
 }
+
+TEST_CASE ("ChannelProcessor: a hit the sample fires on opens the gate too, so a soft stroke keeps its microphone under the sample")
+{
+    testsig::Buffer mic (1, int (kSr * 2));
+    const auto onsets = kickWithSnareBleed (mic, 0.5f, 0.03f, 0.002f);
+    auto bank = synthesizeBank (RoleFamily::Kick, 0, kSr);
+
+    // A gate no kick in this take can open on its own (threshold at 0 dBFS, hard), and a
+    // sample stage that fires on every kick but adds nothing audible (blend 0): what comes
+    // out is the microphone, and only if the gate let it through.
+    ChannelParameters params;
+    params.gateEnabled = true; params.gateThresholdDb = 0.0f; params.gateRangeDb = 40.0f; params.gateRatio = 10.0f;
+    params.gateAttackMs = 0.1f; params.gateHoldMs = 40.0f; params.gateReleaseMs = 60.0f; params.gateHysteresisDb = 3.0f;
+    params.replaceEnabled = true; params.replaceBlend = 0.0f; params.replaceThresholdDb = -30.0f;
+    params.replaceDetHpfHz = 30.0f; params.replaceDetLpfHz = 250.0f; params.replaceRiseDb = 6.0f; params.replaceGainDb = -6.0f;
+
+    auto run = [&] (const ChannelParameters& p)
+    {
+        ChannelProcessor drum;
+        ChannelProcessor::Options o; o.sampleReplacement = true;
+        drum.configure (o);
+        drum.prepare (kSr, 128, 1);
+        drum.setSampleBank (&bank);
+        drum.setParameters (p);
+        testsig::Buffer out (1, mic.numSamples());
+        out.data = mic.data;
+        for (int i = 0; i + 128 <= out.numSamples(); i += 128) { auto v = out.view (i, 128); drum.process (v); }
+        return out;
+    };
+    auto peakAfter = [] (const testsig::Buffer& b, int from, int len)
+    {
+        float p = 0.0f;
+        for (int i = from; i < from + len && i < b.numSamples(); ++i) p = std::max (p, std::fabs (b.data[0][size_t (i)]));
+        return p;
+    };
+
+    // With the stage off the gate never opens: every kick is squashed 40 dB.
+    ChannelParameters off = params; off.replaceEnabled = false;
+    const auto closed = run (off);
+    for (size_t k = 1; k < onsets.size(); ++k) CHECK (peakAfter (closed, onsets[k], 480) < 0.03f);
+
+    // With the stage on every kick opens the gate from its own onset: the microphone comes
+    // through at (very nearly) its own level, and stays open for the hold.
+    const auto opened = run (params);
+    for (size_t k = 1; k < onsets.size(); ++k)
+    {
+        CHECK (peakAfter (opened, onsets[k], 480) > 0.35f);
+        // 20 ms in, still inside the 40 ms hold: open.
+        const int at = onsets[k] + int (0.02 * kSr);
+        CHECK (std::fabs (opened.data[0][size_t (at)] - mic.data[0][size_t (at)]) < 0.02f);
+    }
+    // ... and between kicks (250 ms later, well past hold and release) the gate is closed again.
+    CHECK (peakAfter (opened, onsets[1] + int (0.3 * kSr), 480) < 0.03f);
+    CHECK (testsig::allFinite (opened));
+}
+
+TEST_CASE ("SampleBank: the hi-hat is a sample family with placeholders of its own, and a hat hit vetoes like a tom")
+{
+    CHECK (sampleReplacementAppropriate (RoleFamily::HiHat));
+    CHECK (! sampleReplacementAppropriate (RoleFamily::Overhead));
+    for (int v = 0; v < 3; ++v)
+    {
+        const auto b = synthesizeBank (RoleFamily::HiHat, v, kSr);
+        CHECK (b.layers.size() == 4u);
+        CHECK (! b.name.empty());
+        const auto& hit = b.layers.back().hits[0];
+        REQUIRE (hit.size() > 480u);
+        float peak = 0.0f;
+        for (float x : hit) peak = std::max (peak, std::fabs (x));
+        CHECK_NEAR (peak, 1.0f, 1.0e-4f);
+        // Bright: almost nothing of it survives a 300 Hz one-pole low-pass.
+        float lp = 0.0f, lowEnergy = 0.0f, energy = 0.0f;
+        const float k = 1.0f - std::exp (-2.0f * float (M_PI) * 300.0f / float (kSr));
+        for (float x : hit) { lp += k * (x - lp); lowEnergy += lp * lp; energy += x * x; }
+        CHECK (lowEnergy < 0.05f * energy);
+    }
+    CHECK (synthesizeBank (RoleFamily::HiHat, 2, kSr).layers.back().hits[0].size() > synthesizeBank (RoleFamily::HiHat, 0, kSr).layers.back().hits[0].size());
+
+    // The veto: a soft hat hit half a millisecond after a hard snare is the snare through the air.
+    auto snareBank = synthesizeBank (RoleFamily::Snare, 0, kSr);
+    auto hatBank = synthesizeBank (RoleFamily::HiHat, 0, kSr);
+    KitTriggerTable kit;
+    SampleReplacer snare, hat;
+    snare.prepare (kSr, 128, 1); hat.prepare (kSr, 128, 1);
+    snare.setBank (&snareBank); hat.setBank (&hatBank);
+    snare.setKit (&kit, RoleFamily::Snare); hat.setKit (&kit, RoleFamily::HiHat);
+    SampleReplacer::Params p;
+    p.enabled = true; p.blend = 1.0f; p.thresholdDb = -36.0f; p.riseDb = 6.0f; p.detHpfHz = 30.0f; p.detLpfHz = 8000.0f; p.gainDb = -6.0f;
+    snare.setParams (p); hat.setParams (p);
+    auto burst = [] (testsig::Buffer& b, int at, float amp)
+    {
+        for (int i = 0; i < 480 && at + i < b.numSamples(); ++i) b.data[0][size_t (at + i)] = amp * std::sin (2.0f * float (M_PI) * 200.0f * float (i) / float (kSr)) * std::exp (-float (i) / 240.0f);
+    };
+    testsig::Buffer snareMic (1, int (kSr * 0.6)), hatMic (1, int (kSr * 0.6));
+    burst (hatMic, 4800, 0.5f);                  // the hat's own stroke
+    burst (snareMic, 19200, 0.5f);               // a hard snare ...
+    burst (hatMic, 19200 + 24, 0.05f);           // ... heard 20 dB down in the hat microphone
+    long long pos = 0;
+    for (int i = 0; i + 128 <= snareMic.numSamples(); i += 128)
+    {
+        auto vs = snareMic.view (i, 128); snare.detect (vs, pos); snare.apply (vs);
+        auto vh = hatMic.view (i, 128); hat.detect (vh, pos); hat.apply (vh);
+        pos += 128;
+    }
+    CHECK (hat.getHitCount() == 2);
+    CHECK (hat.getVetoCount() == 1);
+}

@@ -48,6 +48,11 @@ public:
     // Reads `n` mono samples; writes up to `maxHits` hits; returns how many. Allocation-free.
     int process (const float* mono, int n, Hit* out, int maxHits) noexcept;
 
+    // How many samples after the crossing a hit is reported (its level is measured in that
+    // time). The gate that a sample's hit opens is opened this much before the report, so
+    // the microphone's own attack is never cut under the sample.
+    int reportDelaySamples() const noexcept { return measureSamples; }
+
     // For the UI (any thread): how many hits since prepare, and the last one's level.
     int getHitCount() const noexcept { return hitCount.load (std::memory_order_relaxed); }
     float getLastLevelDb() const noexcept { return lastLevelDb.load (std::memory_order_relaxed); }

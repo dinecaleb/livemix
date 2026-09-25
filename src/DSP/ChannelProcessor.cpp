@@ -196,9 +196,17 @@ void ChannelProcessor::process (AudioBlockView& block) noexcept LIVEMIX_NONBLOCK
     }
 
     // The sample stage's detector hears the microphone before the filters and the gate;
-    // its sample lands after the gate, so a gate never chops a sample's tail.
+    // its sample lands after the gate, so a gate never chops a sample's tail. And every hit
+    // the sample fires on opens the gate as well, from the hit's own onset: TUNE gates a
+    // sampled microphone hard, and a stroke soft enough to sit under that gate but loud enough
+    // to fire the sample was a sample with no microphone under it - the attack cut off, the
+    // body arriving from nowhere. The gate's own detector still opens it on everything else.
     const bool sampling = options.sampleReplacement && params.replaceEnabled;
-    if (sampling) sampler.detect (block, blockStart);
+    if (sampling)
+    {
+        sampler.detect (block, blockStart);
+        gate.openAt (sampler.hitOffsets(), sampler.numHits(), sampler.hitLookbackSamples());
+    }
     filters.process (block);
     gate.process (block);
     if (sampling) sampler.apply (block);

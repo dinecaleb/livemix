@@ -77,6 +77,14 @@ public:
     double currentRate() const noexcept;
 
     // For the UI (any thread).
+    // The hits that fired in the last detect() call - the ones that played a sample, never a
+    // vetoed one - as sample offsets inside that block, and how far before each the drum's
+    // onset was. The gate reads them so a hit the sample fires on always opens the microphone
+    // too: a soft stroke is never a sample with no microphone under it. Audio thread only.
+    int numHits() const noexcept { return hitOffsetCount; }
+    const int* hitOffsets() const noexcept { return hitOffsetsBlock; }
+    int hitLookbackSamples() const noexcept { return trigger.reportDelaySamples(); }
+
     int getHitCount() const noexcept { return trigger.getHitCount(); }
     int getVetoCount() const noexcept { return vetoed.load (std::memory_order_relaxed); }
     float getLastHitLevelDb() const noexcept { return trigger.getLastLevelDb(); }
@@ -89,6 +97,8 @@ private:
     std::vector<float> mono;            // the detector's copy, maxBlockSize long
     double sr = 48000.0;
     int maxBlock = 0;
+    int hitOffsetsBlock[SampleTrigger::kMaxHits] {};
+    int hitOffsetCount = 0;
     float sampleGainLin = 0.25f;
     double rateMul = 1.0;
     int offsetSamples = 0;

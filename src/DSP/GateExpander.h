@@ -33,6 +33,13 @@ public:
 
     void setParams (const Params& p) noexcept;
 
+    // Open the gate at these sample offsets of the next process() call, whatever its own
+    // detector says - the sample stage's trigger found a hit there. `lookback` samples are
+    // taken off each offset (never below 0): the trigger reports a hit a little after the
+    // onset, and the gate is opened from the onset within the block. Allocation-free; the
+    // request is consumed by the next process(). Audio thread.
+    void openAt (const int* offsets, int count, int lookback) noexcept;
+
     // For UI / tests: current gain reduction in dB (0 = open).
     float getGainReductionDb() const noexcept;
     bool isOpen() const noexcept { return open; }
@@ -50,6 +57,9 @@ private:
     int holdCounter = 0;
     bool open = false;
     float gain = 1.0f;
+    static constexpr int kMaxForced = 16;
+    int forced[kMaxForced] {};
+    int forcedCount = 0;
 };
 
 } // namespace livemix

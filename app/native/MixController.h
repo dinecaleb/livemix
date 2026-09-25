@@ -90,7 +90,9 @@ public:
     const RoutingGraph& getGraph() const noexcept { return engine.getGraph(); }
     // Sample replacement: the sounds the drum strips can play (app/native/SampleLibrary owns
     // them for the app's lifetime). Message thread; the engine reads a pointer, never a copy.
-    void setSampleBanks (const SampleBankTable* table) noexcept { engine.setSampleBanks (table); }
+    // Publishing a new table (the engineer imported a sound) re-applies the mix so every
+    // drum strip picks its bank out of the new table on the next block.
+    void setSampleBanks (const SampleBankTable* table);
     const SampleBankTable* getSampleBanks() const noexcept { return engine.getSampleBanks(); }
     // HEAR IT: play the strip's chosen sound once, where solo goes, at the level the stage would
     // play it. Monitoring, never mix: the broadcast does not hear it and nothing is kept. False,

@@ -31,8 +31,9 @@ namespace
             notchResonance (ctx, t, d, 150.0f, 800.0f, "shell ring");
             shapeAttack (ctx, t, d);
             setCompression (ctx, t, d);
-            setGate (ctx, t, d, f);
+            // The trigger before the gate: a sampled microphone's gate is fitted under it.
             setSampleReplacement (ctx, t, d, f);
+            setGate (ctx, t, d, f);
         }
     };
 
@@ -54,8 +55,9 @@ namespace
             controlHarshness (ctx, t, d);
             shapeAir (ctx, t, d);
             setCompression (ctx, t, d);
-            setGate (ctx, t, d, f);
+            // The trigger before the gate: a sampled microphone's gate is fitted under it.
             setSampleReplacement (ctx, t, d, f);
+            setGate (ctx, t, d, f);
         }
     };
 
@@ -86,8 +88,9 @@ namespace
                             "Hits take about " + ms (decay) + " to fall 20 dB; shortening the ring keeps big toms clean under the rest of the kit.",
                             Confidence::Medium, [=] (ChannelParameters& p) { p.transientEnabled = true; p.transientSustain = cut; });
             }
-            setGate (ctx, t, d, f);
+            // The trigger before the gate: a sampled microphone's gate is fitted under it.
             setSampleReplacement (ctx, t, d, f);
+            setGate (ctx, t, d, f);
         }
     };
 
@@ -150,6 +153,7 @@ namespace
             controlHarshness (ctx, t, d);
             shapeAir (ctx, t, d);
             setCompression (ctx, t, d);
+            setSampleReplacement (ctx, t, d, 0.0f);
             setGate (ctx, t, d, 0.0f);
         }
     };

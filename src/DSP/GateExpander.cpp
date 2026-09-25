@@ -43,6 +43,18 @@ void GateExpander::setParams (const Params& p) noexcept
     }
 }
 
+void GateExpander::openAt (const int* offsets, int count, int lookback) noexcept
+{
+    forcedCount = 0;
+    if (offsets == nullptr) return;
+    for (int i = 0; i < count && forcedCount < kMaxForced; ++i)
+    {
+        int at = offsets[i] - lookback;
+        if (at < 0) at = 0;
+        forced[forcedCount++] = at;
+    }
+}
+
 float GateExpander::getGainReductionDb() const noexcept
 {
     return gainToDb (gain);
@@ -54,6 +66,7 @@ void GateExpander::process (AudioBlockView& block) noexcept
     {
         gain = 1.0f;
         open = true;
+        forcedCount = 0;
         return;
     }
 
@@ -62,6 +75,11 @@ void GateExpander::process (AudioBlockView& block) noexcept
     const float ratioMinusOne = params.ratio - 1.0f;
     const float range = params.rangeDb;
     const float thresholdDb = params.thresholdDb;
+    // The hits the sample stage found in this block, in order. A forced opening is the same
+    // as the detector opening: the hold restarts, and the release follows as it always does.
+    int nextForced = 0;
+    const int forcedHere = forcedCount;
+    forcedCount = 0;
 
     for (int i = 0; i < n; ++i)
     {
@@ -74,7 +92,9 @@ void GateExpander::process (AudioBlockView& block) noexcept
         }
         const float level = detector.process (peak);
 
-        if (level > openThresholdLin)
+        bool opened = level > openThresholdLin;
+        while (nextForced < forcedHere && forced[nextForced] <= i) { opened = true; ++nextForced; }
+        if (opened)
         {
             open = true;
             holdCounter = holdSamples;

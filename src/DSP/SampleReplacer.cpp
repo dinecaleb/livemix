@@ -60,6 +60,7 @@ double SampleReplacer::currentRate() const noexcept
 
 void SampleReplacer::detect (const AudioBlockView& preGate, long long blockStart) noexcept
 {
+    hitOffsetCount = 0;
     if (! params.enabled || maxBlock == 0) return;
     const int n = preGate.numSamples < maxBlock ? preGate.numSamples : maxBlock;
     const int numCh = preGate.numChannels;
@@ -96,9 +97,9 @@ void SampleReplacer::detect (const AudioBlockView& preGate, long long blockStart
         const long long when = blockStart + hit.offset;
         if (kit != nullptr)
         {
-            // The veto: on a tom, a hit well under its own loudest within two milliseconds of a
-            // hard kick or snare is that drum through the air.
-            if (family == RoleFamily::Tom && underDb > 9.0f)
+            // The veto: on a tom or a hat, a hit well under its own loudest within two
+            // milliseconds of a hard kick or snare is that drum through the air.
+            if ((family == RoleFamily::Tom || family == RoleFamily::HiHat) && underDb > 9.0f)
             {
                 const long long window = (long long) (0.002 * sr);
                 bool veto = false;
@@ -116,6 +117,7 @@ void SampleReplacer::detect (const AudioBlockView& preGate, long long blockStart
         const float velocityGain = params.steady ? 1.0f : velocityDepthLin + (1.0f - velocityDepthLin) * hit.velocity;
         const float gain = sampleGainLin * velocityGain * hit.confidence;
         player.trigger (hit.offset + offsetSamples, hit.velocity, gain, rate);
+        if (hitOffsetCount < SampleTrigger::kMaxHits) hitOffsetsBlock[hitOffsetCount++] = hit.offset;
     }
 }
 

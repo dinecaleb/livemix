@@ -270,7 +270,12 @@ TEST_CASE ("Tune: sections summarise the decisions; every family has a strategy 
     CHECK (tone.changed);
     CHECK (! tone.summary.empty());
     CHECK (find (r, TuneSection::Tone, "low-mid") != nullptr);
-    CHECK (r.sections[size_t (TuneSection::Bleed)].summary.find ("bypassed") != std::string::npos); // template gate, no bleed measured
+    // Template gate, no bleed measured: the gate is bypassed. The Bleed section leads with
+    // the trigger a snare microphone is always fitted with, so the gate is looked for among
+    // the section's decisions rather than in the one line that summarises them.
+    CHECK (! r.sections[size_t (TuneSection::Bleed)].summary.empty());
+    CHECK (find (r, TuneSection::Bleed, "bypassed") != nullptr);
+    CHECK (! r.proposed.gateEnabled);
     CHECK (r.sections[size_t (TuneSection::Input)].summary.find ("Healthy") != std::string::npos);
     CHECK (r.headline == "SNARE TOP TUNED");
 }
@@ -288,7 +293,7 @@ TEST_CASE ("Profiles: Modern Worship is a documented variant of Modern Gospel, n
     CHECK (StyleProfile::baseline (ChannelRole::FloorTom, StyleProfileId::ModernGospel).hpfHz < StyleProfile::baseline (ChannelRole::RackTom, StyleProfileId::ModernGospel).hpfHz);
 }
 
-TEST_CASE ("Tune: the sample trigger is fitted from the listen on the inside and top microphones, never switched on, and never on the outside or bottom ones")
+TEST_CASE ("Tune: the sample trigger is fitted from the listen on the inside, top and hat microphones, never switched on, and never on the outside or bottom ones")
 {
     for (auto role : { ChannelRole::KickIn, ChannelRole::SnareTop, ChannelRole::RackTom, ChannelRole::FloorTom })
     {
@@ -325,7 +330,7 @@ TEST_CASE ("Tune: the sample trigger is fitted from the listen on the inside and
         auto again = TuneEngine::tune (ctx);
         CHECK (find (again, TuneSection::Bleed, "Sample trigger fitted") == nullptr);
     }
-    for (auto role : { ChannelRole::KickOut, ChannelRole::SnareBottom, ChannelRole::Overhead, ChannelRole::Room, ChannelRole::HiHat })
+    for (auto role : { ChannelRole::KickOut, ChannelRole::SnareBottom, ChannelRole::Overhead, ChannelRole::Room })
     {
         auto a = onTarget (role);
         a.bleedEstimate = 0.5f;
@@ -333,6 +338,29 @@ TEST_CASE ("Tune: the sample trigger is fitted from the listen on the inside and
         auto r = TuneEngine::tune (context (role, a));
         REQUIRE (r.valid);
         CHECK (find (r, TuneSection::Bleed, "Sample trigger fitted") == nullptr);
+    }
+
+    // The hat carries a sample too, and its detector is the one that never follows a
+    // fundamental: what a hi-hat microphone has below 500 Hz is the kick and the snare, so
+    // its band stays where the profile put it, well above the kit's bodies.
+    {
+        auto a = onTarget (ChannelRole::HiHat);
+        a.bleedEstimate = 0.5f;
+        a.noiseFloorDb = a.hitLevelDb - 30.0f;
+        a.bleedLevelDb = a.hitLevelDb - 20.0f;
+        a.eventLevelDb = a.hitLevelDb + 2.0f;
+        a.musicalPeakDb = a.hitLevelDb + 9.0f;
+        auto ctx = context (ChannelRole::HiHat, a);
+        auto r = TuneEngine::tune (ctx);
+        REQUIRE (r.valid);
+        const auto* item = find (r, TuneSection::Bleed, "Sample trigger fitted");
+        REQUIRE (item != nullptr);
+        CHECK (! r.proposed.replaceEnabled);                                   // the switch is still the engineer's
+        const auto& hat = StyleProfile::targets (ChannelRole::HiHat, StyleProfileId::ModernGospel);
+        CHECK_NEAR (r.proposed.replaceDetHpfHz, hat.sampleDetHpfHz, 1.0f);
+        CHECK (r.proposed.replaceDetHpfHz > 1000.0f);
+        ctx.current = r.proposed;
+        CHECK (find (TuneEngine::tune (ctx), TuneSection::Bleed, "Sample trigger fitted") == nullptr);
     }
 }
 
@@ -359,6 +387,9 @@ TEST_CASE ("Tune: a sampled drum microphone is gated far harder, and the rest of
     CHECK (item->why.find ("carries this drum's body") != std::string::npos);
     // The sample switch is the engineer's: it is still on, and untouched.
     CHECK (rSampled.proposed.replaceEnabled);
+    // The gate never sits above the sample's own trigger: what fires the sample opens the microphone.
+    CHECK (rSampled.proposed.gateThresholdDb <= rSampled.proposed.replaceThresholdDb - 3.0f + 0.01f);
+    CHECK (item->why.find ("opens it too") != std::string::npos);
     // ... and it holds: the same listen with the same switches fits the same gate.
     sampled.current = rSampled.proposed;
     const auto again = TuneEngine::tune (sampled);
@@ -382,6 +413,21 @@ TEST_CASE ("Tune: a sampled drum microphone is gated far harder, and the rest of
     CHECK (hk.proposed.hpfEnabled);
     CHECK_NEAR (hk.proposed.hpfHz, hatTargets.hpfMaxHz, 1.0f);
     CHECK (hk.proposed.hpfHz >= hp.proposed.hpfHz);
+
+    // A hat with its own sample: a shallow expander like a snare's, never the hard gate a kick gets.
+    auto hatSampled = hatPlain;
+    hatSampled.current.replaceEnabled = true;
+    hatSampled.sampled = true;
+    const auto hs = TuneEngine::tune (hatSampled);
+    REQUIRE (hs.valid);
+    CHECK (hs.proposed.gateEnabled);
+    CHECK_NEAR (hs.proposed.gateRangeDb, 20.0f, 0.01f);
+    CHECK_NEAR (hs.proposed.gateRatio, 4.0f, 0.01f);
+    CHECK (hs.proposed.gateThresholdDb <= hs.proposed.replaceThresholdDb - 3.0f + 0.01f);
+    CHECK (hs.proposed.replaceEnabled);
+    CHECK (find (hs, TuneSection::Bleed, "Sample trigger fitted") != nullptr);   // the hat's trigger is fitted like a drum's
+    hatSampled.current = hs.proposed;
+    CHECK (TuneEngine::tune (hatSampled).parametersChanged == 0);
 
     // The overheads and the room: never gated, high-pass at the top of the range.
     for (auto role : { ChannelRole::Overhead, ChannelRole::Room })

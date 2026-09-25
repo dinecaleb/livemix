@@ -56,11 +56,13 @@ struct SampleBankTable
     }
 };
 
-// Which families the stage exists for. A room microphone is never gated and never replaced;
-// hats and overheads carry the whole kit and are not one drum.
+// Which families the stage exists for. A room microphone is never gated and never replaced,
+// and the overheads carry the whole kit and are not one drum. The hi-hat joined (2026-09-25)
+// because engineers asked for it: its own sample, off by default, on a detector band that
+// sits above the snare's body. TUNE fits the trigger and never turns the switch on.
 inline constexpr bool sampleReplacementAppropriate (RoleFamily f) noexcept
 {
-    return f == RoleFamily::Kick || f == RoleFamily::Snare || f == RoleFamily::Tom;
+    return f == RoleFamily::Kick || f == RoleFamily::Snare || f == RoleFamily::Tom || f == RoleFamily::HiHat;
 }
 
 // Prepares one decoded hit for a bank: drops the leading silence (everything before the first
@@ -75,7 +77,8 @@ float measureFundamental (const std::vector<float>& hit, double sampleRate);
 
 // Placeholder sounds, synthesised, so the stage works and is tested before a recorded bank
 // exists: variant 0..2 per family (kick: tight / deep / soft-beater; snare: tight / fat /
-// rimshot-bright; tom: high / mid / floor). Four velocity layers, two round-robins each.
+// rimshot-bright; tom: high / mid / floor; hi-hat: closed / tight / open). Four velocity
+// layers, two round-robins each.
 SampleBank synthesizeBank (RoleFamily family, int variant, double sampleRate);
 
 } // namespace livemix
