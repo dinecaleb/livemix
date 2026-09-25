@@ -175,6 +175,46 @@ TEST_CASE ("Limiter: never exceeds the ceiling, passes quiet audio with only the
     }
 }
 
+TEST_CASE ("Limiter: the ceiling is a true peak, so what a converter reconstructs between the samples stays under it")
+{
+    ScopedNoDenormals nd;
+    // A sine at a quarter of the sample rate, a sixth of a cycle off the grid: every sample
+    // lands well under the waveform's real peak, so a limiter that reads only the samples
+    // lets the reconstruction straight through the ceiling it reports.
+    const float amp = 0.98f;
+    const double hz = kSr / 4.0;
+    testsig::Buffer in (2, 24000);
+    for (int ch = 0; ch < 2; ++ch)
+        for (size_t i = 0; i < in.data[size_t (ch)].size(); ++i)
+            in.data[size_t (ch)][i] = amp * std::sin (2.0 * M_PI * hz * double (i) / kSr + M_PI / 6.0);
+
+    // The samples themselves are 6 dB under the waveform: this is the signal the old detector
+    // could not see, and the test is worthless if that is not true.
+    CHECK (testsig::peak (in, 0) < amp - 0.1f);
+
+    Limiter lim;
+    lim.prepare (kSr, 64, 2);
+    Limiter::Params p; p.enabled = true; p.ceilingDb = -1.0f; p.releaseMs = 100.0f;
+    lim.setParams (p);
+    run (lim, in, 64);
+
+    // Measure what a converter would make of the output, the way a delivery meter does.
+    LoudnessMeter meter;
+    meter.prepare (kSr, 64, 2);
+    const float ceiling = std::pow (10.0f, -1.0f / 20.0f);
+    float worst = 0.0f;
+    for (int i = 4096; i + 64 <= in.numSamples(); i += 64)
+    {
+        float* ch[2] = { in.data[0].data() + i, in.data[1].data() + i };
+        AudioBlockView v { ch, 2, 64 };
+        meter.process (v);
+        worst = std::max (worst, std::pow (10.0f, meter.getTruePeakDb() / 20.0f));
+    }
+    CHECK (worst <= ceiling * 1.06f);          // within half a dB of the ceiling, and never far over
+    CHECK (lim.getGainReductionDb() < -0.5f);  // it had to work for it: 0.98 under a -1 dBTP ceiling is 0.8 dB
+    CHECK (testsig::rms (in, 0, 8000, 20000) > 0.2f);   // still a sine, not a hole
+}
+
 TEST_CASE ("LoudnessMeter: 997 Hz sine at -20 dBFS reads -23 LUFS in one channel and -20 in two (BS.1770); true peak >= sample peak")
 {
     LoudnessMeter m;

@@ -218,7 +218,11 @@ struct MixSession
 {
     std::string name = "Sunday";
     StyleProfileId profile = StyleProfileId::ModernGospel;
-    MixPurpose purpose = MixPurpose::ChurchBroadcast;
+    // A church streams. "Church Broadcast" is the television spec (-23 LUFS, EBU R128) and it is
+    // about 9 dB under what a platform normalises to, which on a phone is simply quiet - so the
+    // mix a session starts with is the stream's (-14 LUFS, -1 dBTP), and the broadcast spec is
+    // there for the feeds that actually have to meet one. The purpose page says which is which.
+    MixPurpose purpose = MixPurpose::Livestream;
     // How loud the finished mix should be. FromPurpose keeps the delivery role's own standard,
     // which is what every session made before this setting existed had, so nothing about an
     // old session changes when it is opened.

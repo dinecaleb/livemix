@@ -1781,8 +1781,8 @@ namespace
 PurposePage::PurposePage (MixController& c) : controller (c)
 {
     const char* purposeLines[] = {
-        "For television and broadcast. Steady loudness matters more than dynamics, and the peaks stay well down.",
-        "YouTube, Facebook, the church platform. A little louder, with the headroom the encoder needs.",
+        "Only for a feed with a spec to meet: a television or radio desk. -23 LUFS is that spec, and 9 dB under a stream.",
+        "YouTube, Facebook, the church platform. What a stream is normalised to, with the headroom the encoder needs.",
         "Captured to keep. Headroom is left for whoever edits it later.",
         "Rehearsal, a listening feed, the room itself. The band keeps its dynamics."
     };
