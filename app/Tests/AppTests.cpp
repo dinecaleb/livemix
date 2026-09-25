@@ -560,6 +560,30 @@ TEST_CASE ("MixController: TUNE <GROUP> tunes one group, and KEEP SOME keeps onl
     CHECK (MixPlanner::countParameterChanges (c.getKept(), afterVocals) == 0);
 }
 
+TEST_CASE ("MixController: pinning the focal source settles what the mix is built around, and survives a save")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    CHECK (c.getFocusInput() == -1);              // nobody has said: DLIVE decides from the listen
+
+    const MixParameters before = c.getKept();
+    c.setFocusInput (3);                          // "Lead"
+    CHECK (c.getFocusInput() == 3);
+    CHECK (c.getSession().inputs[3].focus);
+    // Nothing you can hear moves: it is what the *next* tune is built around.
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), before) == 0);
+
+    c.setFocusInput (4);                          // pinning another unpins the first
+    CHECK (c.getFocusInput() == 4);
+    int pins = 0;
+    for (const auto& in : c.getSession().inputs) if (in.focus) ++pins;
+    CHECK (pins == 1);
+
+    c.setFocusInput (4);                          // pinning the pinned one clears it
+    CHECK (c.getFocusInput() == -1);
+}
+
 TEST_CASE ("MixController: a channel that never played is told so, and nothing is proposed for it")
 {
     MixController c;

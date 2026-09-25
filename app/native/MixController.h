@@ -45,6 +45,11 @@ public:
     // What the source is drawn as. Empty goes back to the role's own icon. Like a rename
     // this is a label: no rebuild, and nothing about the mix or the plan changes.
     void setInputIcon (int strip, const std::string& icon);
+    // THE FOCAL SOURCE: the one the mix is built around. Unpinned, DLIVE picks the lead
+    // microphone somebody is really singing into; pinning settles it when there is more than
+    // one and the loudest is not the one. It changes nothing you can hear until the next TUNE.
+    void setFocusInput (int strip);
+    int getFocusInput() const noexcept { return session.focusInput(); }
     void setPurpose (MixPurpose p);
     void setProfile (StyleProfileId p);
     // How loud the finished mix should be. This is the number the whole gain structure is

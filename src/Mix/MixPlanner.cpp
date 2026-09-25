@@ -32,9 +32,19 @@ namespace
 
     // Where a band of this source will sit once its fader has put it at the profile's mix level:
     // the band's energy relative to the source (<= 0) plus the mix level the source is aimed at.
-    float bandAtMixDb (StyleProfileId profile, RoleFamily family, const AnalysisResult& a, Band b)
+    // Where a band of a source will sit once the balance has placed it: the level the fader is
+    // actually going to land it at, plus that band's energy relative to the source.
+    //
+    // This used to read the profile's *target* instead, which is the level the mix would like
+    // the source at rather than the one it will get. A voice that could not reach its number -
+    // too far off the microphone, held back because the microphone mostly hears the stage,
+    // stopped at the top of the scale - was still treated as if it had, so the keys had a
+    // pocket cut into them to make room for a voice that was not there, and the bass kept its
+    // sub because a kick that never arrived was supposed to own it. What the ear hears is what
+    // the faders do; so is this.
+    float bandAtMixDb (float fittedLevelDb, const AnalysisResult& a, Band b)
     {
-        return MixProfile::mixLevelTargetDb (profile, family) + a.bandEnergyDb[size_t (b)];
+        return fittedLevelDb + a.bandEnergyDb[size_t (b)];
     }
 
     // The close microphones on a drum kit: each one hears every other drum in the room, so what a fader
@@ -46,12 +56,21 @@ namespace
     }
 
     // A microphone that has quiet between the sounds it is there for - a voice between phrases, a drum
-    // between hits - and hears the stage in that quiet. A DI, a keyboard or a pad has no such quiet (the
-    // floor of a held chord is the chord), and an overhead or a room microphone is meant to hear the room.
+    // between hits, a horn between lines - and hears the stage in that quiet. An overhead or a room
+    // microphone is meant to hear the room and is exempt; so is anything played in held chords, where
+    // the floor of the capture *is* the chord and the rule would read the instrument as its own spill
+    // (an organ, a pad, an electric piano, a DI of any kind).
+    //
+    // A saxophone, an acoustic guitar, a guitar cabinet and a piano lid all belong here: they play in
+    // phrases with real gaps, they sit on a stage next to a drum kit, and lifting one lifts the kit
+    // with it exactly as it does on a vocal microphone. A DI on the same role costs nothing to include
+    // - its floor is far under everything, so the rule never reaches it.
     bool isSpillProneMic (RoleFamily f)
     {
         return isDrumCloseMic (f) || f == RoleFamily::LeadVocal || f == RoleFamily::BackingVocal
-            || f == RoleFamily::Choir || f == RoleFamily::Speech;
+            || f == RoleFamily::Choir || f == RoleFamily::Speech
+            || f == RoleFamily::Saxophone || f == RoleFamily::AcousticGuitar
+            || f == RoleFamily::ElectricGuitar || f == RoleFamily::Piano;
     }
 
     // A voice: a source whose loudest moments are consonants rather than impacts, and whose
@@ -535,6 +554,135 @@ MixPlan plan (const MixPlanContext& ctx)
     };
     auto anyHeard = [&] (RoleFamily f) { return findHeard ([f] (RoleFamily g) { return g == f; }) >= 0; };
 
+    // Where one source's fader lands: the whole of the balance decision for a strip, in one
+    // place, because it has to be answered twice. The relationships below need to know what
+    // level each source is going to end up at before they decide who is masking whom - a cut
+    // made for a voice that never reaches the mix is a cut nobody asked for - and the balance
+    // proper then answers it again over the chains those relationships changed. `explain` is
+    // off for the first answer: it is arithmetic, not a decision anybody should read about.
+    auto balanceable = [&] (int i) -> bool
+    {
+        const auto& sp = plan.strips[size_t (i)];
+        const auto& o = i < int (ctx.capture.processed.size()) ? ctx.capture.processed[size_t (i)] : OutputStats {};
+        const auto& a = ctx.capture.strips[size_t (i)];
+        return ! sp.faint && sp.heard && ! sp.bleedOnly && o.valid && o.peakDb > -60.0f && a.silencePercent <= 60.0f;
+    };
+    auto fitFader = [&] (int i, bool explain) -> float
+    {
+        auto& sp = plan.strips[size_t (i)];
+        const auto& a = ctx.capture.strips[size_t (i)];
+    const RoleFamily f = roleFamily (sp.role);
+    const float target = MixProfile::mixLevelTargetDb (profile, f);
+    // How loud this source will be while it plays once its new gain and chain run: predicted from the
+    // listen, so the first Tune Mix lands the balance instead of needing a second listen to hear the
+    // processing it just chose. Loudness, not peak - see mixLevelTargetDb.
+    const float effectiveLevel = predictedProcessedActiveRmsDb (ctx, i, plan.proposed.strips[size_t (i)]);
+    float fader = roundHalf (target - effectiveLevel);
+    // Headroom guard: the balance is a loudness decision, but a strip still must not arrive at its bus
+    // hot enough to leave a transient nowhere to go. What "loudest" means is the source's own
+    // (MixProfile::stripPeakCeilingDb): a stick hit is the sound and needs room, a consonant is not.
+    float effectivePeak = predictedProcessedPeakDb (ctx, i, plan.proposed.strips[size_t (i)]);
+    // On a voice the guard reads the musical peak rather than the loudest sample: a desk
+    // export routinely carries one click 10 dB above anything the speaker said, and a
+    // voice held down by a click is a voice nobody can hear.
+    if (isSustainedVoice (f) && a.musicalPeakDb > -119.0f && a.peakDb > a.musicalPeakDb)
+        effectivePeak -= a.peakDb - a.musicalPeakDb;
+    fader = std::min (fader, roundHalf (MixProfile::stripPeakCeilingDb (profile, f) - effectivePeak));
+    // A close microphone that hears the rest of the kit is only lifted so far: past that the bleed comes
+    // up with the instrument and the console preamp is the thing that is actually wrong.
+    if (isDrumCloseMic (f))
+    {
+        // How far DLIVE is lifting this microphone digitally in total - the gain and the fader together, as
+        // an absolute amount, not what this pass added on top of the last one. Measuring the raise against
+        // the gain that ran at the listen handed the whole budget out again on every Tune Mix, because by
+        // then the gain it was meant to count had become the listen's own: a close mic climbed another
+        // maxCloseMicRaiseDb each pass and brought the rest of the kit up with it. The gain counts whichever
+        // way it went: a hot hi-hat pulled down 12 dB for its processing and lifted 17 dB on the fader is
+        // lifted 5 dB, and the bleed with it - not 17.
+        const float allowed = R.maxCloseMicRaiseDb - sp.inputGainDb;
+        if (fader > allowed)
+        {
+            fader = roundHalf (std::max (allowed, 0.0f));
+            if (explain) sp.mixItems.push_back (info (Recommendation::Kind::CaptureGain, upper (sp.name) + ": turn this microphone up at the console",
+                                         "To sit where the mix wants it this close microphone needs more level than DLIVE will add to it. "
+                                         "It also hears the rest of the kit, so raising it here would bring that bleed up with the instrument. "
+                                         "Turn its preamp up at the console and Tune Mix again.", Confidence::High));
+        }
+    }
+    // Any microphone on a stage hears the stage between the sounds it is there for. A voice or a close drum
+    // microphone is lifted only until what it hears between phrases would land R.spillBelowTargetDb under the
+    // level the mix wants it at; past that the lift is the rest of the band arriving through the wrong
+    // microphone - which is how a barely-used vocal microphone, lifted 30 dB to reach the vocal level, became
+    // the loudest cymbals in the mix. Measured from the listen: the floor was heard at the listen's gain, the
+    // lift is what the plan adds on top, so planning again on the same listen lands in the same place. Only
+    // ever a limit on a lift: a microphone already at its level, or being brought down, is left to the rules above.
+    if (isSpillProneMic (f) && a.noiseFloorDb > -119.0f)
+    {
+        const float gainDelta = sp.inputGainDb - ctx.atCapture.strips[size_t (i)].inputGainDb;
+        const float lift = gainDelta + fader;
+        // A speech microphone has its own, looser number: between a preacher's phrases it hears
+        // the room, not the band, and the room under a sermon is what a stream expects to hear.
+        // Holding it to the singer's rule is what left the pastor a few dB under the mix.
+        const float spillBelow = f == RoleFamily::Speech ? R.speechSpillBelowTargetDb : R.spillBelowTargetDb;
+        const float allowedLift = (target - spillBelow) - a.noiseFloorDb;
+        if (lift > 0.0f && lift > allowedLift)
+        {
+            const float kept = std::max (allowedLift, 0.0f);
+            fader = roundHalf (kept - gainDelta);
+            if (explain) sp.spillLimited = true;
+            if (explain) sp.mixItems.push_back (info (Recommendation::Kind::CaptureGain, upper (sp.name) + ": mostly hears the stage",
+                                         "Between the sounds it is there for, this microphone picks up the rest of the stage at "
+                                         + num ("%.0f dBFS", double (a.noiseFloorDb - ctx.atCapture.strips[size_t (i)].inputGainDb))
+                                         + " at the device - only " + num ("%.0f dB", double (std::max (a.activeRmsDb - a.noiseFloorDb, 0.0f)))
+                                         + " under what it hears while the source plays. Lifting it to the level the mix wants would bring the "
+                                         "stage up with it - the cymbals through a vocal microphone are the usual result - so it is lifted "
+                                         + num ("%.0f dB", double (kept)) + " and left there. Get the source closer to the microphone (a preamp "
+                                         "raises the stage with it), or keep it muted while nobody is using it, and Tune Mix again.",
+                                         Confidence::High));
+        }
+    }
+        return clamp (fader, -R.maxFaderMoveDb, R.maxFaderMoveDb);
+    };
+    // The level every source is predicted to sit at once the balance has placed it, which is
+    // what the relationships are measured in.
+    std::vector<float> fittedLevelDb (size_t (n), -120.0f);
+    for (int i = 0; i < n; ++i)
+        if (balanceable (i))
+            fittedLevelDb[size_t (i)] = predictedProcessedActiveRmsDb (ctx, i, plan.proposed.strips[size_t (i)]) + fitFader (i, false);
+
+    // ---- The focal source ----
+    // The one thing the mix is built around: the lead singer during a song, the pastor during
+    // a sermon, and whoever the engineer has pinned whenever they disagree with that. Every
+    // rule below that says "the lead" means this one source - the pocket the music makes, the
+    // hierarchy the backing voices sit under, the reference the whole balance follows down -
+    // so there is one answer to the question and not one per rule.
+    //
+    // Unpinned, it is the lead microphone somebody is really singing into: the one whose own
+    // level stands furthest above what it hears between phrases. The loudest lead is the wrong
+    // answer when a spare microphone is lying open on a monitor wedge, which is how a mix ends
+    // up built around a stand.
+    const int focal = [&] () -> int
+    {
+        const int pinned = ctx.session.focusInput();
+        if (pinned >= 0 && pinned < n && plan.strips[size_t (pinned)].heard && ! plan.strips[size_t (pinned)].bleedOnly)
+            return pinned;
+        int best = -1;
+        float bestSeparation = -1.0e9f;
+        for (int i = 0; i < n; ++i)
+        {
+            const auto& sp = plan.strips[size_t (i)];
+            if (! sp.heard || sp.bleedOnly || roleFamily (sp.role) != RoleFamily::LeadVocal) continue;
+            const auto& a = ctx.capture.strips[size_t (i)];
+            const float separation = a.activeRmsDb - a.noiseFloorDb;
+            if (separation > bestSeparation) { bestSeparation = separation; best = i; }
+        }
+        return best;
+    }();
+    if (focal >= 0 && ctx.session.focusInput() == focal && ctx.session.focusInput() >= 0)
+        plan.relationships.push_back (info (Recommendation::Kind::Info, upper (plan.strips[size_t (focal)].name) + " is what this mix is built around",
+                                             "You pinned it, so it is the reference: every level is set against it, the music makes room for it rather than "
+                                             "the other way round, and nothing is held back to make room for anything else.", Confidence::High));
+
     // ---- 2. Relationships ----
     // Kick <-> bass: who owns the sub.
     {
@@ -544,8 +692,7 @@ MixPlan plan (const MixPlanContext& ctx)
         {
             const auto& ka = ctx.capture.strips[size_t (kick)];
             const auto& ba = ctx.capture.strips[size_t (bass)];
-            const RoleFamily bf = roleFamily (plan.strips[size_t (bass)].role);
-            const float overlap = bandAtMixDb (profile, bf, ba, Band::Sub) - bandAtMixDb (profile, RoleFamily::Kick, ka, Band::Sub);
+            const float overlap = bandAtMixDb (fittedLevelDb[size_t (bass)], ba, Band::Sub) - bandAtMixDb (fittedLevelDb[size_t (kick)], ka, Band::Sub);
             if (overlap > R.subOverlapToleranceDb)
             {
                 const float excess = overlap - R.subOverlapToleranceDb;
@@ -571,17 +718,17 @@ MixPlan plan (const MixPlanContext& ctx)
 
     // Lead vocal <-> music: the music makes room for the words instead of the voice getting brighter.
     {
-        const int lead = findHeard ([] (RoleFamily f) { return f == RoleFamily::LeadVocal; });
+        const int lead = focal;
         if (lead >= 0)
         {
             const auto& la = ctx.capture.strips[size_t (lead)];
-            const float leadPresence = bandAtMixDb (profile, RoleFamily::LeadVocal, la, Band::UpperMid);
+            const float leadPresence = bandAtMixDb (fittedLevelDb[size_t (lead)], la, Band::UpperMid);
             for (int i = 0; i < n; ++i)
             {
                 auto& sp = plan.strips[size_t (i)];
                 const RoleFamily f = roleFamily (sp.role);
                 if (! sp.heard || ! isMusicFamily (f)) continue;
-                const float masking = bandAtMixDb (profile, f, ctx.capture.strips[size_t (i)], Band::UpperMid) - leadPresence;
+                const float masking = bandAtMixDb (fittedLevelDb[size_t (i)], ctx.capture.strips[size_t (i)], Band::UpperMid) - leadPresence;
                 if (masking <= -R.maskingToleranceDb) continue;
                 const float cut = clamp (roundHalf ((masking + R.maskingToleranceDb) * 0.5f), 1.0f, R.vocalPocketMaxCutDb);
                 auto& band = plan.proposed.strips[size_t (i)].channel.toneBands[1];
@@ -652,8 +799,6 @@ MixPlan plan (const MixPlanContext& ctx)
     for (int i = 0; i < n; ++i)
     {
         auto& sp = plan.strips[size_t (i)];
-        const auto& o = i < int (ctx.capture.processed.size()) ? ctx.capture.processed[size_t (i)] : OutputStats {};
-        const auto& a = ctx.capture.strips[size_t (i)];
         if (sp.faint) continue;
         if (! sp.heard)
         {
@@ -662,78 +807,8 @@ MixPlan plan (const MixPlanContext& ctx)
             continue;
         }
         if (sp.bleedOnly) continue;
-        if (! o.valid || o.peakDb <= -60.0f || a.silencePercent > 60.0f) continue;   // too sparse to place with confidence
-        const RoleFamily f = roleFamily (sp.role);
-        const float target = MixProfile::mixLevelTargetDb (profile, f);
-        // How loud this source will be while it plays once its new gain and chain run: predicted from the
-        // listen, so the first Tune Mix lands the balance instead of needing a second listen to hear the
-        // processing it just chose. Loudness, not peak - see mixLevelTargetDb.
-        const float effectiveLevel = predictedProcessedActiveRmsDb (ctx, i, plan.proposed.strips[size_t (i)]);
-        float fader = roundHalf (target - effectiveLevel);
-        // Headroom guard: the balance is a loudness decision, but a strip still must not arrive at its bus
-        // hot enough to leave a transient nowhere to go. What "loudest" means is the source's own
-        // (MixProfile::stripPeakCeilingDb): a stick hit is the sound and needs room, a consonant is not.
-        float effectivePeak = predictedProcessedPeakDb (ctx, i, plan.proposed.strips[size_t (i)]);
-        // On a voice the guard reads the musical peak rather than the loudest sample: a desk
-        // export routinely carries one click 10 dB above anything the speaker said, and a
-        // voice held down by a click is a voice nobody can hear.
-        if (isSustainedVoice (f) && a.musicalPeakDb > -119.0f && a.peakDb > a.musicalPeakDb)
-            effectivePeak -= a.peakDb - a.musicalPeakDb;
-        fader = std::min (fader, roundHalf (MixProfile::stripPeakCeilingDb (profile, f) - effectivePeak));
-        // A close microphone that hears the rest of the kit is only lifted so far: past that the bleed comes
-        // up with the instrument and the console preamp is the thing that is actually wrong.
-        if (isDrumCloseMic (f))
-        {
-            // How far DLIVE is lifting this microphone digitally in total - the gain and the fader together, as
-            // an absolute amount, not what this pass added on top of the last one. Measuring the raise against
-            // the gain that ran at the listen handed the whole budget out again on every Tune Mix, because by
-            // then the gain it was meant to count had become the listen's own: a close mic climbed another
-            // maxCloseMicRaiseDb each pass and brought the rest of the kit up with it. The gain counts whichever
-            // way it went: a hot hi-hat pulled down 12 dB for its processing and lifted 17 dB on the fader is
-            // lifted 5 dB, and the bleed with it - not 17.
-            const float allowed = R.maxCloseMicRaiseDb - sp.inputGainDb;
-            if (fader > allowed)
-            {
-                fader = roundHalf (std::max (allowed, 0.0f));
-                sp.mixItems.push_back (info (Recommendation::Kind::CaptureGain, upper (sp.name) + ": turn this microphone up at the console",
-                                             "To sit where the mix wants it this close microphone needs more level than DLIVE will add to it. "
-                                             "It also hears the rest of the kit, so raising it here would bring that bleed up with the instrument. "
-                                             "Turn its preamp up at the console and Tune Mix again.", Confidence::High));
-            }
-        }
-        // Any microphone on a stage hears the stage between the sounds it is there for. A voice or a close drum
-        // microphone is lifted only until what it hears between phrases would land R.spillBelowTargetDb under the
-        // level the mix wants it at; past that the lift is the rest of the band arriving through the wrong
-        // microphone - which is how a barely-used vocal microphone, lifted 30 dB to reach the vocal level, became
-        // the loudest cymbals in the mix. Measured from the listen: the floor was heard at the listen's gain, the
-        // lift is what the plan adds on top, so planning again on the same listen lands in the same place. Only
-        // ever a limit on a lift: a microphone already at its level, or being brought down, is left to the rules above.
-        if (isSpillProneMic (f) && a.noiseFloorDb > -119.0f)
-        {
-            const float gainDelta = sp.inputGainDb - ctx.atCapture.strips[size_t (i)].inputGainDb;
-            const float lift = gainDelta + fader;
-            // A speech microphone has its own, looser number: between a preacher's phrases it hears
-            // the room, not the band, and the room under a sermon is what a stream expects to hear.
-            // Holding it to the singer's rule is what left the pastor a few dB under the mix.
-            const float spillBelow = f == RoleFamily::Speech ? R.speechSpillBelowTargetDb : R.spillBelowTargetDb;
-            const float allowedLift = (target - spillBelow) - a.noiseFloorDb;
-            if (lift > 0.0f && lift > allowedLift)
-            {
-                const float kept = std::max (allowedLift, 0.0f);
-                fader = roundHalf (kept - gainDelta);
-                sp.spillLimited = true;
-                sp.mixItems.push_back (info (Recommendation::Kind::CaptureGain, upper (sp.name) + ": mostly hears the stage",
-                                             "Between the sounds it is there for, this microphone picks up the rest of the stage at "
-                                             + num ("%.0f dBFS", double (a.noiseFloorDb - ctx.atCapture.strips[size_t (i)].inputGainDb))
-                                             + " at the device - only " + num ("%.0f dB", double (std::max (a.activeRmsDb - a.noiseFloorDb, 0.0f)))
-                                             + " under what it hears while the source plays. Lifting it to the level the mix wants would bring the "
-                                             "stage up with it - the cymbals through a vocal microphone are the usual result - so it is lifted "
-                                             + num ("%.0f dB", double (kept)) + " and left there. Get the source closer to the microphone (a preamp "
-                                             "raises the stage with it), or keep it muted while nobody is using it, and Tune Mix again.",
-                                             Confidence::High));
-            }
-        }
-        sp.faderDb = clamp (fader, -R.maxFaderMoveDb, R.maxFaderMoveDb);
+        if (! balanceable (i)) continue;                 // too sparse to place with confidence
+        sp.faderDb = fitFader (i, true);
         sp.balanced = true;
     }
 
@@ -741,13 +816,10 @@ MixPlan plan (const MixPlanContext& ctx)
     // the bound), everything else follows it down by the same amount so the hierarchy survives; the master's
     // loudness rule makes up the overall level afterwards.
     {
-        // The reference is a lead microphone somebody is actually singing into. One held back because it
-        // mostly hears the stage is not a quiet capture the rest of the band should follow down.
-        int lead = -1;
-        for (int i = 0; i < n && lead < 0; ++i)
-            if (plan.strips[size_t (i)].heard && plan.strips[size_t (i)].balanced && ! plan.strips[size_t (i)].spillLimited
-                && roleFamily (plan.strips[size_t (i)].role) == RoleFamily::LeadVocal)
-                lead = i;
+        // The reference is the focal source, and only when it is a microphone somebody is really
+        // singing into: one held back because it mostly hears the stage is not a quiet capture
+        // the rest of the band should follow down.
+        const int lead = focal >= 0 && plan.strips[size_t (focal)].balanced && ! plan.strips[size_t (focal)].spillLimited ? focal : -1;
         if (lead >= 0)
         {
             const float effectiveLevel = predictedProcessedActiveRmsDb (ctx, lead, plan.proposed.strips[size_t (lead)]);
@@ -769,9 +841,46 @@ MixPlan plan (const MixPlanContext& ctx)
         }
     }
 
+    // Several lead microphones at once. Two voices each fitted to the lead's number are 3 dB of
+    // lead vocal, not one, and the band that was balanced under one of them is now buried under
+    // both. The group is held so their sum is the level a single lead would have been - the
+    // focal one included, because a duet is two people at the same level, not one in front.
+    //
+    // Only voices that are actually singing together count: two singers taking a verse each are
+    // not a duet, and holding each of them down 3 dB for a sum that never happens would leave
+    // both under the band. A microphone quiet for more than half the listen is taking turns.
+    {
+        std::vector<int> together;
+        for (int i = 0; i < n; ++i)
+        {
+            const auto& sp = plan.strips[size_t (i)];
+            if (! sp.balanced || roleFamily (sp.role) != RoleFamily::LeadVocal || sp.spillLimited) continue;
+            if (ctx.capture.strips[size_t (i)].silencePercent > 50.0f) continue;
+            together.push_back (i);
+        }
+        if (together.size() >= 2)
+        {
+            const float drop = roundHalf (std::min (10.0f * std::log10 (float (together.size())), 4.0f));
+            if (drop >= 0.5f)
+            {
+                for (int i : together)
+                {
+                    auto& sp = plan.strips[size_t (i)];
+                    sp.faderDb = clamp (sp.faderDb - drop, -R.maxFaderMoveDb, R.maxFaderMoveDb);
+                }
+                plan.relationships.push_back (info (Recommendation::Kind::MixGain,
+                                                     std::to_string (together.size()) + " lead microphones held " + fmtDb (-drop, 1) + " as one voice",
+                                                     std::to_string (together.size()) + " lead microphones were sung into together through this listen. Each one set to the lead's own level "
+                                                     "would put " + fmtDb (10.0f * std::log10 (float (together.size())), 0) + " more lead vocal in the mix than the balance was built for, and the band "
+                                                     "underneath it would be the thing that disappeared. They are held together so the voices sum to one lead - "
+                                                     "which is what a duet sounds like.", Confidence::Medium));
+            }
+        }
+    }
+
     // Lead <-> backing vocals: several voices add up, the group stays behind the lead.
     {
-        const int lead = findHeard ([] (RoleFamily f) { return f == RoleFamily::LeadVocal; });
+        const int lead = focal;
         std::vector<int> backing;
         for (int i = 0; i < n; ++i)
             if (plan.strips[size_t (i)].balanced && roleFamily (plan.strips[size_t (i)].role) == RoleFamily::BackingVocal)
@@ -924,20 +1033,20 @@ MixPlan plan (const MixPlanContext& ctx)
                               "set by what leaves the mix. Tune Mix again with the band playing to fit the master itself.");
     }
 
-    for (int b = 0; b < int (MixBus::Count); ++b)
+    auto planBus = [&] (int b)
     {
         auto& bp = plan.buses[size_t (b)];
         bp.bus = MixBus (b);
         bp.used = ctx.graph.busUsed[size_t (b)];
         const auto& a = ctx.capture.buses[size_t (b)];
-        if (! bp.used || ! a.valid) continue;
+        if (! bp.used || ! a.valid) return;
         if (! busPlayed[size_t (b)])
         {
             if (! (sermonListen && MixBus (b) == MixBus::Master))
                 plan.notes.push_back (std::string (mixBusName (MixBus (b)))
                                       + ": nothing on this group played during the listen, so its chain was left alone."
                                         " Tune Mix again while it does.");
-            continue;
+            return;
         }
         const bool isMaster = MixBus (b) == MixBus::Master;
         const ChannelRole role = busRole (MixBus (b), ctx.session.purpose);
@@ -987,7 +1096,7 @@ MixPlan plan (const MixPlanContext& ctx)
             for (int o = 0; o < int (MixBus::Master); ++o)
             {
                 const auto& oa = ctx.capture.buses[size_t (o)];
-                if (! ctx.graph.busUsed[size_t (o)] || ! oa.valid || oa.rmsDb <= -100.0f) continue;
+                if (! ctx.graph.busUsed[size_t (o)] || ! oa.valid || oa.rmsDb <= -100.0f) continue;   // the next group, not the end of the master
                 before += std::pow (10.0, double (oa.rmsDb) / 10.0);
                 after  += std::pow (10.0, double (oa.rmsDb + busOutShiftDb[size_t (o)]) / 10.0);
             }
@@ -1028,7 +1137,75 @@ MixPlan plan (const MixPlanContext& ctx)
             bp.predictedOutShiftDb = busOutShiftDb[size_t (b)] = shift
                                       + compressorAverageDeltaDb (plan.proposed.buses[size_t (b)].channel, ctx.atCapture.buses[size_t (b)].channel, a.rmsDb, a.peakDb, shift, R.compDetectorCrestShareBus)
                                       + (plan.proposed.buses[size_t (b)].faderDb - ctx.atCapture.buses[size_t (b)].faderDb);
+    };
+
+    // The groups first, then their balance against each other, then the master from the sum of
+    // what they will all put out.
+    for (int b = 0; b < int (MixBus::Master); ++b) planBus (b);
+
+    // ---- The group balance ----
+    // Every source has been placed against the profile's number for its own kind. What that
+    // does not settle is how the groups sit against each other, because that depends on how
+    // many microphones are in each one: six backing voices at the backing-voice level are a
+    // different group from two, eight drum microphones are a different kit from four, and a
+    // church with one keyboard and a church with three do not get the same MUSIC bus out of
+    // the same per-source numbers. So the groups are finally set against the voices - the
+    // relationship the profile has always described and nothing has ever read (DRUMS -1,
+    // BASS -3, MUSIC -5, SPEECH level, AMBIENCE -12 in Modern Gospel) - using what each bus
+    // is predicted to actually put out under the plan.
+    {
+        const MixBus ref = busPlayed[size_t (MixBus::Vocals)] && ctx.graph.busUsed[size_t (MixBus::Vocals)] ? MixBus::Vocals
+                         : busPlayed[size_t (MixBus::Speech)] && ctx.graph.busUsed[size_t (MixBus::Speech)] ? MixBus::Speech
+                         : MixBus::Count;
+        // What a group puts out with its fader at zero, under this plan's chains and strip
+        // levels: a function of the listen alone, so a fader set here is the same number
+        // however many times the same listen is planned.
+        auto baseOut = [&] (MixBus bus) -> float
+        {
+            const auto& a = ctx.capture.buses[size_t (bus)];
+            if (! a.valid || a.rmsDb <= -100.0f) return -120.0f;
+            return a.rmsDb + busOutShiftDb[size_t (bus)]
+                 - plan.proposed.buses[size_t (bus)].faderDb + ctx.atCapture.buses[size_t (bus)].faderDb;
+        };
+        const float refBase = ref != MixBus::Count ? baseOut (ref) : -120.0f;
+        // The reference group keeps whatever fader the listen ran through: this rule sets the
+        // others against it, it never moves it.
+        const float refOut = refBase > -100.0f ? refBase + ctx.atCapture.buses[size_t (ref)].faderDb : -120.0f;
+        if (refOut > -100.0f)
+        {
+            std::vector<std::string> moved;
+            for (int b = 0; b < int (MixBus::Master); ++b)
+            {
+                const MixBus bus = MixBus (b);
+                if (bus == ref || ! ctx.graph.busUsed[size_t (b)] || ! busPlayed[size_t (b)]) continue;
+                const float base = baseOut (bus);
+                if (base <= -100.0f) continue;
+                const float want = refOut + R.busBelowVocalsDb[size_t (b)];
+                const float ran = ctx.atCapture.buses[size_t (b)].faderDb;
+                float fader = roundHalf (want - base);
+                fader = clamp (fader, ran - R.maxBusFaderMoveDb, ran + R.maxBusFaderMoveDb);
+                if (ctx.retune) fader = clamp (fader, ran - R.maxRetuneFaderStepDb, ran + R.maxRetuneFaderStepDb);
+                if (std::fabs (fader - plan.before.buses[size_t (b)].faderDb) < R.faderDeadbandDb) continue;
+                const float was = plan.proposed.buses[size_t (b)].faderDb;
+                plan.proposed.buses[size_t (b)].faderDb = fader;
+                busOutShiftDb[size_t (b)] += fader - was;
+                plan.buses[size_t (b)].predictedOutShiftDb = busOutShiftDb[size_t (b)];
+                moved.push_back (std::string (mixBusName (bus)) + " " + fmtDb (fader - plan.before.buses[size_t (b)].faderDb, 1));
+            }
+            if (! moved.empty())
+            {
+                std::string names;
+                for (size_t k = 0; k < moved.size(); ++k) names += (k == 0 ? "" : ", ") + moved[k];
+                plan.relationships.push_back (info (Recommendation::Kind::MixGain, "Groups set against the " + std::string (mixBusName (ref)) + ": " + names,
+                                                     "Each source is at the level its own kind sits at, but how loud a group ends up also depends on how many "
+                                                     "microphones are in it - six backing voices are not two, and eight drum microphones are not four. The groups "
+                                                     "are set against the voices so a " + std::string (styleProfileName (profile)) + " mix sounds like one whatever "
+                                                     "this church happens to have on the stage.", Confidence::Medium));
+            }
+        }
     }
+
+    planBus (int (MixBus::Master));
 
     // ---- 5. Sum up ----
     for (int i = 0; i < n; ++i)

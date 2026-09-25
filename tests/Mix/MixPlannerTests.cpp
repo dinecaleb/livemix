@@ -966,3 +966,97 @@ TEST_CASE ("MixPlanner: a re-tune corrects a mix rather than rearranging it, and
     for (const auto& note : first.notes) if (note.find ("What moves, against the mix you have now") != std::string::npos) listedMoves = true;
     CHECK (listedMoves);
 }
+
+TEST_CASE ("MixPlanner: the groups are set against the voices, whatever the church has on the stage")
+{
+    // Two sessions, the same band, one with three backing voices and one with one. Per source
+    // the numbers are identical; the VOCALS bus is not, and the groups have to follow it.
+    auto planFor = [] (int backingVoices)
+    {
+        MixSession s = band();
+        s.inputs.resize (size_t (9 + backingVoices));          // through "Lead", then the voices
+        auto rig = std::make_unique<Rig> (s);
+        auto in = bandAudio();
+        const auto cap = rig->listen (in);
+        REQUIRE (cap.valid);
+        auto ctx = rig->context (cap);
+        return std::make_pair (MixPlanner::plan (ctx), ctx);
+    };
+
+    const auto three = planFor (3);
+    const auto one = planFor (1);
+    REQUIRE (three.first.valid && one.first.valid);
+
+    // The drum group sits where the profile says it should against the voices, and that is a
+    // different fader in the two rooms because the voices are not the same sum.
+    const auto& R = MixProfile::relationships (StyleProfileId::ModernGospel);
+    CHECK (R.busBelowVocalsDb[size_t (MixBus::Drums)] != 0.0f);      // the table this rule exists to read
+    CHECK (three.first.proposed.buses[size_t (MixBus::Drums)].faderDb
+             != one.first.proposed.buses[size_t (MixBus::Drums)].faderDb);
+    bool saidSo = false;
+    for (const auto& r : three.first.relationships) if (r.what.find ("Groups set against") != std::string::npos) saidSo = true;
+    CHECK (saidSo);
+
+    // Every group fader stays a trim, and the reference group is never moved by the rule.
+    for (int b = 0; b < int (MixBus::Master); ++b)
+    {
+        const float moveA = three.first.proposed.buses[size_t (b)].faderDb - three.first.before.buses[size_t (b)].faderDb;
+        CHECK (std::fabs (moveA) <= R.maxBusFaderMoveDb + 0.01f);
+    }
+    CHECK (three.first.proposed.buses[size_t (MixBus::Vocals)].faderDb == three.first.before.buses[size_t (MixBus::Vocals)].faderDb);
+
+    // ... and planning the same listen again moves nothing, group faders included.
+    auto ctx2 = three.second;
+    ctx2.current = three.first.proposed;
+    const auto again = MixPlanner::plan (ctx2);
+    CHECK (MixPlanner::countParameterChanges (again.proposed, three.first.proposed) == 0);
+    for (int b = 0; b < int (MixBus::Count); ++b)
+        CHECK_NEAR (again.proposed.buses[size_t (b)].faderDb, three.first.proposed.buses[size_t (b)].faderDb, 0.01f);
+}
+
+TEST_CASE ("MixPlanner: the mix is built around the focal source, pinned or measured")
+{
+    // Two lead microphones: one sung into, one lying open on a wedge hearing the stage. The
+    // loudest is the wrong answer; the one that stands furthest above what it hears between
+    // phrases is the right one.
+    MixSession s = band();
+    s.inputs.push_back ({ "Lead 2", ChannelRole::LeadVocal, 15, -1 });
+    Rig rig (s);
+    testsig::Buffer in (16, int (kSr * 8));
+    bursts (in.data[0], 100.0f, 0.7f, 0.5f, 0.12f, 0.0f, false, 1);
+    bursts (in.data[1], 0.0f, 0.5f, 0.5f, 0.05f, 0.25f, true, 2);
+    sine (in.data[8], 262.0f, 0.15f); sine (in.data[8], 2600.0f, 0.2f);       // keys, bright
+    sine (in.data[9], 330.0f, 0.15f); sine (in.data[9], 2800.0f, 0.2f);
+    // The singer: quiet between phrases.
+    for (size_t i = 0; i < in.data[10].size(); ++i)
+    {
+        const float t = float (i) / float (kSr);
+        in.data[10][i] = (std::fmod (t, 1.0f) < 0.6f ? 0.25f : 0.002f) * std::sin (2.0f * float (M_PI) * 220.0f * t);
+    }
+    noise (in.data[15], 0.05f, 31);                                           // the spare: nothing but stage
+    for (size_t i = 0; i < in.data[15].size(); ++i) in.data[15][i] += 0.06f * in.data[0][i] + 0.06f * in.data[1][i];
+
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    auto ctx = rig.context (cap);
+    const auto plan = MixPlanner::plan (ctx);
+    REQUIRE (plan.valid);
+
+    // The pocket the music makes is cut for the singer, and the mix says so about that one.
+    CHECK (hasRelationship (plan, "Made room for the lead vocal in KEYS"));
+
+    // Pinning the spare makes it the reference instead, and the mix says it was told to.
+    ctx.session.setFocus (stripIndex (plan, "Lead 2"));
+    CHECK (ctx.session.focusInput() == stripIndex (plan, "Lead 2"));
+    const auto pinned = MixPlanner::plan (ctx);
+    REQUIRE (pinned.valid);
+    CHECK (hasRelationship (pinned, "is what this mix is built around"));
+
+    // One input carries it at a time.
+    ctx.session.setFocus (stripIndex (plan, "Lead"));
+    int pins = 0;
+    for (const auto& input : ctx.session.inputs) if (input.focus) ++pins;
+    CHECK (pins == 1);
+    ctx.session.setFocus (-1);
+    CHECK (ctx.session.focusInput() == -1);
+}

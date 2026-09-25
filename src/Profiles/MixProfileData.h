@@ -96,7 +96,15 @@ namespace MixProfile
         // Backing vocals <-> lead: N voices add up. The group is held this far under the lead.
         float backingGroupBelowLeadDb = 3.0f;
 
-        // Bus balance: each bus's processed peak relative to the vocal bus, dB.
+        // Bus balance: where each group's output sits relative to the voices, dB. Loudness, for
+        // the same reason the per-source numbers are (see mixLevelTargetDb): a kit and a choir
+        // at the same peak are nowhere near the same level in a mix.
+        //
+        // This is the relationship the per-source numbers cannot settle on their own, because
+        // how loud a group ends up also depends on how many microphones are in it - six backing
+        // voices at the backing-voice level are a different VOCALS bus from two, and eight drum
+        // microphones are a different kit from four. MixPlanner sets the group faders against
+        // the voices from what each group is predicted to put out.
         std::array<float, int (MixBus::Count)> busBelowVocalsDb {};
         float busBalanceToleranceDb = 2.0f;
         float maxInputGainDb = 24.0f;      // digital input gain Tune Mix may add or remove per input
@@ -117,6 +125,10 @@ namespace MixProfile
         // the way if the listen still asks for it. Measured from what ran during the listen, so
         // re-planning the same listen still lands in the same place.
         float maxRetuneFaderStepDb = 4.0f;
+        // How far a group fader may be moved to set the groups against each other. A group
+        // balance corrects for how many microphones a church has, not for a bad mix, so it is
+        // a trim rather than a move.
+        float maxBusFaderMoveDb = 6.0f;
         // Gain staging is the first move in a mix and the console is the right place for it.
         // DLIVE will make a quiet input work digitally, but past this much digital gain the
         // preamp itself is wrong (a digital raise lifts the preamp's noise with the source), so

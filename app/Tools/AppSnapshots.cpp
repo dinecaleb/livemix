@@ -592,6 +592,9 @@ int main (int argc, char** argv)
         rig.feed (0.3);
     }
 
+    // The focal source, pinned on the lead, so the rail shows what a mix built around one
+    // source looks like: FOCUS beside it, and nothing beside anything else.
+    rig.controller.setFocusInput (8);
     view.showPage (MainView::Page::Tune);
     rig.feed (0.5);
     rig.snap (dir, "07-tune-ready");

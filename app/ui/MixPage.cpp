@@ -286,11 +286,13 @@ public:
     InputRow (const juce::String& n, ChannelRole role, int number, const std::string& iconKey)
         : name (n), icon (Dine::iconFor (iconKey, role)), num (number)
     {
-        setTooltip ("Click to pick " + name + " out. TUNE CHANNEL listens to it on its own - nothing else in the mix moves.");
+        setTooltip ("Click to pick " + name + " out. TUNE CHANNEL listens to it on its own - nothing else in the mix moves. "
+                    "FOCUS makes it the source the whole mix is built around: every level is set against it, and the music "
+                    "makes room for it rather than the other way round.");
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
 
-    std::function<void()> onTune, onSelect;
+    std::function<void()> onTune, onSelect, onFocus;
 
     void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
     void mouseExit  (const juce::MouseEvent&) override { hover = false; repaint(); }
@@ -298,14 +300,16 @@ public:
     {
         if (e.mouseWasDraggedSinceMouseDown() || ! getLocalBounds().contains (e.getPosition())) return;
         if (e.getPosition().x >= verbRect.getX() - 6) { if (onTune) onTune(); }
+        else if (! focusRect.isEmpty() && e.getPosition().x >= focusRect.getX() - 4 && e.getPosition().x < focusRect.getRight() + 4)
+        { if (onFocus) onFocus(); }
         else if (onSelect) onSelect();
     }
 
-    void set (bool isMuted, bool isFaint, bool isSelected)
+    void set (bool isMuted, bool isFaint, bool isSelected, bool isFocal)
     {
-        if (muted != isMuted || faint != isFaint || selected != isSelected)
+        if (muted != isMuted || faint != isFaint || selected != isSelected || focal != isFocal)
         {
-            muted = isMuted; faint = isFaint; selected = isSelected; repaint();
+            muted = isMuted; faint = isFaint; selected = isSelected; focal = isFocal; repaint();
         }
     }
 
@@ -323,6 +327,19 @@ public:
         g.drawText ("TUNE CHANNEL", verbRect, juce::Justification::centredRight);
         r.removeFromRight (8);
 
+        // THE FOCAL SOURCE: what the mix is built around. Shown always once it is set, offered
+        // on hover before that, so a rail of thirty inputs is not a row of thirty labels.
+        focusRect = {};
+        if (focal || hover)
+        {
+            const auto focusFont = Dine::caps (10.0f, 0.06f);
+            focusRect = r.removeFromRight (Dine::textWidth (focusFont, "FOCUS"));
+            g.setColour (focal ? Dine::accent : Dine::ink4);
+            g.setFont (focusFont);
+            g.drawText ("FOCUS", focusRect, juce::Justification::centredRight);
+            r.removeFromRight (10);
+        }
+
         if (muted || faint)
         {
             g.setColour (muted ? Dine::warn : Dine::crit);
@@ -337,8 +354,8 @@ public:
     juce::String name;
     Dine::Icon icon;
     int num = 0;
-    bool muted = false, faint = false, hover = false, selected = false;
-    juce::Rectangle<int> verbRect;
+    bool muted = false, faint = false, hover = false, selected = false, focal = false;
+    juce::Rectangle<int> verbRect, focusRect;
 };
 
 // The steps of a TUNE LIVE MIX run, as the user sees them.
@@ -1163,6 +1180,7 @@ void MixPage::rebuildRail()
         auto row = std::make_unique<InputRow> (s.name, s.role, s.inputA + 1, s.icon);
         row->onTune = [this, i] { selectRow (i); if (onTuneStrip) onTuneStrip (i); };
         row->onSelect = [this, i] { selectRow (i); };
+        row->onFocus = [this, i] { controller.setFocusInput (i); rebuildRail(); };
         railHolder.addAndMakeVisible (*row);
         inputRows.push_back (std::move (row));
     }
@@ -1212,7 +1230,8 @@ void MixPage::refresh()
         for (int i = 0; i < int (inputRows.size()) && i < graph.numStrips(); ++i)
         {
             const bool faint = plan != nullptr && i < int (plan->strips.size()) && plan->strips[size_t (i)].faint;
-            inputRows[size_t (i)]->set (i < kept.numStrips && kept.strips[size_t (i)].mute, faint, i == selectedRow);
+            inputRows[size_t (i)]->set (i < kept.numStrips && kept.strips[size_t (i)].mute, faint, i == selectedRow,
+                                        i == controller.getFocusInput());
         }
     }
 

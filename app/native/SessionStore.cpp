@@ -470,6 +470,7 @@ juce::var toVar (const Document& d)
         io->setProperty ("inputA", in.inputA);
         io->setProperty ("inputB", in.inputB);
         io->setProperty ("enabled", in.enabled);
+        if (in.focus) io->setProperty ("focus", true);      // absent = not the focal source
         inputs.add (juce::var (io));
     }
     obj->setProperty ("inputs", inputs);
@@ -539,6 +540,7 @@ bool fromVar (const juce::var& v, Document& d)
             in.inputA = int (io->getProperty ("inputA"));
             in.inputB = io->hasProperty ("inputB") ? int (io->getProperty ("inputB")) : -1;
             in.enabled = io->hasProperty ("enabled") ? bool (io->getProperty ("enabled")) : true;
+            in.focus = io->hasProperty ("focus") && bool (io->getProperty ("focus"));
             d.session.inputs.push_back (in);
         }
     if (auto* macros = obj->getProperty ("macros").getArray())

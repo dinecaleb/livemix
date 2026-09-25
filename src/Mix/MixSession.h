@@ -86,6 +86,14 @@ struct InputAssignment
     // routing: nothing about the mix reads it. Last, so the brace-initialised sessions all
     // over the tests keep working.
     std::string icon;
+    // THE FOCAL SOURCE. The one the mix is built around: the lead singer during a song, and
+    // whoever the engineer says otherwise. DLIVE picks the loudest lead vocal it heard when
+    // nobody has said, which is right most Sundays and wrong on the one where the second
+    // microphone is the one being sung into. Pinning it here settles it: that source is the
+    // reference every balance, every hierarchy rule and every pocket cut is measured against,
+    // and it is never the one held back to make room for another. At most one input carries
+    // it (MixSession::setFocus). Last again, so brace-initialised sessions keep working.
+    bool focus = false;
 
     bool isStereo() const noexcept { return inputB >= 0; }
     int numChannels() const noexcept { return isStereo() ? 2 : 1; }
@@ -235,6 +243,17 @@ struct MixSession
     ChannelRole masterRole() const noexcept { return masterRoleFor (purpose); }
     // The delivery target this session actually aims at, or 0 for "the role's own".
     float deliveryTargetLufs() const noexcept { return deliveryLoudnessLufs (delivery); }
+    // The pinned focal source, or -1 for "whatever the listen says".
+    int focusInput() const noexcept
+    {
+        for (size_t i = 0; i < inputs.size(); ++i) if (inputs[i].focus) return int (i);
+        return -1;
+    }
+    // Pinning one unpins the rest: a mix has one thing it is built around. -1 clears it.
+    void setFocus (int strip) noexcept
+    {
+        for (size_t i = 0; i < inputs.size(); ++i) inputs[i].focus = (int (i) == strip);
+    }
     int numStrips() const noexcept { return int (inputs.size()) < kMaxStrips ? int (inputs.size()) : kMaxStrips; }
 };
 

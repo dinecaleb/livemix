@@ -59,6 +59,21 @@ void MixController::setInputIcon (int strip, const std::string& icon)
     engine.setStripIcon (strip, icon);
 }
 
+// Pinning one unpins the rest, and pinning the one that is already pinned clears it. Nothing
+// about the running mix moves: it is what the *next* tune is built around.
+void MixController::setFocusInput (int strip)
+{
+    const int was = session.focusInput();
+    session.setFocus (strip == was ? -1 : strip);
+    if (onMessage)
+    {
+        const int now = session.focusInput();
+        onMessage (now >= 0 ? session.inputs[size_t (now)].name + " is what the mix is built around. TUNE MIX to hear it."
+                            : std::string ("The mix is built around whichever lead microphone DLIVE hears being sung into."));
+    }
+    if (onMixChanged) onMixChanged();
+}
+
 void MixController::setPurpose (MixPurpose p) { session.purpose = p; }
 
 void MixController::setDelivery (DeliveryLoudness d)
