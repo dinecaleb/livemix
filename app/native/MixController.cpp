@@ -514,6 +514,7 @@ void MixController::startReferenceMatch()
     ctx.atCapture = lastCaptureAt;
     ctx.capture = lastCapture;
     ctx.reference = reference;
+    ctx.retune = lastCaptureRetune;
     clearTuningScope();
     stage = Stage::Planning;
     plan = MixPlanner::plan (ctx);
@@ -598,6 +599,7 @@ void MixController::startTuneLiveMix (const LiveTuneSettings& s)
         ctx.atCapture = lastCaptureAt;
         ctx.capture = lastCapture;
         ctx.reference = reference;
+        ctx.retune = lastCaptureRetune;
         stage = Stage::Planning;
         plan = MixPlanner::plan (ctx);
         if (! plan || ! plan->valid || plan->stripsHeard == 0)
@@ -784,10 +786,14 @@ void MixController::poll()
         ctx.atCapture = atCapture;
         ctx.capture = capture.getResult();
         ctx.reference = reference;
+        // A first mix is free to put everything where it belongs; a later one is a correction
+        // to something the room is already listening to, and moves one fader only so far.
+        ctx.retune = mixed;
         // Keep the listen. A reference added afterwards, and any re-plan, work from what the
         // band already played rather than asking them to play it again.
         lastCapture = ctx.capture;
         lastCaptureAt = ctx.atCapture;
+        lastCaptureRetune = ctx.retune;
         listened = lastCapture.valid;
 
         if (liveRun && liveVerifying)

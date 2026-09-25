@@ -102,6 +102,21 @@ namespace MixProfile
         float maxInputGainDb = 24.0f;      // digital input gain Tune Mix may add or remove per input
         float inputPeakCeilingDb = -6.0f;  // the chain input never gets pushed above this peak by the gain
         float maxFaderMoveDb = 18.0f;      // a quiet capture still gets a balanced mix; the preamp note says what to fix at the console
+        // A fader is not worth moving for less than this. Half a dB is inside what two listens
+        // of the same performance disagree about, so writing it turns a difference in the
+        // measurement into a change in the mix - and into a line in REVIEW CHANGES that says
+        // something happened when nothing did.
+        float faderDeadbandDb = 1.0f;
+        // How far one fader may move on a mix that has already been tuned. The first TUNE MIX
+        // starts from nothing and has to be free to put everything where it belongs. A later
+        // one is correcting a mix somebody is already listening to, from a listen that caught a
+        // different thirty seconds of the service - a quieter verse, a different singer, a song
+        // in another key - and a balance that rearranges itself by six or eight dB between two
+        // tunes of the same band is not a balance anybody can work with. The move is capped,
+        // the plan says what it stopped short of, and a second RE-TUNE carries it the rest of
+        // the way if the listen still asks for it. Measured from what ran during the listen, so
+        // re-planning the same listen still lands in the same place.
+        float maxRetuneFaderStepDb = 4.0f;
         // Gain staging is the first move in a mix and the console is the right place for it.
         // DLIVE will make a quiet input work digitally, but past this much digital gain the
         // preamp itself is wrong (a digital raise lifts the preamp's noise with the source), so

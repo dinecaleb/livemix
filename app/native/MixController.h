@@ -506,6 +506,11 @@ private:
     // already heard instead of asking the band to play again.
     MixCapture::Result lastCapture;
     MixParameters lastCaptureAt;
+    // Whether the mix that listen ran through had already been tuned. Stored with the
+    // listen, not read from `mixed` when a plan is made: MATCH TO REFERENCE and TRY
+    // ANOTHER MIX re-plan a listen from before the last KEEP, and a listen has to plan the
+    // same way every time it is planned or nothing downstream is repeatable.
+    bool lastCaptureRetune = false;
     bool listened = false;
     ReferenceProfile reference;
     bool prepared = false;

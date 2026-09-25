@@ -240,6 +240,8 @@ TEST_CASE ("MixPlanner: one listen tunes every source, balances the faders and r
             expected = std::min (expected, std::max (std::round ((R.maxCloseMicRaiseDb - s.inputGainDb) * 2.0f) * 0.5f, 0.0f));
         }
         expected = std::max (-R.maxFaderMoveDb, std::min (R.maxFaderMoveDb, expected));
+        // ... and a move not worth making is not made.
+        if (std::fabs (expected - s.faderBeforeDb) < R.faderDeadbandDb) expected = s.faderBeforeDb;
         CHECK_NEAR (s.faderDb, expected, 0.01f);
     }
     CHECK (stripNamed (plan, "Bass").balanced);
@@ -870,4 +872,97 @@ TEST_CASE ("Analysis: loudness is gated the way a delivery meter gates it")
     REQUIRE (a.loudnessGatedLufs > -100.0f);
     CHECK (a.loudnessGatedLufs > a.loudnessLufs + 1.5f);
     CHECK_NEAR (a.loudnessGatedLufs - a.loudnessLufs, 3.0f, 1.5f);
+}
+
+TEST_CASE ("MixPlanner: a balance is read over thirds of the listen, so one loud passage does not set a fader")
+{
+    // The same source at two levels: loud for a third of the listen, twelve dB quieter for the
+    // rest. Read over the whole thirty seconds the answer lands between the two and follows
+    // whichever part the listen happened to catch; read over thirds, the middle answer is the
+    // one the source spends most of its time at.
+    Rig rig (band());
+    testsig::Buffer in (15, int (kSr * 9));
+    bursts (in.data[0], 100.0f, 0.7f, 0.5f, 0.12f, 0.0f, false, 1);       // a kit, so the listen is a performance
+    bursts (in.data[1], 0.0f, 0.5f, 0.5f, 0.05f, 0.25f, true, 2);
+    sine (in.data[10], 220.0f, 0.40f, 0.0f, 3.0f);                         // lead: loud for the first third
+    sine (in.data[10], 220.0f, 0.10f, 3.0f, 9.0f);                         // ... and quiet for the other two
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    const auto& lead = cap.strips[size_t (8)];
+    REQUIRE (lead.valid);
+
+    // The quiet two thirds are what this source mostly is, and that is what it measures as.
+    const float loudDb = 20.0f * std::log10 (0.40f / std::sqrt (2.0f));
+    const float quietDb = 20.0f * std::log10 (0.10f / std::sqrt (2.0f));
+    CHECK (lead.activeRmsDb < 0.5f * (loudDb + quietDb));
+    CHECK_NEAR (lead.activeRmsDb, quietDb, 2.0f);
+    CHECK (lead.peakDb > loudDb);                     // the loud third is still the peak: nothing is hidden
+}
+
+TEST_CASE ("MixPlanner: a re-tune corrects a mix rather than rearranging it, and still says nothing changed on the same listen")
+{
+    Rig rig (band());
+    auto in = bandAudio();
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    auto ctx = rig.context (cap);
+    const auto first = MixPlanner::plan (ctx);
+    REQUIRE (first.valid && first.headline == "MIX TUNED");
+    const auto& R = MixProfile::relationships (StyleProfileId::ModernGospel);
+
+    // The same listen again with the plan running: still nothing to do. A listen always plans
+    // the same way, which is why the flag belongs to the listen and not to the moment.
+    MixPlanContext same = ctx;
+    same.current = first.proposed;
+    CHECK (MixPlanner::plan (same).noChangeRequired);
+
+    // Now the mix somebody has pulled a long way off the plan, and a real listen through it.
+    MixParameters pulled = first.proposed;
+    for (int i = 0; i < pulled.numStrips; ++i)
+        pulled.strips[size_t (i)].faderDb = std::clamp (pulled.strips[size_t (i)].faderDb - 12.0f, -60.0f, 12.0f);
+    Rig again (band());
+    again.engine.setParameters (pulled);
+    auto more = bandAudio();
+    const auto cap2 = again.listen (more);
+    REQUIRE (cap2.valid);
+    MixPlanContext moved = again.context (cap2);
+    moved.current = pulled;
+    moved.atCapture = pulled;
+    moved.retune = true;
+
+    const auto corrected = MixPlanner::plan (moved);
+    REQUIRE (corrected.valid);
+    int capped = 0;
+    for (const auto& sp : corrected.strips)
+    {
+        if (! sp.balanced) continue;
+        const float ran = pulled.strips[size_t (sp.strip)].faderDb;
+        CHECK (std::fabs (sp.faderDb - ran) <= R.maxRetuneFaderStepDb + 0.01f);
+        if (std::fabs (sp.faderDb - ran) >= R.maxRetuneFaderStepDb - 0.01f) ++capped;
+    }
+    CHECK (capped > 0);                                     // it really did want to move further
+    bool saidSo = false;
+    for (const auto& note : corrected.notes) if (note.find ("further than one re-tune") != std::string::npos) saidSo = true;
+    CHECK (saidSo);
+
+    // ... and planning that same listen again lands in exactly the same place.
+    MixPlanContext twice = moved;
+    twice.current = corrected.proposed;
+    const auto third = MixPlanner::plan (twice);
+    for (const auto& sp : third.strips)
+        if (sp.balanced) CHECK_NEAR (sp.faderDb, corrected.strips[size_t (sp.strip)].faderDb, 0.01f);
+
+    // A first mix is never held back: the same listen with retune off moves as far as it needs.
+    MixPlanContext firstTime = moved;
+    firstTime.retune = false;
+    const auto unheld = MixPlanner::plan (firstTime);
+    bool movedFurther = false;
+    for (const auto& sp : unheld.strips)
+        if (sp.balanced && std::fabs (sp.faderDb - pulled.strips[size_t (sp.strip)].faderDb) > R.maxRetuneFaderStepDb + 0.5f) movedFurther = true;
+    CHECK (movedFurther);
+
+    // And every plan says what it is about to do to the mix that is running.
+    bool listedMoves = false;
+    for (const auto& note : first.notes) if (note.find ("What moves, against the mix you have now") != std::string::npos) listedMoves = true;
+    CHECK (listedMoves);
 }

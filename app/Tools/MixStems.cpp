@@ -364,6 +364,7 @@ int main (int argc, char** argv)
     ctx2.atCapture = plan.proposed;
     ctx2.capture = listenedAgain;
     ctx2.reference = reference;
+    ctx2.retune = true;                 // the plan is running: this is a correction, as it is in the app
     const MixPlan retune = MixPlanner::plan (ctx2);
     std::printf ("\nRE-TUNE (new listen with the plan running): %s\n", retune.headline.c_str());
     for (const auto& n : retune.notes) std::printf ("  %s\n", n.c_str());

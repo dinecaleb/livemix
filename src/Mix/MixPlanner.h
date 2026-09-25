@@ -23,6 +23,11 @@ struct MixPlanContext
     // REFERENCE MIX: a finished recording the master is aimed at instead of at the profile's
     // own tonal target. Invalid (the default) means the profile decides, as it always has.
     ReferenceProfile reference;
+    // Whether this plan is correcting a mix that has already been tuned, rather than building
+    // the first one. A first mix has to be free to put everything where it belongs; a
+    // correction is being made to something somebody is already listening to, so how far one
+    // fader may move in it is bounded (MixProfile::Relationships::maxRetuneFaderStepDb).
+    bool retune = false;
 };
 
 // One strip's part of the plan.

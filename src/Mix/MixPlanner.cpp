@@ -858,11 +858,29 @@ MixPlan plan (const MixPlanContext& ctx)
     }
 
     // Faders are written once, after every rule that touches them, so a fader that ends where it started is not a change.
+    int heldBack = 0;
     for (int i = 0; i < n; ++i)
     {
         auto& sp = plan.strips[size_t (i)];
         if (! sp.balanced) continue;
-        if (std::fabs (sp.faderDb - sp.faderBeforeDb) < 0.5f) { sp.faderDb = sp.faderBeforeDb; continue; }
+        // A correction to a mix somebody is already listening to moves one fader only so far.
+        // Measured from the fader that ran during the listen, so re-planning the same listen
+        // lands in the same place however many times it is asked.
+        if (ctx.retune)
+        {
+            const float ran = ctx.atCapture.strips[size_t (i)].faderDb;
+            const float capped = clamp (sp.faderDb, ran - R.maxRetuneFaderStepDb, ran + R.maxRetuneFaderStepDb);
+            if (std::fabs (capped - sp.faderDb) >= 0.5f)
+            {
+                ++heldBack;
+                sp.mixItems.push_back (info (Recommendation::Kind::MixGain, upper (sp.name) + ": level moved as far as one tune will move it",
+                                             "This listen asked for " + fmtDb (sp.faderDb - ran, 1) + " on " + upper (sp.name) + ", which is more than a "
+                                             "single re-tune will change a mix you are already listening to. It moved " + fmtDb (capped - ran, 1)
+                                             + ". If the next listen still asks for the rest, RE-TUNE will take it there.", Confidence::Medium));
+            }
+            sp.faderDb = capped;
+        }
+        if (std::fabs (sp.faderDb - sp.faderBeforeDb) < R.faderDeadbandDb) { sp.faderDb = sp.faderBeforeDb; continue; }
         plan.proposed.strips[size_t (i)].faderDb = sp.faderDb;
         const RoleFamily f = roleFamily (sp.role);
         const float effectiveLevel = predictedProcessedActiveRmsDb (ctx, i, plan.proposed.strips[size_t (i)]);
@@ -1066,6 +1084,29 @@ MixPlan plan (const MixPlanContext& ctx)
     if (tuned > 0) plan.notes.push_back (std::to_string (tuned) + " sources shaped individually (" + std::to_string (plan.parametersChanged) + " settings).");
     if (plan.gainsChanged > 0) plan.notes.push_back (std::to_string (plan.gainsChanged) + " input gains set so the processing works at the right level.");
     if (plan.fadersChanged > 0) plan.notes.push_back (std::to_string (plan.fadersChanged) + " levels balanced against the lead vocal.");
+    // What this proposal does to the mix that is running, source by source, biggest first. A
+    // count of levels changed says how much happened; this says what, which is the thing an
+    // engineer has to agree with before pressing KEEP.
+    {
+        std::vector<std::pair<float, std::string>> moves;
+        for (const auto& sp : plan.strips)
+        {
+            const float d = plan.proposed.strips[size_t (sp.strip)].faderDb - plan.before.strips[size_t (sp.strip)].faderDb
+                          + plan.proposed.strips[size_t (sp.strip)].inputGainDb - plan.before.strips[size_t (sp.strip)].inputGainDb;
+            if (std::fabs (d) >= 1.0f) moves.emplace_back (d, upper (sp.name));
+        }
+        std::sort (moves.begin(), moves.end(), [] (const auto& a, const auto& b) { return std::fabs (a.first) > std::fabs (b.first); });
+        if (! moves.empty())
+        {
+            std::string line;
+            for (size_t k = 0; k < moves.size() && k < 5; ++k) line += (k == 0 ? "" : ", ") + moves[k].second + " " + fmtDb (moves[k].first, 1);
+            if (moves.size() > 5) line += " and " + std::to_string (moves.size() - 5) + " more";
+            plan.notes.push_back ("What moves, against the mix you have now: " + line + ".");
+        }
+    }
+    if (heldBack > 0)
+        plan.notes.push_back (heldBack == 1 ? "1 level wanted to move further than one re-tune will move it; RE-TUNE again if the next listen still asks."
+                                            : std::to_string (heldBack) + " levels wanted to move further than one re-tune will move them; RE-TUNE again if the next listen still asks.");
     int relationshipMoves = 0;
     for (const auto& r : plan.relationships) if (! r.changes.empty() || r.kind == Recommendation::Kind::MixGain) ++relationshipMoves;
     if (relationshipMoves > 0) plan.notes.push_back (relationshipMoves == 1 ? "1 decision made in mix context (sources working together)."

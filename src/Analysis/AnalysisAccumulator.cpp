@@ -37,6 +37,8 @@ void AnalysisAccumulator::prepare (double sampleRate, int numChannels)
     analysisFrameSize = std::max (1, int (sr / 100.0));
     onsetEnvelope.assign (size_t (kMaxOnsetFrames), 0.0f);
     levelHistogram.assign (kHistogramBins, 0);
+    frameLevels.clear();
+    frameLevels.reserve (size_t (100 * 60));      // a minute of 10 ms frames without a reallocation
     recentFrameDb.assign (kRecentFrames, -120.0f);
 
     sibilanceHpf.setCoefficients (BiquadCoefficients::make (FilterType::HighPass, sr, 5000.0f, 0.7071f, 0.0f));
@@ -84,6 +86,7 @@ void AnalysisAccumulator::reset() noexcept
     analysisFramePos = 0;
     frameSumSquares = 0.0;
     std::fill (levelHistogram.begin(), levelHistogram.end(), 0);
+    frameLevels.clear();
     totalAnalysisFrames = silentFrames = 0;
     prevFrameDb = -120.0f;
     prevFrameRms = 0.0f;
@@ -145,6 +148,87 @@ float AnalysisAccumulator::gatedLoudnessLufs() const
     return LoudnessMeter::lufsFromMeanSquare (kept / double (keptCount));
 }
 
+// The three level statistics a balance is fitted from, read over one stretch of the capture.
+// `played` says whether the source was really sounding across it, so a window it sat out of
+// never gets a vote.
+AnalysisAccumulator::Levels AnalysisAccumulator::levelsOver (int firstFrame, int lastFrame) const
+{
+    Levels out;
+    if (firstFrame < 0 || lastFrame > int (frameLevels.size()) || lastFrame - firstFrame < 20) return out;
+    std::array<int, size_t (kHistogramBins)> hist {};
+    int active = 0;
+    for (int i = firstFrame; i < lastFrame; ++i)
+    {
+        const int bin = std::clamp (int (frameLevels[size_t (i)]) + 100, 0, kHistogramBins - 1);
+        ++hist[size_t (bin)];
+        if (bin >= int (kDigitalSilenceDb) + 100) ++active;
+    }
+    if (active < 10) return out;
+    const int firstActiveBin = int (kDigitalSilenceDb) + 100;
+    auto percentile = [&] (float pct) -> float
+    {
+        const int target = std::max (1, int (std::ceil (pct * float (active))));
+        int acc = 0;
+        for (int b = firstActiveBin; b < kHistogramBins; ++b)
+        {
+            acc += hist[size_t (b)];
+            if (acc >= target) return float (b - 100);
+        }
+        return 0.0f;
+    };
+    out.floorDb = percentile (0.10f);
+    out.hitDb = percentile (0.95f);
+    const int firstBin = std::max (firstActiveBin, int (std::lround (out.hitDb - kActiveRangeDb)) + 100);
+    double sum = 0.0;
+    int count = 0;
+    for (int b = firstBin; b < kHistogramBins; ++b)
+    {
+        const int n = hist[size_t (b)];
+        if (n <= 0) continue;
+        sum += double (n) * std::pow (10.0, double (b - 100) / 10.0);
+        count += n;
+    }
+    if (count > 0) out.activeRmsDb = float (10.0 * std::log10 (std::max (sum / count, 1.0e-12)));
+    // "Playing" rather than "present": a window of nothing but a noise floor has an active
+    // level too, and it must not get a vote on where a fader goes.
+    out.played = out.hitDb - out.floorDb > 1.0f || count * 4 > active * 3;
+    return out;
+}
+
+// A thirty second listen catches one part of one song. Read over the whole of it, a source that
+// doubled in the chorus and a source that rested through the bridge both come out somewhere in
+// between, and the next listen - one verse later - comes out somewhere else: the faders move by
+// several dB between two tunes of the same performance, which is what makes a mix feel unstable.
+// So the three statistics a balance is fitted from are read again over each third of the listen
+// and the middle answer taken. A source that only played in one third has no middle answer to
+// take, and keeps what the whole capture measured - which is the right answer for a solo.
+void AnalysisAccumulator::levelsOverWindows (AnalysisResult& r) const
+{
+    const int frames = int (frameLevels.size());
+    if (frames < 60) return;                       // under 0.6 s: there is nothing to split
+    std::array<Levels, size_t (kLevelWindows)> w;
+    int played = 0;
+    for (int k = 0; k < kLevelWindows; ++k)
+    {
+        w[size_t (k)] = levelsOver (frames * k / kLevelWindows, frames * (k + 1) / kLevelWindows);
+        if (w[size_t (k)].played) ++played;
+    }
+    if (played < 2) return;
+    auto middleOf = [&] (float Levels::* field) -> float
+    {
+        std::array<float, size_t (kLevelWindows)> v {};
+        int n = 0;
+        for (const auto& one : w) if (one.played) v[size_t (n++)] = one.*field;
+        std::sort (v.begin(), v.begin() + n);
+        return v[size_t (n / 2)];                  // two votes: the higher; three: the middle
+    };
+    r.noiseFloorDb = middleOf (&Levels::floorDb);
+    r.hitLevelDb = middleOf (&Levels::hitDb);
+    r.activeRmsDb = middleOf (&Levels::activeRmsDb);
+    r.dynamicRangeDb = r.hitLevelDb - r.noiseFloorDb;
+    r.musicalPeakDb = r.hitLevelDb > -119.0f ? std::min (r.peakDb, r.hitLevelDb + kSpikeMarginDb) : r.peakDb;
+}
+
 void AnalysisAccumulator::consume (const float* interleaved, int numFrames) noexcept
 {
     capturedFrames += numFrames;
@@ -203,6 +287,7 @@ void AnalysisAccumulator::consume (const float* interleaved, int numFrames) noex
             int bin = int (std::lround (frameDb)) + 100;
             bin = std::clamp (bin, 0, kHistogramBins - 1);
             ++levelHistogram[size_t (bin)];
+            frameLevels.push_back (static_cast<signed char> (bin - 100));
 
             const float floorDb = *std::min_element (recentFrameDb.begin(), recentFrameDb.end());
 
@@ -357,6 +442,10 @@ AnalysisResult AnalysisAccumulator::finalise (int droppedFrames)
         }
         if (count > 0) r.activeRmsDb = float (10.0 * std::log10 (std::max (sum / count, 1.0e-12)));
     }
+
+    // ... and then the same three read over thirds of the listen instead of over all of it,
+    // when the source played in more than one of them.
+    levelsOverWindows (r);
 
     // The level a loud hit reaches: the 90th percentile of the peaks the detected events reached.
     // A close drum microphone is mostly bleed - every kick and snare in the room registers as an event

@@ -45,6 +45,15 @@ private:
     int analysisFramePos = 0;
     double frameSumSquares = 0.0;
     std::vector<int> levelHistogram;
+    // Every 10 ms frame's level, to the nearest dB, for the whole capture (3 kB for a 30 s
+    // listen). The level statistics a mix is *balanced* from are re-read from thirds of this
+    // and the middle answer taken, so one chorus, one rest or one solo inside the listen
+    // cannot decide a fader on its own. See levelsOverWindows().
+    std::vector<signed char> frameLevels;
+    static constexpr int kLevelWindows = 3;
+    struct Levels { float floorDb = -120.0f, hitDb = -120.0f, activeRmsDb = -120.0f; bool played = false; };
+    Levels levelsOver (int firstFrame, int lastFrame) const;
+    void levelsOverWindows (AnalysisResult& r) const;
     int totalAnalysisFrames = 0, silentFrames = 0;
     float prevFrameDb = -120.0f;
     float prevFrameRms = 0.0f;
