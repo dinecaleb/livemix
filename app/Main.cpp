@@ -610,6 +610,32 @@ public:
 
         window = std::make_unique<MainWindow> (getApplicationName(), *controller, *services);
 
+        // HOT-PLUG. A console pulled out in the middle of a service is a sentence, not silence:
+        // AudioHost notices, says so, and opens it again by itself the moment it comes back -
+        // on the same channels, with the same mix, because the session is a document and
+        // reopening a device only rebuilds the audio graph for it. The workspaces re-read the
+        // device the way they do after any device change.
+        host->onDeviceLost = [this] (DeviceState device)
+        {
+            if (window == nullptr) return;
+            window->view().showToast (deviceLostSentence (device, services != nullptr && services->daw().isRecording()));
+        };
+        host->onDeviceReturned = [this] (DeviceState device)
+        {
+            if (window == nullptr) return;
+            window->view().showToast (deviceBackSentence (device.input.isNotEmpty() ? device.input : device.output,
+                                                          device.inputChannels, device.outputChannels));
+        };
+        // Something was plugged in or pulled out. The chrome and the status foot follow the
+        // device on their own tick; the one thing that does not is the list of devices on the
+        // set-up page, and only when somebody is looking at it.
+        host->onDeviceListChanged = [this]
+        {
+            if (window == nullptr) return;
+            auto& page = window->view().getDevicePage();
+            if (page.isVisible()) page.refresh();
+        };
+
         if (restored)
         {
             // Exactly the same path as opening it from the library, so there is one way a

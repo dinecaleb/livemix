@@ -78,6 +78,61 @@ inline juce::String inputRefusedSentence (const juce::String& inputDevice, const
     return s;
 }
 
+// ---------------------------------------------------------------------------
+// HOT-PLUG: a console pulled out mid-service, and put back
+//
+// Two questions, both decided here so they are decided once and can be tested with no device
+// on the machine: may DLIVE open the device again by itself, and what does it say while it
+// waits. A reopen is only ever the device the session already had - DLIVE never picks a
+// different console because one happened to appear - and only after the one it had went away
+// on its own. Everything else (nothing was open, the user closed it, a different device
+// arrived) is somebody's decision to make, not DLIVE's.
+// ---------------------------------------------------------------------------
+struct DeviceReturn
+{
+    bool reopen = false;      // open it again, exactly as it was opened before
+    juce::String what;        // the device the answer is about, for the sentence
+};
+
+inline DeviceReturn deviceReturned (const DeviceState& d,
+                                    const juce::StringArray& connectedInputs,
+                                    const juce::StringArray& connectedOutputs)
+{
+    DeviceReturn r;
+    if (d.stage != DeviceStage::Disconnected) return r;      // nothing was lost; nothing to put back
+
+    // Both halves. An output-only session asked for no input and waits for none; a session
+    // with a console waits for the console *and* whatever it was playing out of, because
+    // opening one without the other is a different session from the one that was running.
+    if (d.input.isNotEmpty() && ! connectedInputs.contains (d.input)) return r;
+    if (d.output.isNotEmpty() && ! connectedOutputs.contains (d.output)) return r;
+
+    r.reopen = true;
+    r.what = d.input.isNotEmpty() ? d.input : d.output;
+    return r;
+}
+
+// What to say when a device that was open goes away in the middle of a service, and what to
+// say when it comes back. Both name the device, because "the device" is not a thing an
+// operator can go and look at.
+inline juce::String deviceLostSentence (const DeviceState& d, bool recording)
+{
+    const auto what = d.input.isNotEmpty() ? d.input : d.output;
+    juce::String s = (what.isNotEmpty() ? what : juce::String ("The audio device")) + " stopped. ";
+    s += recording ? "The take so far is safe on disk and the session is untouched. "
+                   : "Nothing about the mix or the session has changed. ";
+    s += "DLIVE opens it again by itself the moment it comes back.";
+    return s;
+}
+
+inline juce::String deviceBackSentence (const juce::String& what, int inputChannels, int outputChannels)
+{
+    juce::String s = (what.isNotEmpty() ? what : juce::String ("The audio device")) + " is back";
+    if (inputChannels > 0 || outputChannels > 0)
+        s += ": " + juce::String (inputChannels) + " in, " + juce::String (outputChannels) + " out";
+    return s + ". Every input is on the channel it was on.";
+}
+
 // What the status line says about a device, whatever state it is in. Never "no audio devices"
 // when there are devices: that sentence is only true for Absent with nothing connected.
 inline juce::String deviceSentence (const DeviceState& d, bool anyDeviceConnected)
@@ -90,7 +145,8 @@ inline juce::String deviceSentence (const DeviceState& d, bool anyDeviceConnecte
         case DeviceStage::InputRefused:
             return d.why.isNotEmpty() ? d.why : juce::String ("DLIVE can play and mix, but it is not hearing any inputs.");
         case DeviceStage::Disconnected:
-            return (d.input.isNotEmpty() ? d.input : d.output) + " was unplugged. Pick a device under Audio device.";
+            return (d.input.isNotEmpty() ? d.input : d.output)
+                     + " was unplugged. DLIVE opens it again by itself when it comes back.";
         case DeviceStage::Selected:
         case DeviceStage::ChannelsKnown:
         case DeviceStage::Present:

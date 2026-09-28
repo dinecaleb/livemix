@@ -8,10 +8,16 @@ AudioHost::AudioHost (MixController& c, DawEngine& d) : controller (c), daw (d)
 {
     // Register the device types without opening anything yet.
     deviceManager.initialise (0, 0, nullptr, false);
+    // ... and ask each of them to say when something is plugged in or pulled out.
+    for (auto* type : deviceManager.getAvailableDeviceTypes())
+        if (type != nullptr) type->addListener (this);
 }
 
 AudioHost::~AudioHost()
 {
+    cancelPendingUpdate();
+    for (auto* type : deviceManager.getAvailableDeviceTypes())
+        if (type != nullptr) type->removeListener (this);
     close();
 }
 
@@ -74,10 +80,15 @@ bool AudioHost::waitForOutputDevice (const juce::String& name, int timeoutMs)
 juce::String AudioHost::open (const juce::String& inputDevice, const juce::String& outputDevice, double preferredSampleRate, int preferredBufferSize,
                               const juce::BigInteger& outputChannels)
 {
-    close();
+    stopDevice();
     inputRefused = false;
     inputRefusedWhy.clear();
     wantedInput = inputDevice;
+    lostAnnounced = false;
+    // Remembered before the attempt, not after: a device that comes back has to be opened the
+    // way it was asked for, which is not always the way it ended up (the input half may have
+    // been refused and the output opened alone).
+    lastRequest = { true, false, inputDevice, outputDevice, preferredSampleRate, preferredBufferSize, outputChannels };
 
     juce::AudioDeviceManager::AudioDeviceSetup setup;
     setup.inputDeviceName = inputDevice;
@@ -122,6 +133,7 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
     deviceStopped.store (false);
     deviceManager.addAudioCallback (this);
     running = true;
+    lost = false;
     return {};
 }
 
@@ -133,6 +145,21 @@ DeviceState AudioHost::state() const
     d.inputChannels = getNumInputChannels();
     d.outputChannels = getNumOutputChannels();
     if (deviceStoppedUnexpectedly()) { d.stage = DeviceStage::Disconnected; return d; }
+    // Lost and not open again yet - including the moment just after an attempt to reopen it
+    // failed, when nothing is running and the device manager has forgotten the names. The
+    // session's own request is what says which device is being waited for.
+    if (lost && ! running)
+    {
+        d.stage = DeviceStage::Disconnected;
+        if (lastRequest.valid)
+        {
+            d.input = lastRequest.input;
+            d.output = lastRequest.output;
+        }
+        d.inputChannels = 0;
+        d.outputChannels = 0;
+        return d;
+    }
     if (inputRefused)
     {
         d.stage = DeviceStage::InputRefused;
@@ -146,9 +173,17 @@ DeviceState AudioHost::state() const
 
 juce::String AudioHost::openOutputOnly (const juce::String& outputDevice, double preferredSampleRate, int preferredBufferSize)
 {
-    close();
+    // The fallback inside open() calls this; that call must not overwrite what open() was
+    // asked for, or a console that comes back would be reopened as an output on its own.
+    const bool fromOpen = lastRequest.valid && ! lastRequest.outputOnly && lastRequest.output == outputDevice;
+    stopDevice();
     inputRefused = false;
     inputRefusedWhy.clear();
+    if (! fromOpen)
+    {
+        lostAnnounced = false;
+        lastRequest = { true, true, {}, outputDevice, preferredSampleRate, preferredBufferSize, {} };
+    }
     juce::AudioDeviceManager::AudioDeviceSetup setup;
     setup.inputDeviceName = {};
     setup.outputDeviceName = outputDevice;
@@ -164,6 +199,7 @@ juce::String AudioHost::openOutputOnly (const juce::String& outputDevice, double
     deviceStopped.store (false);
     deviceManager.addAudioCallback (this);
     running = true;
+    lost = false;
     return {};
 }
 
@@ -193,7 +229,7 @@ juce::String AudioHost::setOutputDevice (const juce::String& outputDevice)
     return {};
 }
 
-void AudioHost::close()
+void AudioHost::stopDevice()
 {
     closing = true;
     if (running)
@@ -204,6 +240,17 @@ void AudioHost::close()
     }
     deviceStopped.store (false);
     closing = false;
+}
+
+void AudioHost::close()
+{
+    // The application is done with this device, rather than on its way to another one. So
+    // nothing is waiting for it to come back: a device DLIVE was told to let go of is not one
+    // it should open again by itself half an hour later.
+    stopDevice();
+    lost = false;
+    lostAnnounced = false;
+    lastRequest.valid = false;
 }
 
 void AudioHost::reconfigure()
@@ -306,7 +353,66 @@ void AudioHost::audioDeviceAboutToStart (juce::AudioIODevice* device)
 void AudioHost::audioDeviceStopped()
 {
     // Our own close() and reconfigure() stop the device too; anything else is the device going away.
-    if (running && ! closing) deviceStopped.store (true);
+    if (running && ! closing)
+    {
+        deviceStopped.store (true);
+        lost = true;
+        triggerAsyncUpdate();     // this is the device's thread: the sentence happens elsewhere
+    }
+}
+
+// ---------------------------------------------------------------------- hot-plug
+void AudioHost::audioDeviceListChanged()
+{
+    listChanged.store (true);
+    triggerAsyncUpdate();
+}
+
+void AudioHost::handleAsyncUpdate()
+{
+    // The message thread, always. Everything below may open and close devices.
+    if (listChanged.exchange (false))
+    {
+        rescanDevices();                 // JUCE caches the list per device type
+        if (onDeviceListChanged) onDeviceListChanged();
+    }
+
+    if (deviceStoppedUnexpectedly() && ! lostAnnounced)
+    {
+        lostAnnounced = true;
+        if (onDeviceLost) onDeviceLost (state());
+    }
+
+    checkForReturnedDevice();
+}
+
+bool AudioHost::checkForReturnedDevice()
+{
+    if (! reopenOnReturn || ! lastRequest.valid) return false;
+
+    const auto before = state();
+    juce::StringArray inputs, outputs;
+    for (auto* type : deviceManager.getAvailableDeviceTypes())
+    {
+        if (type == nullptr) continue;
+        inputs.addArray (type->getDeviceNames (true));
+        outputs.addArray (type->getDeviceNames (false));
+    }
+    const auto answer = deviceReturned (before, inputs, outputs);
+    if (! answer.reopen) return false;
+
+    // Opened exactly as it was: same devices, same rate, same buffer, same output channels.
+    // The session, the assignments and the kept mix are not this function's business - it
+    // opens a device, and prepare() builds the graph for whatever the document already says.
+    const auto request = lastRequest;
+    const auto error = request.outputOnly
+        ? openOutputOnly (request.output, request.sampleRate, request.bufferSize)
+        : open (request.input, request.output, request.sampleRate, request.bufferSize, request.outputChannels);
+    if (error.isNotEmpty()) { lastRequest = request; return false; }   // still gone, or busy: try again next time
+    lastRequest = request;
+    lostAnnounced = false;
+    if (onDeviceReturned) onDeviceReturned (state());
+    return true;
 }
 
 } // namespace livemix

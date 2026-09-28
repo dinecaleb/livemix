@@ -2963,6 +2963,70 @@ TEST_CASE ("Devices: every state has a sentence, and \"no audio devices\" is onl
     }
 }
 
+TEST_CASE ("Devices: a console pulled out comes back by itself, and only that console does")
+{
+    // Hot-plug, decided by a pure function so the rule is the same whatever hardware the Mac
+    // has and can be checked on a Mac with none. AudioHost calls this and nothing else decides.
+    const juce::StringArray nothing;
+    const juce::StringArray consoleIn { "Dante Virtual Soundcard" };
+    const juce::StringArray consoleOut { "Dante Virtual Soundcard", "MacBook Pro Speakers" };
+
+    // The state a service is in when somebody kicks the cable out.
+    DeviceState gone;
+    gone.stage = DeviceStage::Disconnected;
+    gone.input = "Dante Virtual Soundcard";
+    gone.output = "Dante Virtual Soundcard";
+
+    // Still gone: nothing happens, and DLIVE says so rather than sitting silent.
+    CHECK (! deviceReturned (gone, nothing, nothing).reopen);
+    CHECK (deviceSentence (gone, true).contains ("opens it again by itself"));
+    CHECK (deviceLostSentence (gone, false).contains ("Dante Virtual Soundcard"));
+    CHECK (deviceLostSentence (gone, false).contains ("Nothing about the mix or the session has changed"));
+    // Mid-take, the sentence is about the take, because that is the question being asked.
+    CHECK (deviceLostSentence (gone, true).contains ("safe on disk"));
+
+    // Half of it back is not back: opening the console without the output it was playing
+    // through would be a different session from the one that was running.
+    CHECK (! deviceReturned (gone, consoleIn, nothing).reopen);
+    CHECK (! deviceReturned (gone, nothing, consoleOut).reopen);
+
+    // Both halves back: open it again, and say which device and what came with it.
+    const auto back = deviceReturned (gone, consoleIn, consoleOut);
+    CHECK (back.reopen);
+    CHECK (back.what == "Dante Virtual Soundcard");
+    CHECK (deviceBackSentence (back.what, 32, 4).contains ("Dante Virtual Soundcard is back"));
+    CHECK (deviceBackSentence (back.what, 32, 4).contains ("32 in, 4 out"));
+    CHECK (deviceBackSentence (back.what, 32, 4).contains ("on the channel it was on"));
+
+    // SOMEBODY ELSE'S DEVICE IS NOT AN INVITATION. A pair of headphones plugged in during the
+    // sermon must not become the console.
+    const juce::StringArray headphones { "External Headphones" };
+    CHECK (! deviceReturned (gone, headphones, headphones).reopen);
+
+    // An output-only session - a recorded service being mixed with no console in the room -
+    // waits for its output and for nothing else.
+    DeviceState playbackGone;
+    playbackGone.stage = DeviceStage::Disconnected;
+    playbackGone.output = "MacBook Pro Speakers";
+    CHECK (! deviceReturned (playbackGone, nothing, nothing).reopen);
+    CHECK (deviceReturned (playbackGone, nothing, { "MacBook Pro Speakers" }).reopen);
+    CHECK (deviceReturned (playbackGone, nothing, { "MacBook Pro Speakers" }).what == "MacBook Pro Speakers");
+
+    // NOTHING ELSE REOPENS ANYTHING. Every other state is either running, or somebody's own
+    // decision to make - a device nobody chose, a device the user closed, inputs macOS refused.
+    for (int i = 0; i < int (DeviceStage::Count); ++i)
+    {
+        if (DeviceStage (i) == DeviceStage::Disconnected) continue;
+        DeviceState d;
+        d.stage = DeviceStage (i);
+        d.input = "Dante Virtual Soundcard";
+        d.output = "Dante Virtual Soundcard";
+        CHECK_MESSAGE (! deviceReturned (d, consoleIn, consoleOut).reopen,
+                       std::string ("DLIVE would open a device by itself from the state ")
+                           + deviceStageName (DeviceStage (i)));
+    }
+}
+
 TEST_CASE ("Devices: a session opens, edits and saves with no device at all")
 {
     // The end of the whole phase, in one test: nothing is plugged in, nothing is prepared, and

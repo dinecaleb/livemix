@@ -503,6 +503,26 @@ enum class DeviceStage { Absent, Present, Selected, ChannelsKnown, OutputOpen, O
 §4 asks for: DLIVE plays and mixes, and says in one sentence that macOS is not letting it hear the inputs.
 `Disconnected` is what `deviceStoppedUnexpectedly()` already detects.
 
+**Hot-plug (Phase 2, 2026-09-28).** `AudioHost` is now a `juce::AudioIODeviceType::Listener` as well as a
+device callback. CoreAudio says the device list changed, or the open device stops; both arrive on threads
+DLIVE does not own, so both set a flag and the work happens on the message thread through an `AsyncUpdater`.
+The work is: rescan (JUCE caches the device list per device type), say what happened, and - if the device
+*this session was opened with* has come back - open it again exactly as it was opened: same devices, same
+rate, same buffer, same output channels.
+
+`deviceReturned()` in `DeviceState.h` is the rule and it is a pure function, so it is tested on a Mac with no
+hardware at all: reopen only from `Disconnected`, only when **both** halves the session asked for are
+connected again, and never a device DLIVE was not already using - a pair of headphones plugged in during the
+sermon does not become the console. `AudioHost::close()` means the application is done with that device and
+cancels the wait; `stopDevice()` is the internal stop that `open()` uses on its way somewhere else. A `lost`
+flag outlives a reopen attempt that came a moment too early, so one failed try does not leave the session
+looking as though nobody had chosen a device.
+
+Nothing about the session is involved. Reopening calls `prepare()`, which builds the audio graph and does not
+decide whether the state exists (§2), so the assignments, the mix, the scenes and the timeline are exactly
+where they were and every input is on the channel it was on. `deviceLostSentence` / `deviceBackSentence` are
+what the window says; mid-take the first one is about the take, because that is the question being asked.
+
 ### 5.6 Version and migration
 
 `SessionStore::kVersion` 4 → 5. Every earlier version opens:
@@ -590,7 +610,7 @@ product builds, the UI snapshots render unchanged.
 | 5.2 Splitting `prepare()` | yes | `MixController::rebuild()` (pure, no device, no rate) and `prepare()` (the audio graph only). `resetDocument()` is the blank slate a different document is loaded onto |
 | 5.3 Saving by revision | yes | `MixController::touch()` / `getRevision()`; `MainView`'s tick writes a second after the revision stops moving. 39 `saveSession()` calls became 3 |
 | 5.4 Sample identity | yes | `SampleChoice` + `SampleLibrary::slotFor()`; `readSampleChoices` / `resolveSampleChoices`. The cap says so now (`whatWasLeftOut()`) |
-| 5.5 Device state, modelled | yes (step 4) | `DeviceState.h`: `Absent / Present / Selected / ChannelsKnown / OutputOpen / Open / InputRefused / Disconnected`, each with its sentence. `AudioHost::state()` reports it |
+| 5.5 Device state, modelled | yes (step 4) | `DeviceState.h`: `Absent / Present / Selected / ChannelsKnown / OutputOpen / Open / InputRefused / Disconnected`, each with its sentence. `AudioHost::state()` reports it; hot-plug acts on it (Phase 2) |
 | 5.6 Version 5 + migration | yes | `kVersion = 5`; a test downgrades this build's document to 1, 2, 3 and 4 and opens each |
 | 5.7 Realtime invariants | yes | Nothing new on the audio thread; `compose()` → `publish()` → `TripleBuffer` untouched. `MixEngine::getStrip()` gained a bounds check, which it needed the moment the UI could draw a strip with no device open |
 
@@ -650,8 +670,7 @@ Still open from this phase:
   mutation go through `DawEngine` belongs with the TracksPage work in Phase 2. A missed bump now delays a
   save rather than losing one - the next bump writes the whole document - which a missed `saveSession()` did
   not.
-- **Device hot-plug** is Phase 2 (`AudioHost` still does not listen for device-list changes), and the
-  `Disconnected` state is reported but not yet acted on beyond the existing "the device stopped" notice.
+- ~~**Device hot-plug**~~ — done in Phase 2 (2026-09-28); see §5.5.
 - The *denied* microphone case has not been observed on a machine, only reasoned about from the granted one
   (see §4). The path is shared, so the risk is the wording rather than the behaviour.
 

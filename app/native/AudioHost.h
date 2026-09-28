@@ -13,7 +13,9 @@ namespace livemix
 // here) and hands every block to DawEngine, which records the raw inputs, plays the
 // timeline back and mixes. Every output channel the device has (up to kMaxOutputs) is
 // opened, so the mix can leave by more than one pair at once - see OutputFeeds.
-class AudioHost : private juce::AudioIODeviceCallback
+class AudioHost : private juce::AudioIODeviceCallback,
+                  private juce::AudioIODeviceType::Listener,
+                  private juce::AsyncUpdater
 {
 public:
     AudioHost (MixController& controller, DawEngine& daw);
@@ -36,6 +38,36 @@ public:
     juce::String open (const juce::String& inputDevice, const juce::String& outputDevice,
                        double preferredSampleRate = 48000.0, int preferredBufferSize = 64,
                        const juce::BigInteger& outputChannels = {});
+
+    // ---- HOT-PLUG: a console unplugged mid-service, and put back ----
+    //
+    // CoreAudio tells JUCE when the device list changes and JUCE tells every device type's
+    // listeners; a device that is open and goes away stops the callback. Both arrive on
+    // threads DLIVE does not own, so both only set a flag here and the work happens on the
+    // message thread through AsyncUpdater. What the work is: rescan (JUCE caches the list per
+    // device type, so a device that appeared since the last scan does not exist as far as it
+    // is concerned), and if the device this session was opened with has come back, open it
+    // again exactly as it was opened - same rate, same buffer, same output channels.
+    //
+    // DLIVE never opens a device it was not already using. `deviceReturned` in DeviceState.h
+    // is that rule, and it is a pure function so it is tested with no hardware at all.
+    //
+    // The mix, the assignments and the timeline are untouched by any of this: reopening calls
+    // prepare(), which builds the audio graph and does not decide whether the session's state
+    // exists (docs/SESSION-STATE.md). So every input is on the channel it was on.
+    //
+    // Both are called on the message thread, after the state has settled.
+    std::function<void (DeviceState)> onDeviceLost;       // it was open and went away
+    std::function<void (DeviceState)> onDeviceReturned;   // ... and it is open again
+    std::function<void()> onDeviceListChanged;            // something was plugged in or pulled out
+
+    // Open it again by itself when it comes back. On by default; off is for a tool or a test
+    // that must not have a device opened behind it.
+    void setReopenOnReturn (bool on) noexcept { reopenOnReturn = on; }
+    bool reopensOnReturn() const noexcept { return reopenOnReturn; }
+    // Do the check now rather than waiting for CoreAudio to say something. Returns true when a
+    // device was opened again.
+    bool checkForReturnedDevice();
 
     // Where the device actually is, and why, in one place. See DeviceState.h.
     DeviceState state() const;
@@ -82,6 +114,30 @@ private:
                                            int numSamples, const juce::AudioIODeviceCallbackContext&) noexcept LIVEMIX_NONBLOCKING override;
     void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
+    void audioDeviceListChanged() override;      // juce::AudioIODeviceType::Listener
+    void handleAsyncUpdate() override;           // ... both, back on the message thread
+
+    // What open() was last asked for, so the device that comes back is opened the way it was.
+    struct OpenRequest
+    {
+        bool valid = false, outputOnly = false;
+        juce::String input, output;
+        double sampleRate = 48000.0;
+        int bufferSize = 64;
+        juce::BigInteger outputChannels;
+    };
+    OpenRequest lastRequest;
+    bool reopenOnReturn = true;
+    bool lostAnnounced = false;                  // onDeviceLost has been told about this one
+    // The device that was open went away and has not been opened again. It outlives the
+    // failed attempts to reopen it - which is the whole point: without it, one attempt that
+    // came a moment too early would leave the session looking as if nobody had chosen a
+    // device, and no later plug-in event would put it back.
+    bool lost = false;
+    std::atomic<bool> listChanged { false };
+    // The device stopped, without deciding what that means. close() is the app saying it is
+    // done with this device; open() is on its way to a new one.
+    void stopDevice();
 
     MixController& controller;
     DawEngine& daw;
