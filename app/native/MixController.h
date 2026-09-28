@@ -177,8 +177,27 @@ public:
     static ListenSettings busListen() { return { 20.0f, -45.0f, 25.0f }; }
     bool isTuningBus() const noexcept { return tuningBus >= 0; }
     MixBus getTuningBus() const noexcept { return tuningBus >= 0 ? MixBus (tuningBus) : MixBus::Count; }
-    // A channel or a group: the listen and the plan are about part of the mix, not all of it.
-    bool isTuningPart() const noexcept { return tuningStrip >= 0 || tuningBus >= 0; }
+
+    // ---- TUNE <these channels>: the ones somebody picked, and nothing else ----
+    // The third scope, beside the whole mix and one group. Again the same listen and the same
+    // planner - every input is measured, so the choice is still made in mix context - narrowed
+    // to this set of strips when the plan is made, through the same PlanSelection that KEEP
+    // SOME uses. The buses, the master and every strip not in the set stay where they are.
+    // The listen waits for any of them: "the three backing vocals" starts when one of them
+    // sings, not when the drummer moves.
+    void startTuneStrips (const std::vector<int>& strips, const ListenSettings& s);
+    void startTuneStrips (const std::vector<int>& strips) { startTuneStrips (strips, busListen()); }
+    const std::vector<int>& getTuningStrips() const noexcept { return tuningStrips; }
+    bool isTuningStrips() const noexcept { return ! tuningStrips.empty(); }
+
+    // A channel, a group or a set of channels: the listen and the plan are about part of the
+    // mix, not all of it.
+    bool isTuningPart() const noexcept { return tuningStrip >= 0 || tuningBus >= 0 || ! tuningStrips.empty(); }
+
+    // WHAT THE LAST TUNE RAN ON, in the words the card says it in: "the whole mix", "DRUMS",
+    // "Lead Vocal", "3 channels". Kept after the listen ends, because the Tune card has to be
+    // able to say what it is a card about long after the scope was cleared.
+    const std::string& getLastTuneScope() const noexcept { return lastScope; }
 
     // ---- TUNE LIVE MIX: the AI mix engineer ----
     // The same listen, the same deterministic plan and the same BEFORE / AFTER as TUNE MIX,
@@ -244,6 +263,9 @@ public:
     bool isListening() const noexcept { return stage == Stage::Listening; }
     bool isWaitingForBand() const noexcept { return capture.getState() == MixCapture::State::Waiting; }
     float getListenProgress() const noexcept { return capture.getProgress(); }
+    // How long the listen that is running was asked for. The card counts down from it, so it
+    // has to be the real number rather than the default for the scope.
+    float getListenSeconds() const noexcept { return listen.seconds; }
     bool stripHeard (int strip) const noexcept { return capture.stripHeard (strip); }
     bool busHeard (MixBus bus) const noexcept;         // any strip on the bus heard (for "Drums ✓")
     std::string getStatusText() const;                  // "LISTENING... 12 s" / "READY" / "Play the band"
@@ -399,6 +421,18 @@ public:
     bool hasMonitorOutput() const noexcept { return hasMonitorFeed (outputs); }
     bool anySolo() const noexcept;
     int numSoloed() const noexcept;
+    // WHAT IS SOLOED, by name. Solo is the one state that changes what the engineer hears and
+    // nothing about what the room hears, which is exactly why it is the state most easily left
+    // on by accident - so the window says what is down, from every workspace, and it asks here
+    // rather than walking three arrays of its own.
+    struct SoloedItem
+    {
+        enum class Kind { Strip, Bus, Fx };
+        Kind kind = Kind::Strip;
+        int index = 0;               // the strip, the MixBus, or the FxSlot
+        std::string name;
+    };
+    std::vector<SoloedItem> getSoloed() const;
 
     // ---- Outputs: where the sound leaves the device ----
     // Monitoring, not mix: a feed never changes the mix, the plan or an export. Feed 0 is the
@@ -576,7 +610,8 @@ public:
 private:
     void publish();
     MixParameters compose() const;
-    void startListening (const ListenSettings&, int strip, int bus = -1);   // -1, -1 = the whole mix
+    // -1, -1, {} = the whole mix. Exactly one of the three is ever set.
+    void startListening (const ListenSettings&, int strip, int bus = -1, const std::vector<int>& strips = {});
 
     MixSession session;
     MixSession builtSession;            // what `graph` and `kept` below were built for
@@ -617,6 +652,9 @@ private:
     int tuneCount = 0;
     int tuningStrip = -1;               // TUNE CHANNEL: the one strip being listened to / previewed
     int tuningBus = -1;                 // TUNE <GROUP>: the one group bus being listened to / previewed
+    std::vector<int> tuningStrips;      // TUNE <these channels>: the set, empty when the scope is not that
+    std::string lastScope { "the whole mix" };   // what the last listen was about, in the card's own words
+    std::string scopeWords() const;     // the current scope, in those words
     std::optional<PlanSelection> planSelection;   // KEEP SOME: what AFTER plays and KEEP applies, while set
     MixParameters selectedProposed;               // the proposal narrowed to the selection (recomputed when either changes)
     void refreshSelection();

@@ -1010,6 +1010,24 @@ int main (int argc, char** argv)
     rig.feed (0.5);
     rig.snap (dir, "07-tune-ready");
 
+    // WHAT SHOULD DLIVE TUNE: the scope picker the verb opens with. All three, because the
+    // whole point of it is that the two that were invisible are now the same size as the one
+    // that was not.
+    {
+        auto& mix = view.getMixPage();
+        mix.pressTune();
+        rig.feed (0.2);
+        rig.snap (dir, "07e-tune-scope-mix");
+        mix.setScopeForSnapshot (1, -1);
+        rig.feed (0.2);
+        rig.snap (dir, "07f-tune-scope-group");
+        mix.setScopeForSnapshot (2, -1);
+        rig.feed (0.2);
+        rig.snap (dir, "07g-tune-scope-channels");
+        mix.pressTune();        // the picker is a toggle: this puts it away
+        rig.feed (0.2);
+    }
+
     // TUNE MIX: a short listen for the tool.
     rig.controller.startTuneMix ({ 4.0f, -45.0f, 5.0f });
     rig.feed (1.2);
@@ -1185,6 +1203,23 @@ int main (int argc, char** argv)
     rig.controller.setStripSolo (10, true);
     rig.feed (0.4);
     rig.snap (dir, "15g-mixer-mute-solo");
+
+    // THE SOLO BAND. Whatever is soloed - a channel, a group, a return - says so under the
+    // toolbar on every workspace, so an S left down on MIXER is not invisible from TRACKS.
+    // Shot on a workspace that is not the one the S was pressed on, which is the whole point.
+    rig.controller.setBusSolo (MixBus::Drums, true);
+    rig.controller.setFxSolo (FxSlot::VocalPlate, true);
+    view.updateChromeForSnapshot();
+    rig.feed (0.4);
+    rig.snap (dir, "15j-mixer-solo-bar");
+    view.showPage (MainView::Page::Tracks);
+    rig.feed (0.4);
+    rig.snap (dir, "15k-tracks-solo-bar");
+    view.showPage (MainView::Page::Mixer);
+    rig.controller.clearSolos();
+    view.updateChromeForSnapshot();
+    rig.feed (0.3);
+
     rig.controller.setStripMute (2, false);
     rig.controller.setStripSolo (10, false);
     // Linked faders: the three backing vocals move together, and the console says so beside their names.

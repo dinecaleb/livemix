@@ -255,6 +255,144 @@ private:
     bool diskLow = false;
 };
 
+// ---------------------------------------------------------------- the solo bar
+// SOLO YOU CANNOT MISS.
+//
+// Solo is the one state that changes what the engineer hears and nothing at all about what the
+// room and the stream hear - which is exactly what makes it the state most easily left on by
+// accident. An S pressed on MIXER at ten past ten is invisible from TRACKS, from TUNE and from
+// LIVE, and the first anyone knows about it is a service mixed through one microphone's worth
+// of headphones.
+//
+// So whenever anything is soloed - a channel, a group, an effects return - this band appears
+// under the toolbar, on every workspace, and says which. Each name is a way to that item;
+// CLEAR SOLO is one press; and the sentence says the thing a volunteer needs to hear, which is
+// that the room is fine. It takes no space at all when nothing is soloed.
+class MainView::SoloBar : public juce::Component
+{
+public:
+    static constexpr int height = 34;
+
+    SoloBar (MixController& c, std::function<void (const MixController::SoloedItem&)> jump)
+        : controller (c), onJump (std::move (jump))
+    {
+        setOpaque (true);
+        clear.setFontPx (11.5f);
+        clear.setCaps (true);
+        clear.setPadX (12);
+        clear.setTooltip ("Every solo off. The room and the stream never heard any of it.");
+        clear.onClick = [this] { controller.clearSolos(); refresh(); };
+        addAndMakeVisible (clear);
+    }
+
+    // Returns true when the bar's visibility changed, so the window knows to lay itself out.
+    bool refresh()
+    {
+        auto now = controller.getSoloed();
+        const bool wasShown = isVisible();
+        const bool show = ! now.empty();
+        bool same = now.size() == items.size();
+        if (same)
+            for (size_t i = 0; i < now.size(); ++i)
+                same = same && now[i].kind == items[i].kind && now[i].index == items[i].index && now[i].name == items[i].name;
+        if (! same) { items = std::move (now); layoutChips(); repaint(); }
+        if (show != wasShown) { setVisible (show); return true; }
+        return false;
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        // A tinted band rather than a coloured one: the console keys own solo's colour, and the
+        // bar is the same thing said louder, not a second idea.
+        g.fillAll (Dine::mix (Dine::keySolo, 0.16f, Dine::toolbar));
+        g.setColour (Dine::keySolo);
+        g.fillRect (getLocalBounds().removeFromLeft (3));
+        g.setColour (Dine::hair);
+        g.fillRect (getLocalBounds().removeFromBottom (1));
+
+        auto r = getLocalBounds().withTrimmedLeft (3).reduced (15, 0);
+        g.setColour (Dine::keySolo);
+        g.setFont (Dine::caps (11.0f, 0.10f));
+        Dine::drawText (g, "SOLO", r.removeFromLeft (Dine::textWidth (Dine::caps (11.0f, 0.10f), "SOLO")),
+                        juce::Justification::centredLeft);
+
+        for (const auto& chip : chips)
+        {
+            const bool over = chip.box.contains (getMouseXYRelative());
+            Dine::fillRounded (g, chip.box.toFloat(), over ? Dine::controlHot : Dine::control, Dine::Radius::chip);
+            g.setColour (over ? Dine::ink : Dine::ink2);
+            g.setFont (Dine::text (12.0f, 500));
+            Dine::drawText (g, chip.label, chip.box.reduced (9, 0), juce::Justification::centred);
+        }
+
+        if (! note.isEmpty())
+        {
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (12.0f));
+            Dine::drawText (g, note, noteBox, juce::Justification::centredLeft, true);
+        }
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().withTrimmedLeft (3).reduced (15, 0);
+        clear.setBounds (r.removeFromRight (juce::jmax (96, clear.idealWidth())).withSizeKeepingCentre (
+                             juce::jmax (96, clear.idealWidth()), Dine::Metric::control - 4));
+        layoutChips();
+    }
+
+    void mouseMove (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit (const juce::MouseEvent&) override { repaint(); }
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        for (const auto& chip : chips)
+            if (chip.box.contains (e.getPosition())) { if (onJump) onJump (chip.item); return; }
+    }
+
+private:
+    struct Chip { juce::Rectangle<int> box; juce::String label; MixController::SoloedItem item; };
+
+    void layoutChips()
+    {
+        chips.clear();
+        noteBox = {};
+        auto r = getLocalBounds().withTrimmedLeft (3).reduced (15, 0);
+        r.removeFromRight (clear.getWidth() + 14);
+        r.removeFromLeft (Dine::textWidth (Dine::caps (11.0f, 0.10f), "SOLO") + 14);
+
+        const auto font = Dine::text (12.0f, 500);
+        const int chipH = Dine::Metric::control - 6;
+        int hidden = 0;
+        for (const auto& item : items)
+        {
+            const juce::String label = item.kind == MixController::SoloedItem::Kind::Bus
+                                           ? juce::String (item.name).toUpperCase()
+                                       : item.kind == MixController::SoloedItem::Kind::Fx
+                                           ? juce::String (item.name) + " return"
+                                           : juce::String (item.name);
+            const int w = Dine::textWidth (font, label) + 18;
+            // A console with twenty things soloed is a console with a problem, and the bar's
+            // job is to say so rather than to list them all: what does not fit becomes a count.
+            if (w + 8 > r.getWidth() - 90) { ++hidden; continue; }
+            chips.push_back ({ r.removeFromLeft (w).withSizeKeepingCentre (w, chipH), label, item });
+            r.removeFromLeft (8);
+        }
+
+        note = hidden > 0 ? "and " + juce::String (hidden) + " more  " + Glyph::dot() + "  only you hear it"
+                          : juce::String ("Only you hear it. The room and the stream are unchanged.");
+        if (r.getWidth() > 40) { r.removeFromLeft (6); noteBox = r; }
+    }
+
+    MixController& controller;
+    std::function<void (const MixController::SoloedItem&)> onJump;
+    std::vector<MixController::SoloedItem> items;
+    std::vector<Chip> chips;
+    juce::Rectangle<int> noteBox;
+    juce::String note;
+    DineButton clear { "Clear solo", DineButton::Style::Standard };
+};
+
 // ---------------------------------------------------------------- sidebar
 // LIBRARY / SET-UP / WORKSPACE, each a caption over its rows, the wordmark at the top and
 // the device along the foot. It is 184 px and folds to a 17 px handle with its name down it.
@@ -495,7 +633,9 @@ public:
                 break;
             case 3:
                 m.addItem (405, "TUNE LIVE MIX");
-                m.addItem (400, "TUNE MIX");
+                // It asks what to tune before it tunes anything, so it carries the ellipsis
+                // every other item that opens something carries.
+                m.addItem (400, "TUNE MIX" + juce::String (Glyph::ellip()));
                 m.addItem (404, "TUNE CHANNEL   T", view.selectedChannel() >= 0);
                 m.addSeparator();
                 m.addItem (407, view.controller.hasReference() ? "MATCH TO REFERENCE" : "MATCH TO REFERENCE...",
@@ -688,6 +828,9 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
 
     statusBar = std::make_unique<StatusBar> (controller, services);
     addAndMakeVisible (*statusBar);
+
+    soloBar = std::make_unique<SoloBar> (controller, [this] (const MixController::SoloedItem& item) { jumpToSoloed (item); });
+    addChildComponent (*soloBar);
 
     // ---- title row
     sidebarButton = std::make_unique<SidebarButton>();
@@ -916,6 +1059,10 @@ void MainView::showPage (Page p)
 
 void MainView::updateChrome()
 {
+    // The solo band first: whether it is there decides how much room the workspace has, so it
+    // is answered before anything is laid out.
+    if (soloBar != nullptr && soloBar->refresh()) resized();
+
     const auto& session = controller.getSession();
     const bool running = services.isAudioRunning();
     const bool hasInputs = ! session.inputs.empty();
@@ -1188,6 +1335,7 @@ void MainView::setBypass (bool on)
 
 void MainView::closeSheets()
 {
+    if (mixPage != nullptr && mixPage->isScopeSheetOpen()) mixPage->closeScopeSheet();
     outputsSheet.reset();
     checkSheet.reset();
     historySheet.reset();
@@ -1833,6 +1981,9 @@ int MainView::commandForKey (const juce::KeyPress& key, Page page)
 
 juce::String MainView::openSheetName() const
 {
+    // The scope picker belongs to TUNE rather than to the window, but it is a sheet over the
+    // workspace like any other and Escape has to mean the same thing over it.
+    if (mixPage != nullptr && mixPage->isScopeSheetOpen()) return "tunescope";
     if (outputsSheet != nullptr) return "outputs";
     if (checkSheet   != nullptr) return "check";
     if (historySheet != nullptr) return "history";
@@ -2103,7 +2254,24 @@ juce::Rectangle<int> MainView::columnBounds() const
 {
     auto r = getLocalBounds().withTrimmedTop (Dine::Metric::titleRow + Dine::Metric::toolbar);
     if (sidebar != nullptr && sidebar->isVisible()) r.removeFromLeft (sidebar->width());
+    // A sheet never covers the solo band: it is the one thing the window says that has to be
+    // true whatever else is open.
+    if (soloBar != nullptr && soloBar->isVisible()) r.removeFromTop (SoloBar::height);
     return r;
+}
+
+bool MainView::isSoloBarShown() const { return soloBar != nullptr && soloBar->isVisible(); }
+
+// A name on the solo band is a way to the thing it names: the console, with that strip, group
+// or return picked out. Nothing about the mix changes - it is a way of looking, like the band.
+void MainView::jumpToSoloed (const MixController::SoloedItem& item)
+{
+    showPage (Page::Mixer);
+    if (mixerPage == nullptr) return;
+    using Kind = MixController::SoloedItem::Kind;
+    if (item.kind == Kind::Strip) mixerPage->selectStrip (item.index);
+    else if (item.kind == Kind::Bus) mixerPage->selectBus (MixBus (item.index));
+    else showToast (juce::String (item.name) + " is soloed. The returns live on the Inspector and on LIVE.");
 }
 
 juce::Rectangle<int> MainView::contentBounds() const
@@ -2259,6 +2427,9 @@ void MainView::resized()
     auto body = getLocalBounds().withTrimmedTop (Dine::Metric::titleRow + Dine::Metric::toolbar);
     sidebar->setBounds (body.removeFromLeft (sidebar->width()));
     statusBar->setBounds (body.removeFromBottom (Dine::Metric::status));
+    // The solo band sits over the workspace column, under the toolbar, and only exists while
+    // something is soloed - so a console with nothing soloed is exactly as it was.
+    if (soloBar != nullptr && soloBar->isVisible()) soloBar->setBounds (body.removeFromTop (SoloBar::height));
     // The requests panel is a column beside the workspace, never over it: the pages and the chain foot
     // give up its width, so a sheet a page opens stays whole and the panel stays readable.
     const int panelW = chatSheet != nullptr ? juce::jmin (kRequestsW, body.getWidth() / 2) : 0;

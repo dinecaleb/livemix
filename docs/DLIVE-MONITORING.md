@@ -37,6 +37,16 @@ How solo never changes what the room hears, and how the broadcast and the engine
   "Everyone hears it", "In the mix" / "On its own", "My headphones". The engineer's terms
   (monitor bus, solo in place, AFL, PFL, aggregate device) survive once each, in tooltips -
   the same plain-language-on-the-surface rule the rest of the app follows.
+- **THE SOLO BAND (2026-09-28, `MainView::SoloBar`).** Solo is the one state that changes what the engineer
+  hears and nothing at all about what the room and the stream hear - which is exactly what makes it the state
+  most easily left on by accident. An S pressed on MIXER at ten past ten was invisible from TRACKS, from TUNE
+  and from LIVE. So whenever anything is soloed - a channel, a group, an effects return - a band appears under
+  the toolbar on **every** workspace and says which, by name; each name is a way to that item on the console;
+  CLEAR SOLO is one press; and the sentence beside them is the one a volunteer needs, which is that the room is
+  fine. With nothing soloed it takes no space at all, so a console that never uses solo is exactly as it was. A
+  sheet never covers it (`columnBounds()`). `MixController::getSoloed()` is where the list comes from, so the
+  window never walks the three arrays itself; `dlive_ui_tests` asserts the band is on every workspace when
+  anything is soloed and on none of them when nothing is.
 - **SOLO ON A SECOND DEVICE, WITH DANTE (2026-09-18, the QUEENSVIEW session).** Broadcast on Dante Virtual Soundcard
   and solo on a Scarlett went silent. Two causes, both in the machinery under the two pickers: the built device put
   the Scarlett's pair *after* sixty-four Dante outputs (channel 64-65) and `AudioHost` opened the first `kMaxOutputs`

@@ -27,6 +27,17 @@ namespace
     constexpr int kGroupsH = 210;
     constexpr int kRibbonGap = 22;      // the ENERGY ribbon sits clear of the snap rows above it
 
+    // WHAT A TUNE IS ABOUT, in one place. The listen card and the result card both say it, and
+    // saying it twice in two ways is how they come to disagree.
+    juce::String tuneVerb (const MixController& c, bool live)
+    {
+        if (live) return "TUNE LIVE MIX";
+        if (c.isTuningBus()) return "TUNE " + juce::String (mixBusName (c.getTuningBus())).toUpperCase();
+        if (c.isTuningStrips()) return "TUNE " + juce::String (int (c.getTuningStrips().size())) + " CHANNELS";
+        if (c.isTuningChannel()) return "TUNE CHANNEL";
+        return "TUNE MIX";
+    }
+
     juce::String dbText (float db)
     {
         if (db <= -119.0f) return Glyph::dash();
@@ -404,6 +415,412 @@ namespace
     }
 }
 
+// ------------------------------------------------------------------ ScopeSheet
+// WHAT SHOULD DLIVE TUNE?
+//
+// TUNE is the one verb on this workspace, and until now it always meant the same thing - the
+// whole mix. `startTuneBus` existed and was reachable only from a small word inside a group
+// tile, and nothing at all offered "these three microphones". So the verb opens this first:
+// the three scopes, the groups by name, the channels by name, and the sentence that says
+// exactly what is about to happen before it happens.
+//
+// Nothing here decides anything about the mix. Every choice ends in one of three calls on
+// MixController - the same calls the Mix menu and the group tiles already make.
+class MixPage::ScopeSheet : public juce::Component
+{
+public:
+    enum class Scope { Mix = 0, Group, Channels };
+
+    // One input, with a tick. The name and its group, because "BGV 2" means more beside the
+    // word VOCALS than it does on its own.
+    class Row : public juce::Button
+    {
+    public:
+        Row (const juce::String& n, int number, MixBus b) : juce::Button (n), name (n), index (number), bus (b)
+        {
+            setClickingTogglesState (false);
+            setWantsKeyboardFocus (false);
+        }
+
+        void setPicked (bool p) { if (p != picked) { picked = p; repaint(); } }
+
+        void paintButton (juce::Graphics& g, bool over, bool) override
+        {
+            auto r = getLocalBounds();
+            if (picked) Dine::fillRounded (g, r.toFloat(), Dine::selected, Dine::Radius::chip);
+            else if (over) Dine::fillRounded (g, r.toFloat(), Dine::fillSoft, Dine::Radius::chip);
+            r = r.reduced (10, 0);
+
+            auto box = r.removeFromLeft (16).withSizeKeepingCentre (14, 14).toFloat();
+            Dine::hairlineRounded (g, box, picked ? Dine::accent : Dine::edge, 3.0f);
+            if (picked)
+            {
+                Dine::fillRounded (g, box, Dine::accent, 3.0f);
+                g.setColour (Dine::onAccent);
+                g.setFont (Dine::text (10.0f, 600));
+                Dine::drawText (g, Glyph::check(), box.toNearestInt(), juce::Justification::centred, false);
+            }
+            r.removeFromLeft (12);
+
+            const auto numberFont = Dine::mono (11.0f);
+            g.setColour (Dine::ink4);
+            g.setFont (numberFont);
+            const juce::String num = (index < 9 ? "0" : "") + juce::String (index + 1);
+            Dine::drawText (g, num, r.removeFromLeft (Dine::textWidth (numberFont, "00") + 2), juce::Justification::centredLeft);
+            r.removeFromLeft (10);
+
+            const auto groupFont = Dine::caps (9.5f, 0.08f);
+            const juce::String groupText = juce::String (mixBusName (bus)).toUpperCase();
+            auto groupCell = r.removeFromRight (Dine::textWidth (groupFont, groupText) + 4);
+            g.setColour (Dine::busTint (bus));
+            g.setFont (groupFont);
+            Dine::drawText (g, groupText, groupCell, juce::Justification::centredRight);
+
+            g.setColour (picked ? Dine::ink : Dine::ink2);
+            g.setFont (Dine::text (13.0f));
+            Dine::drawText (g, name, r.withTrimmedRight (10), juce::Justification::centredLeft);
+        }
+
+    private:
+        juce::String name;
+        int index;
+        MixBus bus;
+        bool picked = false;
+    };
+
+    explicit ScopeSheet (MixController& c) : controller (c)
+    {
+        const char* names[3] = { "The whole mix", "One group", "Some channels" };
+        for (int i = 0; i < 3; ++i)
+        {
+            tabs[size_t (i)] = std::make_unique<DineButton> (names[i], DineButton::Style::Segment);
+            tabs[size_t (i)]->setClickingTogglesState (false);
+            tabs[size_t (i)]->setFontPx (13.0f);
+            tabs[size_t (i)]->onClick = [this, i] { setScope (Scope (i)); };
+            addAndMakeVisible (*tabs[size_t (i)]);
+        }
+        for (int i = 0; i < kGroupBuses; ++i)
+        {
+            groupButtons[size_t (i)] = std::make_unique<DineButton> (groupName (i), DineButton::Style::Toggle);
+            groupButtons[size_t (i)]->setClickingTogglesState (false);
+            groupButtons[size_t (i)]->setFontPx (12.5f);
+            groupButtons[size_t (i)]->onClick = [this, i] { group = i; refresh(); };
+            addChildComponent (*groupButtons[size_t (i)]);
+        }
+        channelView.setViewedComponent (&channelHolder, false);
+        Dine::nativeScrolling (channelView);
+        channelView.setScrollBarsShown (true, false);
+        addChildComponent (channelView);
+
+        allButton.setFontPx (12.0f);
+        allButton.onClick = [this]
+        {
+            const int inputs = int (controller.getSession().inputs.size());
+            const bool everything = ! picked.empty() && int (picked.size()) == inputs;
+            picked.clear();
+            if (! everything) for (int i = 0; i < inputs; ++i) picked.insert (i);
+            refresh();
+        };
+        addChildComponent (allButton);
+
+        start.setCaps (true);
+        start.setFontPx (13.0f);
+        start.onClick = [this] { begin(); };
+        cancel.setFontPx (13.0f);
+        cancel.onClick = [this] { if (onClose) onClose(); };
+        addAndMakeVisible (start);
+        addAndMakeVisible (cancel);
+        setInterceptsMouseClicks (true, true);
+    }
+
+    std::function<void()> onClose;
+    std::function<void (const juce::String&)> onToast;
+
+    // The snapshot tool and the reachability test. Nothing about the mix happens here: it
+    // picks a scope the way a click would, so the shots are of the real screens.
+    void chooseForSnapshot (int which, int whichGroup)
+    {
+        if (whichGroup >= 0 && whichGroup < kGroupBuses) group = whichGroup;
+        if (which == 2 && picked.empty())
+            for (int i = 0; i < juce::jmin (3, int (channelRows.size())); ++i) picked.insert (i);
+        setScope (Scope (juce::jlimit (0, 2, which)));
+    }
+
+    // Opened fresh every time: a scope is a decision about this tune, not a setting that
+    // sticks. Whatever the workspace has picked out arrives ticked, because "tune this one"
+    // is the request somebody has usually already made with the pointer.
+    void open (int selectedStrip)
+    {
+        rebuildChannels();
+        picked.clear();
+        if (selectedStrip >= 0 && selectedStrip < int (controller.getSession().inputs.size())) picked.insert (selectedStrip);
+        group = -1;
+        for (int i = 0; i < kGroupBuses; ++i)
+            if (controller.getGraph().busUsed[size_t (i)]) { group = i; break; }
+        setScope (Scope::Mix);
+        setVisible (true);
+        toFront (true);
+    }
+
+    static constexpr int kCardW = 620;
+
+    // The card is as tall as the question being asked. "The whole mix" needs no list at all
+    // and a card with a hole in it looks like something failed to load; a group needs a row or
+    // two of names; the channels need a list worth scrolling.
+    int bodyHeight() const
+    {
+        if (scope == Scope::Group)
+        {
+            int used = 0;
+            for (int i = 0; i < kGroupBuses; ++i) if (controller.getGraph().busUsed[size_t (i)]) ++used;
+            const int perRow = juce::jlimit (1, 4, used);
+            const int rows = juce::jmax (1, (juce::jmax (1, used) + perRow - 1) / perRow);
+            return 14 + 12 + rows * Dine::Metric::button + (rows - 1) * 10 + 14;
+        }
+        if (scope == Scope::Channels) return 14 + 12 + kListH + 14;
+        return 0;
+    }
+
+    int cardHeight() const
+    {
+        return kPadY * 2 + 14 + 8 + 28 + 16 + Dine::Metric::button + 20
+             + bodyHeight() + kSentenceH + 12 + Dine::Metric::button;
+    }
+
+    juce::Rectangle<int> sheetBounds() const
+    {
+        const int w = juce::jmin (kCardW, getWidth() - 40);
+        return juce::Rectangle<int> (w, juce::jmin (cardHeight(), getHeight() - 20)).withCentre (getLocalBounds().getCentre());
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (Dine::desk.withAlpha (0.88f));
+        auto card = sheetBounds();
+        Dine::drawSheet (g, card.toFloat(), 14.0f);
+
+        auto r = card.reduced (kPadX, kPadY);
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::caps (12.0f, 0.10f));
+        Dine::drawText (g, "TUNE", r.removeFromTop (14), juce::Justification::centredLeft);
+        r.removeFromTop (8);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (22.0f));
+        Dine::drawText (g, "What should DLIVE tune?", r.removeFromTop (28), juce::Justification::centredLeft);
+        r.removeFromTop (16);
+        Dine::drawSegmentTrack (g, r.removeFromTop (Dine::Metric::button));
+        r.removeFromTop (20);
+
+        if (scope == Scope::Group)
+        {
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::caps (11.0f, 0.08f));
+            Dine::drawText (g, group < 0 ? "NO GROUPS YET" : "GROUPS ON THIS CONSOLE",
+                            r.removeFromTop (14), juce::Justification::centredLeft);
+        }
+        else if (scope == Scope::Channels)
+        {
+            auto row = r.removeFromTop (14);
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::caps (11.0f, 0.08f));
+            Dine::drawText (g, picked.empty() ? "CHANNELS" : "CHANNELS  " + juce::String (Glyph::dot()) + "  "
+                                                             + juce::String (int (picked.size())) + " PICKED",
+                            row.withTrimmedRight (allButton.getWidth() + 10), juce::Justification::centredLeft);
+        }
+
+        // The sentence, along the foot above the buttons: what one press is about to do.
+        auto foot = card.reduced (kPadX, kPadY);
+        auto words = foot.removeFromBottom (Dine::Metric::button + 12 + kSentenceH).removeFromTop (kSentenceH);
+        g.setColour (Dine::ink2);
+        g.setFont (Dine::text (13.0f));
+        Dine::drawFittedText (g, sentence(), words, juce::Justification::topLeft, 3, 1.0f);
+    }
+
+    void resized() override
+    {
+        auto card = sheetBounds();
+        auto r = card.reduced (kPadX, kPadY);
+        r.removeFromTop (14 + 8 + 28 + 16);
+
+        {
+            auto tabRow = r.removeFromTop (Dine::Metric::button).reduced (2);
+            const int cell = (tabRow.getWidth() - 4) / 3;
+            for (int i = 0; i < 3; ++i)
+            {
+                tabs[size_t (i)]->setBounds (tabRow.removeFromLeft (i == 2 ? tabRow.getWidth() : cell));
+                if (i < 2) tabRow.removeFromLeft (2);
+            }
+        }
+        r.removeFromTop (20);
+
+        auto body = r.withTrimmedBottom (Dine::Metric::button + 12 + kSentenceH + 14);
+        if (scope == Scope::Group)
+        {
+            body.removeFromTop (14 + 12);
+            int used = 0;
+            for (int i = 0; i < kGroupBuses; ++i) if (controller.getGraph().busUsed[size_t (i)]) ++used;
+            const int perRow = juce::jlimit (1, 4, used);
+            const int cell = (body.getWidth() - 10 * (perRow - 1)) / perRow;
+            auto row = body.removeFromTop (Dine::Metric::button);
+            int placed = 0;
+            for (int i = 0; i < kGroupBuses; ++i)
+            {
+                if (! controller.getGraph().busUsed[size_t (i)]) continue;
+                if (placed > 0 && placed % perRow == 0)
+                {
+                    body.removeFromTop (10);
+                    row = body.removeFromTop (Dine::Metric::button);
+                }
+                groupButtons[size_t (i)]->setBounds (row.removeFromLeft (cell));
+                row.removeFromLeft (10);
+                ++placed;
+            }
+        }
+        else if (scope == Scope::Channels)
+        {
+            auto cap = body.removeFromTop (14);
+            allButton.setBounds (cap.removeFromRight (juce::jmax (90, allButton.idealWidth())).expanded (0, 6));
+            body.removeFromTop (12);
+            channelView.setBounds (body);
+            layoutChannels();
+        }
+
+        auto buttons = card.reduced (kPadX, kPadY).removeFromBottom (Dine::Metric::button);
+        start.setBounds (buttons.removeFromRight (juce::jmax (150, start.idealWidth())));
+        buttons.removeFromRight (10);
+        cancel.setBounds (buttons.removeFromRight (juce::jmax (90, cancel.idealWidth())));
+    }
+
+private:
+    static constexpr int kPadX = 30, kPadY = 26;
+    static constexpr int kRowH = 30;
+    static constexpr int kSentenceH = 40;
+    static constexpr int kListH = 8 * kRowH;     // eight channels before it scrolls
+
+    void setScope (Scope s)
+    {
+        scope = s;
+        for (int i = 0; i < 3; ++i) tabs[size_t (i)]->setToggleState (int (s) == i, juce::dontSendNotification);
+        for (int i = 0; i < kGroupBuses; ++i)
+            groupButtons[size_t (i)]->setVisible (s == Scope::Group && controller.getGraph().busUsed[size_t (i)]);
+        channelView.setVisible (s == Scope::Channels);
+        allButton.setVisible (s == Scope::Channels);
+        resized();
+        refresh();
+    }
+
+    void refresh()
+    {
+        for (int i = 0; i < kGroupBuses; ++i)
+            groupButtons[size_t (i)]->setToggleState (i == group, juce::dontSendNotification);
+        for (size_t i = 0; i < channelRows.size(); ++i)
+            channelRows[i]->setPicked (picked.count (int (i)) > 0);
+        allButton.setButtonText (! picked.empty() && int (picked.size()) == int (controller.getSession().inputs.size())
+                                     ? "Select none" : "Select all");
+        const bool ready = scope == Scope::Mix
+                        || (scope == Scope::Group && group >= 0)
+                        || (scope == Scope::Channels && ! picked.empty());
+        start.setEnabled (ready);
+        start.setButtonText (scope == Scope::Group && group >= 0 ? "Tune " + groupName (group)
+                           : scope == Scope::Channels && picked.size() == 1 ? juce::String ("Tune this channel")
+                           : scope == Scope::Channels && picked.size() > 1 ? "Tune " + juce::String (int (picked.size())) + " channels"
+                                                                           : juce::String ("Tune the mix"));
+        repaint();
+    }
+
+    void rebuildChannels()
+    {
+        channelRows.clear();
+        channelHolder.removeAllChildren();
+        const auto& session = controller.getSession();
+        const auto& graph = controller.getGraph();
+        for (int i = 0; i < int (session.inputs.size()); ++i)
+        {
+            const auto bus = i < graph.numStrips() ? graph.strips[size_t (i)].bus : MixBus::Music;
+            auto row = std::make_unique<Row> (juce::String (session.inputs[size_t (i)].name), i, bus);
+            row->onClick = [this, i]
+            {
+                if (picked.count (i) > 0) picked.erase (i); else picked.insert (i);
+                refresh();
+            };
+            channelHolder.addAndMakeVisible (*row);
+            channelRows.push_back (std::move (row));
+        }
+        layoutChannels();
+    }
+
+    void layoutChannels()
+    {
+        const int w = juce::jmax (40, channelView.getWidth() - (channelView.isVerticalScrollBarShown() ? 10 : 0));
+        channelHolder.setSize (w, juce::jmax (1, int (channelRows.size()) * kRowH));
+        for (size_t i = 0; i < channelRows.size(); ++i)
+            channelRows[i]->setBounds (0, int (i) * kRowH, w, kRowH);
+    }
+
+    juce::String sentence() const
+    {
+        switch (scope)
+        {
+            case Scope::Group:
+                if (group < 0) return "Nothing is assigned to a group yet, so there is nothing to tune one at a time. Assign the inputs first.";
+                return "DLIVE listens to the whole band and sets " + groupName (group)
+                     + " alone - its channels and its own group chain. Every other group, and the master, stay exactly where they are.";
+            case Scope::Channels:
+                if (picked.empty())
+                    return "Pick the channels to tune. DLIVE still listens to the whole band, so they are decided in the mix rather than on their own.";
+                if (picked.size() == 1)
+                    return "DLIVE listens for " + juce::String (int (MixController::channelListen().seconds))
+                         + " seconds and sets that one channel: its chain, its gain, its level and its sends. Nothing else moves.";
+                return "DLIVE listens to the whole band and sets those " + juce::String (int (picked.size()))
+                     + " channels. The groups, the master and every other channel stay where they are.";
+            case Scope::Mix:
+            default:
+                return "DLIVE listens to the band for 30 seconds and builds the whole mix from what it measures - "
+                       "every channel, every group and the master.";
+        }
+    }
+
+    void begin()
+    {
+        const auto chosen = scope;
+        const int chosenGroup = group;
+        std::vector<int> strips (picked.begin(), picked.end());
+        if (onClose) onClose();
+        switch (chosen)
+        {
+            case Scope::Group:
+                if (chosenGroup < 0) return;
+                controller.startTuneBus (MixBus (chosenGroup));
+                if (onToast) onToast ("Listening for " + groupName (chosenGroup)
+                                      + " alone. Every other group, and the master, stay where they are.");
+                break;
+            case Scope::Channels:
+                controller.startTuneStrips (strips);
+                if (onToast && strips.size() > 1)
+                    onToast ("Listening for those " + juce::String (int (strips.size()))
+                             + " channels. The groups, the master and every other channel stay where they are.");
+                break;
+            case Scope::Mix:
+            default:
+                controller.startTuneMix();
+                break;
+        }
+    }
+
+    MixController& controller;
+    Scope scope = Scope::Mix;
+    int group = -1;
+    std::set<int> picked;
+    std::array<std::unique_ptr<DineButton>, 3> tabs;
+    std::array<std::unique_ptr<DineButton>, size_t (kGroupBuses)> groupButtons;
+    std::vector<std::unique_ptr<Row>> channelRows;
+    juce::Viewport channelView;
+    juce::Component channelHolder;
+    DineButton allButton { "Select all", DineButton::Style::Ghost };
+    DineButton start { "Tune the mix", DineButton::Style::Filled };
+    DineButton cancel { "Cancel", DineButton::Style::Ghost };
+};
+
 // ------------------------------------------------------------------ ListenSheet
 // A card in the middle of the workspace while DLIVE listens: what it is doing, how far it
 // is, what it can hear, and the one way out.
@@ -455,7 +872,7 @@ public:
         const bool capturing = liveState == TuneLiveCoordinator::State::CapturingInitial
                             || liveState == TuneLiveCoordinator::State::CapturingVerify;
         const bool working = (live && ! capturing) || planning;
-        const juce::String verb = live ? "TUNE LIVE MIX" : controller.isTuningChannel() ? "TUNE CHANNEL" : "TUNE MIX";
+        const juce::String verb = tuneVerb (controller, live);
 
         auto r = card.reduced (34, 34);
         g.setColour (Dine::ink4);
@@ -464,7 +881,7 @@ public:
         r.removeFromTop (12);
 
         // The number: seconds left in a listen, per cent through the work.
-        const float seconds = controller.isTuningChannel() ? MixController::channelListen().seconds : 30.0f;
+        const float seconds = controller.getListenSeconds();
         const juce::String big = waiting ? juce::String (Glyph::dash())
                                : working ? juce::String (juce::jmin (99, int (std::round (progress * 100.0f)))) + "%"
                                          : juce::String (juce::jmax (0, int (std::ceil (seconds * (1.0f - progress))))) + " s";
@@ -781,18 +1198,22 @@ public:
         auto head = r.removeFromTop (28);
         head.removeFromRight (closeButton.getWidth() + 10);
         const bool live = controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready;
-        const juce::String title = juce::String (live ? "TUNE LIVE MIX" : controller.isTuningChannel() ? "TUNE CHANNEL" : "TUNE MIX") + " is ready";
+        const juce::String title = tuneVerb (controller, live) + " is ready";
         const auto titleFont = Dine::text (22.0f);
         g.setColour (Dine::ink);
         g.setFont (titleFont);
         Dine::drawText (g, title, head.removeFromLeft (Dine::textWidth (titleFont, title)), juce::Justification::centredLeft);
         head.removeFromLeft (14);
+        // WHAT IT RAN ON. A card that says "is ready" without saying what it is a card about
+        // is the reason the scopes were invisible in the first place - so every one of them
+        // names itself here, the whole mix included.
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        Dine::drawText (g, plan->noChangeRequired ? juce::String (plan->headline)
-                                           : "Heard " + juce::String (plan->stripsHeard) + " inputs, proposed "
-                                                 + juce::String (plan->parametersChanged) + " settings and "
-                                                 + juce::String (plan->fadersChanged) + " levels. " + juce::String (plan->headline),
+        Dine::drawText (g, "on " + juce::String (controller.getLastTuneScope()) + "  " + Glyph::dot() + "  "
+                            + (plan->noChangeRequired ? juce::String (plan->headline)
+                                   : "heard " + juce::String (plan->stripsHeard) + " inputs, proposed "
+                                         + juce::String (plan->parametersChanged) + " settings and "
+                                         + juce::String (plan->fadersChanged) + " levels. " + juce::String (plan->headline)),
                     head, juce::Justification::centredLeft, true);
 
         r.removeFromTop (20 + Dine::Metric::button + 10);
@@ -922,6 +1343,7 @@ MixPage::MixPage (MixController& c) : controller (c)
     sideTab->onClick = [this] { setSideShown (! sideShown); };
     addAndMakeVisible (*sideTab);
 
+    scopeSheet = std::make_unique<ScopeSheet> (controller);
     listenSheet = std::make_unique<ListenSheet> (controller);
     resultSheet = std::make_unique<ResultSheet> (controller, *this);
     referenceSheet = std::make_unique<ReferenceSheet> (controller);
@@ -931,6 +1353,10 @@ MixPage::MixPage (MixController& c) : controller (c)
     addChildComponent (*referenceSheet);
     addChildComponent (*resultSheet);
     addChildComponent (*listenSheet);
+    addChildComponent (*scopeSheet);
+
+    scopeSheet->onClose = [this] { scopeSheet->setVisible (false); refreshTuneButton(); repaint(); };
+    scopeSheet->onToast = [this] (const juce::String& t) { if (onToast) onToast (t); };
 
     referenceSheet->onClose = [this] { referenceSheet->setVisible (false); refreshTuneButton(); repaint(); };
     referenceSheet->onToast = [this] (const juce::String& t) { if (onToast) onToast (t); };
@@ -1082,11 +1508,33 @@ void MixPage::openReference()
     resized();
 }
 
+// TUNE always asked the same question and never asked it out loud. Now it does: the scope
+// picker opens, and the listen starts from there. Pressing it while DLIVE is already
+// listening still means stop, because that is the only thing it can mean.
 void MixPage::pressTune()
 {
     if (controller.isListening() || controller.isTuningLive()) { controller.abortTuneMix(); refreshTuneButton(); return; }
-    controller.startTuneMix();
+    if (scopeSheet->isVisible()) { scopeSheet->setVisible (false); refreshTuneButton(); repaint(); return; }
+    referenceSheet->setVisible (false);
+    scopeSheet->open (selectedRow);
     refreshTuneButton();
+    repaint();
+}
+
+bool MixPage::isScopeSheetOpen() const { return scopeSheet != nullptr && scopeSheet->isVisible(); }
+
+void MixPage::closeScopeSheet()
+{
+    if (scopeSheet == nullptr || ! scopeSheet->isVisible()) return;
+    scopeSheet->setVisible (false);
+    refreshTuneButton();
+    repaint();
+}
+
+void MixPage::setScopeForSnapshot (int scope, int group)
+{
+    if (scopeSheet == nullptr || ! scopeSheet->isVisible()) return;
+    scopeSheet->chooseForSnapshot (scope, group);
 }
 
 void MixPage::pressLiveTune()
@@ -1471,6 +1919,7 @@ void MixPage::resized()
     int y = 0;
     for (auto& r : inputRows) { r->setBounds (0, y, railHolder.getWidth(), 32); y += 32; }
 
+    scopeSheet->setBounds (getLocalBounds());
     listenSheet->setBounds (getLocalBounds());
     resultSheet->setBounds (getLocalBounds());
     referenceSheet->setBounds (getLocalBounds());

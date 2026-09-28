@@ -637,7 +637,31 @@ void MixController::startTuneBus (MixBus bus, const ListenSettings& s)
     startListening (s, -1, int (bus));
 }
 
-void MixController::startListening (const ListenSettings& s, int strip, int bus)
+// A set of channels on their own. The listen waits for any of them; the plan is narrowed to
+// exactly those strips when it is made.
+void MixController::startTuneStrips (const std::vector<int>& strips, const ListenSettings& s)
+{
+    std::vector<int> wanted;
+    for (const int i : strips)
+        if (i >= 0 && i < graph.numStrips()
+            && std::find (wanted.begin(), wanted.end(), i) == wanted.end())
+            wanted.push_back (i);
+    std::sort (wanted.begin(), wanted.end());
+
+    if (wanted.empty())
+    {
+        if (onMessage) onMessage ("Pick the channels to tune first.");
+        return;
+    }
+    // One channel is TUNE CHANNEL, which has a shorter listen and a plan of its own. Saying
+    // so here means the picker never has to.
+    if (wanted.size() == 1) { startTuneChannel (wanted.front(), MixController::channelListen()); return; }
+    if (liveSafeRefuses (LiveAction::TuneChannel)) return;
+    liveKept = false;
+    startListening (s, -1, -1, wanted);
+}
+
+void MixController::startListening (const ListenSettings& s, int strip, int bus, const std::vector<int>& strips)
 {
     if (! prepared || stage == Stage::Listening || stage == Stage::Planning) return;
     // A new listen starts from what is audible now - except the verify listen of a live run,
@@ -647,6 +671,8 @@ void MixController::startListening (const ListenSettings& s, int strip, int bus)
     clearTuningScope();
     tuningStrip = strip;
     tuningBus = bus;
+    tuningStrips = strips;
+    lastScope = scopeWords();
     atCapture = running;                        // the faders and gains the listen will run with
     MixCapture::Settings cs;
     cs.seconds = s.seconds;
@@ -663,6 +689,13 @@ void MixController::startListening (const ListenSettings& s, int strip, int bus)
             if (g.strips[size_t (i)].bus == MixBus (bus)) mask |= 1ULL << i;
         cs.triggerStrips = mask;
     }
+    // ... and a picked set waits for any of the ones that were picked, for the same reason.
+    else if (! strips.empty())
+    {
+        unsigned long long mask = 0;
+        for (const int i : strips) if (i >= 0 && i < 64) mask |= 1ULL << i;
+        cs.triggerStrips = mask;
+    }
     capture.start (cs);
     stage = Stage::Listening;
 }
@@ -671,14 +704,38 @@ void MixController::clearTuningScope() noexcept
 {
     tuningStrip = -1;
     tuningBus = -1;
+    tuningStrips.clear();
     planSelection.reset();
 }
 
 std::string MixController::getTuningName() const
 {
     if (tuningBus >= 0 && tuningBus < int (MixBus::Count)) return mixBusName (MixBus (tuningBus));
+    if (! tuningStrips.empty()) return std::to_string (tuningStrips.size()) + " channels";
     if (tuningStrip < 0 || tuningStrip >= int (session.inputs.size())) return {};
     return session.inputs[size_t (tuningStrip)].name;
+}
+
+// The scope in the words the Tune card says it in. One place, so the picker, the listen card
+// and the result card can never disagree about what a tune was about.
+std::string MixController::scopeWords() const
+{
+    if (tuningBus >= 0 && tuningBus < int (MixBus::Count)) return mixBusName (MixBus (tuningBus));
+    if (! tuningStrips.empty())
+    {
+        std::string names;
+        for (size_t i = 0; i < tuningStrips.size() && i < 3; ++i)
+        {
+            const int strip = tuningStrips[i];
+            if (strip < 0 || strip >= int (session.inputs.size())) continue;
+            if (! names.empty()) names += ", ";
+            names += session.inputs[size_t (strip)].name;
+        }
+        if (tuningStrips.size() > 3) names += " and " + std::to_string (tuningStrips.size() - 3) + " more";
+        return names.empty() ? std::to_string (tuningStrips.size()) + " channels" : names;
+    }
+    if (tuningStrip >= 0 && tuningStrip < int (session.inputs.size())) return session.inputs[size_t (tuningStrip)].name;
+    return "the whole mix";
 }
 
 // ---------------------------------------------------------------------------
@@ -1057,9 +1114,27 @@ void MixController::poll()
         const int group = tuningBus;
         if (channel >= 0)    plan = MixPlanner::channelOnly (*plan, channel, session.profile);
         else if (group >= 0) plan = MixPlanner::busOnly (*plan, MixBus (group), graph, session.profile);
+        else if (! tuningStrips.empty())
+        {
+            // The picked channels and nothing else, through the same narrowing KEEP SOME uses:
+            // anything not picked is `before`, so what is proposed is exactly what the mix
+            // becomes when it is kept.
+            MixPlanner::PlanSelection picked;
+            for (const int i : tuningStrips)
+                if (i >= 0 && i < kMaxStrips) picked.strips[size_t (i)] = true;
+            plan = MixPlanner::restrictTo (*plan, picked, graph, session.profile);
+        }
 
-        const bool heardIt = plan->valid && (channel < 0 ? plan->stripsHeard > 0
-                                                         : channel < int (plan->strips.size()) && plan->strips[size_t (channel)].heard);
+        const bool heardOneOfTheSet = [&]
+        {
+            if (tuningStrips.empty() || ! plan->valid) return false;
+            for (const int i : tuningStrips)
+                if (i >= 0 && i < int (plan->strips.size()) && plan->strips[size_t (i)].heard) return true;
+            return false;
+        }();
+        const bool heardIt = plan->valid && (! tuningStrips.empty() ? heardOneOfTheSet
+                                             : channel < 0 ? plan->stripsHeard > 0
+                                                           : channel < int (plan->strips.size()) && plan->strips[size_t (channel)].heard);
         if (heardIt)
         {
             ++tuneCount;
@@ -1398,6 +1473,24 @@ int MixController::numSoloed() const noexcept
     for (int b = 0; b < int (MixBus::Master); ++b) if (kept.buses[size_t (b)].solo) ++n;
     for (int f = 0; f < int (FxSlot::Count); ++f) if (kept.fx[size_t (f)].solo) ++n;
     return n;
+}
+
+std::vector<MixController::SoloedItem> MixController::getSoloed() const
+{
+    std::vector<SoloedItem> out;
+    for (int i = 0; i < kept.numStrips; ++i)
+    {
+        if (! kept.strips[size_t (i)].solo) continue;
+        const std::string name = i < int (session.inputs.size()) && ! session.inputs[size_t (i)].name.empty()
+                                     ? session.inputs[size_t (i)].name
+                                     : "Channel " + std::to_string (i + 1);
+        out.push_back ({ SoloedItem::Kind::Strip, i, name });
+    }
+    for (int b = 0; b < int (MixBus::Master); ++b)
+        if (kept.buses[size_t (b)].solo) out.push_back ({ SoloedItem::Kind::Bus, b, mixBusName (MixBus (b)) });
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+        if (kept.fx[size_t (f)].solo) out.push_back ({ SoloedItem::Kind::Fx, f, fxSlotName (FxSlot (f)) });
+    return out;
 }
 
 void MixController::setSoloMode (SoloMode m)

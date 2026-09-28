@@ -217,6 +217,9 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   at the top of the Inspector's right column, as the plan's *first* note (naming the inputs)
   and in `getMixHealthNotes`; an input that only works on a big digital raise is not counted
   healthy. Advice only: nothing about the mix changes.
+  TUNE opens with **the scope picker** (2026-09-28): the whole mix, one group by name, or
+  some channels by name. It is `MixPage::ScopeSheet`, Escape closes it like any sheet, and
+  the result card names what it ran on. `docs/DLIVE-MIX-ENGINEER.md` has the whole of it.
   TUNE CHANNEL is one source on its own, on click: `MixController::startTuneChannel (strip)`
   runs the same listen as TUNE MIX (every input is measured, so the channel is still decided
   in mix context) but waits for that channel (`MixCapture::Settings::triggerStrip`) and is

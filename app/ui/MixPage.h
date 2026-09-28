@@ -3,6 +3,7 @@
 #include <array>
 #include <functional>
 #include <memory>
+#include <set>
 #include <vector>
 #include "AppServices.h"
 #include "AppTheme.h"
@@ -48,7 +49,15 @@ public:
     void resized() override;
 
     void openReference();
+    // TUNE: the scope picker opens first. `pressTune` is what the button, the Mix menu and the
+    // keyboard all call, so there is one way in and it always says what it is about to do.
     void pressTune();
+    bool isScopeSheetOpen() const;
+    void closeScopeSheet();
+    // The snapshot tool and the reachability test: which scope the open picker is showing
+    // (0 the whole mix, 1 one group, 2 some channels) and, for a group, which one (-1 = leave
+    // it where it is). Nothing about the mix.
+    void setScopeForSnapshot (int scope, int group);
     void pressLiveTune();
     void setMacroValue (MixMacro m, float v);
     void centreMacroPads();            // both pads and the ribbon back to the plan, eased
@@ -57,6 +66,7 @@ public:
 
 private:
     class GroupTile;
+    class ScopeSheet;
     class ListenSheet;
     class ResultSheet;
     class InputRow;
@@ -89,6 +99,7 @@ private:
     // BODY x VOICE (bass across, vocals up) and DRIVE x ROOM (space across, drums up), then ENERGY on a ribbon.
     std::array<std::unique_ptr<MacroPad>, 2> pads;
     std::unique_ptr<MacroRibbon> ribbon;
+    std::unique_ptr<ScopeSheet> scopeSheet;      // WHAT SHOULD DLIVE TUNE: the whole mix, one group, some channels
     std::unique_ptr<ListenSheet> listenSheet;
     std::unique_ptr<ResultSheet> resultSheet;
     std::unique_ptr<ReferenceSheet> referenceSheet;

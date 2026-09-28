@@ -463,6 +463,77 @@ TEST_CASE ("MixController: TUNE CHANNEL tunes one source and leaves the rest of 
     CHECK (MixPlanner::countParameterChanges (c.getKept(), afterChannel) == 0);
 }
 
+TEST_CASE ("MixController: TUNE <these channels> moves those channels and nothing else")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+
+    // A whole mix first, so there is a real mix for the narrowed tune to leave alone.
+    c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    c.keepPlan();
+    const MixParameters afterMix = c.getKept();
+
+    // Lead and Vox: two voices, picked by hand rather than as a group.
+    const std::vector<int> picked { 3, 4 };
+    c.startTuneStrips (picked, { 2.0f, -200.0f, 0.0f });
+    CHECK (c.isListening());
+    CHECK (c.isTuningStrips());
+    CHECK (c.isTuningPart());
+    CHECK (! c.isTuningChannel());
+    CHECK (! c.isTuningBus());
+    CHECK (c.getTuningStrips() == picked);
+    CHECK (c.getTuningName() == std::string ("2 channels"));
+    // The card has to be able to say what it is a card about, in names.
+    CHECK (c.getLastTuneScope() == std::string ("Lead, Vox"));
+
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    REQUIRE (c.hasPlan());
+    const auto* plan = c.getPlan();
+    for (int i = 0; i < plan->before.numStrips; ++i)
+    {
+        if (i == 3 || i == 4) continue;
+        CHECK (diffParameters (plan->before.strips[size_t (i)].channel, plan->proposed.strips[size_t (i)].channel).empty());
+        CHECK (plan->before.strips[size_t (i)].faderDb == plan->proposed.strips[size_t (i)].faderDb);
+        CHECK (plan->before.strips[size_t (i)].inputGainDb == plan->proposed.strips[size_t (i)].inputGainDb);
+    }
+    // No group and no master moves: a handful of channels is not a master decision.
+    for (int b = 0; b < int (MixBus::Count); ++b)
+        CHECK (diffParameters (plan->before.buses[size_t (b)].channel, plan->proposed.buses[size_t (b)].channel).empty());
+
+    c.keepPlan();
+    for (int i = 0; i < c.getKept().numStrips; ++i)
+        if (i != 3 && i != 4)
+            CHECK (diffParameters (afterMix.strips[size_t (i)].channel, c.getKept().strips[size_t (i)].channel).empty());
+
+    // ONE PICKED CHANNEL IS TUNE CHANNEL. The picker never has to say so, and the shorter
+    // listen a single source needs comes with it.
+    c.startTuneStrips ({ 2 });
+    CHECK (c.isTuningChannel());
+    CHECK (! c.isTuningStrips());
+    CHECK (c.getTuningName() == std::string ("Keys"));
+    c.abortTuneMix();
+
+    // Nothing picked is refused with a sentence rather than listened to.
+    std::string said;
+    c.onMessage = [&said] (const std::string& m) { said = m; };
+    c.startTuneStrips ({});
+    CHECK (! c.isListening());
+    CHECK (said.find ("Pick the channels") != std::string::npos);
+
+    // Out of range is dropped, duplicates collapse, and the order is the console's.
+    said.clear();
+    c.startTuneStrips ({ 4, 99, 3, 4, -1 }, { 2.0f, -200.0f, 0.0f });
+    CHECK (c.isListening());
+    const std::vector<int> tidied { 3, 4 };
+    CHECK (c.getTuningStrips() == tidied);
+    c.abortTuneMix();
+}
+
 TEST_CASE ("MixController: TUNE <GROUP> tunes one group, and KEEP SOME keeps only what is switched on")
 {
     MixController c;

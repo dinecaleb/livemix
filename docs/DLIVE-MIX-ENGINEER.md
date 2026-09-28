@@ -65,6 +65,21 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   can be tuned during the song and the pastor during the sermon without either moving the other or the
   master. KEEP applies exactly what AFTER was playing: `getBase()` is the one place that decides what is
   heard and `compose()` reads it.
+- **THE SCOPE PICKER (2026-09-28).** TUNE always asked the same question and never asked it out loud: the verb
+  meant the whole mix, `startTuneBus` was reachable only from a small word inside a group tile, and nothing at
+  all offered "these three microphones". Pressing TUNE (the button, the Mix menu, the keyboard) now opens
+  `MixPage::ScopeSheet` first - **the whole mix / one group / some channels**, the groups listed by name and
+  only the ones this console uses, the channels listed by name with their group beside them, and the sentence
+  that says exactly what one press is about to do. The result card names the scope it ran on
+  (`MixController::getLastTuneScope`), the whole mix included, so a card can never say "is ready" without
+  saying what it is a card about.
+
+  **Some channels** is a third scope on the controller, not a mode in the UI: `startTuneStrips (strips)` runs
+  the same listen as TUNE MIX - every input is measured, so the choice is still made in mix context - waits for
+  any of the picked strips (`MixCapture::Settings::triggerStrips`, the same field a group tune uses), and
+  narrows the plan through `MixPlanner::restrictTo` with a `PlanSelection` of exactly those strips: the buses,
+  the master and every unpicked channel are `before`, so what is proposed is what the mix becomes when it is
+  kept. One picked channel *is* TUNE CHANNEL, with its shorter listen, and the picker never has to say so.
 - **TUNE LIVE MIX** (the AI Mix Engineer, 2026-09-12; see `docs/ARCHITECTURE-DLIVE-AI.md`) is a reasoning layer
   **above** `MixPlanner`, never instead of it. The deterministic plan is built first and always, so a dead network,
   a timeout or a malformed reply leaves the user with a professional mix and a sentence. Everything is JUCE-free in

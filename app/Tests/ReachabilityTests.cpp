@@ -301,10 +301,17 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         { "appearance", [&] { view.showThemes(); } },
         { "chat",       [&] { view.showChat(); } },
         { "channel",    [&] { view.tuneChannel (0); } },
+        // TUNE asks what to tune before it tunes anything. It is the workspace's own sheet
+        // rather than the window's, and Escape means the same thing over it.
+        { "tunescope",  [&] { view.showPage (MainView::Page::Tune); view.getMixPage().pressTune(); } },
     };
 
     for (const auto& sheet : sheets)
     {
+        // Opening the channel sheet starts a listen, and a listen makes TUNE mean "stop" - so
+        // each entry starts from a console that is not busy rather than from the last one's
+        // leftovers.
+        window.controller.abortTuneMix();
         sheet.open();
         window.pump (10);
         CHECK_MESSAGE (view.openSheetName() == juce::String (sheet.name),
@@ -402,4 +409,57 @@ TEST_CASE ("Reachability: the sidebar folds, the side panels fold, and the tutor
     window.pump (10);
     view.closeTutorial();
     window.pump (10);
+}
+
+// -------------------------------------------------------------------- the solo band
+// SOLO YOU CANNOT MISS. An S left down on MIXER used to be invisible from every other
+// workspace, and a service mixed through one microphone's worth of headphones is what that
+// costs. The band is the answer, so this asserts the two things it has to be: there whenever
+// anything is soloed, from anywhere, and gone the moment nothing is.
+TEST_CASE ("Reachability: anything soloed says so from every workspace, and one press clears it")
+{
+    Window window;
+    auto& view = *window.view;
+    auto& controller = window.controller;
+
+    using Page = MainView::Page;
+    const Page workspaces[] = { Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
+
+    // Nothing soloed, nothing said.
+    for (const Page p : workspaces)
+    {
+        view.showPage (p);
+        window.pump (10);
+        CHECK_MESSAGE (! view.isSoloBarShown(), "the solo band is there with nothing soloed");
+    }
+
+    // A channel, a group and a return: all three kinds reach the band, by name.
+    controller.setStripSolo (0, true);
+    controller.setBusSolo (MixBus::Drums, true);
+    controller.setFxSolo (FxSlot::VocalPlate, true);
+    const auto soloed = controller.getSoloed();
+    CHECK (soloed.size() == 3);
+    CHECK (soloed[0].kind == MixController::SoloedItem::Kind::Strip);
+    CHECK (soloed[0].name == controller.getSession().inputs[0].name);
+    CHECK (soloed[1].kind == MixController::SoloedItem::Kind::Bus);
+    CHECK (soloed[2].kind == MixController::SoloedItem::Kind::Fx);
+
+    for (const Page p : workspaces)
+    {
+        view.showPage (p);
+        window.pump (10);
+        CHECK_MESSAGE (view.isSoloBarShown(),
+                       "the solo band is not on this workspace, so a solo is invisible from it");
+    }
+
+    // ...and the room never heard any of it: solo is the monitor's business and nothing else's.
+    CHECK (! controller.getKept().strips[0].mute);
+    CHECK (controller.numSoloed() == 3);
+
+    controller.clearSolos();
+    window.pump (10);
+    view.showPage (Page::Mixer);
+    window.pump (10);
+    CHECK (! view.isSoloBarShown());
+    CHECK (controller.getSoloed().empty());
 }
