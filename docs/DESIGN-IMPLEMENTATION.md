@@ -8,7 +8,7 @@ which engine phase owns it.
 The design file is **`2wv5QSnvrSSQXtDzfuShIn`** ("DLIVE Desktop v2", Sept 2026).
 The baseline this is all measured against is `docs/design/baseline/`.
 
-**Status: UI-0 to UI-4 done. UI-5 part done (see §3e). Next: finish UI-5's LIVE, then UI-6 and UI-7.**
+**Status: UI-0 to UI-4 done. UI-5 mostly done (see §3e). Next: UI-6, the Inspector.**
 
 ---
 
@@ -328,15 +328,29 @@ one here and moving it there are the same move. LIVE SAFE fences them the way it
 pads. They render with live state. The tiles give up their spare height for them, and the
 macros are the first band to go when even the tiles' floor will not fit.
 
-**Not yet done, and honestly so:**
+**The page bar is built**: "Live", the **ON AIR** lamp (lit whenever the engine is running and
+the broadcast is not muted) and "Now: <marker> · next marker ... at 01:25", read straight off
+the timeline so it is the same list TRACKS shows.
 
-- the page bar with **ON AIR** and "Now: <marker>" - the marker state exists (`Project::markers`), so this is layout, not engine;
-- the **BROADCAST** card (the big short-term LUFS, integrated / true peak / range, the target bar) - every number exists in `getMasterLoudness()`;
-- **scenes as cards** with their kept times and RECALL / KEEP - they are a row of pickers today;
+**The BROADCAST card is built**: the short-term LUFS big enough to read from the back of a
+booth, then Integrated, True peak and the target bar. The design's third reading is **Range**
+(loudness range, LRA) and DLIVE does not measure it, so rather than print a number that is not
+real the card shows **Against target** in LU - `deltaLu()`, which is what somebody reading that
+card is looking for anyway. LRA is noted below as a measurement worth proposing.
+
+**Still owed to the design:**
+
+- **scenes as cards** with their kept times and RECALL / KEEP - they are a row of pickers today. The kept time is derivable (`mark("Scene kept: ...")` is already in the history), so this is restyling;
 - **groups as flat horizontal faders** instead of vertical tiles.
 
-All four are restyling of state that already exists. The **Autopilot card** is not built and
-must not be: it waits on its engine phase.
+The **Autopilot card** is not built and must not be: it waits on its engine phase.
+
+**Frame cost.** Per-tick is unchanged at 1.27-1.32 ms. LIVE's cold full repaint went 11.2 → 21.6
+ms with the macros row, the broadcast card and the page bar. Two real costs were found and
+fixed on the way - `markerLine()` was scanning the timeline and building strings on every one
+of the thirty ticks a second (it is rebuilt now only when the playhead crosses a marker), and
+the big LUFS number was measuring its own string on every paint (a monospaced face does not
+need measuring). What is left is the drawing itself, and it is page-switch cost, not frame cost.
 
 ## 4. The screens
 
