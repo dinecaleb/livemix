@@ -753,13 +753,6 @@ int main (int argc, char** argv)
         if (juce::String (args[a]) == "--theme") { themeName = args[a + 1]; args.erase (args.begin() + long (a), args.begin() + long (a) + 2); break; }
     for (size_t a = 1; a + 1 < args.size(); ++a)
         if (juce::String (args[a]) == "--stems") { stemsFolder = juce::File (juce::String (args[a + 1])); args.erase (args.begin() + long (a), args.begin() + long (a) + 2); break; }
-    // --text <scale> renders everything at one of the Appearance text sizes (1.0 / 1.2 / 1.35).
-    float textScale = 1.0f;
-    for (size_t a = 1; a + 1 < args.size(); ++a)
-        if (juce::String (args[a]) == "--text") { textScale = juce::String (args[a + 1]).getFloatValue(); args.erase (args.begin() + long (a), args.begin() + long (a) + 2); break; }
-    if (const auto fromEnv = juce::SystemStats::getEnvironmentVariable ("DLIVE_TEXT_SIZE", {}); fromEnv.isNotEmpty())
-        textScale = fromEnv.getFloatValue();
-    Dine::setTextScale (textScale);
     if (stemsFolder == juce::File() )
     {
         // So --sizes and --frames pick the same recording up without repeating it.
@@ -1060,26 +1053,6 @@ int main (int argc, char** argv)
     rig.feed (0.3);
     rig.snap (dir, "11c-inspector-comp");
     {
-        // THE GATE, with a gate to look at: a gate has two thresholds and the second one is
-        // the reason a gate on a tom does not chatter, so the panel has to draw both.
-        auto gated = rig.controller.getKept().strips[0].channel;
-        gated.gateEnabled = true;
-        gated.gateThresholdDb = -34.0f;
-        gated.gateHysteresisDb = 6.0f;
-        gated.gateRangeDb = 30.0f;
-        rig.controller.setStripChannel (0, gated);
-        view.getAdvancedPage().openStripAtStage (0, "GATE");
-        rig.feed (0.4);
-        rig.snap (dir, "11f-inspector-gate");
-    }
-    {
-        // WIDTH, on a stereo source: the amount, what stays centred under it, and the measured
-        // correlation - the one number that says whether this will survive summing to mono.
-        view.getAdvancedPage().openStripAtStage (8, "WIDTH");     // Keys L: a stereo pair
-        rig.feed (0.5);
-        rig.snap (dir, "11g-inspector-width");
-    }
-    {
         // SAMPLE: the kick's stage switched on at the profile's blend, with the built-in sounds
         // in its list; the path's chip and the strip along the foot say so too.
         auto withSample = rig.controller.getKept().strips[0].channel;
@@ -1124,22 +1097,6 @@ int main (int argc, char** argv)
     rig.feed (0.3);
     rig.snap (dir, "15-mixer");
 
-    // Text size, on the console, which is where it has to survive: the words grow and the
-    // strips do not, so a name gets an ellipsis rather than the desk getting wider.
-    // The design's frame 10 is the last of these.
-    for (const auto& size : ThemeStore::textSizes())
-    {
-        if (std::abs (size.scale - Dine::textScale()) < 0.001f) continue;
-        Dine::setTextScale (size.scale);
-        Dine::refreshAllWindows();
-        view.resized();
-        rig.feed (0.3);
-        rig.snap (dir, "15t-mixer-text-" + juce::String (size.name).toLowerCase());
-    }
-    Dine::setTextScale (1.0f);
-    Dine::refreshAllWindows();
-    view.resized();
-    rig.feed (0.3);
 
     view.getMixerPage().setStripSize (MixerPage::Size::Narrow);
     rig.feed (0.3);
@@ -1292,13 +1249,6 @@ int main (int argc, char** argv)
     view.closeSheetsForSnapshot();
     rig.feed (0.2);
 
-    // MIX HISTORY: every mix this session has had, newest first, with the time and what made
-    // it. The tuned ones carry the chip, because they are what people come back to.
-    view.showHistory();
-    rig.feed (0.3);
-    rig.snap (dir, "18c-mix-history");
-    view.closeSheetsForSnapshot();
-    rig.feed (0.2);
 
     // MIX CHAT: a change asked for in words. It works with no account and no network - with no
     // cloud model configured the sentence is read by DLIVE's own parser, which is deterministic
@@ -1364,31 +1314,6 @@ int main (int argc, char** argv)
         rig.snap (dir, "31-appearance");
         view.closeSheets();
     }
-    {
-        // THE GUIDE: the one sentence a workspace says the first time somebody lands on it.
-        // Forced on, because whether this Mac has seen it is not something a render may depend
-        // on. Back to the design's own theme first: the loop above left whichever it rendered last.
-        view.applyThemeNamed (ThemeStore::kDefaultName);
-        view.showPage (MainView::Page::Mixer);
-        rig.feed (0.2);
-        view.setForceGuideForSnapshot (true);
-        rig.feed (0.3);
-        rig.snap (dir, "33-guide");
-        view.setForceGuideForSnapshot (false);
-    }
-    {
-        // EXPORT: what, how much of it, what format and how loud, asked once. Back to the
-        // design's own theme first - the loop above left whichever one it rendered last.
-        view.applyThemeNamed (ThemeStore::kDefaultName);
-        // EXPORT: what, how much of it, what format and how loud, asked once.
-        view.showPage (MainView::Page::Tracks);
-        rig.feed (0.2);
-        view.showExport();
-        rig.feed (0.3);
-        rig.snap (dir, "32-export");
-        view.closeSheets();
-    }
-
 
     std::printf ("stage %d, health %d%%\n", int (rig.controller.getStage()), rig.controller.getMixHealthPercent());
     rig.view.reset();

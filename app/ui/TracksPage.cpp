@@ -615,7 +615,7 @@ void TracksPage::pushUndo()
 void TracksPage::commit()
 {
     services.daw().refresh();
-    services.touchSession();
+    services.saveSession();
     repaint();
 }
 
@@ -713,7 +713,7 @@ void TracksPage::setRowHeight (RowHeight h)
     for (auto& t : project.tracks) t.height = px;
     clampScroll();
     updateToolbar();
-    services.touchSession();
+    services.saveSession();
     repaint();
 }
 
@@ -755,7 +755,7 @@ void TracksPage::addMarkerAtPlayhead()
     project.markers.push_back ({ "Marker " + juce::String (int (project.markers.size()) + 1), at });
     std::stable_sort (project.markers.begin(), project.markers.end(),
                       [] (const Marker& a, const Marker& b) { return a.position < b.position; });
-    services.touchSession();
+    services.saveSession();
     if (onTimelineChanged) onTimelineChanged();
     repaint();
     if (onToast) onToast ("Marker at " + clockText (at, project.sampleRate) + ".");
@@ -783,7 +783,7 @@ void TracksPage::markerMenu (int index)
                          {
                              pushUndo();
                              p.markers.erase (p.markers.begin() + index);
-                             services.touchSession();
+                             services.saveSession();
                              if (onTimelineChanged) onTimelineChanged();
                              repaint();
                              return;
@@ -804,7 +804,7 @@ void TracksPage::markerMenu (int index)
                                  if (text.isEmpty()) return;
                                  pushUndo();
                                  proj.markers[size_t (index)].name = text;
-                                 services.touchSession();
+                                 services.saveSession();
                                  if (onTimelineChanged) onTimelineChanged();
                                  repaint();
                              }), true);
@@ -849,7 +849,7 @@ void TracksPage::setTrackName (int track, const juce::String& name)
     if (track < 0 || track >= numTracks() || name.trim().isEmpty()) return;
     controller.setInputName (track, name.trim().toStdString());
     services.daw().setSession (controller.getSession());
-    services.touchSession();
+    services.saveSession();
     updateChainStrip();
     if (onSessionChanged) onSessionChanged();
     repaint();
@@ -885,7 +885,7 @@ void TracksPage::matchNamesToClips()
     if (fixed == 0) { if (onToast) onToast ("Every track already matches its clips."); return; }
 
     services.daw().setSession (controller.getSession());
-    services.touchSession();
+    services.saveSession();
     updateChainStrip();
     if (onSessionChanged) onSessionChanged();
     repaint();
@@ -901,7 +901,7 @@ void TracksPage::setTrackIcon (int track, const std::string& key)
     if (track < 0 || track >= numTracks()) return;
     controller.setInputIcon (track, key);
     services.daw().setSession (controller.getSession());
-    services.touchSession();
+    services.saveSession();
     if (onSessionChanged) onSessionChanged();
     repaint();
 }
@@ -919,7 +919,7 @@ void TracksPage::setTrackSource (int track, ChannelRole role)
     controller.setSession (session);
     services.daw().setSession (session);
     services.reconfigure();
-    services.touchSession();
+    services.saveSession();
     rebuild();
     updateChainStrip();
     if (onSessionChanged) onSessionChanged();
@@ -950,7 +950,7 @@ void TracksPage::moveTrack (int from, int to)
     controller.setSession (session);
     services.daw().setSession (session);      // the clips move with their track
     services.reconfigure();                   // rebuilds the graph; the mix follows its input
-    services.touchSession();
+    services.saveSession();
 
     selection = { to, -1 };
     rebuild();
@@ -1109,7 +1109,7 @@ void TracksPage::setAllToRecord (bool on)
     if (project.tracks.empty()) return;
     for (auto& t : project.tracks) t.armed = on;
     services.daw().refresh();
-    services.touchSession();
+    services.saveSession();
     if (onToast) onToast (on ? "Every track will be recorded." : "No tracks will be recorded.");
     updateToolbar();
     repaint();
@@ -1122,7 +1122,7 @@ void TracksPage::cycleMonitor (int track)
     auto& mode = project.tracks[size_t (track)].monitor;
     mode = MonitorMode ((int (mode) + 1) % int (MonitorMode::Count));
     services.daw().refresh();
-    services.touchSession();
+    services.saveSession();
     repaint();
 }
 
@@ -1859,7 +1859,7 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
                     if (locked()) return;
                     project.tracks[size_t (track)].armed = ! project.tracks[size_t (track)].armed;
                     services.daw().refresh();
-                    services.touchSession();
+                    services.saveSession();
                 }
                 else if (k == 1) cycleMonitor (track);
                 else if (k == 2) controller.setStripMute (track, ! controller.getBase().strips[size_t (track)].mute);
@@ -2084,7 +2084,7 @@ void TracksPage::mouseUp (const juce::MouseEvent&)
             if (onToast) onToast (juce::String (on ? "Loop " : "Loop (off) ") + clockText (project.loopStart, project.sampleRate) + " to "
                                   + clockText (project.loopEnd, project.sampleRate) + ".");
         }
-        services.touchSession();
+        services.saveSession();
         if (onTimelineChanged) onTimelineChanged();
         updateToolbar();
     }
@@ -2093,7 +2093,7 @@ void TracksPage::mouseUp (const juce::MouseEvent&)
     {
         std::stable_sort (project.markers.begin(), project.markers.end(),
                           [] (const Marker& a, const Marker& b) { return a.position < b.position; });
-        services.touchSession();
+        services.saveSession();
         if (onTimelineChanged) onTimelineChanged();
     }
 
@@ -2161,7 +2161,7 @@ void TracksPage::mouseDoubleClick (const juce::MouseEvent& e)
                                 snapSample (xToSample (p.x), -1, -1) });
     std::stable_sort (project.markers.begin(), project.markers.end(),
                       [] (const Marker& a, const Marker& b) { return a.position < b.position; });
-    services.touchSession();
+    services.saveSession();
     if (onTimelineChanged) onTimelineChanged();
     repaint();
 }
@@ -2259,7 +2259,7 @@ void TracksPage::toggleLoop()
     }
     const bool on = ! project.loopEnabled;
     services.daw().setLoop (on, project.loopStart, project.loopEnd);
-    services.touchSession();
+    services.saveSession();
     if (onTimelineChanged) onTimelineChanged();
     updateToolbar();
     repaint();

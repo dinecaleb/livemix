@@ -121,262 +121,24 @@ private:
 };
 
 // A workspace tab: tracked caps with a 2 px accent underline when it is the one on screen.
-// "Autosaved 8:42 PM", at the left of the toolbar. The session writes itself down without
-// being asked (app/native/SessionAutosave), and this is the only place that says so - a person
-// who can see that it happened does not have to keep pressing Save to find out.
-class MainView::AutosaveLamp : public juce::Component
-{
-public:
-    AutosaveLamp()
-    {
-        setWantsKeyboardFocus (false);
-        setInterceptsMouseClicks (false, false);
-    }
-
-    // Returns true when the words changed, so the row can be laid out again.
-    bool update (juce::Time when, bool pending)
-    {
-        juce::String next;
-        if (pending)               next = "Saving" + juce::String (Glyph::ellip());
-        else if (when.toMilliseconds() > 0) next = "Autosaved " + when.toString (false, true, false, false);
-        // Nothing yet: an empty session has nothing to write, and saying so would be noise.
-
-        if (next == words && pending == busy) return false;
-        words = next;
-        busy = pending;
-        repaint();
-        return true;
-    }
-
-    int idealWidth() const { return words.isEmpty() ? 0 : Dine::textWidth (Dine::Type::bodySmall(), words) + 20; }
-
-    void paint (juce::Graphics& g) override
-    {
-        if (words.isEmpty()) return;
-        auto r = getLocalBounds();
-        auto dot = r.removeFromLeft (10).withSizeKeepingCentre (7, 7).toFloat();
-        g.setColour (busy ? Dine::warn : Dine::ok);
-        g.fillEllipse (dot);
-        r.removeFromLeft (4);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::Type::bodySmall());
-        Dine::drawText (g, words, r, juce::Justification::centredLeft, true);
-    }
-
-private:
-    juce::String words;
-    bool busy = false;
-};
-
-// THE GUIDE: one sentence, the first time you open a workspace.
-//
-// The tutorial teaches the shape of the app once. This is the other half and it is smaller:
-// somebody who has landed on TUNE for the first time twenty minutes before a service wants
-// one line telling them what this screen is for, not a manual and not nothing. It sits along
-// the top of the workspace, it covers nothing, it is dismissed with one press, and it never
-// comes back - and "Don't show these" turns the lot off in one go.
-class MainView::GuideBar : public juce::Component
-{
-public:
-    GuideBar()
-    {
-        addAndMakeVisible (got);
-        addAndMakeVisible (never);
-        got.setTooltip ("Dismiss this one. It will not come back.");
-        never.setTooltip ("Turn off the first-time guide on every workspace.");
-        setOpaque (false);
-    }
-
-    DineButton got { "Got it", DineButton::Style::Standard };
-    DineButton never { "Don't show these", DineButton::Style::Ghost };
-
-    void setText (const juce::String& t) { if (t != text) { text = t; repaint(); } }
-    const juce::String& getText() const noexcept { return text; }
-
-    void paint (juce::Graphics& g) override
-    {
-        auto r = getLocalBounds().toFloat();
-        Dine::fillRounded (g, r, Dine::card, Dine::Radius::card);
-        g.setColour (Dine::accent);
-        g.fillRect (r.getX(), r.getY() + 10.0f, 2.0f, r.getHeight() - 20.0f);
-
-        auto inner = getLocalBounds().reduced (16, 0).withTrimmedRight (got.getWidth() + never.getWidth() + 30);
-        g.setColour (Dine::ink2);
-        g.setFont (Dine::Type::body());
-        Dine::drawText (g, text, inner, juce::Justification::centredLeft, true);
-    }
-
-    void resized() override
-    {
-        auto r = getLocalBounds().reduced (12, 0);
-        const int gw = juce::jmax (78, got.idealWidth());
-        got.setBounds (r.removeFromRight (gw).withSizeKeepingCentre (gw, Dine::Metric::control));
-        r.removeFromRight (8);
-        const int nw = juce::jmax (110, never.idealWidth());
-        never.setBounds (r.removeFromRight (nw).withSizeKeepingCentre (nw, Dine::Metric::control));
-    }
-
-private:
-    juce::String text;
-};
-
-// THE SOLO BAR.
-//
-// Solo is the one thing in DLIVE that is easy to leave on and impossible to hear: it goes to
-// the engineer's own device, so the room and the stream carry on exactly as before and nothing
-// on the console says why the engineer is listening to one microphone. So whenever anything at
-// all is soloed - a strip, a group or an FX return - this sits on the toolbar of every
-// workspace, says what is soloed, goes there when clicked, and clears everything with one
-// press. It never changes what the room hears; clearing it does not either.
-class MainView::SoloBar : public juce::Component
-{
-public:
-    SoloBar() { setWantsKeyboardFocus (false); }
-
-    std::function<void()> onGo;       // take me to the first thing that is soloed
-    std::function<void()> onClear;
-
-    // What is soloed, in the order the console has it. Returns true when anything changed.
-    bool setSoloed (const juce::StringArray& names)
-    {
-        if (names == soloed) return false;
-        soloed = names;
-        repaint();
-        return true;
-    }
-
-    int idealWidth() const
-    {
-        return Dine::textWidth (Dine::Type::labelControl(), text()) + Dine::textWidth (Dine::Type::labelControl(), "CLEAR ALL") + 74;
-    }
-
-    void paint (juce::Graphics& g) override
-    {
-        auto r = getLocalBounds().toFloat();
-        Dine::fillRounded (g, r, overClear ? Dine::hot.brighter (0.15f) : Dine::hot, Dine::Radius::control);
-
-        auto inner = getLocalBounds().reduced (12, 0);
-        g.setColour (Dine::onHot);
-
-        // the lamp
-        auto dot = inner.removeFromLeft (8).withSizeKeepingCentre (7, 7).toFloat();
-        g.fillEllipse (dot);
-        inner.removeFromLeft (8);
-
-        g.setFont (Dine::Type::labelControl());
-        const auto label = text();
-        const int labelW = Dine::textWidth (Dine::Type::labelControl(), label);
-        Dine::drawText (g, label, inner.removeFromLeft (labelW), juce::Justification::centredLeft);
-
-        inner.removeFromLeft (14);
-        clearArea = inner;
-        g.setColour (Dine::onHot.withAlpha (overClear ? 1.0f : 0.8f));
-        Dine::drawText (g, juce::String (Glyph::cross()) + "  CLEAR ALL", inner, juce::Justification::centredLeft);
-    }
-
-    void mouseMove (const juce::MouseEvent& e) override
-    {
-        const bool now = clearArea.contains (e.getPosition());
-        if (now != overClear) { overClear = now; repaint(); }
-    }
-    void mouseExit (const juce::MouseEvent&) override { if (overClear) { overClear = false; repaint(); } }
-    void mouseUp (const juce::MouseEvent& e) override
-    {
-        if (! getLocalBounds().contains (e.getPosition())) return;
-        if (clearArea.contains (e.getPosition())) { if (onClear) onClear(); }
-        else if (onGo) onGo();
-    }
-
-private:
-    juce::String text() const
-    {
-        // Three names is as much as a toolbar can carry; past that it says how many.
-        if (soloed.size() <= 3) return "SOLO  " + juce::String (Glyph::dot()) + "  " + soloed.joinIntoString (", ");
-        return "SOLO  " + juce::String (Glyph::dot()) + "  " + juce::String (soloed.size()) + " SOLOED";
-    }
-
-    juce::StringArray soloed;
-    juce::Rectangle<int> clearArea;
-    bool overClear = false;
-};
-
-// The session's name on the title row, and the way into everything about the document.
-// It came off the row on 2026-09-18 and the v2 design puts it back - which also gives
-// `setupPopover` a caller again: it had had none since.
-class MainView::SessionButton : public juce::Button
-{
-public:
-    SessionButton() : juce::Button ("Session") { setWantsKeyboardFocus (false); }
-
-    void setName (const juce::String& n)
-    {
-        if (n == name) return;
-        name = n;
-        setButtonText (n);
-        repaint();
-    }
-
-    int idealWidth() const { return Dine::textWidth (Dine::Type::body(), name) + 24; }
-
-    void paintButton (juce::Graphics& g, bool over, bool down) override
-    {
-        auto r = getLocalBounds().toFloat();
-        if (over || down) Dine::fillRounded (g, r, down ? Dine::fill : Dine::fillSoft, Dine::Radius::chip);
-        g.setColour (over || down ? Dine::ink : Dine::ink2);
-        g.setFont (Dine::Type::body());
-        Dine::drawText (g, name, getLocalBounds().reduced (12, 0), juce::Justification::centredLeft, true);
-    }
-
-private:
-    juce::String name;
-};
-
-// A workspace tab, in the design's three states (Components > Workspace Tab):
-//   Default     plain words on the title row
-//   Active      a filled accent pill carrying near-black type
-//   Deliberate  an outline and no fill - ROUTING, which is not a mixing workspace and should
-//               never be mistaken for one. It is separated from the other five by a divider.
 class MainView::WorkspaceTab : public juce::Button
 {
 public:
-    enum class Kind { Workspace, Deliberate };
-
-    WorkspaceTab (const juce::String& text, Kind k) : juce::Button (text), kind (k)
-    {
-        setWantsKeyboardFocus (false);
-        setClickingTogglesState (false);
-    }
-
-    int idealWidth() const
-    {
-        // A pill and an outline both carry their padding; a plain word carries none, but the
-        // width cannot change when it becomes active or the row would shuffle under the mouse.
-        return Dine::textWidth (Dine::Type::labelTab(), getButtonText()) + 28;
-    }
-
+    explicit WorkspaceTab (const juce::String& text) : juce::Button (text) { setWantsKeyboardFocus (false); setClickingTogglesState (false); }
+    int idealWidth() const { return Dine::textWidth (Dine::caps (12.5f, 0.08f), getButtonText()) + 4; }
     void paintButton (juce::Graphics& g, bool over, bool) override
     {
         const bool on = getToggleState();
-        auto r = getLocalBounds().toFloat();
-
-        if (on && kind == Kind::Workspace)
-            Dine::fillRounded (g, r, isEnabled() ? Dine::accent : Dine::control, Dine::Radius::control);
-        else if (kind == Kind::Deliberate)
+        auto r = getLocalBounds();
+        g.setColour (! isEnabled() ? Dine::ink4 : on || over ? Dine::ink : Dine::ink3);
+        g.setFont (Dine::caps (12.5f, 0.08f));
+        Dine::drawText (g, getButtonText(), r.withTrimmedBottom (2), juce::Justification::centred);
+        if (on)
         {
-            if (over && isEnabled()) Dine::fillRounded (g, r, Dine::fillSoft, Dine::Radius::control);
-            Dine::hairlineRounded (g, r, on ? Dine::accent : Dine::hairStrong, Dine::Radius::control);
+            g.setColour (Dine::accent);
+            g.fillRect (r.removeFromBottom (2));
         }
-
-        g.setColour (! isEnabled() ? Dine::ink4
-                     : on && kind == Kind::Workspace ? Dine::onAccent
-                     : on || over ? Dine::ink
-                     : Dine::ink3);
-        g.setFont (Dine::Type::labelTab());
-        Dine::drawText (g, getButtonText(), getLocalBounds(), juce::Justification::centred);
     }
-
-private:
-    const Kind kind;
 };
 
 // ---------------------------------------------------------------- status foot
@@ -433,13 +195,6 @@ public:
         next.monitorTint = controller.hasMonitorOutput() ? Dine::ink : Dine::ink3;
         next.safe = project.liveSafe;
 
-        // What the session has written down by itself. The toolbar says it too; here it is the
-        // last field on the row, because it is the one nobody should have to think about.
-        if (services.autosavePending()) next.autosave = "saving" + juce::String (Glyph::ellip());
-        else if (const auto wrote = services.lastAutosave(); wrote.toMilliseconds() > 0)
-            next.autosave = wrote.toString (false, true, false, false);
-        next.autosaveTint = services.autosavePending() ? Dine::warn : Dine::ink3;
-
         if (next != look) { look = next; repaint(); }
     }
 
@@ -456,7 +211,6 @@ public:
         cell (g, r, "Broadcast", look.loudness, look.loudTint);
         cell (g, r, "Monitor", look.monitor, look.monitorTint);
         cell (g, r, "Dropped", juce::String (look.drops), look.drops > 0 ? Dine::warn : Dine::ink3);
-        if (look.autosave.isNotEmpty()) cell (g, r, "Autosave", look.autosave, look.autosaveTint);
         if (look.safe) cell (g, r, "Live safe", "ON", Dine::accent);
     }
 
@@ -480,17 +234,15 @@ private:
 
     struct Look
     {
-        juce::String engine, cpu, disk, rec, loudness, monitor, autosave;
-        juce::Colour engineTint, cpuTint, diskTint, recTint, loudTint, monitorTint, autosaveTint;
+        juce::String engine, cpu, disk, rec, loudness, monitor;
+        juce::Colour engineTint, cpuTint, diskTint, recTint, loudTint, monitorTint;
         int drops = 0;
         bool recording = false, safe = false;
         bool operator== (const Look& o) const
         {
             return engine == o.engine && cpu == o.cpu && disk == o.disk && rec == o.rec && loudness == o.loudness
-                && monitor == o.monitor && autosave == o.autosave
-                && engineTint == o.engineTint && cpuTint == o.cpuTint && diskTint == o.diskTint
+                && monitor == o.monitor && engineTint == o.engineTint && cpuTint == o.cpuTint && diskTint == o.diskTint
                 && recTint == o.recTint && loudTint == o.loudTint && monitorTint == o.monitorTint
-                && autosaveTint == o.autosaveTint
                 && drops == o.drops && recording == o.recording && safe == o.safe;
         }
         bool operator!= (const Look& o) const { return ! (*this == o); }
@@ -509,47 +261,26 @@ private:
 class MainView::Sidebar : public juce::Component
 {
 public:
-    // LIBRARY, WORKSPACE, SAFETY - and the audio device along the foot with the way to change
-    // it. The SET-UP rows (Audio device, Inputs, Purpose and sound) left the sidebar with the
-    // v2 design: they are the ROUTING workspace now, and the foot says so in as many words.
-    // Nothing became unreachable - the View menu, the ROUTING tab and this foot all go there.
-    Sidebar (AppServices& s, std::function<void (Page)> go, std::function<void (int)> command) : services (s)
+    Sidebar (AppServices& s, std::function<void (Page)> go) : services (s)
     {
-        for (int i = 0; i < kRows; ++i)
+        struct Def { const char* label; Page page; };
+        const Def defs[9] = { { "Sessions", Page::Sessions },
+                              { "Audio device", Page::Device }, { "Inputs", Page::Assign }, { "Purpose and sound", Page::Purpose },
+                              { "Tracks", Page::Tracks }, { "Mixer", Page::Mixer }, { "Tune", Page::Tune }, { "Live", Page::Live },
+                              { "Inspector", Page::Inspector } };
+        for (int i = 0; i < 9; ++i)
         {
-            const auto& def = kDefs[i];
-            items[size_t (i)] = std::make_unique<DineNavItem> (def.label);
-            if (def.command != 0) items[size_t (i)]->onClick = [command, c = def.command] { command (c); };
-            else                  items[size_t (i)]->onClick = [go, p = def.page] { go (p); };
+            items[size_t (i)] = std::make_unique<DineNavItem> (defs[i].label);
+            items[size_t (i)]->onClick = [go, p = defs[i].page] { go (p); };
             addAndMakeVisible (*items[size_t (i)]);
         }
-
-        // "CHANGE IN ROUTING": the device is stated here and changed there, so a hand looking
-        // for it in the place it used to be is told where it went rather than left guessing.
-        changeDevice = std::make_unique<DineButton> ("CHANGE IN ROUTING", DineButton::Style::Standard);
-        changeDevice->setTooltip ("Devices, inputs and outputs all live on the ROUTING workspace now.");
-        changeDevice->onClick = [go] { go (Page::Device); };
-        addAndMakeVisible (*changeDevice);
-
         handle = std::make_unique<DinePanelTab> (DinePanelTab::Side::Left, "Sidebar");
         handle->setCollapsed (true);
         addChildComponent (*handle);
         setOpaque (true);
     }
 
-    // The row for a page, or nullptr when that page no longer has one (the set-up pages).
-    DineNavItem* item (Page p)
-    {
-        for (int i = 0; i < kRows; ++i)
-            if (kDefs[i].command == 0 && kDefs[i].page == p) return items[size_t (i)].get();
-        return nullptr;
-    }
-    DineNavItem* itemForCommand (int c)
-    {
-        for (int i = 0; i < kRows; ++i)
-            if (kDefs[i].command == c) return items[size_t (i)].get();
-        return nullptr;
-    }
+    DineNavItem& item (Page p) { return *items[size_t (indexOf (p))]; }
     DinePanelTab& getHandle() { return *handle; }
 
     void setCollapsed (bool c)
@@ -557,7 +288,6 @@ public:
         if (c == collapsed) return;
         collapsed = c;
         for (auto& i : items) i->setVisible (! c);
-        changeDevice->setVisible (! c);
         handle->setVisible (c);
         resized();
         repaint();
@@ -603,12 +333,7 @@ public:
         }
 
         // the device
-        auto foot = getLocalBounds().removeFromBottom (kFootH).reduced (14, 0).withTrimmedTop (10);
-        foot.removeFromBottom (kChangeH + 10);          // the button lays itself out down there
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::Type::labelSection());
-        Dine::drawText (g, "AUDIO DEVICE", foot.removeFromTop (12), juce::Justification::bottomLeft);
-        foot.removeFromTop (6);
+        auto foot = getLocalBounds().removeFromBottom (kFootH).reduced (14, 0).withTrimmedTop (12);
         const bool running = services.isAudioRunning();
         auto line = foot.removeFromTop (16);
         g.setColour (footRecording ? Dine::crit : running ? Dine::ok : Dine::ink4);
@@ -638,8 +363,7 @@ public:
         auto r = getLocalBounds();
         if (collapsed) { handle->setBounds (r); return; }
         r.removeFromTop (kHeadH);
-        auto foot = r.removeFromBottom (kFootH).reduced (14, 0);
-        changeDevice->setBounds (foot.removeFromBottom (kChangeH + 10).withTrimmedBottom (10));
+        r.removeFromBottom (kFootH);
         auto list = r.reduced (10, 0);
         captions.clear();
         auto caption = [&] (const char* text, bool first)
@@ -651,32 +375,26 @@ public:
         {
             for (int i = from; i < to; ++i) { items[size_t (i)]->setBounds (list.removeFromTop (26)); list.removeFromTop (1); }
         };
-        caption ("LIBRARY", true);    rows (0, 1);
-        caption ("WORKSPACE", false); rows (1, 6);
-        caption ("SAFETY", false);    rows (6, kRows);
+        caption ("LIBRARY", true);   rows (0, 1);
+        caption ("SET-UP", false);   rows (1, 4);
+        caption ("WORKSPACE", false); rows (4, 9);
     }
 
 private:
-    static constexpr int kHeadH = 14, kFootH = 128;   // the device, and the way to change it
-    static constexpr int kChangeH = 26;
-    // A row either goes to a workspace or runs a command. SAFETY's two run commands: the mix
-    // history sheet, and the scenes, which live on LIVE.
-    struct Def { const char* label; Page page; int command; };
-    static constexpr int kRows = 8;
-    static constexpr Def kDefs[kRows] = {
-        { "Sessions",  Page::Sessions,  0 },
-        { "Tracks",    Page::Tracks,    0 },
-        { "Mixer",     Page::Mixer,     0 },
-        { "Tune",      Page::Tune,      0 },
-        { "Live",      Page::Live,      0 },
-        { "Inspector", Page::Inspector, 0 },
-        { "Mix history", Page::Live,  633 },
-        { "Scenes",      Page::Live,  603 },
-    };
+    static constexpr int kHeadH = 14, kFootH = 96;
+    static int indexOf (Page p) noexcept
+    {
+        switch (p)
+        {
+            case Page::Sessions: return 0; case Page::Device: return 1; case Page::Assign: return 2; case Page::Purpose: return 3;
+            case Page::Tracks: return 4; case Page::Mixer: return 5; case Page::Tune: return 6; case Page::Live: return 7;
+            case Page::Inspector: return 8;
+        }
+        return 0;
+    }
 
     AppServices& services;
-    std::array<std::unique_ptr<DineNavItem>, kRows> items;
-    std::unique_ptr<DineButton> changeDevice;
+    std::array<std::unique_ptr<DineNavItem>, 9> items;
     std::unique_ptr<DinePanelTab> handle;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> captions;
     juce::String footState, footName, footSpec;
@@ -752,11 +470,6 @@ public:
                 m.addItem (108, "Save Input Mapping" + juce::String (Glyph::ellip()),
                            ! view.controller.getSession().inputs.empty());
                 m.addItem (109, "Input Mappings" + juce::String (Glyph::ellip()));
-                m.addSeparator();
-                // One way out, which asks what, how much, what format and how loud. The two
-                // straight-to-a-file items stay under it: somebody who exports the same thing
-                // every Sunday should not have to answer four questions to do it again.
-                m.addItem (110, "Export" + juce::String (Glyph::ellip()));
                 m.addSeparator();
                 m.addItem (105, "Export Stereo Mix (WAV)...");
                 m.addItem (106, "Export Stereo Mix (MP3)...");
@@ -858,7 +571,6 @@ public:
                 m.addItem (608, "Open Mixer in a New Window");
                 m.addItem (609, "Outputs" + juce::String (Glyph::ellip()));
                 m.addItem (630, "Check Inputs" + juce::String (Glyph::ellip()));
-                m.addItem (633, "Mix History" + juce::String (Glyph::ellip()));
                 m.addSeparator();
                 m.addItem (631, "Dim the Broadcast (20 dB)", true, view.controller.isBroadcastDimmed());
                 m.addItem (632, "Mute the Broadcast", true, view.controller.isBroadcastMuted());
@@ -879,16 +591,6 @@ public:
                         view.themeMenuNames.add (t.name);
                     }
                     appearance.addSeparator();
-                    // Text size. A preference of this Mac, like the theme: it scales the words
-                    // and leaves the console the same size, so a 32-channel desk stays one.
-                    juce::PopupMenu textSize;
-                    for (int i = 0; i < int (ThemeStore::textSizes().size()); ++i)
-                    {
-                        const auto& size = ThemeStore::textSizes()[size_t (i)];
-                        textSize.addItem (690 + i, size.name, true, std::abs (Dine::textScale() - size.scale) < 0.001f);
-                    }
-                    appearance.addSubMenu ("Text Size", textSize);
-                    appearance.addSeparator();
                     appearance.addItem (620, "Customise Appearance" + juce::String (Glyph::ellip()));
                     appearance.addItem (621, "Import a Theme" + juce::String (Glyph::ellip()));
                     appearance.addItem (622, "Show Themes Folder");
@@ -901,7 +603,6 @@ public:
                 break;
             default:
                 m.addItem (701, "Getting started");
-                m.addItem (702, "Show the guides again");
                 m.addSeparator();
                 m.addItem (700, "About DLIVE");
                 break;
@@ -916,35 +617,10 @@ private:
 };
 
 // ---------------------------------------------------------------- MainView
-// The wordmark is a mark, not a name: it never truncates, so its box is measured from the
-// type rather than fixed. At Larger text that is the difference between DLIVE and "DLI...".
-namespace
-{
-    juce::Font wordmarkFont() { return Dine::caps (13.0f, 0.16f); }
-}
-
-int MainView::wordmarkWidth() const
-{
-    // Measured once per text size, not per paint: measuring a string builds a glyph layout,
-    // and the title row is painted on every tick.
-    static float measuredAt = -1.0f;
-    static int width = kWordmarkW;
-    if (std::abs (measuredAt - Dine::textScale()) > 0.001f)
-    {
-        measuredAt = Dine::textScale();
-        width = juce::jmax (kWordmarkW, Dine::textWidth (wordmarkFont(), "DLIVE"));
-    }
-    return width;
-}
-
 MainView::MainView (MixController& c, AppServices& s) : controller (c), services (s)
 {
-    // The theme and the text size first, before a single page reads a token or a role.
-    if (gUseStoredTheme)
-    {
-        Dine::applyTheme (ThemeStore::find (ThemeStore::chosenTheme()));
-        Dine::setTextScale (ThemeStore::chosenTextSize());
-    }
+    // The theme first, before a single page reads a token.
+    if (gUseStoredTheme) Dine::applyTheme (ThemeStore::find (ThemeStore::chosenTheme()));
     lookAndFeel.applyPalette();
     juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
     setLookAndFeel (&lookAndFeel);
@@ -962,14 +638,9 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     toast = std::make_unique<Toast>();
     menu = std::make_unique<Menu> (*this);
 
-    routingPage = std::make_unique<RoutingPage> (controller, services, *devicePage, *assignPage);
-    devicePage->setEmbedded (true);
-    assignPage->setEmbedded (true);
-    routingPage->addAndMakeVisible (*devicePage);
-    routingPage->addAndMakeVisible (*assignPage);
-
-    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) routingPage.get(),
-                                (juce::Component*) tracksPage.get(),
+    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) devicePage.get(),
+                                (juce::Component*) assignPage.get(),
+                                (juce::Component*) purposePage.get(), (juce::Component*) tracksPage.get(),
                                 (juce::Component*) mixerPage.get(), (juce::Component*) mixPage.get(),
                                 (juce::Component*) livePage.get(), (juce::Component*) advancedPage.get() })
         addChildComponent (*p);
@@ -993,15 +664,9 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     {
         if (p == Page::Assign) assignPage->refresh();
         showPage (p);
-    },
-    [this] (int c) { handleCommand (c); });
+    });
     sidebar->getHandle().onClick = [this] { setSidebarShown (true); };
-    if (auto* row = sidebar->item (Page::Sessions))
-        row->setTooltip ("The library: every saved session, and what each one was for.");
-    if (auto* row = sidebar->itemForCommand (633))
-        row->setTooltip ("Every mix this session has had, by name and by time.");
-    if (auto* row = sidebar->itemForCommand (603))
-        row->setTooltip ("The scenes you saved for this service. They live on the LIVE workspace.");
+    sidebar->item (Page::Sessions).setTooltip ("The library: every saved session, and what each one was for.");
     addAndMakeVisible (*sidebar);
 
     statusBar = std::make_unique<StatusBar> (controller, services);
@@ -1026,42 +691,15 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     addChildComponent (*chatButton);
 
     // ---- toolbar
-    sessionButton = std::make_unique<SessionButton>();
-    sessionButton->setTooltip ("This session: open, save, rename, import, and everything it was set up with.");
-    sessionButton->onClick = [this] { sessionMenu(); };
-    addChildComponent (*sessionButton);
-
+    const char* tabLabels[kWorkspaceTabs] = { "TRACKS", "MIXER", "TUNE", "LIVE", "INSPECTOR" };
+    const Page tabPages[kWorkspaceTabs] = { Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
     for (int i = 0; i < kWorkspaceTabs; ++i)
     {
-        const bool deliberate = i == kRoutingTab;
-        tabs[size_t (i)] = std::make_unique<WorkspaceTab> (kTabLabels[i],
-                                                           deliberate ? WorkspaceTab::Kind::Deliberate
-                                                                      : WorkspaceTab::Kind::Workspace);
-        tabs[size_t (i)]->setTooltip (deliberate
-            ? "Devices, what each input is and where the mix goes out. Changing these changes what the room hears."
-            : "Switching workspaces never changes the sound");
-        tabs[size_t (i)]->onClick = [this, p = kTabPages[i]] { showPage (p); };
+        tabs[size_t (i)] = std::make_unique<WorkspaceTab> (tabLabels[i]);
+        tabs[size_t (i)]->setTooltip ("Switching workspaces never changes the sound");
+        tabs[size_t (i)]->onClick = [this, p = tabPages[i]] { showPage (p); };
         addAndMakeVisible (*tabs[size_t (i)]);
     }
-
-    autosaveLamp = std::make_unique<AutosaveLamp>();
-    addChildComponent (*autosaveLamp);
-
-    historyButton = std::make_unique<ToolbarToggle> ("MIX HISTORY", 11.0f, 0.06f);
-    historyButton->setTooltip ("Every mix this session has had, by name and by time. Going back to one changes the mix; "
-                               "nothing here is lost by looking.");
-    historyButton->onClick = [this] { handleCommand (633); };
-    addChildComponent (*historyButton);
-
-    soloBar = std::make_unique<SoloBar>();
-    soloBar->onGo = [this] { goToFirstSoloed(); };
-    soloBar->onClear = [this]
-    {
-        controller.clearSolos();
-        updateChrome();
-        showToast ("Solo cleared. The room never heard it.");
-    };
-    addChildComponent (*soloBar);
 
     bypassButton = std::make_unique<ToolbarToggle> ("BYPASS");
     bypassButton->setTooltip ("Hear the raw console feed: no processing, no fader moves, no effects. Press it again "
@@ -1114,13 +752,6 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
         else showPage (Page::Assign);
     };
     devicePage->onContinueToAssign = [this] { showPage (Page::Assign); };
-
-    routingPage->onOpenOutputs = [this] { showOutputs(); };
-    routingPage->onSaveMapping = [this] { saveInputMapping(); };
-    routingPage->onApplyMapping = [this] { openInputMappings(); };
-    routingPage->onToast = [this] (const juce::String& s) { showToast (s); };
-    routingPage->onContinue = [this] { if (! controller.getSession().inputs.empty()) showPage (Page::Purpose); };
-    routingPage->onConfirmUnderLiveSafe = [this] (const juce::String& what) { return ! liveSafeBlocks (what); };
     devicePage->onSetUpOutputs = [this] { showOutputs(); };
     devicePage->onImportRecording = [this] (const juce::File& folder)
     {
@@ -1135,22 +766,14 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     assignPage->onContinue = [this] { showPage (Page::Purpose); };
     assignPage->onSaveMapping = [this] { saveInputMapping(); };
     assignPage->onApplyMapping = [this] { openInputMappings(); };
-    // Back out of PURPOSE AND SOUND: while it is a sheet, "back" is the workspace underneath
-    // it, which is what closing it gives you. Outside one it is still the way it came.
-    purposePage->onBack = [this] { if (purposeSheet != nullptr) closeSheets(); else showPage (Page::Assign); };
-    purposePage->onContinue = [this]
-    {
-        // TUNE THE MIX is the way out of the sheet as well as the way on: leaving it up over
-        // the console it just built would be a sheet nobody asked to keep.
-        if (purposeSheet != nullptr) purposeSheet.reset();
-        enterSession();
-    };
+    purposePage->onBack = [this] { showPage (Page::Assign); };
+    purposePage->onContinue = [this] { enterSession(); };
 
     tracksPage->onToast = [this] (const juce::String& t) { showToast (t); };
     tracksPage->onPanelWidthChanged = [this]
     {
         services.setTrackPanelWidth (tracksPage->panelWidth());
-        services.touchSession();
+        services.saveSession();
     };
     tracksPage->onTimelineChanged = [this] { updateChrome(); };
     tracksPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
@@ -1170,11 +793,6 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     mixPage->onOpenHistory = [this] { showHistory(); };
     mixPage->onSelectStrip = [this] (int strip) { lastChannel = strip; updateChainFoot(); };
     mixerPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
-    mixerPage->onOpenStripStage = [this] (int strip, const juce::String& stage)
-    {
-        showPage (Page::Inspector);
-        advancedPage->openStripAtStage (strip, stage);
-    };
     mixerPage->onOpenBus = [this] (MixBus bus) { showPage (Page::Inspector); advancedPage->selectBus (bus); };
     mixerPage->onTuneStrip = [this] (int strip) { tuneChannel (strip); };
     mixerPage->onOpenWindow = [this] { openMixerWindow(); };
@@ -1215,7 +833,6 @@ MainView::~MainView()
     channelSheet.reset();
     chatSheet.reset();
     controller.onMessage = nullptr;
-
     setLookAndFeel (nullptr);
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
 }
@@ -1225,7 +842,7 @@ juce::MenuBarModel* MainView::getMenuModel() { return menu.get(); }
 void MainView::enterSession()
 {
     services.reconfigure();
-    services.touchSession();
+    services.saveSession();
     advancedPage->rebuild();
     mixerPage->rebuild();
     if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
@@ -1236,7 +853,7 @@ void MainView::enterSession()
 void MainView::timelineChanged()
 {
     tracksPage->rebuild();
-    services.touchSession();
+    services.saveSession();
     updateChrome();
 }
 
@@ -1250,25 +867,11 @@ bool MainView::liveSafeBlocks (const juce::String& what)
 
 void MainView::showPage (Page p)
 {
-    // ROUTING is one workspace made of three: the device, the input map and the outputs. The
-    // pages themselves are unchanged and are shown embedded inside it, so Page::Device and
-    // Page::Assign both mean "ROUTING" now and every way in still works - the tab, Cmd-6, the
-    // View menu, the sidebar's CHANGE IN ROUTING, and a first run walking through the steps.
-    if (p == Page::Assign) p = Page::Device;
-    // PURPOSE AND SOUND is a sheet now. Every call site that asked for the page - the first
-    // run, the setup popover, the sidebar as it used to be - opens the sheet instead, over
-    // whatever workspace is already there.
-    if (p == Page::Purpose) { showPurpose(); return; }
-
-    // PURPOSE AND SOUND is a sheet *over a workspace*. Going to a different workspace is
-    // leaving it, so it goes with you - a sheet that survives the move ends up sitting over a
-    // console it has nothing to do with.
-    if (purposeSheet != nullptr && p != page) purposeSheet.reset();
-
     page = p;
-    const bool routing = p == Page::Device;
     sessionsPage->setVisible (p == Page::Sessions);
-    routingPage->setVisible (routing);
+    devicePage->setVisible (p == Page::Device);
+    assignPage->setVisible (p == Page::Assign);
+    purposePage->setVisible (p == Page::Purpose);
     tracksPage->setVisible (p == Page::Tracks);
     mixerPage->setVisible (p == Page::Mixer);
     mixPage->setVisible (p == Page::Tune);
@@ -1276,7 +879,9 @@ void MainView::showPage (Page p)
     advancedPage->setVisible (p == Page::Inspector);
 
     if (p == Page::Sessions) sessionsPage->refresh();
-    if (routing) { devicePage->refresh(); assignPage->refresh(); routingPage->refresh(); }
+    if (p == Page::Device) devicePage->refresh();
+    if (p == Page::Assign) assignPage->refresh();
+    if (p == Page::Purpose) purposePage->refresh();
     if (p == Page::Tracks)
     {
         if (const int w = services.trackPanelWidth(); w > 0) tracksPage->setPanelWidth (w);
@@ -1286,7 +891,6 @@ void MainView::showPage (Page p)
     if (p == Page::Live) livePage->rebuild();
     if (p == Page::Inspector) advancedPage->rebuild();
 
-    updateGuide();
     updateChrome();
     resized();
     repaint();
@@ -1302,38 +906,27 @@ void MainView::updateChrome()
     const bool inWorkspace = ! isSetupPage (page);
     const auto& project = services.daw().getProject();
 
-    // ---- the sidebar's rows. The set-up rows left it for the ROUTING workspace.
-    const Page workspaces[6] = { Page::Sessions, Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
-    for (const Page p : workspaces)
-        if (auto* row = sidebar->item (p))
-        {
-            row->setSelected (page == p);
-            row->setEnabled (p == Page::Sessions ? true : mixable);
-        }
-    if (auto* row = sidebar->item (Page::Sessions)) row->setMeta (juce::String (services.listSessions().size()));
-    // SAFETY. Both rows say how much there is to go back to; neither is selectable, because
-    // neither is a place you stay.
-    if (auto* row = sidebar->itemForCommand (633))
+    // ---- the sidebar's rows
+    const Page all[9] = { Page::Sessions, Page::Device, Page::Assign, Page::Purpose,
+                          Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
+    for (const Page p : all)
     {
-        row->setEnabled (mixable);
-        row->setMeta (juce::String (int (controller.getCheckpoints().size())));
+        auto& row = sidebar->item (p);
+        row.setSelected (page == p);
+        const bool setup = isSetupPage (p);
+        row.setEnabled (setup ? (p == Page::Sessions || p == Page::Device || running || hasInputs) : mixable);
     }
-    if (auto* row = sidebar->itemForCommand (603))
-    {
-        row->setEnabled (mixable);
-        // How many scenes are actually kept, not how many slots there are.
-        int kept = 0;
-        for (int i = 0; i < controller.numScenes(); ++i) if (! controller.getScene (i).name.empty()) ++kept;
-        row->setMeta (kept > 0 ? juce::String (kept) : juce::String());
-    }
+    sidebar->item (Page::Sessions).setMeta (juce::String (services.listSessions().size()));
+    sidebar->item (Page::Assign).setMeta (hasInputs ? juce::String (int (session.inputs.size())) : juce::String());
+    sidebar->item (Page::Device).setDone (running && page != Page::Device);
+    sidebar->item (Page::Purpose).setDone (mixable && page != Page::Purpose);
 
-    // ---- the tabs. ROUTING is where a session that has nothing set up yet has to start, so
-    // it is the one tab that is never greyed out.
+    // ---- the tabs
+    const Page tabPages[kWorkspaceTabs] = { Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
     for (int i = 0; i < kWorkspaceTabs; ++i)
     {
-        const bool routing = i == kRoutingTab;
-        tabs[size_t (i)]->setToggleState (routing ? isSetupPage (page) : page == kTabPages[i], juce::dontSendNotification);
-        tabs[size_t (i)]->setEnabled (mixable || routing);
+        tabs[size_t (i)]->setToggleState (page == tabPages[i], juce::dontSendNotification);
+        tabs[size_t (i)]->setEnabled (mixable);
     }
 
     // What is on the title row and the toolbar decides where everything else on them goes, so a
@@ -1357,35 +950,7 @@ void MainView::updateChrome()
     liveSafeButton->setSuffix (project.liveSafe ? "ON" : "OFF");
     show (*chatButton, mixable);
     chatButton->setOn (chatSheet != nullptr);
-    // TUNE LIVE MIX left the title row with the v2 design - it is on the TUNE workspace, which
-    // is where the design puts it, and in the Mix menu. It comes back to the title row for as
-    // long as it is *running*, because a thing that is moving the mix by itself has to be
-    // stoppable from wherever you happen to be standing.
-    // The toolbar's left: what the session has written down by itself, and the way back to
-    // any mix it has had.
-    {
-        const bool anySession = ! controller.getSession().inputs.empty();
-        if (autosaveLamp->update (services.lastAutosave(), services.autosavePending())) rowsChanged = true;
-        show (*autosaveLamp, anySession && autosaveLamp->idealWidth() > 0);
-        show (*historyButton, anySession);
-    }
-
-    // The solo bar: on every workspace, whenever anything at all is soloed.
-    {
-        const auto names = soloedNames();
-        if (soloBar->setSoloed (names)) rowsChanged = true;
-        show (*soloBar, ! names.isEmpty());
-    }
-
-    // The session's name, with the date it is for - "Sunday Service - Sep 27".
-    {
-        auto name = services.currentSessionName();
-        if (name.isEmpty()) name = "Untitled session";
-        sessionButton->setName (name);
-        show (*sessionButton, ! isSetupPage (page) || page != Page::Sessions);
-    }
-
-    show (*tuneLiveButton, mixable && controller.isTuningLive());
+    show (*tuneLiveButton, mixable);
     tuneLiveButton->setOn (controller.isTuningLive());
     tuneLiveButton->setSuffix (controller.isTuningLive() ? juce::String ("  " + Glyph::dot() + "  STOP") : juce::String());
     show (*transportBar, inWorkspace);
@@ -1504,10 +1069,6 @@ juce::Rectangle<int> MainView::spotlight (const juce::String& what) const
     if (what == "transport" && transportBar != nullptr && transportBar->isVisible()) return transportBar->getBounds();
     if (what == "livesafe" && liveSafeButton != nullptr && liveSafeButton->isVisible()) return liveSafeButton->getBounds();
     if (what == "rail" && sidebar != nullptr && sidebar->isVisible()) return sidebar->getBounds();
-    // ROUTING on its own: it is the tab the second step is about, and ringing all six says
-    // nothing about which one to press.
-    if (what == "routing" && tabs[kRoutingTab] != nullptr) return tabs[kRoutingTab]->getBounds().expanded (6, 4);
-    if (what == "solobar" && soloBar != nullptr && soloBar->isVisible()) return soloBar->getBounds().expanded (4, 4);
     if (what == "tabs" && tabs[0] != nullptr)
     {
         auto track = tabs[0]->getBounds();
@@ -1616,8 +1177,6 @@ void MainView::closeSheets()
     themeSheet.reset();
     channelSheet.reset();
     chatSheet.reset();
-    purposeSheet.reset();
-    exportSheet.reset();
     updateChrome();
     resized();
 }
@@ -1627,7 +1186,6 @@ void MainView::showThemes()
     if (themeSheet != nullptr) { themeSheet->refresh(); return; }
     themeSheet = std::make_unique<ThemeSheet> (gUseStoredTheme);
     themeSheet->onToast = [this] (const juce::String& t) { showToast (t); };
-    themeSheet->onTextSizeChanged = [this] (float scale) { applyTextSize (scale); };
     themeSheet->onThemeChanged = [this]
     {
         updateChrome();
@@ -1641,139 +1199,6 @@ void MainView::showThemes()
     addAndMakeVisible (*themeSheet);
     resized();
     themeSheet->toFront (true);
-}
-
-// What is soloed right now, in the order the console has it: strips by their name, then the
-// groups, then the FX returns. The solo bar says these and goes to the first of them.
-juce::StringArray MainView::soloedNames() const
-{
-    juce::StringArray names;
-    const auto& kept = controller.getKept();
-    const auto& session = controller.getSession();
-
-    for (int i = 0; i < kept.numStrips; ++i)
-        if (kept.strips[size_t (i)].solo)
-            names.add (i < int (session.inputs.size()) ? juce::String (session.inputs[size_t (i)].name).toUpperCase()
-                                                       : "IN " + juce::String (i + 1));
-    for (int b = 0; b < int (MixBus::Master); ++b)
-        if (kept.buses[size_t (b)].solo) names.add (juce::String (mixBusName (MixBus (b))).toUpperCase());
-    for (int f = 0; f < int (FxSlot::Count); ++f)
-        if (kept.fx[size_t (f)].solo) names.add (juce::String (fxSlotName (FxSlot (f))).toUpperCase());
-    return names;
-}
-
-bool MainView::isSoloBarShown() const { return soloBar != nullptr && soloBar->isVisible(); }
-
-// WHAT EACH WORKSPACE IS FOR, in one sentence, in the words a volunteer uses. The key is
-// short and stable because it is written into the preferences file; the sentence is not.
-const char* MainView::guideKeyFor (Page p)
-{
-    switch (p)
-    {
-        case Page::Device: case Page::Assign: return "routing";
-        case Page::Tracks:    return "tracks";
-        case Page::Mixer:     return "mixer";
-        case Page::Tune:      return "tune";
-        case Page::Live:      return "live";
-        case Page::Inspector: return "inspector";
-        default:              return "";
-    }
-}
-
-const char* MainView::guideTextFor (Page p)
-{
-    switch (p)
-    {
-        case Page::Device: case Page::Assign:
-            return "Pick the device your inputs arrive on, then name each one and say what it is. "
-                   "That is all DLIVE needs before it can build a mix.";
-        case Page::Tracks:
-            return "Every input is recorded on its own track. Press the red button, let the band play, "
-                   "and you have something to mix - and something to mix again on Monday.";
-        case Page::Mixer:
-            return "The console. M is mute, S is solo, and solo only goes to your own headphones. "
-                   "Click a stage on a strip to open it in the Inspector.";
-        case Page::Tune:
-            return "TUNE listens to the band and sets the mix. Choose how much of it to tune at the top, "
-                   "then press TUNE MIX - nothing changes until you press KEEP.";
-        case Page::Live:
-            return "The service, while it is happening: scenes for each part of it, the five macros for a "
-                   "quick change, and the loudness going out. LIVE SAFE locks the rest.";
-        case Page::Inspector:
-            return "One channel in full: every stage, what it is set to, and whether DLIVE set it or you "
-                   "did. Change anything - the next TUNE works around you.";
-        default: return "";
-    }
-}
-
-void MainView::updateGuide()
-{
-    const juce::String key = guideKeyFor (page);
-    const juce::String text = guideTextFor (page);
-    // The guides are a preference of this Mac, so the headless tool must not read them or a
-    // render would depend on whether the developer had pressed "Got it" - the same reason it
-    // does not read the stored theme. `forceGuide` is how the tool photographs one anyway.
-    const bool consult = gUseStoredTheme;
-    const bool wanted = key.isNotEmpty() && text.isNotEmpty()
-                     && ! controller.getSession().inputs.empty()
-                     && (forceGuide || (consult && Guides::enabled() && ! Guides::seen (key)));
-
-    if (! wanted)
-    {
-        if (guideBar != nullptr && guideBar->isVisible()) { guideBar->setVisible (false); resized(); }
-        return;
-    }
-    if (guideBar == nullptr)
-    {
-        guideBar = std::make_unique<GuideBar>();
-        guideBar->got.onClick = [this]
-        {
-            if (gUseStoredTheme) Guides::markSeen (guideKeyFor (page));
-            forceGuide = false;
-            updateGuide();
-        };
-        guideBar->never.onClick = [this]
-        {
-            forceGuide = false;
-            if (gUseStoredTheme) Guides::setEnabled (false);
-            updateGuide();
-            showToast ("The first-time guides are off. Help > Show the guides again brings them back.");
-        };
-        addChildComponent (*guideBar);
-    }
-    guideBar->setText (text);
-    if (! guideBar->isVisible()) { guideBar->setVisible (true); resized(); }
-}
-
-// Take me to the first thing that is soloed. A strip is on the MIXER; a group or an FX return
-// is too, so the MIXER is where this always lands - and it picks the strip out on the way, so
-// the chain foot underneath is already showing it.
-void MainView::goToFirstSoloed()
-{
-    const auto& kept = controller.getKept();
-    for (int i = 0; i < kept.numStrips; ++i)
-        if (kept.strips[size_t (i)].solo)
-        {
-            showPage (Page::Mixer);
-            mixerPage->selectStrip (i);
-            return;
-        }
-    showPage (Page::Mixer);
-}
-
-void MainView::applyTextSize (float scale)
-{
-    if (std::abs (Dine::textScale() - scale) < 0.001f) return;
-    Dine::setTextScale (scale);
-    if (gUseStoredTheme) ThemeStore::setChosenTextSize (scale);
-    // Every role is read at paint time, so the whole window only has to be told to lay itself
-    // out again - the same thing a theme change does, and for the same reason.
-    Dine::refreshAllWindows();
-    resized();
-    updateChrome();
-    if (menu != nullptr) menu->menuItemsChanged();
-    for (const auto& size : ThemeStore::textSizes())
-        if (std::abs (size.scale - scale) < 0.001f) showToast (juce::String ("Text size: ") + size.name);
 }
 
 void MainView::applyThemeNamed (const juce::String& name)
@@ -1800,23 +1225,6 @@ void MainView::showCheck()
     addAndMakeVisible (*checkSheet);
     resized();
     checkSheet->toFront (true);
-}
-
-void MainView::showPurpose()
-{
-    if (purposeSheet != nullptr) { purposeSheet->refresh(); return; }
-    closeSheets();
-    purposePage->refresh();
-    purposeSheet = std::make_unique<PurposeSheet> (*purposePage);
-    purposeSheet->onClose = [this]
-    {
-        juce::Component::SafePointer<MainView> safe (this);
-        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->purposeSheet.reset(); safe->updateChrome(); safe->resized(); } });
-    };
-    addAndMakeVisible (*purposeSheet);
-    purposeSheet->setBounds (getLocalBounds());
-    updateChrome();
-    resized();
 }
 
 void MainView::showHistory()
@@ -2103,7 +1511,7 @@ void MainView::applyInputMapping (const juce::File& file)
             if (r != 1) return;
             controller.setSession (session);
             services.reconfigure();
-            services.touchSession();
+            services.saveSession();
             assignPage->refresh();
             updateChrome();
             resized();
@@ -2115,7 +1523,7 @@ void MainView::applyInputMapping (const juce::File& file)
 
     controller.setSession (result.session);
     services.reconfigure();
-    services.touchSession();
+    services.saveSession();
     assignPage->refresh();
     updateChrome();
     resized();
@@ -2155,7 +1563,6 @@ void MainView::showToast (const juce::String& text)
 void MainView::handleCommand (int id)
 {
     if (id >= 640 && id < 640 + themeMenuNames.size()) { applyThemeNamed (themeMenuNames[id - 640]); return; }
-    if (id >= 690 && id < 690 + int (ThemeStore::textSizes().size())) { applyTextSize (ThemeStore::textSizes()[size_t (id - 690)].scale); return; }
     switch (id)
     {
         case 100: newSession(); break;
@@ -2186,6 +1593,7 @@ void MainView::handleCommand (int id)
             auto& project = services.daw().getProject();
             for (auto& t : project.tracks) t.armed = (id == 300);
             services.daw().refresh();
+            services.saveSession();
             tracksPage->repaint();
             showToast (id == 300 ? "Every track is set to record." : "No tracks are set to record.");
             break;
@@ -2198,6 +1606,7 @@ void MainView::handleCommand (int id)
             auto& project = services.daw().getProject();
             for (auto& t : project.tracks) t.monitor = mode;
             services.daw().refresh();
+            services.saveSession();
             tracksPage->repaint();
             showToast (juce::String ("Monitoring: ") + monitorModeName (mode) + " on every track.");
             break;
@@ -2301,13 +1710,6 @@ void MainView::handleCommand (int id)
         case 608: openMixerWindow(); break;
         case 609: showOutputs(); break;
         case 630: showCheck(); break;
-        case 633: showHistory(); break;
-        case 702:
-            if (gUseStoredTheme) Guides::reset();
-            updateGuide();
-            showToast ("Every workspace will explain itself once more.");
-            break;
-        case 110: showExport(); break;
         case 631: controller.setBroadcastDim (! controller.isBroadcastDimmed()); updateChrome(); break;
         case 632: controller.setBroadcastMute (! controller.isBroadcastMuted()); updateChrome(); break;
         case 620: showThemes(); break;
@@ -2334,6 +1736,7 @@ void MainView::handleCommand (int id)
             daw.setLiveSafe (! daw.isLiveSafe());
             livePage->rebuild();
             updateChrome();
+            services.saveSession();
             showToast (daw.isLiveSafe()
                            ? juce::String ("LIVE SAFE on. The sound is locked: re-routes and re-tunes are blocked. ") + liveSafe::allowedSummary()
                            : juce::String ("LIVE SAFE off. Re-routes and re-tunes are allowed again."));
@@ -2373,10 +1776,6 @@ int MainView::commandForKey (const juce::KeyPress& key, Page page)
             static constexpr int kTabCommand[5] = { 600, 601, 602, 603, 604 };
             return kTabCommand[code - '1'];
         }
-        // ROUTING is the sixth tab, so it is Cmd-6. The design asks for Cmd-0, and Cmd-0 is
-        // Zoom to Fit on TRACKS: taking a shortcut away from something that already has it is
-        // the one thing this work is not allowed to do.
-        if (code == '6') return 613;
         return 0;
     }
 
@@ -2403,8 +1802,6 @@ juce::String MainView::openSheetName() const
     if (themeSheet   != nullptr) return "appearance";
     if (channelSheet != nullptr) return "channel";
     if (chatSheet    != nullptr) return "chat";
-    if (purposeSheet != nullptr) return "purpose";
-    if (exportSheet  != nullptr) return "export";
     return {};
 }
 
@@ -2467,28 +1864,7 @@ void MainView::importMultitrack()
                           });
 }
 
-void MainView::showExport()
-{
-    if (exportSheet != nullptr) { exportSheet->refresh(); return; }
-    closeSheets();
-    exportSheet = std::make_unique<ExportSheet> (controller, services);
-    exportSheet->onClose = [this]
-    {
-        juce::Component::SafePointer<MainView> safe (this);
-        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->exportSheet.reset(); safe->updateChrome(); safe->resized(); } });
-    };
-    exportSheet->onExport = [this] (AppServices::ExportFormat format, juce::int64 from, juce::int64 to)
-    {
-        closeSheets();
-        exportMix (format, from, to);
-    };
-    addAndMakeVisible (*exportSheet);
-    exportSheet->setBounds (getLocalBounds());
-    updateChrome();
-    resized();
-}
-
-void MainView::exportMix (AppServices::ExportFormat format, juce::int64 from, juce::int64 to)
+void MainView::exportMix (AppServices::ExportFormat format)
 {
     if (! controller.isPrepared() || controller.getSession().inputs.empty())
     {
@@ -2510,20 +1886,12 @@ void MainView::exportMix (AppServices::ExportFormat format, juce::int64 from, ju
     chooser = std::make_unique<juce::FileChooser> ("Export the stereo mix", suggest, mp3 ? "*.mp3" : "*.wav");
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                               | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [this, format, from, to] (const juce::FileChooser& fc)
+                          [this, format] (const juce::FileChooser& fc)
                           {
                               const auto dest = fc.getResult();
                               if (dest == juce::File()) return;
                               if (exporting) return;
-                              auto snapshot = services.snapshotExport();
-                              std::shared_ptr<const AppServices::ExportJob> job;
-                              if (snapshot != nullptr)
-                              {
-                                  auto ranged = std::make_shared<AppServices::ExportJob> (*snapshot);
-                                  ranged->from = from;
-                                  ranged->to = to;
-                                  job = ranged;
-                              }
+                              auto job = services.snapshotExport();
                               exporting = true;
                               showToast ("Exporting " + dest.getFileName() + Glyph::ellip());
                               juce::Component::SafePointer<MainView> safe (this);
@@ -2649,7 +2017,6 @@ void MainView::timerCallback()
 
     if (channelSheet != nullptr) channelSheet->refresh();
     if (checkSheet != nullptr) checkSheet->refresh();
-    if (historySheet != nullptr) historySheet->refresh();
     if (chatSheet != nullptr) chatSheet->refresh();
 
     const bool slow = (++slowTicks % 30) == 0;
@@ -2658,9 +2025,10 @@ void MainView::timerCallback()
     if (chainFoot->isVisible() && slowTicks % 3 == 0) updateChainFoot();
 
     if (toastTicks > 0 && --toastTicks == 0) toast->setVisible (false);
-    // The session is written down because it changed, wherever the change came from - a fader,
-    // a clip, a scene, a device, the assignments. A knob drag is one write rather than thirty,
-    // and a milestone (a tune kept, a scene recalled, a new reference) does not wait at all.
+
+    // What is written down follows the document's revision. A milestone - a tune kept, a scene
+    // recalled - does not wait for the quiet; everything else is handed over a third of a
+    // second after the last change. docs/SESSION-STATE.md §5.3.
     if (const auto revision = services.sessionRevision(); revision != seenRevision)
     {
         seenRevision = revision;
@@ -2675,19 +2043,6 @@ void MainView::timerCallback()
     if (saveTicks > 0 && --saveTicks == 0) services.autosaveNow (false);
 
     if (tuningLiveWasOn != controller.isTuningLive()) { tuningLiveWasOn = controller.isTuningLive(); updateChrome(); }
-
-    // The chrome is not rebuilt on every tick - it is rebuilt when something on it changes.
-    // Solo is one of those things now, and it can be turned on from anywhere: a strip, a group,
-    // an FX return, the Mix menu, the LIVE page. Counting them is a walk over a few dozen bools.
-    if (const int soloed = controller.numSoloed(); soloed != seenSoloed) { seenSoloed = soloed; updateChrome(); }
-    if (const auto wrote = services.lastAutosave().toMilliseconds(); wrote != seenAutosave)
-    {
-        seenAutosave = wrote;
-        updateChrome();
-    }
-    // The autosave says when it last landed, so the toolbar has to hear about it. Comparing two
-    // numbers costs nothing, so it is not worth putting behind the once-a-second tick - which
-    // in a headless render barely comes round at all.
 
     const bool running = services.isAudioRunning();
     if (audioWasRunning != running) updateChrome();
@@ -2718,9 +2073,6 @@ juce::Rectangle<int> MainView::contentBounds() const
 {
     auto r = columnBounds().withTrimmedBottom (Dine::Metric::status);
     if (chainFoot != nullptr && chainFoot->isVisible()) r.removeFromBottom (Dine::Metric::chainFoot);
-    // The guide takes a band off the top rather than floating over the workspace: a sentence
-    // that covers the thing it is describing is worse than no sentence.
-    if (guideBar != nullptr && guideBar->isVisible()) r.removeFromTop (kGuideH + 10);
     return r;
 }
 
@@ -2759,25 +2111,16 @@ void MainView::paint (juce::Graphics& g)
         auto cell = titleRow.reduced (18, 0);
         // the wordmark, at the left end of the title row after the sidebar switch, on screen whatever the sidebar does
         g.setColour (Dine::accent);
-        g.setFont (wordmarkFont());
+        g.setFont (Dine::caps (13.0f, 0.16f));
         cell.removeFromLeft (26 + 14);
-        Dine::drawText (g, "DLIVE", cell.removeFromLeft (wordmarkWidth()), juce::Justification::centredLeft);
+        Dine::drawText (g, "DLIVE", cell.removeFromLeft (kWordmarkW), juce::Justification::centredLeft);
         // The counts end where the buttons begin - measured from where the buttons actually are,
         // so the two can never be drawn over each other whatever widened one of them.
-        for (juce::Component* button : { static_cast<juce::Component*> (chatButton.get()),
-                                         static_cast<juce::Component*> (tuneLiveButton.get()) })
+        for (juce::Component* button : { static_cast<juce::Component*> (chatButton.get()), static_cast<juce::Component*> (tuneLiveButton.get()) })
             if (button->isVisible()) cell.setRight (juce::jmin (cell.getRight(), button->getX() - 14));
         g.setColour (Dine::ink3);
-        g.setFont (Dine::Type::body());
+        g.setFont (Dine::text (13.0f));
         Dine::drawText (g, counts, cell, juce::Justification::centredRight, true);
-
-        // The divider that sets ROUTING apart from the five mixing workspaces.
-        if (tabs[0] != nullptr && tabs[1] != nullptr && tabs[0]->isVisible())
-        {
-            const int x = (tabs[0]->getRight() + tabs[1]->getX()) / 2;
-            g.setColour (Dine::hairStrong);
-            g.fillRect (x, titleRow.getCentreY() - 8, 1, 16);
-        }
     }
     auto toolbarRow = top.removeFromTop (Dine::Metric::toolbar);
     Dine::drawChrome (g, toolbarRow);
@@ -2805,59 +2148,29 @@ void MainView::resized()
         const int w = tuneLiveButton->idealWidth();
         tuneLiveButton->setBounds (titleRight.removeFromRight (w).withSizeKeepingCentre (w, 26));
     }
-    // The session's name, after the wordmark: what document this is, and the way into
-    // everything about it. It gives way to the tabs before the tabs give way to anything.
-    int sessionRight = titleRow.getX() + 14 + wordmarkWidth();
-    if (sessionButton->isVisible())
     {
-        const int want = sessionButton->idealWidth();
-        auto after = titleRow.withLeft (sessionRight + 16);
-        const int w = juce::jmin (want, juce::jmax (0, after.getWidth()));
-        sessionButton->setBounds (after.removeFromLeft (w).withSizeKeepingCentre (w, 26));
-        sessionRight = sessionButton->getRight();
-    }
-    {
-        // The six workspace tabs, centred in the title row between the session name and the
-        // counts, with a gap where the divider goes after ROUTING. They give way to the name
-        // on the left and to the counts and MIX BUDDY on the right.
+        // The five workspace tabs, centred in the title row between the wordmark and the counts.
+        // They give way to the wordmark on the left and to the counts and the buttons on the right.
         int widths[kWorkspaceTabs], total = 0;
         for (int i = 0; i < kWorkspaceTabs; ++i) { widths[i] = tabs[size_t (i)]->idealWidth(); total += widths[i]; }
-        const int gap = 8;
-        const int dividerGap = 18;          // ROUTING is set apart from the five
-        total += gap * (kWorkspaceTabs - 2) + dividerGap;
-        const int leftEdge = sessionRight + 16;
+        const int gap = 18;
+        total += gap * (kWorkspaceTabs - 1);
+        const int leftEdge = titleRow.getX() + 14 + kWordmarkW + 16;
         const int rightEdge = titleRight.getRight() - kCountsW - 16;
         const int x = juce::jlimit (leftEdge, juce::jmax (leftEdge, rightEdge - total), getWidth() / 2 - total / 2);
         auto row = juce::Rectangle<int> (x, titleRow.getY(), total, titleRow.getHeight()).withSizeKeepingCentre (total, 30);
         for (int i = 0; i < kWorkspaceTabs; ++i)
         {
             tabs[size_t (i)]->setBounds (row.removeFromLeft (widths[i]));
-            row.removeFromLeft (i == kRoutingTab ? dividerGap : gap);
+            row.removeFromLeft (gap);
         }
     }
 
     // ---- the toolbar: the right cluster, then the transport centred in what is left
     auto bar = getLocalBounds().withTrimmedTop (Dine::Metric::titleRow).removeFromTop (Dine::Metric::toolbar).reduced (18, 0);
     auto right = bar;
-    // The toolbar's left: what the session wrote down by itself, then the way back to any mix
-    // it has had. They are the first things to give way when the window is narrow.
-    {
-        auto left = bar;
-        if (autosaveLamp->isVisible())
-        {
-            const int w = autosaveLamp->idealWidth();
-            autosaveLamp->setBounds (left.removeFromLeft (w).withSizeKeepingCentre (w, 20));
-            left.removeFromLeft (12);
-        }
-        if (historyButton->isVisible())
-        {
-            const int w = historyButton->idealWidth();
-            historyButton->setBounds (left.removeFromLeft (w).withSizeKeepingCentre (w, Dine::Metric::control));
-        }
-    }
     const int transportNeed = transportBar->isVisible() ? transportBar->idealWidth() + 16 : 0;
-    const int clusterNeed = (soloBar->isVisible() ? soloBar->idealWidth() + 12 : 0)
-                          + (bypassButton->isVisible() ? bypassButton->idealWidth() + 16 : 0)
+    const int clusterNeed = (bypassButton->isVisible() ? bypassButton->idealWidth() + 16 : 0)
                           + (liveSafeButton->isVisible() ? liveSafeButton->idealWidth() + 10 : 0)
                           + (dimButton->isVisible() ? dimButton->idealWidth() + 8 : 0)
                           + (muteButton->isVisible() ? muteButton->idealWidth() + 16 : 0);
@@ -2893,14 +2206,6 @@ void MainView::resized()
         dimButton->setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
         right.removeFromRight (16);
     }
-    // The solo bar heads the right-hand cluster. It is only there when something is soloed, and
-    // when it is there it is the most important thing on the row.
-    if (soloBar->isVisible())
-    {
-        const int w = juce::jmin (soloBar->idealWidth(), juce::jmax (0, right.getWidth() - transportNeed));
-        soloBar->setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
-        right.removeFromRight (12);
-    }
     auto left = bar.withRight (right.getRight());
     if (transportBar->isVisible())
     {
@@ -2922,13 +2227,9 @@ void MainView::resized()
     if (chainFoot->isVisible()) chainFoot->setBounds (body.removeFromBottom (Dine::Metric::chainFoot));
 
     auto content = body;
-    if (guideBar != nullptr && guideBar->isVisible())
-    {
-        guideBar->setBounds (content.removeFromTop (kGuideH).reduced (Dine::Metric::padX, 0));
-        content.removeFromTop (10);
-    }
-    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) routingPage.get(),
-                                (juce::Component*) tracksPage.get(),
+    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) devicePage.get(),
+                                (juce::Component*) assignPage.get(),
+                                (juce::Component*) purposePage.get(), (juce::Component*) tracksPage.get(),
                                 (juce::Component*) mixerPage.get(), (juce::Component*) mixPage.get(),
                                 (juce::Component*) livePage.get(), (juce::Component*) advancedPage.get() })
         p->setBounds (content);
@@ -2936,9 +2237,7 @@ void MainView::resized()
     // A sheet covers the workspace column; the chat is a panel down the right of it.
     auto column = columnBounds();
     for (juce::Component* sheetComponent : { (juce::Component*) outputsSheet.get(), (juce::Component*) themeSheet.get(),
-                                             (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get(),
-                                             (juce::Component*) historySheet.get(), (juce::Component*) purposeSheet.get(),
-                                             (juce::Component*) exportSheet.get() })
+                                             (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)
     {

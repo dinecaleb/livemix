@@ -152,7 +152,6 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
         { 100, "New Session" }, { 101, "Open Session" }, { 102, "Save" }, { 103, "Save As" },
         { 104, "Import Multitrack" }, { 107, "Reference Mix" }, { 108, "Save Input Mapping" },
         { 109, "Input Mappings" }, { 105, "Export Stereo Mix (WAV)" }, { 106, "Export Stereo Mix (MP3)" },
-        { 110, "Export" },
         // Edit
         { 200, "Undo" }, { 201, "Split at Playhead" }, { 202, "Delete Clip" }, { 203, "Marker" },
         // Track
@@ -171,12 +170,12 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
         // View
         { 600, "Tracks" }, { 601, "Mixer" }, { 602, "Tune" }, { 603, "Live" }, { 604, "Inspector" },
         { 613, "Setup" }, { 608, "Mixer in a New Window" }, { 609, "Outputs" }, { 630, "Check Inputs" },
-        { 631, "Dim the Broadcast" }, { 632, "Mute the Broadcast" }, { 633, "Mix History" },
+        { 631, "Dim the Broadcast" }, { 632, "Mute the Broadcast" },
         { 610, "Sidebar" }, { 615, "side panels" },
         { 620, "Customise Appearance" }, { 621, "Import a Theme" }, { 622, "Show Themes Folder" },
         { 605, "Zoom In" }, { 606, "Zoom Out" }, { 607, "Zoom to Fit" },
         // Help
-        { 701, "Getting started" }, { 702, "Show the guides" }, { 700, "About DLIVE" },
+        { 701, "Getting started" }, { 700, "About DLIVE" },
     };
 
     for (const auto& item : expected)
@@ -233,7 +232,6 @@ TEST_CASE ("Reachability: every keyboard shortcut still asks for the same comman
         { { '3', cmd, 0 },                     Page::Tracks, 602, "TUNE" },
         { { '4', cmd, 0 },                     Page::Tracks, 603, "LIVE" },
         { { '5', cmd, 0 },                     Page::Tracks, 604, "INSPECTOR" },
-        { { '6', cmd, 0 },                     Page::Tracks, 613, "ROUTING" },
         { { juce::KeyPress::spaceKey, 0, 0 },  Page::Tracks, 500, "play / stop" },
         { { juce::KeyPress::returnKey, 0, 0 }, Page::Tracks, 502, "return to start" },
         { { 'R', 0, 0 },                       Page::Tracks, 501, "record" },
@@ -264,7 +262,8 @@ TEST_CASE ("Reachability: every workspace and every set-up page still opens")
     using Page = MainView::Page;
     struct Row { Page page; const char* name; };
     const Row pages[] = {
-        { Page::Sessions,  "Sessions" },
+        { Page::Sessions,  "Sessions" },  { Page::Device, "Audio device" }, { Page::Assign, "Inputs" },
+        { Page::Purpose,   "Purpose and sound" },
         { Page::Tracks,    "Tracks" },    { Page::Mixer,  "Mixer" },        { Page::Tune,   "Tune" },
         { Page::Live,      "Live" },      { Page::Inspector, "Inspector" },
     };
@@ -276,32 +275,6 @@ TEST_CASE ("Reachability: every workspace and every set-up page still opens")
         CHECK_MESSAGE (window.view->getPage() == row.page,
                        std::string ("the ") + row.name + " page does not open any more");
     }
-
-    // The set-up pages MOVED, which is allowed; they did not go.
-    //
-    // "Audio device" and "Inputs" are the two left-hand columns of the ROUTING workspace, so
-    // asking for either lands there - and the old call sites, the menu item and the shortcut
-    // all still work because they all go through showPage.
-    for (auto p : { Page::Device, Page::Assign })
-    {
-        window.view->showPage (p);
-        window.pump (10);
-        CHECK_MESSAGE (window.view->getPage() == Page::Device,
-                       "a set-up page no longer lands on ROUTING");
-    }
-
-    // "Purpose and sound" is a sheet now, over whatever workspace you were on.
-    window.view->showPage (Page::Mixer);
-    window.pump (10);
-    window.view->showPage (Page::Purpose);
-    window.pump (10);
-    CHECK_MESSAGE (window.view->openSheetName() == juce::String ("purpose"),
-                   "Purpose and sound does not open any more");
-    CHECK_MESSAGE (window.view->getPage() == Page::Mixer,
-                   "opening Purpose and sound should leave the workspace where it was");
-    window.view->keyPressed ({ juce::KeyPress::escapeKey, 0, 0 });
-    window.pump (10);
-    CHECK (window.view->openSheetName().isEmpty());
 }
 
 // ---------------------------------------------------------------------------- sheets
@@ -320,8 +293,6 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         { "appearance", [&] { view.showThemes(); } },
         { "chat",       [&] { view.showChat(); } },
         { "channel",    [&] { view.tuneChannel (0); } },
-        { "purpose",    [&] { view.showPurpose(); } },
-        { "export",     [&] { view.showExport(); } },
     };
 
     for (const auto& sheet : sheets)
@@ -359,167 +330,4 @@ TEST_CASE ("Reachability: the sidebar folds, the side panels fold, and the tutor
     window.pump (10);
     view.closeTutorial();
     window.pump (10);
-}
-
-// ------------------------------------------------------------------------- solo bar
-TEST_CASE ("The solo bar: it appears whenever anything is soloed, on every workspace, and clears everything at once")
-{
-    Window window;
-    auto& view = *window.view;
-    auto& controller = window.controller;
-
-    view.showPage (MainView::Page::Mixer);
-    window.pump (40);
-    CHECK (! view.isSoloBarShown());
-
-    // A strip, by the name the console gave it.
-    controller.setStripSolo (0, true);
-    window.pump (80);
-    CHECK (view.isSoloBarShown());
-    CHECK (view.soloedNames() == juce::StringArray { "KICK" });
-
-    // It is on every workspace, not only the mixer - that is the whole point of it, because
-    // solo goes to the engineer's own device and nothing else says it is on.
-    for (auto page : { MainView::Page::Tracks, MainView::Page::Tune, MainView::Page::Live, MainView::Page::Inspector })
-    {
-        view.showPage (page);
-        window.pump (60);
-        CHECK_MESSAGE (view.isSoloBarShown(), "the solo bar is missing from a workspace");
-    }
-
-    // A group and an FX return count too.
-    controller.setBusSolo (MixBus::Drums, true);
-    window.pump (80);
-    CHECK (view.soloedNames().size() == 2);
-    CHECK (view.soloedNames().contains ("DRUMS"));
-
-    // One press clears everything, whatever kind of thing it was.
-    controller.clearSolos();
-    window.pump (80);
-    CHECK (view.soloedNames().isEmpty());
-    CHECK (! view.isSoloBarShown());
-}
-
-// -------------------------------------------------------------- the mixer's insert slots
-TEST_CASE ("The mixer's insert slots open that stage in the Inspector, and an unknown one just opens the channel")
-{
-    Window window;
-    auto& view = *window.view;
-
-    // The lead vocal has a chain with several stages in it; the mixer's slots name them with
-    // the same words the Inspector does, which is the whole reason a click can be routed.
-    view.showPage (MainView::Page::Mixer);
-    window.pump (40);
-
-    auto& inspector = view.getAdvancedPage();
-    view.showPage (MainView::Page::Inspector);
-    inspector.openStripAtStage (3, "COMP");
-    window.pump (40);
-    CHECK (inspector.selectedStrip() == 3);
-
-    // Whatever stage is picked out, asking for the same one again is stable.
-    const int was = inspector.selectedStageIndex();
-    inspector.openStripAtStage (3, "COMP");
-    window.pump (20);
-    CHECK (inspector.selectedStageIndex() == was);
-
-    // A stage this channel has not got leaves the channel open and the selection alone.
-    inspector.openStripAtStage (3, "NOT A STAGE");
-    window.pump (20);
-    CHECK (inspector.selectedStrip() == 3);
-    CHECK (inspector.selectedStageIndex() == was);
-}
-
-// Everything a mixer strip offers, found by the tooltip each key carries rather than by
-// reaching into MixerPage - the tooltip is what a person reads, so a key that stopped
-// explaining itself is a regression too. Counted inside one page and no further: a workspace
-// this window is not showing still has its components built, and `isVisible` is a component's
-// own flag rather than whether anything is on screen - with no peer behind it, nothing in a
-// test is ever `isShowing`.
-static int keysTooltipped (juce::Component& c, const juce::String& startsWith)
-{
-    int found = 0;
-    if (c.isVisible())
-        if (auto* tip = dynamic_cast<juce::SettableTooltipClient*> (&c))
-            if (tip->getTooltip().startsWith (startsWith)) ++found;
-
-    for (auto* child : c.getChildren())
-        found += keysTooltipped (*child, startsWith);
-
-    return found;
-}
-
-TEST_CASE ("The mixer strip carries four keys: record, monitoring, mute and solo")
-{
-    Window window;
-    auto& view = *window.view;
-    view.showPage (MainView::Page::Mixer);
-    window.pump (60);
-
-    // R and A left the strip when it was first built to the design's 48 x 680 anatomy, and came
-    // back: somebody who has just set a microphone up is looking at the console, and sending
-    // them to TRACKS to arm it is sending them away from the mix. They are still on every TRACKS
-    // row and in ROUTING's REC column as well - three ways in, and this is the one a phase could
-    // quietly take away again.
-    auto& mixer = view.getMixerPage();
-    const int armed = keysTooltipped (mixer, "Set to record");
-    const int monitoring = keysTooltipped (mixer, "Monitoring");
-    CHECK_MESSAGE (armed > 0, "no record-arm key on any mixer strip");
-    CHECK_MESSAGE (monitoring > 0, "no monitoring key on any mixer strip");
-
-    // One of each per channel strip, and none on a group or the master - a group has no track
-    // behind it to record.
-    CHECK (armed == monitoring);
-
-    // Mute and solo are on the channels AND on the groups, so there are strictly more of them.
-    const int muted = keysTooltipped (mixer, "Muted");
-    const int soloed = keysTooltipped (mixer, "Soloed");
-    CHECK_MESSAGE (muted == soloed, "mute keys " + std::to_string (muted) + ", solo keys " + std::to_string (soloed)
-                                    + ", arm keys " + std::to_string (armed));
-    CHECK_MESSAGE (muted > armed, "the groups should carry mute and solo as well as the channels");
-
-    // They are still on every TRACKS row and in ROUTING's REC column too, and this test does
-    // not check those: TRACKS paints its R and A into the row rather than building a component
-    // per track - 48 tracks of four buttons each is a lot of components for something a row can
-    // draw - so there is no tooltip there for this walk to find. What it guards is the mixer,
-    // which is the place they were taken from and the place they could be taken from again.
-}
-
-// ------------------------------------------------------------------------- the first run
-TEST_CASE ("The first Sunday: sessions, a device, the inputs, the purpose, and the console - end to end")
-{
-    // The walk somebody actually takes the first time, now that the middle of it is one
-    // workspace and the end of it is a sheet. Every step is the call the button makes.
-    Window window;      // the fixture already opens a device and names five inputs
-    auto& view = *window.view;
-
-    view.showPage (MainView::Page::Sessions);
-    window.pump (20);
-    CHECK (view.getPage() == MainView::Page::Sessions);
-
-    // The device, and the input map beside it: one workspace, both columns.
-    view.showPage (MainView::Page::Device);
-    window.pump (20);
-    CHECK (view.getPage() == MainView::Page::Device);
-    CHECK (view.getDevicePage().isVisible());
-    CHECK (view.getAssignPage().isVisible());
-
-    // Naming an input is what makes the rest of the walk possible, and it took effect.
-    view.getAssignPage().assign (5, ChannelRole::Overhead, "OH", true);
-    window.pump (20);
-    CHECK (window.controller.getSession().inputs.size() >= 6);
-
-    // The purpose, over the workspace rather than instead of it.
-    view.showPage (MainView::Page::Purpose);
-    window.pump (20);
-    CHECK (view.openSheetName() == juce::String ("purpose"));
-    view.getPurposePage().onContinue();
-    window.pump (20);
-
-    // ... and out the other side onto the console, with the session intact.
-    view.showPage (MainView::Page::Tracks);
-    window.pump (20);
-    CHECK (view.getPage() == MainView::Page::Tracks);
-    CHECK (! window.controller.getSession().inputs.empty());
-    CHECK (window.controller.isPrepared());
 }

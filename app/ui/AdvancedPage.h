@@ -46,14 +46,10 @@ public:
     bool isRailShown() const noexcept  { return railShown; }
     bool isTrailShown() const noexcept { return trailShown; }
     void select (int strip);                  // programmatic (snapshot tool)
-    // Open this channel with one stage already picked out - what a click on the mixer's
-    // insert slot asks for. An unknown stage just opens the channel.
-    void openStripAtStage (int strip, const juce::String& stageLabel);
     int selectedStrip() const noexcept { return selection.isBus ? -1 : selection.strip; }
     void selectBus (MixBus bus);
     MixBus selectedBus() const noexcept { return selection.isBus ? selection.bus : MixBus::Count; }
     void selectStage (int index);             // ... and one stage of its chain
-    int selectedStageIndex() const;           // which one, for a test and the snapshot tool
     void revealHistory();                     // scroll the trail to the channel's HISTORY (a menu, the snapshot tool)
     void paint (juce::Graphics&) override;
     void resized() override;

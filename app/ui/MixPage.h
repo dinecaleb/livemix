@@ -61,23 +61,10 @@ private:
     class ResultSheet;
     class InputRow;
     class SidePanel;
-    std::array<std::unique_ptr<DineButton>, 3> scopeTabs;
-    DinePopup scopeBusPicker;
-
-    // WHAT TO TUNE. The same listen and the same planner either way; this says how much of
-    // the mix the plan is allowed to touch. It is one control because the three of them are
-    // one decision - and because a person who has tuned the whole mix and wants to fix only
-    // the pastor should not have to know that TUNE CHANNEL is a different verb.
-    enum class Scope { WholeMix = 0, OneGroup, SelectedChannels };
-    Scope scope = Scope::WholeMix;
-    MixBus scopeBus = MixBus::Vocals;
-    void setScope (Scope);
-    juce::String lastTunedText (MixBus) const;   // "Tuned 8:27", off the mix history
-    void applyScopeToTuneButton();
 
     struct Layout
     {
-        juce::Rectangle<int> head, groupsCaption, groups, master, macrosCaption, ribbon, rail, railTab, side, sideTab;
+        juce::Rectangle<int> groupsCaption, groups, master, macrosCaption, ribbon, rail, railTab, side, sideTab;
         std::array<juce::Rectangle<int>, 2> pads;
         int padSize = MacroPad::kMinPad;
         bool compact = false;

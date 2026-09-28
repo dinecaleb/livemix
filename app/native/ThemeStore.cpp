@@ -32,7 +32,6 @@ namespace
         { "recGround",   "Surfaces", "A card that is recording or clipping." },
         { "soloGround",  "Surfaces", "A soloed tile." },
         { "editGround",  "Surfaces", "A hand-edited chip." },
-
         { "hairSoft",    "Lines",    "The faintest rule." },
         { "hair",        "Lines",    "A rule between rows." },
         { "hairStrong",  "Lines",    "A rule that has to be seen." },
@@ -41,31 +40,26 @@ namespace
         { "fillHover",   "Lines",    "That background under the pointer." },
         { "fillSoft",    "Lines",    "A quieter fill." },
         { "well",        "Lines",    "A meter well, a slider track." },
-
         { "ink",         "Ink",      "Words." },
         { "ink2",        "Ink",      "Secondary words." },
         { "ink3",        "Ink",      "A caption, a resting icon." },
         { "ink4",        "Ink",      "A label, a disabled word." },
         { "glyph",       "Ink",      "A resting icon." },
         { "panMark",     "Ink",      "The centre mark of a balance." },
-
         { "accent",      "Accent",   "The primary action, the active tab, what is selected, what DLIVE tuned, the meters." },
         { "accentHover", "Accent",   "The accent under the pointer." },
         { "accentDeep",  "Accent",   "The accent pressed." },
         { "onAccent",    "Accent",   "Type on an accent button." },
         { "focusRing",   "Accent",   "The keyboard focus ring." },
-
         { "ok",          "Status",   "A healthy status chip." },
         { "hot",         "Status",   "The meter's middle band." },
         { "warn",        "Status",   "A warning: the mute key, a hand edit, a refusal." },
         { "crit",        "Status",   "Clipping, record, a critical status." },
         { "monitor",     "Status",   "The engineer's own listen." },
-
         { "keyMute",     "Keys",     "The M key when it is on." },
         { "keySolo",     "Keys",     "The S key when it is on." },
         { "keyRec",      "Keys",     "The R key when it is on." },
         { "keyMon",      "Keys",     "The A key when it is on." },
-
         { "busDrums",    "Groups",   "The DRUMS group." },
         { "busBass",     "Groups",   "The BASS group." },
         { "busMusic",    "Groups",   "The MUSIC group." },
@@ -73,12 +67,7 @@ namespace
         { "busSpeech",   "Groups",   "The SPEECH group." },
         { "busAmbience", "Groups",   "The AMBIENCE group." },
         { "busMaster",   "Groups",   "The MASTER." },
-        { "busLead",     "Groups",   "The LEAD group - the one voice the mix is built around." },
-        { "busFx",       "Groups",   "The FX returns." },
 
-        { "onHot",       "Status",   "Type on the solo bar." },
-        { "scrim",       "Surfaces", "What a sheet is laid over." },
-        { "autopilotGround", "Surfaces", "The ground under Autopilot while it is running." },
     };
 
     using Palette = std::map<juce::String, juce::uint32>;
@@ -109,14 +98,12 @@ namespace
             { "fill", 0x1effffff }, { "fillHover", 0x2affffff }, { "fillSoft", 0x0fffffff }, { "well", 0x0fffffff },
             { "ink", 0xfff4f5f7 }, { "ink2", 0xffa8b0bc }, { "ink3", 0xff6b7380 }, { "ink4", 0xff4e5664 },
             { "glyph", 0xff6b7380 }, { "panMark", 0xff556070 },
-            { "accent", 0xff6db8a8 }, { "accentHover", 0xff8ed0c2 }, { "accentDeep", 0xff5aa393 }, { "onAccent", 0xff0b0d10 },
+            { "accent", 0xff6db8a8 }, { "accentHover", 0xff8ed0c2 }, { "accentDeep", 0xff5aa393 }, { "onAccent", 0xff070809 },
             { "focusRing", 0xff6db8a8 },
-            { "ok", 0xff57b98d }, { "hot", 0xffcbbf6a }, { "onHot", 0xff17150a }, { "warn", 0xffe0a85c }, { "crit", 0xffe06a64 }, { "monitor", 0xff6eafff },
-            { "keyMute", 0xffe0a85c }, { "keySolo", 0xffcbbf6a }, { "keyRec", 0xffe06a64 }, { "keyMon", 0xff6eafff },
+            { "ok", 0xff57b98d }, { "hot", 0xffcbbf6a }, { "warn", 0xffe0a85c }, { "crit", 0xffe06a64 }, { "monitor", 0xff6eafff },
+            { "keyMute", 0xffe0a85c }, { "keySolo", 0xff6db8a8 }, { "keyRec", 0xffe06a64 }, { "keyMon", 0xff6eafff },
             { "busDrums", 0xffe09a4b }, { "busBass", 0xff8e80ff }, { "busMusic", 0xff6eafff }, { "busVocals", 0xff57b98d },
             { "busSpeech", 0xffc98fb0 }, { "busAmbience", 0xffa8b0bc }, { "busMaster", 0xffa8b0bc },
-            { "busLead", 0xfff07f8f }, { "busFx", 0xff7fc4d8 },
-            { "scrim", 0xff000000 }, { "autopilotGround", 0xff121b27 },
         });
     }
 
@@ -139,8 +126,6 @@ namespace
             { "keyMute", 0xffe6a85a }, { "keySolo", 0xffd6f54c }, { "keyRec", 0xffe8735f }, { "keyMon", 0xff7ab4ff },
             { "busDrums", 0xffe0a25a }, { "busBass", 0xff9a8cff }, { "busMusic", 0xff7ab4ff }, { "busVocals", 0xffd6f54c },
             { "busSpeech", 0xffcf98b8 }, { "busAmbience", 0xffa3a3a3 }, { "busMaster", 0xffa3a3a3 },
-            { "busLead", 0xfff08a78 }, { "busFx", 0xff8ac9d4 },
-            { "autopilotGround", 0xff141414 },
         });
     }
 
@@ -179,8 +164,6 @@ namespace
             { "focusRing", 0xfff0a650 },
             { "hot", 0xffe6d05a }, { "warn", 0xffe9c35c }, { "keyMute", 0xffe9c35c }, { "keySolo", 0xfff0a650 },
             { "busDrums", 0xffe6c35c }, { "busVocals", 0xff6dc19a }, { "busMusic", 0xff8fb8f0 },
-            { "busLead", 0xffe08a72 }, { "busFx", 0xff9ec4c0 },
-            { "autopilotGround", 0xff1d1712 },
         });
     }
 
@@ -205,9 +188,6 @@ namespace
             { "keyMute", 0xffc47f1e }, { "keySolo", 0xff1f8f7a }, { "keyRec", 0xffcf3f38 }, { "keyMon", 0xff2b78d6 },
             { "busDrums", 0xffc47a1e }, { "busBass", 0xff6a5ce0 }, { "busMusic", 0xff2b78d6 }, { "busVocals", 0xff2f9a68 },
             { "busSpeech", 0xffb0508f }, { "busAmbience", 0xff6b7380 }, { "busMaster", 0xff4a5260 },
-            { "onHot", 0xfffdf8e6 },
-            { "busLead", 0xffd1435b }, { "busFx", 0xff2f8fa8 },
-            { "autopilotGround", 0xffe7edf4 },
         });
     }
 

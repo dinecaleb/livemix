@@ -5,9 +5,6 @@
 #include "AppServices.h"
 #include "AppTheme.h"
 #include "SetupPages.h"
-#include "RoutingPage.h"
-#include "PurposeSheet.h"
-#include "ExportSheet.h"
 #include "TracksPage.h"
 #include "MixerPage.h"
 #include "OutputsSheet.h"
@@ -71,11 +68,6 @@ public:
     // command actually being run. Nothing here has a side effect.
     static int commandForKey (const juce::KeyPress&, Page);
 
-    // What is soloed right now, by name, and whether the solo bar is showing it. Solo goes to
-    // the engineer's own device, so nothing else on the console says it is on.
-    juce::StringArray soloedNames() const;
-    bool isSoloBarShown() const;
-
     // Which sheet is open, by the name the reachability test and the snapshot tool use:
     // "outputs", "check", "history", "appearance", "channel", "chat", or "" for none.
     juce::String openSheetName() const;
@@ -90,8 +82,8 @@ public:
     void closeTutorial();
     static void setAutoTutorial (bool);
     void showOutputs();
-    void showCheck();                         // CHECK INPUTS: every assigned input, its level and one word about it
     void showHistory();                       // MIX HISTORY: the whole mix as it was, hours ago, by name
+    void showCheck();                       // CHECK INPUTS: every assigned input, its level and one word about it
     void updateChromeForSnapshot() { updateChrome(); }   // the snapshot tool: the toolbar re-reads the controller now
     void closeSheetsForSnapshot() { closeSheets(); }
     void showChat();
@@ -101,12 +93,7 @@ public:
     // applied before the pages are built and remembered on this Mac (ThemeStore); the headless
     // snapshot tool switches the stored choice off so every render starts from the design.
     void showThemes();
-    void showPurpose();                       // the sheet: first run, and the session's name
-    void showExport();                        // the sheet: File > Export
     void applyThemeNamed (const juce::String& name);
-    // Standard / Large / Larger. Scales the type roles and remembers the choice on this Mac.
-    void applyTextSize (float scale);
-    void goToFirstSoloed();                  // where the solo bar goes
     static void setStoredThemeUsed (bool);
 
     void tuneChannel (int strip, const MixController::ListenSettings& listen = MixController::channelListen());
@@ -133,8 +120,6 @@ private:
     class Menu;
     class ToolbarToggle;
     static constexpr int kWordmarkW = 58;
-    static constexpr int kGuideH = 44;       // the first-time guide along the top of a workspace
-    int wordmarkWidth() const;          // never less than the mark actually measures
     static constexpr int kCountsW = 190;     // "N inputs   N to record", at the right of the title row before the buttons
     static constexpr int kRequestsW = 380;   // the Mix Buddy panel down the right of the workspace   // "DLIVE" at the right end of the title row
     class SidebarButton;
@@ -143,10 +128,6 @@ private:
     class Sidebar;
     class TextButtonV2;
     class WorkspaceTab;
-    class SessionButton;
-    class SoloBar;
-    class GuideBar;
-    class AutosaveLamp;
 
     void timerCallback() override;
     void closeMixerWindow();
@@ -163,7 +144,7 @@ private:
     void sessionMenu();
     void chooseOutput();
     void importMultitrack();
-    void exportMix (AppServices::ExportFormat format, juce::int64 from = 0, juce::int64 to = 0);
+    void exportMix (AppServices::ExportFormat format);
     bool exporting = false;
     void timelineChanged();
     bool liveSafeBlocks (const juce::String& what);
@@ -181,9 +162,6 @@ private:
     std::unique_ptr<SessionsPage> sessionsPage;
     std::unique_ptr<DevicePage> devicePage;
     std::unique_ptr<AssignPage> assignPage;
-    // ROUTING: the device, the input map and the outputs in one workspace. It owns the two
-    // pages above - they are its columns - and Page::Device is what shows it.
-    std::unique_ptr<RoutingPage> routingPage;
     std::unique_ptr<PurposePage> purposePage;
     std::unique_ptr<TracksPage> tracksPage;
     std::unique_ptr<MixerPage> mixerPage;
@@ -193,12 +171,6 @@ private:
     std::unique_ptr<ThemeSheet> themeSheet;
     juce::StringArray themeMenuNames;      // the View > Appearance list, as it was last built
     std::unique_ptr<ChannelTuneSheet> channelSheet;
-    // PURPOSE AND SOUND is a sheet now, not a page: two questions answered once and revisited
-    // when the service changes. showPage(Page::Purpose) still opens it, so every way in works.
-    std::unique_ptr<PurposeSheet> purposeSheet;
-    // EXPORT: what, how much of it, what format, and how loud - asked once, before anybody
-    // waits ten minutes for a render.
-    std::unique_ptr<ExportSheet> exportSheet;
     std::unique_ptr<ChatSheet> chatSheet;
     void openChat();
     void saveInputMapping();
@@ -218,36 +190,14 @@ private:
     std::unique_ptr<ToolbarToggle> chatButton;
     std::unique_ptr<ToolbarToggle> tuneLiveButton;   // TUNE LIVE MIX from any workspace, in the title row
     std::unique_ptr<SidebarButton> sidebarButton;
-    std::unique_ptr<SessionButton> sessionButton;   // the document's name, on the title row
-    // Whenever anything is soloed, on every workspace: what is soloed, where it is, and one
-    // press to clear it. Solo never changes what the room hears, and neither does this.
-    std::unique_ptr<SoloBar> soloBar;
-    // One sentence, the first time a workspace is opened. Blocks nothing, covers nothing.
-    std::unique_ptr<GuideBar> guideBar;
-    void updateGuide();
-    bool forceGuide = false;                 // the snapshot tool: show one whatever this Mac has seen
-public:
-    void setForceGuideForSnapshot (bool on) { forceGuide = on; updateGuide(); }
-private:
-    static const char* guideKeyFor (Page);
-    static const char* guideTextFor (Page);
-    std::unique_ptr<AutosaveLamp> autosaveLamp;     // "Autosaved 8:42 PM", at the left of the toolbar
-    std::unique_ptr<ToolbarToggle> historyButton;   // MIX HISTORY, beside it
     std::unique_ptr<MixerWindow> mixerWindow;
     std::unique_ptr<Sidebar> sidebar;
     std::unique_ptr<StatusBar> statusBar;
     std::unique_ptr<ChainStrip> chainFoot;
     std::unique_ptr<Tutorial> tutorial;
 
-    // One row of tabs. ROUTING comes first and is drawn as the design's "Deliberate" variant -
-    // outlined, and divided off from the rest - because it is not a mixing workspace: what
-    // happens there changes what the room hears. Then TRACKS MIXER TUNE LIVE INSPECTOR, which
-    // keep Cmd-1..5 left to right. ROUTING is Cmd-6: Cmd-0 is Zoom to Fit on TRACKS and taking
-    // it would be the one thing this work is not allowed to do.
-    static constexpr int kWorkspaceTabs = 6;
-    static constexpr int kRoutingTab = 0;
-    static constexpr const char* kTabLabels[kWorkspaceTabs] = { "ROUTING", "TRACKS", "MIXER", "TUNE", "LIVE", "INSPECTOR" };
-    static constexpr Page kTabPages[kWorkspaceTabs] = { Page::Device, Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
+    // One row of tabs: TRACKS MIXER TUNE LIVE INSPECTOR (Cmd-1..5, left to right).
+    static constexpr int kWorkspaceTabs = 5;
     std::array<std::unique_ptr<WorkspaceTab>, kWorkspaceTabs> tabs;
     DinePopup outputButton;
     std::unique_ptr<juce::FileChooser> chooser;
@@ -259,8 +209,6 @@ private:
     unsigned long long seenRevision = 0, seenMilestone = 0;
     bool audioWasRunning = false;
     bool tuningLiveWasOn = false;
-    int seenSoloed = 0;                 // what the solo bar was last built for
-    juce::int64 seenAutosave = 0;       // ... and the autosave lamp
     bool usingCloudMixEngineer = false;
     bool sidebarShown = true;
     int lastChannel = -1;               // the last channel picked out anywhere: what the chain foot reads

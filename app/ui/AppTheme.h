@@ -22,7 +22,7 @@ namespace livemix
 // gradients, no glows and no outlines: the hierarchy is carried by value, by radius and by
 // type. The accent is a teal (#6db8a8) spent on the primary action, the active workspace,
 // what is selected or soloed, what DLIVE tuned, and the meters. The console keys keep their
-// own colours (record red, monitoring blue, mute amber, solo the same hot as the solo bar) so a key says which key
+// own colours (record red, monitoring blue, mute amber, solo teal) so a key says which key
 // it is before it says it is on.
 //
 // Type is Barlow for everything a person reads and IBM Plex Mono for every number - both
@@ -67,13 +67,6 @@ namespace Dine
     // tuned state is said by the teal lamp / hairline on a neutral ground, never by a green ground.
     inline juce::Colour soloGround  { 0xff222830 };
     inline juce::Colour editGround  { 0xff15202b };   // a hand-edited chip
-    // What a sheet is laid over. The alpha belongs to the thing being opened, not to the
-    // token: 55 % for a sheet, 35 % for a drawer, 25 % for Appearance - whose whole point is
-    // that the console behind it is the preview.
-    inline juce::Colour scrim       { 0xff000000 };
-    // The ground Autopilot's card sits on, so it reads as a thing that is running rather than
-    // a panel. Nothing uses it until Autopilot ships (docs/DESIGN-IMPLEMENTATION.md §6).
-    inline juce::Colour autopilotGround { 0xff121b27 };
 
     // Kept for the few callers that name them; the v2 surfaces are flat, so they are the
     // flat value the band used to ramp to.
@@ -113,20 +106,15 @@ namespace Dine
     inline juce::Colour accentDeep  { 0xff5aa393 };   // pressed
     inline juce::Colour accentTop   { 0xff6db8a8 };
     inline juce::Colour accentBottom{ 0xff6db8a8 };
-    inline juce::Colour onAccent    { 0xff0b0d10 };   // an accent button carries near-black type
+    inline juce::Colour onAccent    { 0xff070809 };   // an accent button carries near-black type
     inline juce::Colour ok          { 0xff57b98d };
-    inline juce::Colour hot         { 0xffcbbf6a };   // the meter's middle band, and the solo bar
-    inline juce::Colour onHot       { 0xff17150a };   // ... what type on it is
+    inline juce::Colour hot         { 0xffcbbf6a };   // the meter's middle band
     inline juce::Colour warn        { 0xffe0a85c };
     inline juce::Colour crit        { 0xffe06a64 };
 
     // The console keys keep their own colours.
     inline juce::Colour keyMute     { 0xffe0a85c };
-    // Solo is the colour of the solo bar, not of the accent. Teal in DLIVE means "this is
-    // what DLIVE did, or what is chosen"; solo is neither - it is the engineer's own listen,
-    // which the room never hears. The design gives both the same `hot`, so an S key and the
-    // bar that says an S key is down are obviously the same thing.
-    inline juce::Colour keySolo     { 0xffcbbf6a };
+    inline juce::Colour keySolo     { 0xff6db8a8 };
     inline juce::Colour keyRec      { 0xffe06a64 };
     inline juce::Colour keyMon      { 0xff6eafff };
     inline juce::Colour monitor     { 0xff6eafff };   // the engineer's own ears
@@ -134,15 +122,11 @@ namespace Dine
     // The group buses, in `MixBus` order; `busTint` reads them.
     inline juce::Colour busDrums    { 0xffe09a4b };
     inline juce::Colour busBass     { 0xff8e80ff };
-    inline juce::Colour busMusic    { 0xff6eafff };   // the design calls this group BAND
-    inline juce::Colour busVocals   { 0xff57b98d };   // ... and this one BGV
+    inline juce::Colour busMusic    { 0xff6eafff };
+    inline juce::Colour busVocals   { 0xff57b98d };
     inline juce::Colour busSpeech   { 0xffc98fb0 };
     inline juce::Colour busAmbience { 0xffa8b0bc };
     inline juce::Colour busMaster   { 0xffa8b0bc };
-    // LEAD is its own bus in the design and is not one in `MixBus` yet; the colour is here so
-    // the whole palette is one table, and the strip that uses it arrives with the bus.
-    inline juce::Colour busLead     { 0xfff07f8f };
-    inline juce::Colour busFx       { 0xff7fc4d8 };   // the FX returns, which do exist
 
     inline juce::Colour focusRing   { 0xff6db8a8 };
     inline constexpr float    disabled    = 0.38f;
@@ -181,44 +165,11 @@ namespace Dine
         inline constexpr int panelTab  = 15;    // the gutter a folded side panel leaves behind
     }
 
-    // ---------------------------------------------------------------- type
-    // Barlow for words, Barlow Condensed for labels, IBM Plex Mono for numbers. All three
-    // embedded, so a booth Mac with no fonts installed reads exactly like the design.
+    // Type: Barlow for words, IBM Plex Mono for numbers. Both embedded.
     juce::Font text (float px, int weight = 400);
     juce::Font mono (float px, int weight = 400);
-    // A letterspaced caption: Barlow Condensed, 600, tracked. The design's section labels and
-    // key words. The shared LiveMixLookAndFeel maps its "condensed" family to Barlow on
-    // purpose, for the plug-in surface; DLIVE's labels really are condensed, so this loads the
-    // face itself rather than changing what the plug-ins look like.
+    // A letterspaced caption: 600, tracked. The design's section labels and key words.
     juce::Font caps (float px, float tracking = 0.08f, int weight = 600);
-    juce::Font condensed (float px, int weight = 600, float tracking = 0.0f);
-
-    // Text size (View > Appearance). Scales every role below and every text/mono/caps call
-    // with them, and nothing else: strip widths, row heights and meters keep their pixels, so
-    // a name gets an ellipsis and a tooltip rather than a wider console. 1.0 / 1.2 / 1.35.
-    void setTextScale (float);
-    float textScale();
-
-    // The design's text styles, by name. A page asks for the role rather than for a size, so
-    // two pages cannot drift apart and a restyle happens in one place.
-    namespace Type
-    {
-        juce::Font wordmark();        // Display/Wordmark   Condensed 700  24 / 28   0.10 em
-        juce::Font headingPage();     // Heading/Page       Barlow    600  17 / 22
-        juce::Font headingCard();     // Heading/Card       Barlow    600  14 / 18
-        juce::Font body();            // Body/Default       Barlow    500  13 / 18
-        juce::Font bodySmall();       // Body/Small         Barlow    500  12 / 16
-        juce::Font caption();         // Body/Caption       Barlow    500  11 / 14
-        juce::Font labelTab();        // Label/Tab          Condensed 600  13 / 16   0.08 em
-        juce::Font labelControl();    // Label/Control      Condensed 600  12 / 14   0.05 em
-        juce::Font labelStrip();      // Label/Strip        Condensed 600  11 / 13   0.02 em
-        juce::Font labelSection();    // Label/Section      Condensed 600  10 / 12   0.08 em
-        juce::Font labelMicro();      // Label/Micro        Condensed 700   9 / 10   0.06 em
-        juce::Font monoClock();       // Mono/Clock         Plex Mono 500  16 / 20
-        juce::Font monoValue();       // Mono/Value         Plex Mono 500  12 / 16
-        juce::Font monoSmall();       // Mono/Small         Plex Mono 400  10 / 12
-        juce::Font monoMeter();       // Mono/Meter         Plex Mono 400   8 / 10
-    }
 
     int textWidth (const juce::Font&, const juce::String&);
 
@@ -229,9 +180,12 @@ namespace Dine
     // colour still come from the Graphics - and they lay the glyphs out through a cache big
     // enough for a real console. JUCE has a cache of its own and it holds 128 entries for the
     // whole window (juce_GraphicsContext.cpp), which a 48-channel MIXER or the Inspector goes
-    // through several times over in a single paint: every string a sibling evicted is shaped
-    // again by HarfBuzz the next time round. Measured, that was two thirds of what TUNE and
-    // INSPECTOR spent painting - 20.0 ms of warm repaint against 9.4 with the layouts kept.
+    // through several times over in a single paint. Worse, it is a least-recently-used cache
+    // and a page asks for its strings in the same order every paint - the one pattern an LRU
+    // is worst at, where a cycle longer than the cache evicts precisely the entry wanted next,
+    // so the hit rate collapses and every paint re-shapes every string through HarfBuzz.
+    // Measured on a 48-channel console, that was two thirds of what TUNE and the Inspector
+    // spent painting.
     //
     // Message thread only, like all painting. Nothing here runs on the audio thread.
     void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<int> area,
@@ -249,13 +203,12 @@ namespace Dine
 
     // How many strings were laid out rather than found already laid out. A count, not a clock:
     // it is the same on every machine, so it is the number a frame-budget regression is caught
-    // by. `dlive_ui_snapshots --paint` prints it per workspace.
+    // by. `dlive_ui_snapshots --frames` prints it per workspace.
     struct TextCacheStats { long long hits, misses, size; };
     TextCacheStats textCacheStats();
     void resetTextCacheStats();
-    // Text size changes every role's size, so every layout held is for a face nothing will ask
-    // for again; `setTextScale` does this itself. A theme change does not - a colour is taken
-    // from the Graphics when the glyphs are drawn and is never baked into a layout.
+    // Every layout held is for a face at a particular size; anything that changes the faces
+    // themselves should throw them away.
     void clearTextCache();
 
     // Surfaces -------------------------------------------------------------
@@ -497,13 +450,9 @@ public:
     void setValue (float v)       { if (std::fabs (v - value) > 0.0005f) { value = v; repaint(); } }
     float getValue() const noexcept { return value; }
     void setTint (juce::Colour c) { tint = c; }
-    // The console strip draws balance as the design's knob - a 270 degree arc with the
-    // pointer at the top at centre - rather than as a bar. Dragging it is vertical, the way a
-    // knob is turned, and double-click still puts it back to the middle.
-    void setKnob (bool k)         { if (k != knob) { knob = k; repaint(); } }
 
     void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent& e) override { dragFrom = value; if (! knob) drag (e); }
+    void mouseDown (const juce::MouseEvent& e) override { drag (e); }
     void mouseDrag (const juce::MouseEvent& e) override { drag (e); }
     void mouseDoubleClick (const juce::MouseEvent&) override;
 
@@ -511,8 +460,6 @@ private:
     void drag (const juce::MouseEvent&);
 
     float value = 0.0f;
-    float dragFrom = 0.0f;
-    bool knob = false;
     std::optional<juce::Colour> tint;    // unset = the accent, read when painted
 };
 

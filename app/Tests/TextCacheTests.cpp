@@ -53,14 +53,22 @@ namespace
         return image;
     }
 
+    // The faces DLIVE actually draws with, at the sizes it draws them: Barlow for words, the
+    // tracked caps for labels, IBM Plex Mono for numbers. Tracking matters here - a tracked run
+    // shapes differently, so a cache that got it wrong would show up on the labels first.
     std::vector<juce::Font> everyStyle()
     {
-        return { Dine::Type::wordmark(), Dine::Type::headingPage(), Dine::Type::headingCard(),
-                 Dine::Type::body(), Dine::Type::bodySmall(), Dine::Type::caption(),
-                 Dine::Type::labelTab(), Dine::Type::labelControl(), Dine::Type::labelStrip(),
-                 Dine::Type::labelSection(), Dine::Type::labelMicro(),
-                 Dine::Type::monoClock(), Dine::Type::monoValue(), Dine::Type::monoSmall(),
-                 Dine::Type::monoMeter() };
+        std::vector<juce::Font> fonts;
+        for (const float px : { 11.0f, 12.0f, 13.0f, 17.0f, 24.0f })
+        {
+            fonts.push_back (Dine::text (px));
+            fonts.push_back (Dine::text (px, 600));
+            fonts.push_back (Dine::mono (px));
+        }
+        for (const float px : { 9.0f, 10.0f, 12.0f, 13.0f })
+            for (const float tracking : { 0.0f, 0.05f, 0.08f })
+                fonts.push_back (Dine::caps (px, tracking));
+        return fonts;
     }
 
     const std::vector<juce::String>& everyString()
@@ -90,9 +98,7 @@ TEST_CASE ("Dine::drawText draws exactly the pixels juce::Graphics::drawText dra
     const std::pair<int, int> boxes[] = { { 200, 24 }, { 40, 12 }, { 1, 10 }, { 300, 60 }, { 48, 11 } };
     int compared = 0;
 
-    for (const float scale : { 1.0f, 1.2f, 1.35f })
     {
-        Dine::setTextScale (scale);
         for (const auto& font : everyStyle())
             for (const auto& text : everyString())
                 for (const auto& [w, h] : boxes)
@@ -108,7 +114,7 @@ TEST_CASE ("Dine::drawText draws exactly the pixels juce::Graphics::drawText dra
                             const auto d = compare (mine, theirs);
                             CHECK_MESSAGE (d.pixels == 0,
                                            ("\"" + text + "\" at " + juce::String (w) + "x" + juce::String (h)
-                                            + ", scale " + juce::String (scale) + ", just " + juce::String (just.getFlags())
+                                            + ", just " + juce::String (just.getFlags())
                                             + ", ellipses " + juce::String (int (ellipses)) + ": "
                                             + juce::String (d.pixels) + " pixels differ, first at "
                                             + juce::String (d.firstX) + "," + juce::String (d.firstY)).toStdString());
@@ -116,7 +122,6 @@ TEST_CASE ("Dine::drawText draws exactly the pixels juce::Graphics::drawText dra
                         }
     }
 
-    Dine::setTextScale (1.0f);
     CHECK (compared > 3000);
 }
 
@@ -163,7 +168,7 @@ TEST_CASE ("The text cache answers from memory the second time, and never grows 
         juce::Graphics g (image);
         for (int i = 0; i < 200; ++i)
         {
-            g.setFont (Dine::Type::labelStrip());
+            g.setFont (Dine::caps (11.0f, 0.02f));
             Dine::drawText (g, "CHANNEL " + juce::String (i), juce::Rectangle<int> (0, 0, 120, 14),
                             juce::Justification::centredLeft);
         }
@@ -186,7 +191,7 @@ TEST_CASE ("The text cache answers from memory the second time, and never grows 
     {
         juce::Image image (juce::Image::ARGB, 80, 16, true);
         juce::Graphics g (image);
-        g.setFont (Dine::Type::monoValue());
+        g.setFont (Dine::mono (12.0f, 500));
         Dine::drawText (g, juce::String (-i * 0.01, 2) + " dB", juce::Rectangle<int> (0, 0, 70, 14),
                         juce::Justification::centredRight);
     }
@@ -195,46 +200,4 @@ TEST_CASE ("The text cache answers from memory the second time, and never grows 
 
     Dine::clearTextCache();
     CHECK (Dine::textCacheStats().size == 0);
-}
-
-TEST_CASE ("Text size clears the cache, because every role is a different face at a different scale")
-{
-    Dine::setTextScale (1.0f);
-    Dine::clearTextCache();
-
-    juce::Image image (juce::Image::ARGB, 200, 30, true);
-    {
-        juce::Graphics g (image);
-        g.setFont (Dine::Type::body());
-        Dine::drawText (g, "Lead Vocal", juce::Rectangle<int> (0, 0, 180, 20), juce::Justification::centredLeft);
-    }
-    CHECK (Dine::textCacheStats().size == 1);
-
-    Dine::setTextScale (1.35f);
-    CHECK (Dine::textCacheStats().size == 0);
-
-    // And the larger face really does draw larger, rather than the cache handing back the old one.
-    const auto atStandard = [] (float scale)
-    {
-        Dine::setTextScale (scale);
-        juce::Image im (juce::Image::ARGB, 300, 40, true);
-        juce::Graphics g (im);
-        g.fillAll (juce::Colours::black);
-        g.setColour (juce::Colours::white);
-        g.setFont (Dine::Type::body());
-        Dine::drawText (g, "Lead Vocal", juce::Rectangle<int> (0, 0, 300, 40), juce::Justification::centredLeft);
-        int lit = 0;
-        const juce::Image::BitmapData p (im, juce::Image::BitmapData::readOnly);
-        for (int y = 0; y < im.getHeight(); ++y)
-            for (int x = 0; x < im.getWidth(); ++x)
-                if (p.getPixelColour (x, y).getBrightness() > 0.5f) ++lit;
-        return lit;
-    };
-
-    const auto standard = atStandard (1.0f);
-    const auto larger = atStandard (1.35f);
-    Dine::setTextScale (1.0f);
-    CHECK_MESSAGE (larger > standard,
-                   "Larger text drew " + std::to_string (larger) + " lit pixels against "
-                   + std::to_string (standard) + " at Standard");
 }

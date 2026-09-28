@@ -53,9 +53,6 @@ set(DLIVE_UI_SOURCES
     ${DLIVE_APP_SOURCES}
     ui/AppTheme.cpp
     ui/SetupPages.cpp
-    ui/RoutingPage.cpp
-    ui/PurposeSheet.cpp
-    ui/ExportSheet.cpp
     ui/TracksPage.cpp
     ui/MixPage.cpp
     ui/MacroPad.cpp

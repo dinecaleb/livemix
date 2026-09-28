@@ -5,7 +5,6 @@
 #include <memory>
 #include "AppServices.h"
 #include "AppTheme.h"
-#include "Mix/MixMacros.h"
 
 namespace livemix
 {
@@ -35,9 +34,8 @@ private:
     class GroupTile;
     class RecordKey;
     class Chip;
-    class MacroKnob;
 
-    struct Layout { juce::Rectangle<int> head, status, tiles, scenes, macros, monitor, safe; };
+    struct Layout { juce::Rectangle<int> status, tiles, scenes, monitor, safe; };
     Layout layout() const;
 
     MixController& controller;
@@ -51,15 +49,6 @@ private:
     // slot recalls it; the KEEP chip beside it writes the mix there. Names come from the controller.
     std::array<std::unique_ptr<DineButton>, 4> scenePads, sceneKeeps;
     void refreshScenes();
-    // MACROS - WHOLE MIX. The same five the TUNE pads move, laid out as one knob each,
-    // because during a service the question is "a bit more voice" and not "where on the pad".
-    std::array<std::unique_ptr<MacroKnob>, size_t (MixMacro::Count)> macroKnobs;
-    void refreshMacros();
-    juce::String markerLine() const;   // "Now: Sermon - next marker ... at 01:25"
-    // What that sentence was, and the stretch of the timeline it stays true for.
-    juce::String markerText;
-    juce::int64 markerFrom = 1, markerUntil = 0;
-    int markerCount = -1;
     juce::Slider monitorLevel { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     DinePopup soloDevice;                                // where solo goes: the device only the engineer hears
     std::unique_ptr<RecordKey> recordButton;
@@ -67,7 +56,6 @@ private:
     struct Look
     {
         juce::String recording, recordingNote, output, outputNote, clipping, clippingNote, headroom, headroomNote, monitorNote;
-        juce::String marker;             // "Now: Sermon - next marker ... at 01:25"
         bool isRecording = false, safe = false, running = false, anyClip = false, inPlace = false, routed = false;
         int soloCount = -1;
         float monitorDb = 0.0f;
@@ -75,8 +63,7 @@ private:
         {
             return recording == o.recording && recordingNote == o.recordingNote && output == o.output && outputNote == o.outputNote
                 && clipping == o.clipping && clippingNote == o.clippingNote && headroom == o.headroom && headroomNote == o.headroomNote
-                && monitorNote == o.monitorNote && marker == o.marker
-                && isRecording == o.isRecording && safe == o.safe && running == o.running
+                && monitorNote == o.monitorNote && isRecording == o.isRecording && safe == o.safe && running == o.running
                 && anyClip == o.anyClip && inPlace == o.inPlace && routed == o.routed && soloCount == o.soloCount
                 && std::abs (monitorDb - o.monitorDb) < 0.05f;
         }

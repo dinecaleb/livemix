@@ -1020,14 +1020,6 @@ void AdvancedPage::rebuild()
     resized();
 }
 
-int AdvancedPage::selectedStageIndex() const { return chain->selectedStage(); }
-
-void AdvancedPage::openStripAtStage (int strip, const juce::String& stageLabel)
-{
-    select (strip);
-    if (stageLabel.isNotEmpty()) chain->selectStageNamed (stageLabel);
-}
-
 void AdvancedPage::select (int strip)
 {
     selection.isBus = false;

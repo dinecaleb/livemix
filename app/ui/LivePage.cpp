@@ -1,10 +1,8 @@
 #include "LivePage.h"
-
 #include "native/MixHistory.h"
 #include "OutputsSheet.h"
 #include "UI/Widgets.h"
 #include <cmath>
-#include <limits>
 
 namespace livemix
 {
@@ -15,11 +13,9 @@ namespace
     constexpr int kFxTile = kGroupBuses, kMasterTile = kGroupBuses + 1;
     constexpr int kTiles = kGroupBuses + 2;
     constexpr int kPadX = 24, kPadY = 22, kGap = 20;
-    constexpr int kHeadH = 44;      // the page bar: ON AIR, and what part of the service this is
-    constexpr int kStatusH = 114;   // tall enough for BROADCAST's number, its three readings and its target bar
+    constexpr int kStatusH = 100;
     constexpr int kSafeW = 330;
     constexpr int kScenesH = 78;
-    constexpr int kMacrosH = 96;
     // The monitor card's rows, measured once: the caption, a gap, the chips, a gap, the level, a gap, the sentence.
     constexpr int kMonCaption = 14, kMonCaptionGap = 12, kMonRowGap = 20, kMonNoteGap = 16, kMonNote = 18;
 
@@ -39,87 +35,6 @@ namespace
 
 // One group: its name in its colour, a state chip, a meter, the fader under it and its
 // level, and the two keys that can change what the room hears.
-// ------------------------------------------------------------------- MacroKnob
-// One of the five macros, as the design draws it: a 270 degree arc, the number in the middle
-// and the plain word under it. Turning one is a whole-mix move that TUNE MIX already decided
-// the shape of - the macro leans the mix away from the plan, it does not replace it - so the
-// centre of the arc is 50 and double-clicking comes back to it.
-class LivePage::MacroKnob : public juce::Component, public juce::SettableTooltipClient
-{
-public:
-    MacroKnob (MixMacro m, const juce::String& caption, std::function<void (float)> onSet)
-        : macro (m), label (caption), set (std::move (onSet))
-    {
-        setTooltip (label + ": a whole-mix move. 50 is the mix TUNE MIX built; double-click comes back to it.");
-        // A stroked arc is path rendering, and five of them on every full repaint of the
-        // workspace is a page switch nobody asked to pay for. The knob only changes when its
-        // value does, so it is cached and a repaint of the page is a blit.
-        setBufferedToImage (true);
-    }
-
-    void setValue (float v)
-    {
-        if (std::fabs (v - value) < 0.05f) return;
-        value = v;
-        repaint();
-    }
-    float getValue() const noexcept { return value; }
-
-    void paint (juce::Graphics& g) override
-    {
-        auto area = getLocalBounds();
-        auto cap = area.removeFromBottom (14);
-        auto dial = area.reduced (4).withSizeKeepingCentre (juce::jmin (area.getWidth(), area.getHeight()) - 8,
-                                                            juce::jmin (area.getWidth(), area.getHeight()) - 8);
-        const auto centre = dial.toFloat().getCentre();
-        const float radius = dial.getWidth() * 0.5f;
-        constexpr float kSweep = 2.356194f;            // 135 degrees each side of the top
-        const float angle = (value / 50.0f - 1.0f) * kSweep;
-
-        juce::Path track;
-        track.addCentredArc (centre.x, centre.y, radius - 2.0f, radius - 2.0f, 0.0f, -kSweep, kSweep, true);
-        g.setColour (Dine::control);
-        g.strokePath (track, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-        if (std::fabs (value - 50.0f) > 0.5f)
-        {
-            juce::Path arc;
-            arc.addCentredArc (centre.x, centre.y, radius - 2.0f, radius - 2.0f, 0.0f,
-                               juce::jmin (0.0f, angle), juce::jmax (0.0f, angle), true);
-            g.setColour (Dine::accent);
-            g.strokePath (arc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        }
-
-        g.setColour (std::fabs (value - 50.0f) > 0.5f ? Dine::ink : Dine::ink2);
-        g.setFont (Dine::Type::monoValue());
-        Dine::drawText (g, juce::String (juce::roundToInt (value)), dial, juce::Justification::centred);
-
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::Type::labelSection());
-        Dine::drawText (g, label, cap, juce::Justification::centred);
-    }
-
-    void mouseDown (const juce::MouseEvent&) override { dragFrom = value; }
-    void mouseDrag (const juce::MouseEvent& e) override
-    {
-        if (! isEnabled()) return;
-        const float v = juce::jlimit (0.0f, 100.0f, dragFrom - float (e.getDistanceFromDragStartY()) * 0.5f);
-        setValue (v);
-        if (set) set (v);
-    }
-    void mouseDoubleClick (const juce::MouseEvent&) override
-    {
-        setValue (50.0f);
-        if (set) set (50.0f);
-    }
-
-private:
-    MixMacro macro;
-    juce::String label;
-    std::function<void (float)> set;
-    float value = 50.0f, dragFrom = 50.0f;
-};
-
 class LivePage::GroupTile : public juce::Component
 {
 public:
@@ -366,6 +281,7 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     {
         auto& daw = services.daw();
         daw.setLiveSafe (! daw.isLiveSafe());
+        services.saveSession();
         if (onLiveSafeChanged) onLiveSafeChanged();
         if (onToast) onToast (daw.isLiveSafe() ? "LIVE SAFE on. The sound is locked: re-routes and re-tunes are blocked."
                                                : "LIVE SAFE off. Re-routes and re-tunes are allowed again.");
@@ -386,25 +302,10 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         sceneKeeps[size_t (i)]->setFontPx (11.0f);
         sceneKeeps[size_t (i)]->setCaps (true);
         sceneKeeps[size_t (i)]->setTooltip ("Keep the mix as it is now under this name.");
-        sceneKeeps[size_t (i)]->onClick = [this, i] { controller.keepScene (i); refreshScenes(); };
+        sceneKeeps[size_t (i)]->onClick = [this, i] { controller.keepScene (i); services.saveSession(); refreshScenes(); };
         addAndMakeVisible (*sceneKeeps[size_t (i)]);
     }
     refreshScenes();
-
-    // ---- MACROS - WHOLE MIX: the same five MixMacro values the TUNE pads move, one knob
-    // each, because during a service the question is "a bit more voice" and not "where on
-    // the pad". Moving one here and moving it there are the same move.
-    {
-        const char* macroNames[int (MixMacro::Count)] = { "VOCALS", "DRUMS", "BASS", "SPACE", "ENERGY" };
-        for (int i = 0; i < int (MixMacro::Count); ++i)
-        {
-            const auto m = MixMacro (i);
-            macroKnobs[size_t (i)] = std::make_unique<MacroKnob> (m, macroNames[i],
-                                                                  [this, m] (float v) { controller.setMacro (m, v); });
-            addAndMakeVisible (*macroKnobs[size_t (i)]);
-        }
-        refreshMacros();
-    }
 
     // ---- the engineer's own listen: six chips and a level
     const char* labels[6] = { "MONITOR SOLO", "SOLO IN PLACE", "AFL", "PFL", "DIM", "CLEAR SOLO" };
@@ -498,7 +399,6 @@ void LivePage::updateDiskNote()
 void LivePage::refresh()
 {
     refreshScenes();                 // the pads follow the controller: a scene kept from anywhere shows here
-    refreshMacros();                 // ... and so do the five macros, moved from TUNE or from here
 
     for (auto& t : tiles) if (t != nullptr) t->refresh();
     updateDiskNote();
@@ -556,27 +456,6 @@ void LivePage::refresh()
     const auto loud = controller.getMasterLoudness();
     if (controller.isPrepared()) headroomDb = -controller.getEngine().getBus (MixBus::Master).getOutputMeter().getMaxPeakDb();
     next.headroom = controller.isPrepared() ? juce::String (juce::jlimit (0.0f, 60.0f, headroomDb), 1) + " dB" : Glyph::dash();
-    // The sentence only changes when the playhead crosses a marker, so it is rebuilt then and
-    // not thirty times a second: scanning the list and building two strings every tick is the
-    // kind of cost that does not show up until somebody has a service's worth of markers.
-    {
-        const auto& project = services.daw().getProject();
-        const auto now = services.daw().getTransport().getPosition();
-        const bool crossed = now < markerFrom || now >= markerUntil;
-        if (crossed || int (project.markers.size()) != markerCount)
-        {
-            markerCount = int (project.markers.size());
-            markerText = markerLine();
-            markerFrom = 0;
-            markerUntil = std::numeric_limits<juce::int64>::max();
-            for (const auto& m : project.markers)
-            {
-                if (m.position <= now) markerFrom = juce::jmax (markerFrom, m.position);
-                else                   markerUntil = juce::jmin (markerUntil, m.position);
-            }
-        }
-        next.marker = markerText;
-    }
     next.headroomNote = loud.known && loud.integratedLufs > -100.0f
                             ? juce::String (loud.integratedLufs, 1) + " LUFS integrated, target " + juce::String (loud.targetLufs, 0)
                             : "No loudness reading yet";
@@ -599,26 +478,13 @@ void LivePage::refresh()
 LivePage::Layout LivePage::layout() const
 {
     Layout l;
-    auto page = getLocalBounds();
-    l.head = page.removeFromTop (kHeadH);
-    auto r = page.reduced (kPadX, kPadY - 8);
+    auto r = getLocalBounds().reduced (kPadX, kPadY);
     l.status = r.removeFromTop (kStatusH);
     r.removeFromTop (kGap);
-    // What the bands cost, so the group tiles can give up their spare height to the macros
-    // rather than the macros being dropped while the tiles keep it. The macros are still the
-    // first thing to go when even the tiles' floor will not fit.
-    constexpr int kTilesFloor = 160, kLowerFloor = 190;
-    const bool macrosFit = r.getHeight() >= kTilesFloor + kGap + kScenesH + kGap + kMacrosH + kGap + kLowerFloor;
-    const int below = kGap + kScenesH + kGap + (macrosFit ? kMacrosH + kGap : 0) + kLowerFloor;
-    l.tiles = r.removeFromTop (juce::jlimit (kTilesFloor, 200, r.getHeight() - below));
+    l.tiles = r.removeFromTop (juce::jmin (200, juce::jmax (160, r.getHeight() - kGap - kScenesH - kGap - 190)));
     r.removeFromTop (kGap);
     l.scenes = r.removeFromTop (kScenesH);
     r.removeFromTop (kGap);
-    if (macrosFit)
-    {
-        l.macros = r.removeFromTop (kMacrosH);
-        r.removeFromTop (kGap);
-    }
     auto lower = r.withHeight (juce::jlimit (190, 260, r.getHeight()));
     l.safe = lower.removeFromRight (kSafeW);
     lower.removeFromRight (kGap);
@@ -632,46 +498,6 @@ void LivePage::paint (juce::Graphics& g)
 {
     g.fillAll (Dine::window);
     const auto l = layout();
-
-    // ---- the page bar: what this workspace is, whether it is going out, and what part of
-    // the service this is. The marker is the one the playhead has most recently passed, and
-    // the next one is where the service is going - both read off the timeline.
-    {
-        auto head = l.head.reduced (kPadX, 0);
-        g.setColour (Dine::hair);
-        g.fillRect (l.head.getX(), l.head.getBottom() - 1, l.head.getWidth(), 1);
-        g.setColour (Dine::ink);
-        g.setFont (Dine::Type::headingPage());
-        head.removeFromLeft (60);
-        Dine::drawText (g, "Live", l.head.reduced (kPadX, 0).withWidth (60), juce::Justification::centredLeft);
-
-        // ON AIR: lit whenever the engine is running and the broadcast is not muted.
-        const bool onAir = look.running && ! controller.isBroadcastMuted();
-        auto pill = head.removeFromLeft (juce::jmin (150, head.getWidth())).withSizeKeepingCentre (
-            juce::jmin (150, head.getWidth()), 24);
-        if (onAir)
-        {
-            Dine::fillRounded (g, pill.toFloat(), Dine::crit.withAlpha (0.18f), Dine::Radius::chip);
-            g.setColour (Dine::crit);
-            g.fillEllipse (float (pill.getX() + 12), float (pill.getCentreY() - 3), 6.0f, 6.0f);
-            g.setFont (Dine::Type::labelControl());
-            Dine::drawText (g, "ON AIR", pill.withTrimmedLeft (24), juce::Justification::centredLeft);
-        }
-        else
-        {
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::Type::labelControl());
-            Dine::drawText (g, controller.isBroadcastMuted() ? "BROADCAST MUTED" : "NOT RUNNING", pill, juce::Justification::centredLeft, true);
-        }
-
-        head.removeFromLeft (14);
-        if (head.getWidth() > 120)
-        {
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::Type::bodySmall());
-            Dine::drawText (g, look.marker, head, juce::Justification::centredLeft, true);
-        }
-    }
 
     // ---- the four things that matter during a service
     {
@@ -704,83 +530,8 @@ void LivePage::paint (juce::Graphics& g)
         card (row.removeFromLeft (w), "Clipping", look.clipping, look.clippingNote,
               look.anyClip ? Dine::recGround : Dine::card, look.anyClip ? Dine::crit : Dine::ink, false);
         row.removeFromLeft (12);
-        // ---- BROADCAST: what is actually leaving, big enough to read from the back of a
-        // booth, with the three numbers that decide whether it is right underneath it.
-        {
-            auto broadcast = row;
-            Dine::fillRounded (g, broadcast.toFloat(), Dine::card, Dine::Radius::card);
-            auto inner = broadcast.reduced (16, 14);
-
-            const auto loud = controller.getMasterLoudness();
-            const bool known = loud.known && loud.shortTermLufs > -100.0f;
-
-            auto head = inner.removeFromTop (12);
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::Type::labelSection());
-            Dine::drawText (g, "BROADCAST  " + juce::String (Glyph::dot()) + "  " + look.output.toUpperCase(),
-                        head, juce::Justification::centredLeft, true);
-            inner.removeFromTop (4);
-
-            // the number
-            auto big = inner.removeFromTop (30);
-            const auto tint = ! known ? Dine::ink3 : loud.onTarget() ? Dine::accent : Dine::warn;
-            g.setColour (tint);
-            g.setFont (Dine::mono (26.0f, 500));
-            // A fixed box rather than a measured one: the face is monospaced, so "-14.3" is
-            // always the same width, and measuring a string on every paint is how a page ends
-            // up spending its frame on glyph layout.
-            const juce::String shortTerm = known ? juce::String (loud.shortTermLufs, 1) : juce::String (Glyph::dash());
-            Dine::drawText (g, shortTerm, big.removeFromLeft (96), juce::Justification::centredLeft);
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::Type::caption());
-            Dine::drawText (g, "LUFS short-term", big, juce::Justification::centredLeft, true);
-            inner.removeFromTop (6);
-
-            // the three that decide whether it is right. Loudness range (LRA) is not measured,
-            // so the third is how far from target this mix actually is - which is the number
-            // somebody is looking for anyway.
-            // Three readings need about 90 px each to be readable. On the smallest window they
-            // do not have it, so the third gives way rather than all three colliding - the
-            // target bar underneath already says what "against target" says.
-            auto cols = inner.removeFromTop (28);
-            const int columns = cols.getWidth() >= 270 ? 3 : 2;
-            const int cw = cols.getWidth() / columns;
-            auto small = [&] (juce::Rectangle<int> c, const juce::String& k, const juce::String& v, juce::Colour ink)
-            {
-                if (c.isEmpty()) return;
-                g.setColour (Dine::ink4);
-                g.setFont (Dine::Type::caption());
-                Dine::drawText (g, k, c.removeFromTop (13), juce::Justification::topLeft, true);
-                g.setColour (ink);
-                g.setFont (Dine::Type::monoValue());
-                Dine::drawText (g, v, c, juce::Justification::topLeft, true);
-            };
-            const bool integrated = loud.known && loud.integratedLufs > -100.0f;
-            small (cols.removeFromLeft (cw), "Integrated",
-                   integrated ? juce::String (loud.integratedLufs, 1) : juce::String (Glyph::dash()), Dine::ink);
-            small (cols.removeFromLeft (cw), "True peak",
-                   loud.truePeakDb > -100.0f ? juce::String (loud.truePeakDb, 1) + " dBTP" : juce::String (Glyph::dash()),
-                   loud.truePeakDb > loud.ceilingDb ? Dine::crit : Dine::ink);
-            if (columns < 3) cols = {};
-            small (cols, "Against target",
-                   integrated ? juce::String (loud.deltaLu() >= 0.0f ? "+" : "") + juce::String (loud.deltaLu(), 1) + " LU"
-                              : juce::String (Glyph::dash()),
-                   ! integrated ? Dine::ink3 : loud.onTarget() ? Dine::ink : Dine::warn);
-
-            // the target bar: where the mix sits against what it is aiming at, +/- 6 LU across
-            if (inner.getHeight() >= 4)
-            {
-                auto track = inner.removeFromTop (juce::jmin (5, inner.getHeight())).toFloat();
-                Dine::fillRounded (g, track, Dine::well, 2.5f);
-                if (integrated)
-                {
-                    const float t = juce::jlimit (0.0f, 1.0f, 0.5f + loud.deltaLu() / 12.0f);
-                    Dine::fillRounded (g, track.withWidth (track.getWidth() * t), tint, 2.5f);
-                }
-                g.setColour (Dine::edge);
-                g.fillRect (track.getCentreX() - 0.5f, track.getY() - 2.0f, 1.0f, track.getHeight() + 4.0f);
-            }
-        }
+        card (row, "Master headroom", look.headroom, look.headroomNote, Dine::card,
+              headroomDb < 0.5f ? Dine::crit : headroomDb < 3.0f ? Dine::warn : Dine::ink, true);
     }
 
     // ---- scenes
@@ -788,22 +539,6 @@ void LivePage::paint (juce::Graphics& g)
         Dine::fillRounded (g, l.scenes.toFloat(), Dine::tile, Dine::Radius::card);
         auto inner = l.scenes.reduced (18, 14);
         Dine::drawSection (g, inner.removeFromTop (kMonCaption), "SCENES  " + juce::String (Glyph::dot()) + "  KEEP THE MIX FOR EACH PART OF THE SERVICE, BRING IT BACK IN ONE PRESS");
-    }
-
-    // ---- MACROS - WHOLE MIX
-    if (! l.macros.isEmpty())
-    {
-        Dine::fillRounded (g, l.macros.toFloat(), Dine::tile, Dine::Radius::card);
-        auto inner = l.macros.reduced (18, 10);
-        Dine::drawSection (g, inner.removeFromTop (kMonCaption),
-                           "MACROS  " + juce::String (Glyph::dot()) + "  WHOLE MIX");
-        if (services.daw().isLiveSafe())
-        {
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::Type::caption());
-            Dine::drawText (g, "LIVE SAFE", l.macros.reduced (18, 10).removeFromTop (kMonCaption),
-                        juce::Justification::centredRight, true);
-        }
     }
 
     // ---- the engineer's listen
@@ -871,22 +606,6 @@ void LivePage::paint (juce::Graphics& g)
 void LivePage::resized()
 {
     const auto l = layout();
-
-    // MACROS - WHOLE MIX: five knobs in a row, centred in their card.
-    {
-        const bool shown = ! l.macros.isEmpty();
-        auto row = l.macros.reduced (18, 14);
-        const int n = int (MixMacro::Count);
-        const int w = juce::jmin (108, row.getWidth() / juce::jmax (1, n));
-        auto block = row.withSizeKeepingCentre (w * n, row.getHeight());
-        for (int i = 0; i < n; ++i)
-        {
-            auto& k = macroKnobs[size_t (i)];
-            if (k == nullptr) continue;
-            k->setVisible (shown);
-            if (shown) k->setBounds (block.removeFromLeft (w));
-        }
-    }
     {
         auto first = l.status.withWidth ((l.status.getWidth() - 36) / 4).reduced (16, 14);
         const int w = juce::jmax (96, recordButton->idealWidth());
@@ -955,50 +674,6 @@ namespace livemix
 {
 
 // The pads read the controller: the name, and lit while that scene is the one kept.
-// WHAT PART OF THE SERVICE THIS IS.
-//
-// The marker the playhead has most recently passed, and the next one after it: "Now: Sermon -
-// next marker 'Altar call' at 01:25". Read straight off the timeline, so it is the same list
-// TRACKS shows and there is nothing to keep in step.
-juce::String LivePage::markerLine() const
-{
-    const auto& project = services.daw().getProject();
-    if (project.markers.empty()) return "No markers on the timeline yet.";
-
-    const auto now = services.daw().getTransport().getPosition();
-    const Marker* current = nullptr;
-    const Marker* next = nullptr;
-    for (const auto& m : project.markers)
-    {
-        if (m.position <= now && (current == nullptr || m.position > current->position)) current = &m;
-        if (m.position > now && (next == nullptr || m.position < next->position)) next = &m;
-    }
-
-    const double sr = juce::jmax (1.0, project.sampleRate);
-    auto clock = [sr] (juce::int64 pos)
-    {
-        const int total = int (double (pos) / sr);
-        return juce::String (total / 60).paddedLeft ('0', 2) + ":" + juce::String (total % 60).paddedLeft ('0', 2);
-    };
-
-    juce::String s = current != nullptr ? "Now: " + current->name : juce::String ("Before the first marker");
-    if (next != nullptr) s += "   " + juce::String (Glyph::dot()) + "   next marker \"" + next->name + "\" at " + clock (next->position);
-    return s;
-}
-
-void LivePage::refreshMacros()
-{
-    const auto& v = controller.getMacros();
-    const bool safe = services.daw().isLiveSafe();
-    for (int i = 0; i < int (MixMacro::Count); ++i)
-        if (macroKnobs[size_t (i)] != nullptr)
-        {
-            macroKnobs[size_t (i)]->setValue (v.get (MixMacro (i)));
-            // LIVE SAFE fences the macros here the same way it fences the pads on TUNE.
-            macroKnobs[size_t (i)]->setEnabled (! safe);
-        }
-}
-
 void LivePage::refreshScenes()
 {
     for (int i = 0; i < 4; ++i)

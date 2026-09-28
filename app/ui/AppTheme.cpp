@@ -1,95 +1,73 @@
 #include "AppTheme.h"
-#include "BinaryData.h"
-#include <unordered_map>
-#include <cmath>
+#include <map>
+#include <tuple>
 
 namespace livemix
 {
 
 // ============================================================================ type
-// Barlow, Barlow Condensed and IBM Plex Mono, embedded (LiveMixFonts): the same faces the
-// design file loads, so the booth Mac reads exactly like the mock whatever it has installed.
+// Barlow and IBM Plex Mono, embedded (LiveMixFonts): the same faces the design file loads,
+// so the booth Mac reads exactly like the mock whatever it has installed.
 //
-// The condensed face is loaded here rather than through LiveMixLookAndFeel::condensed, which
-// maps its label family to plain Barlow on purpose - "tracking-heavy condensed caps don't
-// dominate" - and clamps tracking to 0.04 em with it. That is the right call for a plug-in
-// panel and the wrong one for DLIVE, whose every Label/* style really is Barlow Condensed at
-// up to 0.10 em. Doing it here leaves the six plug-ins looking exactly as they did.
+// EVERY ROLE IS BUILT ONCE, and that is not only about speed.
+// `LiveMixLookAndFeel::typefaceFor` shares its typeface cache through a **stack**
+// `SharedResourcePointer`, so the cache lives only while something else is holding one - a
+// live LookAndFeel, usually. With none held, each call builds the cache, parses 109 KB of TTF,
+// hands back a Typeface and destroys the cache again. Two Fonts built the same way then carry
+// two *different* Typeface objects and do not compare equal, so anything keyed on a Font -
+// JUCE's own glyph cache, and the layout cache below - stops caching anything at all.
+//
+// Memoising here fixes both halves and touches nothing the six plug-ins share: DLIVE asks for
+// a role, gets the same Font object back every time, and the TTF is parsed once.
 namespace
 {
-    // One face per weight, for the life of the process. It must NOT be a stack
-    // juce::SharedResourcePointer: that one is owned by whoever holds it, so a local would
-    // build the cache and destroy it again on every call - re-parsing 109 KB of TTF for every
-    // label on every frame, which cost 18 % of the frame budget before it was caught.
-    juce::Typeface::Ptr condensedFace (int weight)
+    // DeletedAtShutdown, not a plain function static, and the reason is the order things are
+    // destroyed in. A juce::Font holds a Typeface::Ptr, and JUCE's typeface cache is itself torn
+    // down when JUCE shuts down. A static map of Fonts outlives that, so it hands its typefaces
+    // back to a cache whose lock has already been destroyed - "mutex lock failed: Invalid
+    // argument", after every test has passed. JUCE's own glyph caches are DeletedAtShutdown for
+    // exactly this reason.
+    struct FontMemo final : public juce::DeletedAtShutdown
     {
-        static juce::Typeface::Ptr faces[3];
-        const int w = weight >= 700 ? 2 : weight >= 600 ? 1 : 0;
-        if (faces[w] != nullptr) return faces[w];
+        ~FontMemo() override { clearSingletonInstance(); }
+        std::map<std::tuple<int, int, int, int>, juce::Font> faces;
+        juce::CriticalSection lock;
+        JUCE_DECLARE_SINGLETON_INLINE (FontMemo, false)
+    };
 
-        using namespace LiveMixFonts;
-        const char* data = w == 2 ? BarlowCondensedBold_ttf : w == 1 ? BarlowCondensedSemiBold_ttf : BarlowCondensedMedium_ttf;
-        const int size   = w == 2 ? BarlowCondensedBold_ttfSize : w == 1 ? BarlowCondensedSemiBold_ttfSize : BarlowCondensedMedium_ttfSize;
-        faces[w] = juce::Typeface::createSystemTypefaceFor (data, size_t (size));
-        return faces[w];
+    juce::Font memoisedFont (int kind, float px, int weight, float tracking)
+    {
+        const std::tuple<int, int, int, int> key { kind, juce::roundToInt (px * 100.0f), weight,
+                                                   juce::roundToInt (tracking * 1000.0f) };
+        const auto build = [&]
+        {
+            return kind == 1 ? LiveMixLookAndFeel::mono (px, weight, 0.0f)
+                             : LiveMixLookAndFeel::body (px, weight, 0.0f).withExtraKerningFactor (tracking);
+        };
+
+        auto* memo = FontMemo::getInstance();
+        if (memo == nullptr) return build();          // past shutdown: correct, just uncached
+
+        const juce::ScopedLock sl (memo->lock);
+        if (const auto found = memo->faces.find (key); found != memo->faces.end()) return found->second;
+        return memo->faces.emplace (key, build()).first->second;
     }
-
-    // juce::Font's kerning factor is a fraction of the font's width, not of the em; the shared
-    // look-and-feel uses the same conversion.
-    constexpr float kEmToKerning = 1.0f / 0.6f;
-
-    float gTextScale = 1.0f;
 }
-
-void Dine::setTextScale (float scale)
-{
-    const auto wanted = juce::jlimit (1.0f, 2.0f, scale);
-    if (juce::exactlyEqual (wanted, gTextScale)) return;
-    gTextScale = wanted;
-    // Every role is a different size now, so every layout held is for a face nothing will ask
-    // for again. A colour is not baked into a layout, so a theme change needs no such thing.
-    clearTextCache();
-}
-float Dine::textScale() { return gTextScale; }
 
 juce::Font Dine::text (float px, int weight)
 {
-    return LiveMixLookAndFeel::body (px * gTextScale, weight, 0.0f);
+    return memoisedFont (0, px, weight, 0.0f);
 }
 
 juce::Font Dine::mono (float px, int weight)
 {
-    return LiveMixLookAndFeel::mono (px * gTextScale, weight, 0.0f);
-}
-
-juce::Font Dine::condensed (float px, int weight, float tracking)
-{
-    return juce::Font (juce::FontOptions().withTypeface (condensedFace (weight))
-                                          .withPointHeight (px * gTextScale)
-                                          .withKerningFactor (tracking * kEmToKerning));
+    return memoisedFont (1, px, weight, 0.0f);
 }
 
 juce::Font Dine::caps (float px, float tracking, int weight)
 {
-    return condensed (px, weight, tracking);
+    return memoisedFont (0, px, weight, tracking);
 }
-
-// ---------------------------------------------------------------- the design's text styles
-juce::Font Dine::Type::wordmark()     { return condensed (24.0f, 700, 0.10f); }
-juce::Font Dine::Type::headingPage()  { return text (17.0f, 600); }
-juce::Font Dine::Type::headingCard()  { return text (14.0f, 600); }
-juce::Font Dine::Type::body()         { return text (13.0f, 500); }
-juce::Font Dine::Type::bodySmall()    { return text (12.0f, 500); }
-juce::Font Dine::Type::caption()      { return text (11.0f, 500); }
-juce::Font Dine::Type::labelTab()     { return condensed (13.0f, 600, 0.08f); }
-juce::Font Dine::Type::labelControl() { return condensed (12.0f, 600, 0.05f); }
-juce::Font Dine::Type::labelStrip()   { return condensed (11.0f, 600, 0.02f); }
-juce::Font Dine::Type::labelSection() { return condensed (10.0f, 600, 0.08f); }
-juce::Font Dine::Type::labelMicro()   { return condensed (9.0f, 700, 0.06f); }
-juce::Font Dine::Type::monoClock()    { return mono (16.0f, 500); }
-juce::Font Dine::Type::monoValue()    { return mono (12.0f, 500); }
-juce::Font Dine::Type::monoSmall()    { return mono (10.0f, 400); }
-juce::Font Dine::Type::monoMeter()    { return mono (8.0f, 400); }
 
 int Dine::textWidth (const juce::Font& f, const juce::String& t)
 {
@@ -148,9 +126,11 @@ namespace
         }
     };
 
-    class TextLayoutCache
+    class TextLayoutCache final : public juce::DeletedAtShutdown
     {
     public:
+        ~TextLayoutCache() override { clearSingletonInstance(); }
+
         // Room for a 48-channel console and the chrome around it, twice over. Each entry is a
         // short string's worth of positioned glyphs, so the whole cache is a few megabytes at
         // its fullest - and it is only ever as full as the window is busy.
@@ -190,20 +170,18 @@ namespace
         size_t size() const { return live.size() + previous.size(); }
         void resetCounts() { hits = 0; misses = 0; }
 
+        JUCE_DECLARE_SINGLETON_INLINE (TextLayoutCache, false)
+
     private:
         std::unordered_map<TextLayoutKey, juce::GlyphArrangement, TextLayoutKeyHash> live, previous;
         long long hits = 0, misses = 0;
     };
 
-    TextLayoutCache& textLayouts()
-    {
-        static TextLayoutCache cache;
-        return cache;
-    }
-
     // Painting is the message thread's job and this cache is its own. A try-lock rather than a
     // lock so that anything which ever does render off it - a thumbnail, a test rig - draws
     // uncached instead of waiting behind a paint.
+    // The lock outlives the cache on purpose: it is a plain static with no JUCE object in it,
+    // so it is safe at any point, and every use checks the cache for null first.
     juce::CriticalSection& textLayoutLock()
     {
         static juce::CriticalSection lock;
@@ -230,14 +208,15 @@ namespace
         };
 
         const juce::ScopedTryLock tryLock (textLayoutLock());
+        auto* cache = tryLock.isLocked() ? TextLayoutCache::getInstance() : nullptr;
 
-        if (! tryLock.isLocked())
+        if (cache == nullptr)
         {
             build().draw (g, juce::AffineTransform::translation (at.x, at.y));
             return;
         }
 
-        textLayouts().get (key, build).draw (g, juce::AffineTransform::translation (at.x, at.y));
+        cache->get (key, build).draw (g, juce::AffineTransform::translation (at.x, at.y));
     }
 }
 
@@ -284,7 +263,7 @@ void Dine::drawFittedText (juce::Graphics& g, const juce::String& text, juce::Re
     key.width = float (area.getWidth());
     key.height = float (area.getHeight());
     key.justification = justification.getFlags();
-    key.maxLines = maximumNumberOfLines;
+    key.maxLines = juce::jmax (1, maximumNumberOfLines);
     key.minScale = minimumHorizontalScale;
     key.fitted = true;
     drawLayout (g, key, area.getPosition().toFloat());
@@ -302,19 +281,21 @@ void Dine::drawFittedText (juce::Graphics& g, const juce::String& text,
 Dine::TextCacheStats Dine::textCacheStats()
 {
     const juce::ScopedLock lock (textLayoutLock());
-    return { textLayouts().hitCount(), textLayouts().missCount(), (long long) textLayouts().size() };
+    auto* cache = TextLayoutCache::getInstance();
+    if (cache == nullptr) return { 0, 0, 0 };
+    return { cache->hitCount(), cache->missCount(), (long long) cache->size() };
 }
 
 void Dine::resetTextCacheStats()
 {
     const juce::ScopedLock lock (textLayoutLock());
-    textLayouts().resetCounts();
+    if (auto* cache = TextLayoutCache::getInstance()) cache->resetCounts();
 }
 
 void Dine::clearTextCache()
 {
     const juce::ScopedLock lock (textLayoutLock());
-    textLayouts().clear();
+    if (auto* cache = TextLayoutCache::getInstance()) cache->clear();
 }
 
 // ============================================================================ surfaces
@@ -480,17 +461,15 @@ const std::vector<Dine::ThemeBinding>& Dine::themeBindings()
         { "card", &card }, { "raised", &raised }, { "item", &item }, { "selected", &selected }, { "control", &control },
         { "controlHot", &controlHot }, { "controlOn", &controlOn }, { "sheet", &sheet }, { "popover", &popover },
         { "refuse", &refuse }, { "recGround", &recGround }, { "soloGround", &soloGround }, { "editGround", &editGround },
-        { "scrim", &scrim }, { "autopilotGround", &autopilotGround },
         { "hairSoft", &hairSoft }, { "hair", &hair }, { "hairStrong", &hairStrong }, { "edge", &edge }, { "fill", &fill },
         { "fillHover", &fillHover }, { "fillSoft", &fillSoft }, { "well", &well },
         { "ink", &ink }, { "ink2", &ink2 }, { "ink3", &ink3 }, { "ink4", &ink4 }, { "glyph", &glyph }, { "panMark", &panMark },
         { "accent", &accent }, { "accentHover", &accentHover }, { "accentDeep", &accentDeep }, { "onAccent", &onAccent },
         { "focusRing", &focusRing },
-        { "ok", &ok }, { "hot", &hot }, { "onHot", &onHot }, { "warn", &warn }, { "crit", &crit }, { "monitor", &monitor },
+        { "ok", &ok }, { "hot", &hot }, { "warn", &warn }, { "crit", &crit }, { "monitor", &monitor },
         { "keyMute", &keyMute }, { "keySolo", &keySolo }, { "keyRec", &keyRec }, { "keyMon", &keyMon },
         { "busDrums", &busDrums }, { "busBass", &busBass }, { "busMusic", &busMusic }, { "busVocals", &busVocals },
         { "busSpeech", &busSpeech }, { "busAmbience", &busAmbience }, { "busMaster", &busMaster },
-        { "busLead", &busLead }, { "busFx", &busFx },
     };
     return table;
 }
@@ -927,37 +906,6 @@ void Dine::drawPill (juce::Graphics& g, juce::Rectangle<float> r, const juce::St
 // ============================================================================ PanBar
 void PanBar::paint (juce::Graphics& g)
 {
-    if (knob)
-    {
-        // A 270 degree arc, open at the bottom, with the pointer straight up at centre.
-        auto area = getLocalBounds().toFloat().reduced (1.0f);
-        const float radius = juce::jmin (area.getWidth(), area.getHeight()) * 0.5f;
-        const auto centre = area.getCentre();
-        constexpr float kSweep = 2.356194f;                 // 135 degrees each side of the top
-        const float angle = value * kSweep;
-
-        juce::Path track;
-        track.addCentredArc (centre.x, centre.y, radius - 1.5f, radius - 1.5f, 0.0f, -kSweep, kSweep, true);
-        g.setColour (Dine::control);
-        g.strokePath (track, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-
-        if (std::fabs (value) > 0.02f)
-        {
-            juce::Path value_;
-            value_.addCentredArc (centre.x, centre.y, radius - 1.5f, radius - 1.5f, 0.0f,
-                                  juce::jmin (0.0f, angle), juce::jmax (0.0f, angle), true);
-            g.setColour (tint.value_or (Dine::accent));
-            g.strokePath (value_, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        }
-
-        // the pointer
-        const float px = centre.x + std::sin (angle) * (radius - 2.0f);
-        const float py = centre.y - std::cos (angle) * (radius - 2.0f);
-        g.setColour (isEnabled() ? Dine::ink : Dine::ink3);
-        g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre ({ px, py }));
-        return;
-    }
-
     auto r = getLocalBounds().toFloat().withSizeKeepingCentre (float (getWidth()), 4.0f);
     Dine::fillRounded (g, r, Dine::control, 2.0f);
     const float centre = r.getCentreX();
@@ -987,15 +935,6 @@ void PanBar::mouseDoubleClick (const juce::MouseEvent&)
 void PanBar::drag (const juce::MouseEvent& e)
 {
     if (! isEnabled()) return;
-    if (knob)
-    {
-        // A knob is turned, not pointed at: the distance dragged upward is the move, so a
-        // 24 px control still has the whole range in it.
-        const float v = juce::jlimit (-1.0f, 1.0f, dragFrom - float (e.getDistanceFromDragStartY()) / 90.0f);
-        setValue (std::fabs (v) < 0.06f ? 0.0f : v);
-        if (onChange) onChange (value);
-        return;
-    }
     const float half = juce::jmax (1.0f, float (getWidth()) * 0.5f - 5.5f);
     const float v = juce::jlimit (-1.0f, 1.0f, (float (e.position.x) - float (getWidth()) * 0.5f) / half);
     setValue (std::fabs (v) < 0.06f ? 0.0f : v);

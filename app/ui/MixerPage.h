@@ -35,8 +35,6 @@ public:
     ~MixerPage() override;
 
     std::function<void (int strip)> onOpenStrip;
-    // An insert slot on a strip: open the Inspector with that stage already picked out.
-    std::function<void (int strip, const juce::String& stage)> onOpenStripStage;
     std::function<void (int strip)> onTuneStrip;
     std::function<void (MixBus bus)> onOpenBus;
     std::function<void()> onOpenWindow;

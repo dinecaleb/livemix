@@ -36,8 +36,6 @@ public:
     std::function<void (const juce::String&)> onToast;
     // Every window re-reads the tokens; the host also persists the choice.
     std::function<void()> onThemeChanged;
-    // The window applies the size, remembers it and lays every page out again.
-    std::function<void (float)> onTextSizeChanged;
 
     void refresh();                        // re-list the folder, keep what is chosen
     void paint (juce::Graphics&) override;
@@ -80,12 +78,6 @@ private:
     std::unique_ptr<Grid> grid;
     std::vector<std::unique_ptr<ThemeRow>> rows;
     std::vector<std::unique_ptr<Swatch>> swatches;
-
-    // TEXT SIZE. A preference of this Mac like the theme, and it belongs beside it: the two
-    // questions "can I read it" and "does it suit the room" are asked at the same moment.
-    std::array<std::unique_ptr<DineButton>, 3> textSizes;
-    void applyTextSize (float scale);
-    juce::Rectangle<int> textSizeLabel;
 
     juce::TextEditor nameBox;
     DineButton saveButton   { "Save",   DineButton::Style::Filled };

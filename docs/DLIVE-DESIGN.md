@@ -2,33 +2,6 @@
 
 The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizable TRACKS panel, desk sizes and the frame budget. Moved verbatim from the old CLAUDE.md (2026-09-19); themes in detail are `docs/THEMES.md`.
 
-**The design itself is the Figma file `2wv5QSnvrSSQXtDzfuShIn` ("DLIVE Desktop v2"), and
-`docs/DESIGN-IMPLEMENTATION.md` is the running record of building it** - one row per frame and
-per component, what matches, what deliberately differs and why, and what waits on an engine
-phase. Read that before changing a screen. What the v2 work has settled so far:
-
-- **One shell on every workspace.** Title row 52 (wordmark, session name, the tabs, the counts,
-  MIX BUDDY), toolbar 56 (the autosave state and MIX HISTORY, the transport, the solo bar,
-  BYPASS / LIVE SAFE / the output), sidebar 184 (LIBRARY / WORKSPACE / SAFETY, the device along
-  the foot with CHANGE IN ROUTING), status foot 50.
-- **ROUTING is a "Deliberate" tab** - outlined and divided off from the five mixing workspaces -
-  because devices, input mapping and outputs change what the room hears. It is Cmd-6, not the
-  design's Cmd-0: Cmd-0 is Zoom to Fit and nothing that already has a shortcut may lose it.
-- **The solo bar** is on every workspace whenever anything is soloed. Solo goes to the
-  engineer's own device, so nothing else on the console says it is on.
-- **Type.** Fifteen named roles (`Dine::Type::`) match the Figma text styles. Every `Label/*`
-  is Barlow Condensed, loaded in `AppTheme.cpp` - the shared `LiveMixLookAndFeel` maps its
-  label family to plain Barlow on purpose, for the plug-ins, and clamps tracking to 0.04 em.
-- **Text size** (View > Appearance): Standard 1.0 / Large 1.2 / Larger 1.35, stored beside the
-  theme in `preferences.json`. It scales the type roles and *nothing else* - a strip is 48 px
-  wide at every size, and a name that no longer fits gets an ellipsis.
-- **The channel strip is the design's component, to its own numbers** (48 x 680, the offsets in
-  `MixerPage::buildColumn`'s comment, the seven scale stops at 0/14/28/42/62/80/100 %). The
-  groups and the master are a panel pinned down the right, always visible; the bank scrolls the
-  channels alone. An insert slot opens that stage in the Inspector.
-- **Solo is `hot`, the colour of the solo bar - never the accent.** Teal means "what DLIVE did,
-  or what is chosen"; solo is the engineer's own listen and is neither.
-
 - **The TRACKS channel panel is resizable** (`TracksPage::setPanelWidth`, the divider at `headerWidth`): the
   standard DAW drag, one width inherited by every row, persisted with the session (`Document::trackPanelWidth`).
   `kHeaderWidth` is gone - everything on that page measures from the member.

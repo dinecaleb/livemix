@@ -13,7 +13,6 @@ namespace
     // tile here without being wired in by hand.
     constexpr int kGroupBuses = int (MixBus::Master);
     constexpr int kGroupTiles = kGroupBuses + 1;
-    constexpr int kTuneHeadH = 44;      // the design's page bar
 
     juce::String groupName (int i)
     {
@@ -85,15 +84,6 @@ public:
     // song and the pastor during the sermon without either moving the other.
     std::function<void()> onTune;
 
-    // When DLIVE was last through this group, in the words the design prints: "Tuned 8:27",
-    // or "Not tuned". Read off the mix history, so it is a fact rather than a flag.
-    void setTuned (const juce::String& when)
-    {
-        if (when == tunedText) return;
-        tunedText = when;
-        repaint();
-    }
-
     void mouseEnter (const juce::MouseEvent&) override { if (! verbRect.isEmpty()) repaint (verbRect); }
     void mouseExit  (const juce::MouseEvent&) override { if (! verbRect.isEmpty()) repaint (verbRect); }
     void mouseUp (const juce::MouseEvent& e) override
@@ -122,12 +112,6 @@ public:
         g.setColour (! used ? Dine::ink4 : muted ? Dine::warn : Dine::ink2);
         g.setFont (Dine::mono (11.0f, 500));
         Dine::drawText (g, ! used ? "not in this mix" : muted ? "NOT HEARD" : dbText (float (fader.getValue())), readout, juce::Justification::centred);
-        if (used && tunedText.isNotEmpty() && readout.getY() > 30)
-        {
-            g.setColour (tunedText.startsWithIgnoreCase ("Tuned") ? Dine::accent.withAlpha (0.7f) : Dine::ink4);
-            g.setFont (Dine::Type::monoMeter());
-            Dine::drawText (g, tunedText, readout.translated (0, -12), juce::Justification::centred, true);
-        }
 
         if (canTune())
         {
@@ -158,7 +142,6 @@ private:
 
     MixController& controller;
     int group;
-    juce::String tunedText;
     bool used = false, muted = false, updating = false;
     int heard = 0;
     juce::Rectangle<int> readout, verbRect;
@@ -892,35 +875,6 @@ private:
 // ------------------------------------------------------------------ MixPage
 MixPage::MixPage (MixController& c) : controller (c)
 {
-    // ---- WHAT TO TUNE: the design's scope picker, in the page bar
-    {
-        const char* labels[3] = { "WHOLE MIX", "ONE GROUP", "SELECTED CHANNELS" };
-        const char* tips[3] = {
-            "DLIVE listens to the band and sets the whole mix: every channel, every group and the master.",
-            "The same listen, applied to one group alone. Its channels and its group chain move; nothing else does.",
-            "The same listen again, applied to the channel picked out on the left. Nothing else in the mix moves."
-        };
-        for (int i = 0; i < 3; ++i)
-        {
-            scopeTabs[size_t (i)] = std::make_unique<DineButton> (labels[i], DineButton::Style::Segment);
-            scopeTabs[size_t (i)]->setTooltip (tips[i]);
-            scopeTabs[size_t (i)]->onClick = [this, i] { setScope (Scope (i)); };
-            addAndMakeVisible (*scopeTabs[size_t (i)]);
-        }
-        scopeTabs[0]->setToggleState (true, juce::dontSendNotification);
-
-        addChildComponent (scopeBusPicker);
-        scopeBusPicker.setTooltip ("Which group TUNE will set.");
-        scopeBusPicker.onClick = [this]
-        {
-            juce::PopupMenu m;
-            for (int b = 0; b < int (MixBus::Master); ++b)
-                m.addItem (b + 1, juce::String (mixBusName (MixBus (b))).toUpperCase(), true, int (scopeBus) == b);
-            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&scopeBusPicker),
-                             [this] (int r) { if (r > 0) { scopeBus = MixBus (r - 1); applyScopeToTuneButton(); repaint(); } });
-        };
-    }
-
     for (int i = 0; i < kGroupTiles; ++i)
     {
         groups[size_t (i)] = std::make_unique<GroupTile> (controller, i);
@@ -1123,71 +1077,10 @@ void MixPage::openReference()
     resized();
 }
 
-// WHEN DLIVE WAS LAST THROUGH THIS GROUP.
-//
-// Read off the mix history rather than remembered separately: a checkpoint is taken at every
-// tune (MixController::mark) and is named for what did it - "TUNE MIX", "RE-TUNE", or
-// "TUNE DRUMS" - so the answer is already written down. A whole-mix tune counts for every
-// group, because it set every group.
-juce::String MixPage::lastTunedText (MixBus bus) const
-{
-    const juce::String mine = "TUNE " + juce::String (mixBusName (bus)).toUpperCase();
-    long long best = 0;
-    for (const auto& c : controller.getCheckpoints())
-    {
-        if (! c.fromTune) continue;
-        const juce::String what = juce::String (c.what).toUpperCase();
-        const bool wholeMix = what == "TUNE MIX" || what == "RE-TUNE" || what == "TUNE LIVE MIX";
-        if (wholeMix || what == mine) best = juce::jmax (best, c.whenMs);
-    }
-    if (best <= 0) return "Not tuned";
-    return "Tuned " + juce::Time (best).toString (false, true, false, false);
-}
-
 void MixPage::pressTune()
 {
     if (controller.isListening() || controller.isTuningLive()) { controller.abortTuneMix(); refreshTuneButton(); return; }
-
-    // The same listen and the same planner whichever this is; the scope only says how much of
-    // the mix the plan may touch (MixPlanner::busOnly / channelOnly).
-    switch (scope)
-    {
-        case Scope::OneGroup:
-            controller.startTuneBus (scopeBus);
-            break;
-        case Scope::SelectedChannels:
-            if (selectedRow >= 0) controller.startTuneChannel (selectedRow);
-            else
-            {
-                if (onToast) onToast ("Pick a channel on the left first, or tune the whole mix.");
-                return;
-            }
-            break;
-        case Scope::WholeMix:
-        default:
-            controller.startTuneMix();
-            break;
-    }
-    refreshTuneButton();
-}
-
-void MixPage::setScope (Scope s)
-{
-    if (s == scope) return;
-    scope = s;
-    applyScopeToTuneButton();
-    resized();
-    repaint();
-}
-
-void MixPage::applyScopeToTuneButton()
-{
-    for (int i = 0; i < 3; ++i)
-        if (scopeTabs[size_t (i)] != nullptr)
-            scopeTabs[size_t (i)]->setToggleState (int (scope) == i, juce::dontSendNotification);
-    scopeBusPicker.setVisible (scope == Scope::OneGroup);
-    scopeBusPicker.setValue (juce::String (mixBusName (scopeBus)).toUpperCase());
-    scopeBusPicker.setDot (Dine::busTint (scopeBus));
+    controller.startTuneMix();
     refreshTuneButton();
 }
 
@@ -1323,7 +1216,6 @@ void MixPage::refresh()
         groups[size_t (i)]->set (used, used ? m.consumeMaxPeakDb() : -120.0f, used ? m.getMaxRmsDb() : -120.0f, used && m.hasClipped(),
                                  kept.buses[size_t (bus)].mute, kept.buses[size_t (bus)].faderDb,
                                  ! used ? 0 : listening ? (controller.busHeard (bus) ? 2 : 1) : 0);
-        if (i < kGroupBuses) groups[size_t (i)]->setTuned (lastTunedText (bus));
     }
     {
         int returns = 0; float peak = -120.0f, rms = -120.0f; bool clip = false;
@@ -1422,9 +1314,7 @@ MixPage::Layout MixPage::layout() const
     l.railTab = railShown ? l.rail.removeFromRight (0) : l.rail;
     l.side = b.removeFromRight (sideWidth());
     l.sideTab = sideShown ? l.side.withHeight (36).removeFromRight (30) : l.side;
-    // The page bar: what this workspace is, and what TUNE is about to be applied to.
-    l.head = b.removeFromTop (kTuneHeadH);
-    auto main = b.reduced (24, 12);
+    auto main = b.reduced (24, 22);
 
     // The middle column never scrolls. The groups take what is left after the master row and
     // the pads, down to a floor of 150; when even that does not fit, the pads drop their snap
@@ -1471,26 +1361,6 @@ void MixPage::paint (juce::Graphics& g)
     g.fillRect (l.side.getUnion (l.sideTab));
     g.setColour (Dine::hair);
     g.fillRect (l.side.getX(), l.side.getY(), 1, l.side.getHeight());
-
-    // ---- the page bar
-    {
-        auto head = l.head.reduced (24, 0);
-        g.setColour (Dine::hair);
-        g.fillRect (l.head.getX(), l.head.getBottom() - 1, l.head.getWidth(), 1);
-        g.setColour (Dine::ink);
-        g.setFont (Dine::Type::headingPage());
-        const int titleW = Dine::textWidth (Dine::Type::headingPage(), "Tune") + 18;
-        Dine::drawText (g, "Tune", head.removeFromLeft (titleW), juce::Justification::centredLeft);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::Type::labelSection());
-        Dine::drawText (g, "WHAT TO TUNE", head.removeFromLeft (Dine::textWidth (Dine::Type::labelSection(), "WHAT TO TUNE") + 18),
-                    juce::Justification::centredLeft);
-        // The track the segments sit in, so the three of them read as one control.
-        if (scopeTabs[0] != nullptr && scopeTabs[2] != nullptr)
-            Dine::drawSegmentTrack (g, juce::Rectangle<int> (scopeTabs[0]->getX() - 2, scopeTabs[0]->getY() - 2,
-                                                             scopeTabs[2]->getRight() - scopeTabs[0]->getX() + 4,
-                                                             scopeTabs[0]->getHeight() + 4));
-    }
 
     Dine::drawSection (g, l.groupsCaption, "GROUPS");
 
@@ -1551,25 +1421,6 @@ void MixPage::paint (juce::Graphics& g)
 void MixPage::resized()
 {
     const auto l = layout();
-
-    // ---- the page bar: "Tune", then what TUNE is about to be applied to
-    {
-        auto head = l.head.reduced (24, 0).withSizeKeepingCentre (l.head.getWidth() - 48, Dine::Metric::control);
-        head.removeFromLeft (Dine::textWidth (Dine::Type::headingPage(), "Tune") + 18
-                             + Dine::textWidth (Dine::Type::labelSection(), "WHAT TO TUNE") + 18);
-        int x = head.getX();
-        for (int i = 0; i < 3; ++i)
-        {
-            const int w = juce::jmax (78, scopeTabs[size_t (i)]->idealWidth());
-            scopeTabs[size_t (i)]->setBounds (x, head.getY(), w, head.getHeight());
-            x += w;
-        }
-        if (scopeBusPicker.isVisible())
-        {
-            const int w = juce::jmax (96, scopeBusPicker.idealWidth());
-            scopeBusPicker.setBounds (x + 10, head.getY(), w, head.getHeight());
-        }
-    }
 
     // ---- the right panel
     sideTab->setBounds (l.sideTab);
