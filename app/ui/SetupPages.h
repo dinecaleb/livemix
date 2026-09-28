@@ -35,7 +35,10 @@ struct SetupLayout
     juce::Rectangle<int> rail;      // the column of small cards ({} when the page has none)
     juce::Rectangle<int> footer;    // the note and the buttons
 
-    static SetupLayout of (juce::Rectangle<int> page, bool withToolbar, bool withRail);
+    // `embedded` is a page shown as one column of the ROUTING workspace rather than as a page
+    // of its own: it keeps its table and its toolbar and gives up the things that belong to a
+    // whole page - the title, the sentence under it, and the Back / Continue footer.
+    static SetupLayout of (juce::Rectangle<int> page, bool withToolbar, bool withRail, bool embedded = false);
 };
 
 // Title, one sentence under it, and the page's own readout on the right.
@@ -117,6 +120,8 @@ public:
     // Opens whatever is selected. Public because the microphone prompt answers asynchronously
     // and the continue button's work happens when it does.
     void openChosenDevice();
+    // Shown as one column of the ROUTING workspace rather than as a page of its own.
+    void setEmbedded (bool);
 
 private:
     class DeviceRow;
@@ -124,8 +129,9 @@ private:
     // The three bands of the device column, measured once so paint and resized cannot
     // disagree: the list takes the height, the spec sits under it, and the "no band in the
     // room" card is pinned to the foot.
-    struct Column { juce::Rectangle<int> listCaption, list, specCaption, spec, importCard; };
+    struct Column { juce::Rectangle<int> listCaption, list, accessCaption, access, specCaption, spec, importCard; };
     Column column() const;
+    bool embedded = false;
     void select (int index);
     void selectOutput (int index);
     SetupLayout layout() const;
@@ -164,11 +170,14 @@ public:
     void lookAndFeelChanged() override;
 
     // Programmatic equivalents of the user's edits (also used by the snapshot tool).
+    void setEmbedded (bool);                      // one column of the ROUTING workspace
     void assign (int input, ChannelRole role, const juce::String& name, bool linkWithNext = false);
+
     void selectInputs (const std::vector<int>&);   // pick these out; the toolbar becomes the bulk one
     void clearAll();
 
 private:
+    bool embedded = false;
     class Row;
     // The band a group of inputs sits under: its colour, its name, how many are in it, and
     // a click that picks the whole group out at once.

@@ -8,7 +8,7 @@ which engine phase owns it.
 The design file is **`2wv5QSnvrSSQXtDzfuShIn`** ("DLIVE Desktop v2", Sept 2026).
 The baseline this is all measured against is `docs/design/baseline/`.
 
-**Status: UI-0, UI-1, UI-2 and UI-3 done. Next: UI-4, the ROUTING workspace.**
+**Status: UI-0 to UI-4 done. Next: UI-5, TUNE and LIVE.**
 
 ---
 
@@ -244,6 +244,53 @@ are cached (`setBufferedToImage`), so this is the price of a page switch, not of
 compounds with UI-2's increase: MIXER's full repaint is 8.4 ms at the UI-0 baseline and 14.0 ms
 now. **Still awaiting the decision in §3b.**
 
+## 3d. UI-4: the ROUTING workspace, and Purpose as a sheet
+
+Which device the sound comes in on, what each input is, and where the mix goes out were three
+screens with Back and Continue between them. That is the right shape the first time somebody
+sets a service up and the wrong one every Sunday after, when the question is never "what is
+step two" but "why is there nothing on channel 9". So they are one workspace in three columns.
+
+**Nothing was rewritten.** The columns *are* `DevicePage` and `AssignPage`, shown embedded:
+`SetupLayout::of` gained an `embedded` flag, so a page gives up the title, the sentence under
+it and the Back / Continue footer - the things that belong to a whole page - and keeps
+everything else. Every behaviour moved intact: the device list and its states, the microphone
+answer, the saved input maps (`InputMapStore`), the stereo pairs, the bulk actions, the solo
+device and the Dante case. The third column states the output feeds and the monitoring and
+opens the Outputs sheet to change them.
+
+**INPUT ACCESS is real, and built.** Phase 1 landed `DeviceState` and the sentence, so the card
+says ALLOWED / REFUSED / NOT ASKED YET and, when macOS has refused, prints what to do about it.
+Device **hot-plug** is still waiting on its engine phase and is left out.
+
+**APPLY.** The page bar carries Input map... / Save map / APPLY. Under LIVE SAFE, APPLY asks
+first, through the window's own `liveSafeBlocks` sentence so it reads the same everywhere.
+**A deviation worth knowing about:** the phase prompt says "nothing changes routing without
+APPLY", and today an assignment still takes effect as it is made - which is how the page has
+always worked and how the meters beside each row stay meaningful. Turning every routing edit
+into a staged one is a change to how the page *behaves*, not to how it looks, and it could
+itself be a regression, so it is written here rather than done quietly. APPLY currently
+rebuilds the graph and confirms under LIVE SAFE.
+
+**PURPOSE AND SOUND is a sheet.** Two questions answered once and revisited when the service
+changes, not when the console does. `showPage(Page::Purpose)` opens it, so every way in still
+works - the first run, the setup popover, the old sidebar row - and the workspace underneath
+stays where it was. TUNE THE MIX closes it on the way through; Back closes it; Escape closes it.
+
+**Restoring the session name in UI-2 gave this a front door.** `setupPopover` - new, open, save
+as, import, reference mix, input mappings, the recording destination, getting started - had had
+no caller at all since the name left the title row on 2026-09-18, and PURPOSE AND SOUND is one
+of its rows.
+
+**The guard records the moves.** `dlive_ui_tests` now asserts that Page::Device and Page::Assign
+both land on ROUTING, that Purpose opens as a sheet over the workspace and leaves it where it
+was, and - a new test - that the first Sunday still works end to end: sessions, a device, the
+inputs, the purpose, the console, with the session intact at the other end.
+
+**Columns give way from the outside in** as the window narrows: the outputs first, then the
+device list, so the input map - the thing somebody came here for - is the last thing to go. At
+1180 x 760 it is device + input map.
+
 ## 4. The screens
 
 Read in full against the code: **00 INDEX, 02 ROUTING, 04 MIXER, 05 TUNE**. The rest are
@@ -254,17 +301,17 @@ each phase reads its own frames properly before building, and corrects its rows 
 | --- | --- | --- | --- | --- | --- |
 | 00 | INDEX | — | — | contents page, not a screen | — |
 | 01 | SESSIONS + RECOVER | `SetupPages.cpp` `SessionsPage` | the library list, open, name, date | the Recover card | UI-7 |
-| 02 | ROUTING | `DevicePage` + `AssignPage` + `OutputsSheet`, three separate places | every behaviour: device list, input map, saved maps (`InputMapStore`), output feeds, solo device, Dante | one workspace, three columns; APPLY confirms under LIVE SAFE; sample rate / buffer / reported latency card; input-access card | UI-4 |
-| 02b | ROUTING · INPUT ACCESS REFUSED | `DeviceState` carries the sentence already | the refusal sentence exists | the card that shows it, and hot-plug | UI-4 |
+| 02 | ROUTING | **`RoutingPage`** hosting `DevicePage` + `AssignPage` embedded, plus an outputs column | **done** - every behaviour moved intact | staged edits behind APPLY not done (see §3d) | UI-4 |
+| 02b | ROUTING · INPUT ACCESS REFUSED | `DevicePage`'s INPUT ACCESS card | **done** - ALLOWED / REFUSED / NOT ASKED YET with the sentence | hot-plug waits on its engine phase | UI-4 |
 | 03 | TRACKS | `TracksPage.cpp` | timeline, clips, markers, loop, row heights, arm, monitor, per-track TUNE | restyle only | UI-2/3 |
-| 04 | MIXER | `MixerPage.cpp` | strips, linked faders, per-bus solo menus, FX returns, monitor bus, LIVE SAFE clamp, chain foot | strip is 48 × 680 with a fixed anatomy; 4 insert slots that open that stage in the Inspector; 2 px gain-reduction meter; group panel always on the right; horizontal scroll, 16 strips at 1440 | UI-3 |
+| 04 | MIXER | `MixerPage.cpp` | **done** - the strip is the design's component, the group panel is pinned, the slots open their stage | R and A left the strip (§3c) | UI-3 |
 | 05 | TUNE | `MixPage.cpp` | TUNE MIX, `startTuneBus`, TUNE CHANNEL, the decisions, the diff, the sentences, KEEP / REVERT / RE-TUNE | scope picker as one control; per-change UNDO; groups rail with last-tune time; **AIM AT ★favourite** and the **NOW / FAVOURITE** comparison; **SPEAKING / SINGING** per voice | UI-5 (+ §6) |
 | 06 | LIVE | `LivePage.cpp` | scenes, the five macros, flat group faders, loudness, ON AIR | the Autopilot card | UI-5 (+ §6) |
 | 07 | INSPECTOR · Sample replacement | `AdvancedPage` + `ChainEditor` | the Sample stage in full | restyle | UI-6 |
 | 08 | MIX HISTORY (drawer) | `HistorySheet.cpp` | persistent checkpoints landed in Phase 1 (`a09d287`) | drawer styling | UI-7 |
 | 09 | RESET MIX TO RAW | — | — | the whole thing, and a "Before reset" checkpoint | UI-7 (+ §6) |
 | 10 | MIXER · LARGER TEXT | — | — | Text size 1.0 / 1.2 / 1.35, stored, in View > Appearance | UI-1 |
-| 11 | PURPOSE & SOUND | `SetupPages.cpp` `PurposePage` | every field and effect | becomes a sheet; opens from the session name too | UI-4 |
+| 11 | PURPOSE & SOUND | **`PurposeSheet`** over `PurposePage` | **done** - same fields, same effects, now a sheet | — | UI-4 |
 | 12 | TUNE · LISTENING + MACRO PADS | `MacroPad.cpp`, `MacroRibbon` | BODY × VOICE, DRIVE × ROOM, ENERGY, snaps, LIVE SAFE fencing | restyle only - behaviour is not to move | UI-5 |
 | 13 | TUNE CHANNEL | `ChannelTuneSheet.cpp` | all of it | restyle | UI-7 |
 | 14 | CHECK INPUTS | `CheckSheet.cpp` | all of it | restyle | UI-7 |

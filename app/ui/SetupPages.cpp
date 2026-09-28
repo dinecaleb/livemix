@@ -109,13 +109,13 @@ namespace
 }
 
 // ============================================================================ the shared shape
-SetupLayout SetupLayout::of (juce::Rectangle<int> page, bool withToolbar, bool withRail)
+SetupLayout SetupLayout::of (juce::Rectangle<int> page, bool withToolbar, bool withRail, bool embedded)
 {
     SetupLayout L;
-    L.footer = page.removeFromBottom (Dine::Metric::footer);
-    auto r = page.reduced (Dine::Metric::padX, 0);
-    r.removeFromTop (22);
-    L.head = r.removeFromTop (kHead);
+    if (! embedded) L.footer = page.removeFromBottom (Dine::Metric::footer);
+    auto r = page.reduced (embedded ? 12 : Dine::Metric::padX, 0);
+    r.removeFromTop (embedded ? 10 : 22);
+    if (! embedded) L.head = r.removeFromTop (kHead);
     L.toolbar = withToolbar ? r.removeFromTop (kToolbar) : juce::Rectangle<int>();
     if (! withToolbar) r.removeFromTop (14);
     r.removeFromBottom (14);
@@ -637,7 +637,18 @@ int DevicePage::liveInputCount() const
     return services.isAudioRunning() ? services.daw().numInputsCarryingSignal() : 0;
 }
 
-SetupLayout DevicePage::layout() const { return SetupLayout::of (getLocalBounds(), false, true); }
+SetupLayout DevicePage::layout() const { return SetupLayout::of (getLocalBounds(), false, ! embedded, embedded); }
+
+void DevicePage::setEmbedded (bool e)
+{
+    if (e == embedded) return;
+    embedded = e;
+    // The things that belong to a whole page rather than to a column: its own way forward and
+    // back, and the outputs button, which the ROUTING workspace has a column of its own for.
+    for (auto* b : { &continueButton, &backButton, &outputsButton }) b->setVisible (! e);
+    resized();
+    repaint();
+}
 
 DevicePage::Column DevicePage::column() const
 {
@@ -647,7 +658,15 @@ DevicePage::Column DevicePage::column() const
     main.removeFromTop (4);
     const int specH = 4 * 34 + 12;
     const int below = 20 + 14 + 8 + specH + 18 + 44;
-    c.list = main.removeFromTop (juce::jlimit (74, juce::jmax (74, 6 * 74), juce::jmax (74, main.getHeight() - below)));
+    const int accessH = embedded ? 14 + 8 + 96 + 20 : 0;
+    c.list = main.removeFromTop (juce::jlimit (74, juce::jmax (74, 6 * 74), juce::jmax (74, main.getHeight() - below - accessH)));
+    if (embedded)
+    {
+        main.removeFromTop (20);
+        c.accessCaption = main.removeFromTop (14);
+        main.removeFromTop (8);
+        c.access = main.removeFromTop (96);
+    }
     main.removeFromTop (juce::jmax (20, main.getHeight() - below));
     c.specCaption = main.removeFromTop (14);
     main.removeFromTop (8);
@@ -686,6 +705,34 @@ void DevicePage::paint (juce::Graphics& g)
     // ---- what it is running at
     Dine::drawSection (g, col.specCaption, "WHAT IT IS RUNNING AT");
     auto spec = col.spec;
+    // ---- INPUT ACCESS: whether macOS is letting DLIVE hear the inputs at all. This is the
+    // one thing that looks like a broken app and is not, so ROUTING says it in as many words.
+    if (! col.access.isEmpty())
+    {
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::Type::labelSection());
+        g.drawText ("INPUT ACCESS  " + juce::String (Glyph::dot()) + "  macOS", col.accessCaption, juce::Justification::centredLeft);
+
+        const auto state = services.deviceState();
+        const bool refused = state.stage == DeviceStage::InputRefused;
+        const bool hearing = state.hearing();
+        Dine::fillRounded (g, col.access.toFloat(), refused ? Dine::refuse : Dine::card, Dine::Radius::card);
+
+        auto inner = col.access.reduced (14, 12);
+        const juce::String word = refused ? "REFUSED" : hearing ? "ALLOWED" : "NOT ASKED YET";
+        const auto tint = refused ? Dine::warn : hearing ? Dine::ok : Dine::ink3;
+        Dine::drawStatusChip (g, inner.removeFromTop (20).withWidth (juce::jmin (inner.getWidth(), 120)).toFloat(), word, tint);
+        inner.removeFromTop (8);
+
+        g.setColour (refused ? Dine::warn : Dine::ink3);
+        g.setFont (Dine::Type::caption());
+        const juce::String sentence = refused && state.why.isNotEmpty()
+            ? state.why
+            : juce::String ("Devices are always listed and mappable. If macOS refuses the inputs, DLIVE still "
+                            "opens, plays and mixes, and tells you here.");
+        g.drawFittedText (sentence, inner, juce::Justification::topLeft, 4);
+    }
+
     Dine::fillRounded (g, spec.toFloat(), Dine::card, Dine::Radius::card);
     spec = spec.reduced (0, 6);
     const bool running = services.isAudioRunning();
@@ -708,9 +755,14 @@ void DevicePage::paint (juce::Graphics& g)
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
         g.drawText (lines[i].key, r.removeFromLeft (130), juce::Justification::centredLeft, true);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::text (12.0f));
-        g.drawText (lines[i].note, r.removeFromRight (juce::jmin (260, r.getWidth() / 2)), juce::Justification::centredRight, true);
+        // The note explains the number. In a column narrow enough that it would be three
+        // letters and an ellipsis it explains nothing, so it gives way to the number instead.
+        if (r.getWidth() > 300)
+        {
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::text (12.0f));
+            g.drawText (lines[i].note, r.removeFromRight (juce::jmin (260, r.getWidth() / 2)), juce::Justification::centredRight, true);
+        }
         g.setColour (lines[i].colour);
         g.setFont (Dine::mono (12.5f, 500));
         g.drawText (lines[i].value, r, juce::Justification::centredLeft, true);
@@ -720,6 +772,7 @@ void DevicePage::paint (juce::Graphics& g)
     {
         auto r = col.importCard;
         r.removeFromLeft (recordingButton.getWidth() + 14);
+        if (r.getWidth() < 200) r = {};
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.5f));
         g.drawText ("No band in the room? A folder of stems becomes tracks and clips, and everything from here works exactly as it does live.",
@@ -820,6 +873,14 @@ void DevicePage::resized()
     {
         for (auto& r : outputRows) r->setBounds (0, 0, 0, 0);
         outputsButton.setBounds (0, 0, 0, 0);
+    }
+
+    if (embedded)
+    {
+        // One column: rescan sits at the foot of it, under everything it might change.
+        const int rw = juce::jmax (130, rescanButton.idealWidth());
+        rescanButton.setBounds (col.importCard.getX(), col.importCard.getBottom() + 12, rw, Dine::Metric::button);
+        return;
     }
 
     auto footer = L.footer.reduced (Dine::Metric::padX, 0);
@@ -1554,7 +1615,19 @@ void AssignPage::showKitMenu (juce::Component& anchor)
                      });
 }
 
-SetupLayout AssignPage::layout() const { return SetupLayout::of (getLocalBounds(), true, false); }
+SetupLayout AssignPage::layout() const { return SetupLayout::of (getLocalBounds(), true, false, embedded); }
+
+void AssignPage::setEmbedded (bool e)
+{
+    if (e == embedded) return;
+    embedded = e;
+    for (auto* b : { &continueButton, &backButton }) b->setVisible (! e);
+    // SAVE MAP and the saved-map picker are on the ROUTING page bar; a column this narrow
+    // cannot carry them twice, and two of the same button is worse than one.
+    for (auto* b : { &patchSaveButton, &patchApplyButton, &deskLabelsButton, &clearButton }) b->setVisible (! e);
+    resized();
+    repaint();
+}
 
 void AssignPage::paint (juce::Graphics& g)
 {
@@ -1627,6 +1700,7 @@ void AssignPage::paint (juce::Graphics& g)
     for (int i = 0; i < numInputs; ++i)
         if (! entries[size_t (i)].assigned && ! entries[size_t (i)].linkedFromPrevious
             && services.isAudioRunning() && services.daw().inputPeakDb (i) > -54.0f) ++live;
+    if (! embedded)
     drawSetupFooter (g, getLocalBounds(),
                      assigned > 0 ? juce::String (unused) + " unassigned inputs stay out of the mix"
                                         + (live > 0 ? " - " + juce::String (live) + " of them " + (live == 1 ? "is" : "are") + " carrying signal right now." : ".")
@@ -1643,29 +1717,41 @@ void AssignPage::resized()
     if (selectionCount() == 0)
     {
         auto right = bar;
-        const int aw = juce::jmax (120, patchApplyButton.idealWidth());
-        patchApplyButton.setBounds (right.removeFromRight (aw));
-        right.removeFromRight (8);
-        const int sw = juce::jmax (110, patchSaveButton.idealWidth());
-        patchSaveButton.setBounds (right.removeFromRight (sw));
-        right.removeFromRight (8);
+        if (! embedded)
+        {
+            const int aw = juce::jmax (120, patchApplyButton.idealWidth());
+            patchApplyButton.setBounds (right.removeFromRight (aw));
+            right.removeFromRight (8);
+            const int sw = juce::jmax (110, patchSaveButton.idealWidth());
+            patchSaveButton.setBounds (right.removeFromRight (sw));
+            right.removeFromRight (8);
+        }
         const int qw = juce::jmax (100, quickButton.idealWidth());
         quickButton.setBounds (right.removeFromRight (qw));
         right.removeFromRight (8);
         const int gw = 30;
         groupButton.setBounds (right.removeFromRight (gw));
         right.removeFromRight (8);
-        const int dw = juce::jmax (120, deskLabelsButton.idealWidth());
-        deskLabelsButton.setBounds (right.removeFromRight (dw));
-        right.removeFromRight (8);
+        if (! embedded)
+        {
+            const int dw = juce::jmax (120, deskLabelsButton.idealWidth());
+            deskLabelsButton.setBounds (right.removeFromRight (dw));
+            right.removeFromRight (8);
+        }
         const int saw = juce::jmax (86, selectAllButton.idealWidth());
         selectAllButton.setBounds (right.removeFromRight (saw));
 
+        // The group chips filter the table; the buttons to their right do things to it. When
+        // the column is too narrow for both, a chip that would be drawn under a button is not
+        // drawn at all - ALL is the default, so losing the last of them loses nothing.
+        const int chipsEnd = selectAllButton.getX() - 10;
         int x = bar.getX() + 2;
         for (auto& c : chips)
         {
             const int w = juce::jmax (48, c->idealWidth());
-            c->setBounds (x, bar.getY() + 2, w, bar.getHeight() - 4);
+            const bool fits = x + w <= chipsEnd;
+            c->setVisible (fits);
+            if (fits) c->setBounds (x, bar.getY() + 2, w, bar.getHeight() - 4);
             x += w;
         }
         search.setBounds (juce::Rectangle<int> (x + 12, bar.getY(), juce::jmax (0, juce::jmin (184, selectAllButton.getX() - 10 - (x + 12))), bar.getHeight()));
@@ -1714,7 +1800,8 @@ void AssignPage::resized()
     const int bw = juce::jmax (72, backButton.idealWidth());
     backButton.setBounds (footer.removeFromRight (bw).withSizeKeepingCentre (bw, Dine::Metric::button));
     const int clw = juce::jmax (80, clearButton.idealWidth());
-    clearButton.setBounds (footer.removeFromLeft (clw).withSizeKeepingCentre (clw, Dine::Metric::button));
+    clearButton.setBounds (embedded ? juce::Rectangle<int>()
+                                    : footer.removeFromLeft (clw).withSizeKeepingCentre (clw, Dine::Metric::button));
 }
 
 // ============================================================================ PurposePage

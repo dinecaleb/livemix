@@ -263,8 +263,7 @@ TEST_CASE ("Reachability: every workspace and every set-up page still opens")
     using Page = MainView::Page;
     struct Row { Page page; const char* name; };
     const Row pages[] = {
-        { Page::Sessions,  "Sessions" },  { Page::Device, "Audio device" }, { Page::Assign, "Inputs" },
-        { Page::Purpose,   "Purpose and sound" },
+        { Page::Sessions,  "Sessions" },
         { Page::Tracks,    "Tracks" },    { Page::Mixer,  "Mixer" },        { Page::Tune,   "Tune" },
         { Page::Live,      "Live" },      { Page::Inspector, "Inspector" },
     };
@@ -276,6 +275,32 @@ TEST_CASE ("Reachability: every workspace and every set-up page still opens")
         CHECK_MESSAGE (window.view->getPage() == row.page,
                        std::string ("the ") + row.name + " page does not open any more");
     }
+
+    // The set-up pages MOVED, which is allowed; they did not go.
+    //
+    // "Audio device" and "Inputs" are the two left-hand columns of the ROUTING workspace, so
+    // asking for either lands there - and the old call sites, the menu item and the shortcut
+    // all still work because they all go through showPage.
+    for (auto p : { Page::Device, Page::Assign })
+    {
+        window.view->showPage (p);
+        window.pump (10);
+        CHECK_MESSAGE (window.view->getPage() == Page::Device,
+                       "a set-up page no longer lands on ROUTING");
+    }
+
+    // "Purpose and sound" is a sheet now, over whatever workspace you were on.
+    window.view->showPage (Page::Mixer);
+    window.pump (10);
+    window.view->showPage (Page::Purpose);
+    window.pump (10);
+    CHECK_MESSAGE (window.view->openSheetName() == juce::String ("purpose"),
+                   "Purpose and sound does not open any more");
+    CHECK_MESSAGE (window.view->getPage() == Page::Mixer,
+                   "opening Purpose and sound should leave the workspace where it was");
+    window.view->keyPressed ({ juce::KeyPress::escapeKey, 0, 0 });
+    window.pump (10);
+    CHECK (window.view->openSheetName().isEmpty());
 }
 
 // ---------------------------------------------------------------------------- sheets
@@ -294,6 +319,7 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         { "appearance", [&] { view.showThemes(); } },
         { "chat",       [&] { view.showChat(); } },
         { "channel",    [&] { view.tuneChannel (0); } },
+        { "purpose",    [&] { view.showPurpose(); } },
     };
 
     for (const auto& sheet : sheets)
@@ -400,4 +426,43 @@ TEST_CASE ("The mixer's insert slots open that stage in the Inspector, and an un
     window.pump (20);
     CHECK (inspector.selectedStrip() == 3);
     CHECK (inspector.selectedStageIndex() == was);
+}
+
+// ------------------------------------------------------------------------- the first run
+TEST_CASE ("The first Sunday: sessions, a device, the inputs, the purpose, and the console - end to end")
+{
+    // The walk somebody actually takes the first time, now that the middle of it is one
+    // workspace and the end of it is a sheet. Every step is the call the button makes.
+    Window window;      // the fixture already opens a device and names five inputs
+    auto& view = *window.view;
+
+    view.showPage (MainView::Page::Sessions);
+    window.pump (20);
+    CHECK (view.getPage() == MainView::Page::Sessions);
+
+    // The device, and the input map beside it: one workspace, both columns.
+    view.showPage (MainView::Page::Device);
+    window.pump (20);
+    CHECK (view.getPage() == MainView::Page::Device);
+    CHECK (view.getDevicePage().isVisible());
+    CHECK (view.getAssignPage().isVisible());
+
+    // Naming an input is what makes the rest of the walk possible, and it took effect.
+    view.getAssignPage().assign (5, ChannelRole::Overhead, "OH", true);
+    window.pump (20);
+    CHECK (window.controller.getSession().inputs.size() >= 6);
+
+    // The purpose, over the workspace rather than instead of it.
+    view.showPage (MainView::Page::Purpose);
+    window.pump (20);
+    CHECK (view.openSheetName() == juce::String ("purpose"));
+    view.getPurposePage().onContinue();
+    window.pump (20);
+
+    // ... and out the other side onto the console, with the session intact.
+    view.showPage (MainView::Page::Tracks);
+    window.pump (20);
+    CHECK (view.getPage() == MainView::Page::Tracks);
+    CHECK (! window.controller.getSession().inputs.empty());
+    CHECK (window.controller.isPrepared());
 }

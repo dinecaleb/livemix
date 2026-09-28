@@ -904,9 +904,14 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     toast = std::make_unique<Toast>();
     menu = std::make_unique<Menu> (*this);
 
-    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) devicePage.get(),
-                                (juce::Component*) assignPage.get(),
-                                (juce::Component*) purposePage.get(), (juce::Component*) tracksPage.get(),
+    routingPage = std::make_unique<RoutingPage> (controller, services, *devicePage, *assignPage);
+    devicePage->setEmbedded (true);
+    assignPage->setEmbedded (true);
+    routingPage->addAndMakeVisible (*devicePage);
+    routingPage->addAndMakeVisible (*assignPage);
+
+    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) routingPage.get(),
+                                (juce::Component*) tracksPage.get(),
                                 (juce::Component*) mixerPage.get(), (juce::Component*) mixPage.get(),
                                 (juce::Component*) livePage.get(), (juce::Component*) advancedPage.get() })
         addChildComponent (*p);
@@ -1051,6 +1056,13 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
         else showPage (Page::Assign);
     };
     devicePage->onContinueToAssign = [this] { showPage (Page::Assign); };
+
+    routingPage->onOpenOutputs = [this] { showOutputs(); };
+    routingPage->onSaveMapping = [this] { saveInputMapping(); };
+    routingPage->onApplyMapping = [this] { openInputMappings(); };
+    routingPage->onToast = [this] (const juce::String& s) { showToast (s); };
+    routingPage->onContinue = [this] { if (! controller.getSession().inputs.empty()) showPage (Page::Purpose); };
+    routingPage->onConfirmUnderLiveSafe = [this] (const juce::String& what) { return ! liveSafeBlocks (what); };
     devicePage->onSetUpOutputs = [this] { showOutputs(); };
     devicePage->onImportRecording = [this] (const juce::File& folder)
     {
@@ -1065,8 +1077,16 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     assignPage->onContinue = [this] { showPage (Page::Purpose); };
     assignPage->onSaveMapping = [this] { saveInputMapping(); };
     assignPage->onApplyMapping = [this] { openInputMappings(); };
-    purposePage->onBack = [this] { showPage (Page::Assign); };
-    purposePage->onContinue = [this] { enterSession(); };
+    // Back out of PURPOSE AND SOUND: while it is a sheet, "back" is the workspace underneath
+    // it, which is what closing it gives you. Outside one it is still the way it came.
+    purposePage->onBack = [this] { if (purposeSheet != nullptr) closeSheets(); else showPage (Page::Assign); };
+    purposePage->onContinue = [this]
+    {
+        // TUNE THE MIX is the way out of the sheet as well as the way on: leaving it up over
+        // the console it just built would be a sheet nobody asked to keep.
+        if (purposeSheet != nullptr) purposeSheet.reset();
+        enterSession();
+    };
 
     tracksPage->onToast = [this] (const juce::String& t) { showToast (t); };
     tracksPage->onPanelWidthChanged = [this]
@@ -1172,11 +1192,20 @@ bool MainView::liveSafeBlocks (const juce::String& what)
 
 void MainView::showPage (Page p)
 {
+    // ROUTING is one workspace made of three: the device, the input map and the outputs. The
+    // pages themselves are unchanged and are shown embedded inside it, so Page::Device and
+    // Page::Assign both mean "ROUTING" now and every way in still works - the tab, Cmd-6, the
+    // View menu, the sidebar's CHANGE IN ROUTING, and a first run walking through the steps.
+    if (p == Page::Assign) p = Page::Device;
+    // PURPOSE AND SOUND is a sheet now. Every call site that asked for the page - the first
+    // run, the setup popover, the sidebar as it used to be - opens the sheet instead, over
+    // whatever workspace is already there.
+    if (p == Page::Purpose) { showPurpose(); return; }
+
     page = p;
+    const bool routing = p == Page::Device;
     sessionsPage->setVisible (p == Page::Sessions);
-    devicePage->setVisible (p == Page::Device);
-    assignPage->setVisible (p == Page::Assign);
-    purposePage->setVisible (p == Page::Purpose);
+    routingPage->setVisible (routing);
     tracksPage->setVisible (p == Page::Tracks);
     mixerPage->setVisible (p == Page::Mixer);
     mixPage->setVisible (p == Page::Tune);
@@ -1184,9 +1213,7 @@ void MainView::showPage (Page p)
     advancedPage->setVisible (p == Page::Inspector);
 
     if (p == Page::Sessions) sessionsPage->refresh();
-    if (p == Page::Device) devicePage->refresh();
-    if (p == Page::Assign) assignPage->refresh();
-    if (p == Page::Purpose) purposePage->refresh();
+    if (routing) { devicePage->refresh(); assignPage->refresh(); routingPage->refresh(); }
     if (p == Page::Tracks)
     {
         if (const int w = services.trackPanelWidth(); w > 0) tracksPage->setPanelWidth (w);
@@ -1521,6 +1548,7 @@ void MainView::closeSheets()
     themeSheet.reset();
     channelSheet.reset();
     chatSheet.reset();
+    purposeSheet.reset();
     updateChrome();
     resized();
 }
@@ -1621,6 +1649,23 @@ void MainView::showCheck()
     addAndMakeVisible (*checkSheet);
     resized();
     checkSheet->toFront (true);
+}
+
+void MainView::showPurpose()
+{
+    if (purposeSheet != nullptr) { purposeSheet->refresh(); return; }
+    closeSheets();
+    purposePage->refresh();
+    purposeSheet = std::make_unique<PurposeSheet> (*purposePage);
+    purposeSheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->purposeSheet.reset(); safe->updateChrome(); safe->resized(); } });
+    };
+    addAndMakeVisible (*purposeSheet);
+    purposeSheet->setBounds (getLocalBounds());
+    updateChrome();
+    resized();
 }
 
 void MainView::showHistory()
@@ -2201,6 +2246,7 @@ juce::String MainView::openSheetName() const
     if (themeSheet   != nullptr) return "appearance";
     if (channelSheet != nullptr) return "channel";
     if (chatSheet    != nullptr) return "chat";
+    if (purposeSheet != nullptr) return "purpose";
     return {};
 }
 
@@ -2686,9 +2732,8 @@ void MainView::resized()
     if (chainFoot->isVisible()) chainFoot->setBounds (body.removeFromBottom (Dine::Metric::chainFoot));
 
     auto content = body;
-    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) devicePage.get(),
-                                (juce::Component*) assignPage.get(),
-                                (juce::Component*) purposePage.get(), (juce::Component*) tracksPage.get(),
+    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) routingPage.get(),
+                                (juce::Component*) tracksPage.get(),
                                 (juce::Component*) mixerPage.get(), (juce::Component*) mixPage.get(),
                                 (juce::Component*) livePage.get(), (juce::Component*) advancedPage.get() })
         p->setBounds (content);
@@ -2697,7 +2742,7 @@ void MainView::resized()
     auto column = columnBounds();
     for (juce::Component* sheetComponent : { (juce::Component*) outputsSheet.get(), (juce::Component*) themeSheet.get(),
                                              (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get(),
-                                             (juce::Component*) historySheet.get() })
+                                             (juce::Component*) historySheet.get(), (juce::Component*) purposeSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)
     {

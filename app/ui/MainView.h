@@ -5,6 +5,8 @@
 #include "AppServices.h"
 #include "AppTheme.h"
 #include "SetupPages.h"
+#include "RoutingPage.h"
+#include "PurposeSheet.h"
 #include "TracksPage.h"
 #include "MixerPage.h"
 #include "OutputsSheet.h"
@@ -98,6 +100,7 @@ public:
     // applied before the pages are built and remembered on this Mac (ThemeStore); the headless
     // snapshot tool switches the stored choice off so every render starts from the design.
     void showThemes();
+    void showPurpose();                       // the sheet: first run, and the session's name
     void applyThemeNamed (const juce::String& name);
     // Standard / Large / Larger. Scales the type roles and remembers the choice on this Mac.
     void applyTextSize (float scale);
@@ -174,6 +177,9 @@ private:
     std::unique_ptr<SessionsPage> sessionsPage;
     std::unique_ptr<DevicePage> devicePage;
     std::unique_ptr<AssignPage> assignPage;
+    // ROUTING: the device, the input map and the outputs in one workspace. It owns the two
+    // pages above - they are its columns - and Page::Device is what shows it.
+    std::unique_ptr<RoutingPage> routingPage;
     std::unique_ptr<PurposePage> purposePage;
     std::unique_ptr<TracksPage> tracksPage;
     std::unique_ptr<MixerPage> mixerPage;
@@ -183,6 +189,9 @@ private:
     std::unique_ptr<ThemeSheet> themeSheet;
     juce::StringArray themeMenuNames;      // the View > Appearance list, as it was last built
     std::unique_ptr<ChannelTuneSheet> channelSheet;
+    // PURPOSE AND SOUND is a sheet now, not a page: two questions answered once and revisited
+    // when the service changes. showPage(Page::Purpose) still opens it, so every way in works.
+    std::unique_ptr<PurposeSheet> purposeSheet;
     std::unique_ptr<ChatSheet> chatSheet;
     void openChat();
     void saveInputMapping();
