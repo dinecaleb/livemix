@@ -8,7 +8,7 @@ which engine phase owns it.
 The design file is **`2wv5QSnvrSSQXtDzfuShIn`** ("DLIVE Desktop v2", Sept 2026).
 The baseline this is all measured against is `docs/design/baseline/`.
 
-**Status: UI-0 to UI-4 done. UI-5 mostly done (see §3e). Next: UI-6, the Inspector.**
+**Status: UI-0 to UI-4 done. UI-5 mostly done (§3e). UI-6 done (§3f). Next: UI-7, the sheets.**
 
 ---
 
@@ -351,6 +351,52 @@ fixed on the way - `markerLine()` was scanning the timeline and building strings
 of the thirty ticks a second (it is rebuilt now only when the playhead crosses a marker), and
 the big LUFS number was measuring its own string on every paint (a monospaced face does not
 need measuring). What is left is the drawing itself, and it is page-switch cost, not frame cost.
+
+## 3f. UI-6: the Inspector
+
+**Most of this phase was already built.** `AdvancedPage` + `ChainEditor` already had the
+header, the signal path with every stage's on/off lamp and value, the channels rail, the
+"What DLIVE did" column with PUT BACK, one panel per `ChannelProcessor` stage, and every
+panel's controls bound to that stage's `ChannelParameters` fields through the existing
+parameter path. The stage list is already built from what that product and role actually has,
+in processing order. The compressor panel already drew its transfer curve, the live gain
+reduction and the last eight seconds of it; the EQ panels already drew their curve and bands.
+
+Per-stage gain reduction was already wired for **every** stage that has one - gate, compressor,
+de-esser, limiter - so 17c, 17d, 17e and 17j's reduction readings needed nothing.
+
+### What this phase added
+
+- **17c, the gate's second threshold.** A gate has two, and the second one is the entire reason
+  a gate on a tom does not chatter: it opens at the threshold and does not close again until
+  the sound has fallen `hysteresis` below it. Drawing one was the half of the story that makes
+  a correctly-set gate look badly set. Both are now drawn and labelled OPENS / CLOSES.
+- **17i, correlation.** `StereoWidth::getCorrelation()` is an atomic the width stage already
+  keeps; the panel reads it the same way the meters are read. The scale says which end is
+  which, because "0.24" on its own says nothing and *out of phase* is the end that matters -
+  it is the one that disappears when the stream sums to mono.
+- **17j, the reported latency.** `getLatencySamples()` in milliseconds and samples, said either
+  way rather than only when it is bad news - the channel path adds none, and the panel says so.
+
+### What it did *not* add, and why
+
+**17b's measured fundamental and the 0.8 x cap.** The measurement exists
+(`AnalysisResult::fundamentalHz`) but nothing keeps it after a tune: the controller does not
+retain a per-strip `AnalysisResult`. Drawing the cap would mean **new retention** - not a new
+measurement - and the rule is to propose that rather than build it quietly.
+
+> **Proposed:** `MixController` keeps the last `AnalysisResult` per strip from the most recent
+> listen, as it already keeps `StripTuneRecord`. It costs one struct per strip, it is read on
+> the message thread only, and it would also let the Filter panel show what the high-pass is
+> actually being held below. **Please say whether to do this.**
+
+### A note on measuring frame cost in this repo
+
+The numbers move with the machine's thermal state by about 15 %, uniformly across all five
+workspaces. A before/after taken minutes apart is not evidence. UI-6 was measured by building
+both binaries and running them **alternately**: INSPECTOR per tick was 1.46-1.53 ms before and
+1.46-1.51 ms after - identical. That is the method that found the real UI-2 regression too, and
+it is the only one worth quoting.
 
 ## 4. The screens
 

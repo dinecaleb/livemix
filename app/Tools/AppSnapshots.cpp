@@ -925,6 +925,26 @@ int main (int argc, char** argv)
     rig.feed (0.3);
     rig.snap (dir, "11c-inspector-comp");
     {
+        // THE GATE, with a gate to look at: a gate has two thresholds and the second one is
+        // the reason a gate on a tom does not chatter, so the panel has to draw both.
+        auto gated = rig.controller.getKept().strips[0].channel;
+        gated.gateEnabled = true;
+        gated.gateThresholdDb = -34.0f;
+        gated.gateHysteresisDb = 6.0f;
+        gated.gateRangeDb = 30.0f;
+        rig.controller.setStripChannel (0, gated);
+        view.getAdvancedPage().openStripAtStage (0, "GATE");
+        rig.feed (0.4);
+        rig.snap (dir, "11f-inspector-gate");
+    }
+    {
+        // WIDTH, on a stereo source: the amount, what stays centred under it, and the measured
+        // correlation - the one number that says whether this will survive summing to mono.
+        view.getAdvancedPage().openStripAtStage (8, "WIDTH");     // Keys L: a stereo pair
+        rig.feed (0.5);
+        rig.snap (dir, "11g-inspector-width");
+    }
+    {
         // SAMPLE: the kick's stage switched on at the profile's blend, with the built-in sounds
         // in its list; the path's chip and the strip along the foot say so too.
         auto withSample = rig.controller.getKept().strips[0].channel;

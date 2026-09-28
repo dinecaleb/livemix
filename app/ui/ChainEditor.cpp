@@ -920,6 +920,11 @@ public:
         repaint();
     }
 
+    // `corr` is the width stage's measured L/R correlation (1 = mono-compatible, 0 = wide,
+    // below 0 = out of phase) and `latency` is what the channel reports to the host. Both are
+    // read from the running processor the same way the meters are; nothing new is published.
+    void setMeasurements (float corr, int latency) { correlation = corr; latencySamples = latency; }
+
     void update (const ChannelParameters& p, double sr, float grDb, float inDb, float outDb,
                  float levelNorm, int selectedBand, bool live, std::vector<std::pair<FxSlot, float>> sendLevels)
     {
@@ -958,9 +963,15 @@ public:
             case GraphKind::Bars:
             {
                 const bool staging = spec->id == StageId::Input || spec->id == StageId::Output;
+                const bool width = spec->id == StageId::Width;
                 int sliders = 0;
                 for (const auto& f : spec->fields) if (f.kind == Field::Kind::Slider) ++sliders;
-                return 24 + sliders * 56 + (staging ? 24 + 2 * 30 + 12 : 0);
+                // The staging meters, the reported latency, and the width stage's correlation
+                // all live under the sliders and all need to be asked for here, or the card is
+                // sized to the sliders alone and they are drawn into nothing.
+                return 24 + sliders * 56
+                     + (staging ? 24 + 2 * 30 + 12 + (spec->id == StageId::Output ? 20 : 0) : 0)
+                     + (width ? 1 + 8 + 14 + 26 + 12 + 8 : 0);
             }
             case GraphKind::Eq:
             case GraphKind::Transfer:
@@ -1230,6 +1241,30 @@ private:
             g.setColour (Dine::warn.withAlpha (0.55f));
             g.drawDashedLine ({ xFor (thr), square.getY(), xFor (thr), square.getBottom() }, dashes, 2, 1.0f);
             g.drawDashedLine ({ square.getX(), yFor (thr), square.getRight(), yFor (thr) }, dashes, 2, 1.0f);
+
+            // A GATE HAS TWO THRESHOLDS, and the second one is the whole reason a gate on a
+            // tom does not chatter: it opens at the threshold and does not close again until
+            // the sound has fallen a further `hysteresis` below it. One line is the half of
+            // the story that makes a gate look badly set when it is set correctly.
+            if (spec->id == StageId::Gate && params.gateHysteresisDb > 0.05f)
+            {
+                const float close = thr - params.gateHysteresisDb;
+                g.setColour (Dine::ink4);
+                g.drawDashedLine ({ xFor (close), square.getY(), xFor (close), square.getBottom() }, dashes, 2, 1.0f);
+
+                // Stacked, not side by side: the two are only a few dB apart on a quiet
+                // source, and two words at the same height on top of each other say less
+                // than one. They also clear the graph's own caption.
+                auto label = [&] (float db, const char* text, juce::Colour c, float y)
+                {
+                    g.setColour (c);
+                    g.setFont (capsFont (8.5f, 600));
+                    g.drawText (text, juce::Rectangle<float> (xFor (db) + 3.0f, y, 46.0f, 10.0f).toNearestInt(),
+                                juce::Justification::centredLeft);
+                };
+                label (thr, "OPENS", Dine::warn.withAlpha (0.85f), square.getY() + 16.0f);
+                label (close, "CLOSES", Dine::ink4, square.getY() + 28.0f);
+            }
         }
         if (running && inputDb > -100.0f)
         {
@@ -1327,10 +1362,15 @@ private:
     void paintBars (juce::Graphics& g, juce::Rectangle<int> r)
     {
         const bool staging = spec->id == StageId::Input || spec->id == StageId::Output;
+        const bool width = spec->id == StageId::Width;
         int sliders = 0;
         for (const auto& f : spec->fields) if (f.kind == Field::Kind::Slider) ++sliders;
         const int rowH = 56;
-        const int needed = sliders * rowH + (staging ? 24 + 2 * 30 + 12 : 0);
+        // The same three extras naturalHeight() asks the card for, or the rows are clamped to
+        // the sliders and everything under them is drawn into nothing.
+        const int needed = sliders * rowH
+                         + (staging ? 24 + 2 * 30 + 12 + (spec->id == StageId::Output ? 20 : 0) : 0)
+                         + (width ? 1 + 8 + 14 + 26 + 12 + 8 : 0);
         auto rows = r.reduced (10, 6);
         rows = rows.withHeight (juce::jmin (rows.getHeight(), needed));
 
@@ -1366,6 +1406,43 @@ private:
             g.drawText (format (f.fmt, f.max), scale, juce::Justification::centredRight);
         }
 
+        // ---- WIDTH: what the stage is actually doing to the image. A number on its own says
+        // nothing, so the scale under it says which end is which - and out of phase is the one
+        // that matters, because it is the one that disappears when the stream sums to mono.
+        if (width && rows.getHeight() >= 46)
+        {
+            Dine::drawRule (g, rows.removeFromTop (1), Dine::hairSoft);
+            rows.removeFromTop (8);
+            g.setColour (Dine::ink4);
+            g.setFont (capsFont (9.5f, 600));
+            g.drawText ("CORRELATION, LIVE", rows.removeFromTop (14), juce::Justification::topLeft);
+            auto row = rows.removeFromTop (26);
+            const bool known = running && correlation > -1.5f;
+            const auto tint = ! known ? Dine::ink4 : correlation < 0.0f ? Dine::crit
+                            : correlation < 0.3f ? Dine::warn : Dine::ink;
+            g.setColour (tint);
+            g.setFont (Dine::mono (13.0f, 500));
+            g.drawText (known ? juce::String (correlation, 2) : juce::String (Glyph::dash()),
+                        row.removeFromRight (56), juce::Justification::centredRight);
+            row.removeFromRight (10);
+            auto bar = row.withSizeKeepingCentre (row.getWidth(), 9);
+            Dine::drawWell (g, bar.toFloat(), 2.0f);
+            if (known)
+            {
+                const float t = juce::jlimit (0.0f, 1.0f, (correlation + 1.0f) * 0.5f);
+                g.setColour (tint);
+                g.fillRect (bar.toFloat().withWidth (bar.getWidth() * t));
+            }
+            g.setColour (Dine::hairStrong);
+            g.fillRect (float (bar.getCentreX()), float (bar.getY()), 0.5f, float (bar.getHeight()));
+            auto scale = rows.removeFromTop (12);
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::mono (9.5f));
+            g.drawText ("out of phase", scale, juce::Justification::centredLeft);
+            g.drawText ("mono", scale, juce::Justification::centredRight);
+            return;
+        }
+
         if (! staging || rows.getHeight() < 50) return;
         Dine::drawRule (g, rows.removeFromTop (1), Dine::hairSoft);
         rows.removeFromTop (8);
@@ -1398,6 +1475,25 @@ private:
                   format (Fmt::Db, in ? params.inputTrimDb : params.outputTrimDb)
                       + (in && params.polarityInvert ? "  " + Glyph::dot() + "  polarity flipped" : juce::String()),
                   outputDb);
+
+        // ---- WHAT THIS CHANNEL COSTS IN LATENCY, reported honestly. The channel path is
+        // sample-synchronous and adds none; the lookahead limiter exists only where the stage
+        // is turned on, and this says so either way rather than only when it is bad news.
+        if (! in && rows.getHeight() >= 18)
+        {
+            auto row = rows.removeFromTop (18);
+            g.setColour (Dine::ink4);
+            g.setFont (capsFont (10.0f, 600));
+            g.drawText ("REPORTED LATENCY", row.removeFromLeft (row.getWidth() - 140), juce::Justification::centredLeft);
+            const double sr = sampleRate > 0.0 ? sampleRate : 48000.0;
+            g.setColour (latencySamples > 0 ? Dine::ink2 : Dine::ink4);
+            g.setFont (Dine::mono (11.5f, 500));
+            g.drawText (latencySamples > 0
+                            ? juce::String (1000.0 * double (latencySamples) / sr, 2) + " ms  "
+                                  + juce::String (latencySamples) + " smp"
+                            : juce::String ("none"),
+                        row, juce::Justification::centredRight);
+        }
     }
 
     void paintSends (juce::Graphics& g, juce::Rectangle<int> r)
@@ -1437,6 +1533,8 @@ private:
     std::vector<float> history { std::vector<float> (kHistory, 0.0f) };
     double sampleRate = 48000.0;
     float gr = 0.0f, inputDb = -120.0f, outputDb = -120.0f, level = 0.0f;
+    float correlation = -2.0f;          // < -1 = nothing measured yet
+    int latencySamples = 0;
     int band = 0, dragging = -1;
     bool running = false;
 };
@@ -1921,6 +2019,16 @@ void ChainEditor::refresh()
             level = DineMeter::norm (outDb);
             grDb = views[size_t (selected)].grDb;
         }
+    }
+    // What the width stage measured, and what this channel costs the host in latency: both
+    // read off the same running processor the meters come from.
+    {
+        const ChannelProcessor* proc = ! controller.isPrepared() ? nullptr
+                                     : isBus ? &controller.getEngine().getBus (bus)
+                                             : (strip >= 0 && strip < controller.getGraph().numStrips()
+                                                    ? &controller.getEngine().getStrip (strip) : nullptr);
+        graph->setMeasurements (proc != nullptr ? proc->getWidth().getCorrelation() : -2.0f,
+                                proc != nullptr ? proc->getLatencySamples() : 0);
     }
     std::vector<std::pair<FxSlot, float>> sends;
     if (s.id == StageId::Sends)
