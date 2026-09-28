@@ -93,12 +93,15 @@ juce_add_gui_app(DLive
     HARDENED_RUNTIME_ENABLED TRUE
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "DLIVE mixes the inputs of your audio device.")
-target_sources(DLive PRIVATE Main.cpp native/AudioHost.cpp native/MonitorDevice.cpp ${DLIVE_UI_SOURCES})
+target_sources(DLive PRIVATE Main.cpp native/AudioHost.cpp native/MonitorDevice.cpp native/MicPermission.mm ${DLIVE_UI_SOURCES})
 target_include_directories(DLive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(DLive PRIVATE ${DLIVE_DEFINES}
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:DLive,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:DLive,JUCE_VERSION>")
-target_link_libraries(DLive PRIVATE ${DLIVE_LIBS}
+if (APPLE)
+    find_library(AVFOUNDATION_FRAMEWORK AVFoundation)
+endif()
+target_link_libraries(DLive PRIVATE ${DLIVE_LIBS} ${AVFOUNDATION_FRAMEWORK}
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 # The built-in drum samples (app/Samples, with their licence) ride in the bundle; a build that
 # is run from the tree, and every tool, reads the source folder instead.
@@ -131,9 +134,9 @@ if (LIVEMIX_BUILD_TESTS)
 endif()
 
 # Real-device soak check (opens an audio device through AudioHost, runs the engine, reports).
-add_executable(dlive_device_check Tools/DeviceCheck.cpp native/AudioHost.cpp native/MonitorDevice.cpp ${DLIVE_APP_SOURCES})
+add_executable(dlive_device_check Tools/DeviceCheck.cpp native/AudioHost.cpp native/MonitorDevice.cpp native/MicPermission.mm ${DLIVE_APP_SOURCES})
 target_include_directories(dlive_device_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(dlive_device_check PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
-target_link_libraries(dlive_device_check PRIVATE livemix_engine juce::juce_audio_devices juce::juce_audio_formats juce::juce_events juce::juce_recommended_config_flags)
+target_link_libraries(dlive_device_check PRIVATE livemix_engine juce::juce_audio_devices juce::juce_audio_formats juce::juce_events juce::juce_recommended_config_flags ${AVFOUNDATION_FRAMEWORK})
 target_compile_definitions(dlive_device_check PRIVATE JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}")

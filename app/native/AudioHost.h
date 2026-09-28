@@ -3,6 +3,7 @@
 #include "DawEngine.h"
 #include "MixController.h"
 #include "Core/Realtime.h"
+#include "DeviceState.h"
 
 namespace livemix
 {
@@ -27,9 +28,17 @@ public:
     // kMaxOutputs). The engine and the feeds count the *open* channels, in device order - so with
     // channels 1-2 and 65-66 open, the feeds address them as 0-1 and 2-3 (see slotForOutputChannel).
     // This is what lets solo reach a pair that sits past sixty-four Dante channels.
+    // If the input side will not open - macOS refusing the microphone, a device that will not
+    // give up its inputs - DLIVE opens the output alone rather than refusing, so the session
+    // still plays, still mixes and still saves. The returned string is empty in that case too;
+    // `state()` says what happened and carries the sentence. A hard failure (no output either)
+    // returns the device's own error.
     juce::String open (const juce::String& inputDevice, const juce::String& outputDevice,
                        double preferredSampleRate = 48000.0, int preferredBufferSize = 64,
                        const juce::BigInteger& outputChannels = {});
+
+    // Where the device actually is, and why, in one place. See DeviceState.h.
+    DeviceState state() const;
     // Where a device output channel sits among the open ones (what a feed addresses); -1 if it is not open.
     int slotForOutputChannel (int deviceChannel) const;
     // Output only: playing a recorded session back with no console connected.
@@ -81,6 +90,12 @@ private:
     bool closing = false;
     std::atomic<bool> deviceStopped { false };   // the device stopped without close(): unplugged, or taken by the system
     juce::String lastError;
+    // The inputs were asked for and did not come. Kept so state() can say so, and so the UI
+    // does not have to guess from a channel count of zero (a legitimate output-only session
+    // has that too).
+    bool inputRefused = false;
+    juce::String inputRefusedWhy;
+    juce::String wantedInput;                    // what was asked for, for the sentence
 };
 
 } // namespace livemix

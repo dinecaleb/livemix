@@ -110,9 +110,13 @@ public:
     std::function<void (const juce::File&)> onImportRecording; // a folder of stems becomes tracks and clips
     std::function<void()> onSetUpOutputs;                      // the Outputs sheet: more than one pair at once
     std::function<void()> onBack;                              // back to the library
+    std::function<void (const juce::String&)> onToast;         // "macOS is not letting it hear the inputs..."
     void refresh();
     void paint (juce::Graphics&) override;
     void resized() override;
+    // Opens whatever is selected. Public because the microphone prompt answers asynchronously
+    // and the continue button's work happens when it does.
+    void openChosenDevice();
 
 private:
     class DeviceRow;

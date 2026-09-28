@@ -534,14 +534,33 @@ DevicePage::DevicePage (MixController& c, AppServices& s) : controller (c), serv
     continueButton.onClick = [this]
     {
         if (selected < 0 || selected >= inputs.size()) return;
-        error = services.openDevices (inputs[selected].name, outputName);
-        if (error.isNotEmpty()) { repaint(); return; }
-        if (onContinue) onContinue();
+        // The microphone prompt belongs here, at the moment somebody asks for an input device,
+        // and not at launch when they have not said what they want yet. macOS puts it up once
+        // ever; after that this is an immediate answer either way.
+        juce::Component::SafePointer<DevicePage> safe (this);
+        services.askForInputPermission ([safe] (bool)
+        {
+            if (safe == nullptr) return;
+            safe->openChosenDevice();
+        });
     };
     refresh();
 }
 
 DevicePage::~DevicePage() = default;
+
+// Opening is never refused because the inputs would not come: the output opens on its own so
+// the session still plays, still mixes and still saves, and the sentence says why the meters
+// are still. A device that will not open at all is a different thing, and stays on the page.
+void DevicePage::openChosenDevice()
+{
+    if (selected < 0 || selected >= inputs.size()) return;
+    error = services.openDevices (inputs[selected].name, outputName);
+    if (error.isNotEmpty()) { repaint(); return; }
+    const auto device = services.deviceState();
+    if (device.stage == DeviceStage::InputRefused && onToast) onToast (device.why);
+    if (onContinue) onContinue();
+}
 
 void DevicePage::refresh()
 {
@@ -759,7 +778,11 @@ void DevicePage::paint (juce::Graphics& g)
         Dine::drawSection (g, outs.removeFromTop (14), "WHERE IT COMES OUT");
     }
 
-    const juce::String note = selected < 0 || selected >= inputs.size() ? juce::String ("No audio device found.")
+    // "No audio device found" was DLIVE's answer to four different situations, only one of
+    // which was true. DeviceState.h names them, and each carries the sentence that says what
+    // to do about it.
+    const juce::String note = selected < 0 || selected >= inputs.size()
+                                ? deviceSentence (services.deviceState(), ! inputs.isEmpty())
                             : inputs[selected].inputChannels <= 0 ? juce::String ("Pick a device with inputs to carry on.")
                             : inputs[selected].name + "  " + Glyph::dot() + "  " + juce::String (inputs[selected].inputChannels) + " inputs ready.";
     drawSetupFooter (g, getLocalBounds(), note, continueButton.getWidth() + backButton.getWidth() + 10);

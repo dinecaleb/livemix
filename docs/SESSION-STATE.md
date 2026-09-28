@@ -384,12 +384,36 @@ yesterday's build does not necessarily apply to today's — the prompt returns, 
 matching. That is the most likely explanation for "it worked and then it did not" on a development build, and
 it is a signing problem rather than a code one.
 
-**What I have not established, and how to.** Whether a *denied* grant makes `setAudioDeviceSetup` fail, or
-makes it succeed and deliver silence, is a runtime question. `dlive_device_check` is the right tool: run it
-with the grant revoked (`tccutil reset Microphone com.dine.dlive`) and record the exact return of
-`AudioHost::open` and whether the callback receives non-zero input. I have not run it, because it needs a
-decision about resetting a real TCC grant on this Mac. Step 2 should not guess: the device-state model below
-has a distinct `InputRefused` state either way, and the sentence differs.
+**Answered, on this Mac (2026-09-27).** `dlive_device_check` now prints what macOS says about the microphone
+and what enumeration can see before anything is opened:
+
+```
+MICROPHONE  granted
+ENUMERATION 3 input devices, 2 output devices (no permission needed for this)
+```
+
+So enumeration is confirmed ungated: devices and their channel counts are listed whatever the permission
+says, which means `Absent` really does mean "nothing is connected".
+
+The output-only fallback is confirmed on real hardware too, with a pairing CoreAudio will not glue:
+
+```
+opening input 'Calebs iphone Microphone', output 'DLIVE Monitoring', 64 samples...
+DEVICE      inputs refused  -  DLIVE can play and mix, but Calebs iphone Microphone would not open its
+                               inputs. CoreAudio error: 6e6f7065. The mix is going out of DLIVE Monitoring.
+running: 48000 Hz, 64 samples, 0 input channels, engine prepared yes, 1 strips
+after 1.0 s: 782 blocks ... 0 dropouts
+```
+
+The engine prepared, the callback ran clean, and the sentence named the device and the error rather than
+sending anybody to System Settings - because `MicPermission::check()` said the microphone was granted, so
+that was not the problem. `app/native/MicPermission.mm` asks `AVCaptureDevice` directly (AVFoundation, a
+system framework, linked into DLIVE and `dlive_device_check` only), which is what turns that sentence from
+a guess into a fact.
+
+**Still not observed:** the *denied* case itself, which needs `tccutil reset Microphone com.dine.dlive` and
+a relaunch. The code path is the same one exercised above - the only difference is that `MicPermission`
+reports Denied and the sentence becomes the Privacy & Security one - but the grant is the user's to reset.
 
 ---
 
@@ -566,7 +590,7 @@ product builds, the UI snapshots render unchanged.
 | 5.2 Splitting `prepare()` | yes | `MixController::rebuild()` (pure, no device, no rate) and `prepare()` (the audio graph only). `resetDocument()` is the blank slate a different document is loaded onto |
 | 5.3 Saving by revision | yes | `MixController::touch()` / `getRevision()`; `MainView`'s tick writes a second after the revision stops moving. 39 `saveSession()` calls became 3 |
 | 5.4 Sample identity | yes | `SampleChoice` + `SampleLibrary::slotFor()`; `readSampleChoices` / `resolveSampleChoices`. The cap says so now (`whatWasLeftOut()`) |
-| 5.5 Device state, modelled | **no** | `DeviceChoice` is stored, but the `DeviceStage` enum and the output-only fallback on a refused input are Phase 2 work with the hot-plug listener |
+| 5.5 Device state, modelled | yes (step 4) | `DeviceState.h`: `Absent / Present / Selected / ChannelsKnown / OutputOpen / Open / InputRefused / Disconnected`, each with its sentence. `AudioHost::state()` reports it |
 | 5.6 Version 5 + migration | yes | `kVersion = 5`; a test downgrades this build's document to 1, 2, 3 and 4 and opens each |
 | 5.7 Realtime invariants | yes | Nothing new on the audio thread; `compose()` → `publish()` → `TripleBuffer` untouched. `MixEngine::getStrip()` gained a bounds check, which it needed the moment the UI could draw a strip with no device open |
 
@@ -604,6 +628,20 @@ the tap point stay where they were left, as they already do for a scene recall),
 a different set of inputs is refused with a sentence rather than applied by index - a mix is a balance
 between the sources that were there.
 
+### Step 4, the same day: devices never gate the session
+
+- **The input side failing no longer refuses the whole thing.** `AudioHost::open` asks for input and output
+  in one call because CoreAudio answers all or nothing; when that fails and an output was named, it opens
+  the output alone, keeps the reason, and returns success. The session plays, mixes, shows and saves.
+- **The sentence is the true one.** `MicPermission` (AVFoundation) asks macOS what it thinks about the
+  microphone, so "System Settings > Privacy & Security > Microphone" is said when that is the problem and
+  not when it is not. `inputRefusedSentence()` is pure and tested.
+- **The prompt is asked at the right moment**: when somebody chooses an input device on the Audio device
+  page, not at launch before they have said what they want.
+- **"No audio device found" is retired** as a catch-all. The device page's footer, and anything else that
+  needs a sentence, reads `deviceSentence()`, which only says "No audio devices are connected" when there
+  genuinely are none.
+
 Still open from this phase:
 
 - **The timeline has no choke point.** `DawEngine::getProject()` hands out a mutable reference and
@@ -612,10 +650,10 @@ Still open from this phase:
   mutation go through `DawEngine` belongs with the TracksPage work in Phase 2. A missed bump now delays a
   save rather than losing one - the next bump writes the whole document - which a missed `saveSession()` did
   not.
-- **Step 3** (autosave on a background thread, the crash-recovery sidecar and marker, persistent mix history)
-  and **step 4** (device states, output-only on a refused input) are not started. The serialiser they need is
-  in place and takes one `SessionState`.
-- The microphone-permission question in §4 still needs the runtime experiment described there.
+- **Device hot-plug** is Phase 2 (`AudioHost` still does not listen for device-list changes), and the
+  `Disconnected` state is reported but not yet acted on beyond the existing "the device stopped" notice.
+- The *denied* microphone case has not been observed on a machine, only reasoned about from the granted one
+  (see §4). The path is shared, so the risk is the wording rather than the behaviour.
 
 ---
 

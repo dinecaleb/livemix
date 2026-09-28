@@ -15,6 +15,7 @@
 #include "native/SessionStore.h"
 #include "native/SampleLibrary.h"
 #include "native/DevicePlan.h"
+#include "native/MicPermission.h"
 #include "native/MonitorDevice.h"
 #include "ui/MainView.h"
 #include <optional>
@@ -103,6 +104,8 @@ namespace
         int xrunCount() override { return host.getXRunCount(); }
         double cpuLoad() override { return host.isOpen() ? host.getDeviceManager().getCpuUsage() : -1.0; }
         bool deviceStopped() override { return host.deviceStoppedUnexpectedly(); }
+        DeviceState deviceState() override { return host.state(); }
+        void askForInputPermission (std::function<void (bool)> done) override { MicPermission::request (std::move (done)); }
         void reconfigure() override
         {
             // The assignments are what changed, so the timeline hears about them first: every

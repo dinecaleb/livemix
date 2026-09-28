@@ -9,6 +9,7 @@
 #include "native/SessionStore.h"
 #include "native/SampleLibrary.h"
 #include "native/SessionAutosave.h"
+#include "native/DeviceState.h"
 #include "native/InputMapStore.h"
 #include "native/MonitorDevice.h"
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -2890,4 +2891,110 @@ TEST_CASE ("Mix history: it is bounded by what it costs, and a tune outlives the
     for (int i = 0; i < 200; ++i) { MixCheckpoint c; c.mix.numStrips = 21; c.fromTune = true; c.what = "TUNE MIX"; tunes.push_back (c); }
     pruneCheckpoints (tunes);
     CHECK (int (tunes.size()) * 21 <= kCheckpointStripBudget);
+}
+
+// ---------------------------------------------------------------------------
+// DEVICES NEVER GATE THE SESSION
+// ---------------------------------------------------------------------------
+
+TEST_CASE ("Devices: every state has a sentence, and \"no audio devices\" is only said when there are none")
+{
+    // The whole point of naming the states: "No audio devices" used to be DLIVE's answer to
+    // four different situations, and the one it was most often wrong about is the console
+    // being plugged in with macOS refusing the microphone.
+    DeviceState nothing;
+    CHECK (nothing.stage == DeviceStage::Absent);
+    CHECK (deviceSentence (nothing, false) == "No audio devices are connected.");
+    CHECK (deviceSentence (nothing, true).contains ("No device is open"));
+    CHECK (! deviceSentence (nothing, true).contains ("No audio devices"));
+
+    DeviceState running;
+    running.stage = DeviceStage::Open;
+    running.input = "Dante Virtual Soundcard";
+    running.inputChannels = 32;
+    running.outputChannels = 4;
+    CHECK (running.hearing());
+    CHECK (running.playing());
+    CHECK (deviceSentence (running, true).contains ("32 in, 4 out"));
+
+    // Playing and mixing, not hearing: the session is not broken and must not look it.
+    DeviceState refused;
+    refused.stage = DeviceStage::InputRefused;
+    refused.input = "Scarlett 18i20";
+    refused.output = "MacBook Pro Speakers";
+    refused.outputChannels = 2;
+    refused.why = inputRefusedSentence (refused.input, refused.output, true, "some CoreAudio error");
+    CHECK (! refused.hearing());
+    CHECK (refused.why.contains ("can play and mix"));
+    CHECK (refused.why.contains ("System Settings > Privacy & Security > Microphone"));
+    CHECK (refused.why.contains ("MacBook Pro Speakers"));
+    CHECK (deviceSentence (refused, true) == refused.why);
+
+    // ...and when it is *not* the microphone, it does not send somebody to that screen.
+    const auto other = inputRefusedSentence ("Scarlett 18i20", "MacBook Pro Speakers", false, "the device is in use");
+    CHECK (other.contains ("can play and mix"));
+    CHECK (other.contains ("Scarlett 18i20 would not open its inputs"));
+    CHECK (other.contains ("the device is in use"));
+    CHECK (! other.contains ("Privacy"));
+
+    DeviceState gone;
+    gone.stage = DeviceStage::Disconnected;
+    gone.input = "Dante Virtual Soundcard";
+    CHECK (deviceSentence (gone, true).contains ("was unplugged"));
+
+    DeviceState playingBack;
+    playingBack.stage = DeviceStage::OutputOpen;
+    playingBack.output = "MacBook Pro Speakers";
+    playingBack.outputChannels = 2;
+    CHECK (playingBack.playing());
+    CHECK (! playingBack.hearing());
+    CHECK (deviceSentence (playingBack, true).contains ("play and mix"));
+
+    // Every named state says something, and none of them is empty.
+    for (int i = 0; i < int (DeviceStage::Count); ++i)
+    {
+        DeviceState d;
+        d.stage = DeviceStage (i);
+        d.input = "A console";
+        d.output = "An output";
+        CHECK_MESSAGE (deviceSentence (d, true).isNotEmpty(),
+                       std::string ("no sentence for the state ") + deviceStageName (DeviceStage (i)));
+        CHECK (juce::String (deviceStageName (DeviceStage (i))) != "?");
+    }
+}
+
+TEST_CASE ("Devices: a session opens, edits and saves with no device at all")
+{
+    // The end of the whole phase, in one test: nothing is plugged in, nothing is prepared, and
+    // the session is still a session - it has its mix, it can be changed, and what is written
+    // down is everything.
+    FullSession offline (false);
+    offline.daw.setLiveSafe (false);
+    CHECK (! offline.controller.isPrepared());
+    CHECK (offline.controller.getEngine().getNumStrips() == 0);       // no audio graph at all
+    CHECK (offline.controller.getGraph().numStrips() == 4);           // ...and a whole console
+
+    // Reading a strip the engine does not have is silent, not a crash: the pages draw a
+    // channel DLIVE is not yet playing, and draw it quiet.
+    for (int i = 0; i < offline.controller.getGraph().numStrips(); ++i)
+        CHECK (offline.controller.getEngine().getStrip (i).getOutputMeter().getMaxPeakDb() < -100.0f);
+
+    offline.controller.setStripFader (1, -6.5f);
+    offline.controller.setStripMute (2, true);
+    offline.controller.keepScene (2);
+    CHECK_NEAR (offline.controller.getKept().strips[1].faderDb, -6.5f, 1e-3f);
+    CHECK (offline.controller.getScene (2).kept);
+    CHECK (! offline.controller.getCheckpoints().empty());
+
+    const auto file = scratchFolder().getChildFile ("nodevice.dlive.json");
+    file.deleteFile();
+    REQUIRE (SessionStore::save (captureSession (offline.controller, offline.daw, kDevices, 0), file));
+    SessionState back;
+    REQUIRE (SessionStore::load (file, back));
+    REQUIRE (back.hasMix);
+    CHECK_NEAR (back.mix.strips[1].faderDb, -6.5f, 1e-3f);
+    CHECK (back.mix.strips[2].mute);
+    CHECK (back.scenes[2].kept);
+    CHECK (! back.checkpoints.empty());
+    file.deleteFile();
 }

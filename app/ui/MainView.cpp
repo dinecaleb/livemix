@@ -745,6 +745,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
         updateChrome();
     };
     devicePage->onBack = [this] { showPage (Page::Sessions); };
+    devicePage->onToast = [this] (const juce::String& s) { showToast (s); };
     devicePage->onContinue = [this]
     {
         if (! controller.getSession().inputs.empty()) enterSession();

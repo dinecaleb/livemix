@@ -1,6 +1,7 @@
 #pragma once
 #include <functional>
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "native/DeviceState.h"
 #include "native/DawEngine.h"
 #include "native/MixController.h"
 #include "native/SessionStore.h"
@@ -41,6 +42,12 @@ public:
     // How much of the audio thread's time the engine is using, 0..1; below 0 when nobody can say.
     virtual double cpuLoad() { return -1.0; }
     virtual bool deviceStopped() { return false; }   // the device went away without the app closing it
+    // Where the device actually is, and why: DeviceState.h names the states and carries the
+    // sentence. "No audio devices" is only ever the answer when there really are none.
+    virtual DeviceState deviceState() { return {}; }
+    // Put the microphone prompt up, once, at the moment the user asks for an input device.
+    // The callback comes back on the message thread; true when DLIVE may hear the inputs.
+    virtual void askForInputPermission (std::function<void (bool)> done) { if (done) done (true); }
     virtual void reconfigure() = 0;          // assignments changed: rebuild the graph with audio stopped
 
     // ---- Two outputs: one for the broadcast, one for the engineer ----

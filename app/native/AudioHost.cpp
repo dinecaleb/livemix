@@ -1,4 +1,5 @@
 #include "AudioHost.h"
+#include "MicPermission.h"
 
 namespace livemix
 {
@@ -74,6 +75,10 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
                               const juce::BigInteger& outputChannels)
 {
     close();
+    inputRefused = false;
+    inputRefusedWhy.clear();
+    wantedInput = inputDevice;
+
     juce::AudioDeviceManager::AudioDeviceSetup setup;
     setup.inputDeviceName = inputDevice;
     setup.outputDeviceName = outputDevice;
@@ -87,17 +92,63 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
     else
         setup.outputChannels = outputChannels;                  // exactly the pairs the feeds need (a solo pair past channel 16)
     lastError = deviceManager.setAudioDeviceSetup (setup, true);
-    if (lastError.isNotEmpty()) return lastError;
-    if (deviceManager.getCurrentAudioDevice() == nullptr) { lastError = "The audio device could not be opened."; return lastError; }
+
+    const bool opened = lastError.isEmpty() && deviceManager.getCurrentAudioDevice() != nullptr;
+    // Input and output are asked for in one call, and CoreAudio answers all or nothing. If the
+    // input half is what failed, refusing the whole thing would mean a session with a perfectly
+    // good output cannot be played, mixed or even looked at - which is how "no audio devices"
+    // came to be DLIVE's answer to a microphone switch. So the output opens on its own, and
+    // state() carries the sentence that says why the meters are still.
+    if (! opened && inputDevice.isNotEmpty() && outputDevice.isNotEmpty())
+    {
+        const auto inputError = lastError.isNotEmpty() ? lastError : juce::String ("The audio device could not be opened.");
+        const auto fallback = openOutputOnly (outputDevice, preferredSampleRate, preferredBufferSize);
+        if (fallback.isEmpty())
+        {
+            inputRefused = true;
+            inputRefusedWhy = inputRefusedSentence (inputDevice, outputDevice, MicPermission::denied(), inputError);
+            lastError.clear();
+            return {};
+        }
+        lastError = inputError;      // neither half would open: that is a real failure
+        return lastError;
+    }
+
+    if (! opened)
+    {
+        if (lastError.isEmpty()) lastError = "The audio device could not be opened.";
+        return lastError;
+    }
     deviceStopped.store (false);
     deviceManager.addAudioCallback (this);
     running = true;
     return {};
 }
 
+DeviceState AudioHost::state() const
+{
+    DeviceState d;
+    d.input = wantedInput.isNotEmpty() ? wantedInput : getInputDeviceName();
+    d.output = getOutputDeviceName();
+    d.inputChannels = getNumInputChannels();
+    d.outputChannels = getNumOutputChannels();
+    if (deviceStoppedUnexpectedly()) { d.stage = DeviceStage::Disconnected; return d; }
+    if (inputRefused)
+    {
+        d.stage = DeviceStage::InputRefused;
+        d.why = inputRefusedWhy;
+        return d;
+    }
+    if (! running) { d.stage = d.output.isNotEmpty() ? DeviceStage::Selected : DeviceStage::Absent; return d; }
+    d.stage = d.inputChannels > 0 ? DeviceStage::Open : DeviceStage::OutputOpen;
+    return d;
+}
+
 juce::String AudioHost::openOutputOnly (const juce::String& outputDevice, double preferredSampleRate, int preferredBufferSize)
 {
     close();
+    inputRefused = false;
+    inputRefusedWhy.clear();
     juce::AudioDeviceManager::AudioDeviceSetup setup;
     setup.inputDeviceName = {};
     setup.outputDeviceName = outputDevice;

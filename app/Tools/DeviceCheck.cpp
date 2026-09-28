@@ -4,6 +4,7 @@
 // Without names the device with the most inputs is used for input and the default output for output.
 #include <juce_events/juce_events.h>
 #include "native/AudioHost.h"
+#include "native/MicPermission.h"
 #include "native/DawEngine.h"
 #include "native/MixController.h"
 #include "native/MultitrackImport.h"
@@ -23,6 +24,23 @@ int main (int argc, char** argv)
     MixController controller;
     DawEngine daw (controller);
     AudioHost host (controller, daw);
+
+    // What macOS thinks about the microphone, and what enumeration can see without it. Both
+    // are read before anything is opened, because the question docs/SESSION-STATE.md §4 leaves
+    // open is exactly "does a refused microphone stop DLIVE seeing devices, or only hearing
+    // them?" - and the answer is a line of output rather than an argument.
+    {
+        const auto mic = MicPermission::check();
+        std::printf ("MICROPHONE  %s\n", mic == MicPermission::State::Granted      ? "granted"
+                                        : mic == MicPermission::State::Undetermined ? "never asked"
+                                        : mic == MicPermission::State::Denied       ? "DENIED"
+                                                                                    : "restricted by this Mac");
+        const auto ins = host.listInputDevices();
+        const auto outs = host.listOutputDevices();
+        std::printf ("ENUMERATION %d input devices, %d output devices (no permission needed for this)\n",
+                     ins.size(), outs.size());
+        for (const auto& d : ins) std::printf ("  in  %-40s %d ch\n", d.name.toRawUTF8(), d.inputChannels);
+    }
 
     // A folder as the second argument becomes a session of tracks and clips, played back
     // through the timeline exactly as the application plays a recorded service.
@@ -96,6 +114,14 @@ int main (int argc, char** argv)
     std::printf ("\nopening input '%s', output '%s', %d samples...\n", inputName.toRawUTF8(), outputName.toRawUTF8(), buffer);
     const juce::String err = host.open (inputName, outputName, 48000.0, buffer);
     if (err.isNotEmpty()) { std::printf ("open failed: %s\n", err.toRawUTF8()); return 1; }
+    {
+        // Which of the named states the device landed in, and the sentence if it is not a
+        // happy one. An input side that would not open is no longer a refusal: the output
+        // opens alone and this says why.
+        const auto d = host.state();
+        std::printf ("DEVICE      %s%s\n", deviceStageName (d.stage),
+                     d.why.isEmpty() ? "" : ("  -  " + d.why).toRawUTF8());
+    }
     std::printf ("running: %.0f Hz, %d samples, %d input channels, engine prepared %s, %d strips, latency %d samples\n",
                  host.getSampleRate(), host.getBufferSize(), host.getNumInputChannels(), controller.isPrepared() ? "yes" : "NO",
                  controller.getEngine().getNumStrips(), controller.getEngine().getLatencySamples());
