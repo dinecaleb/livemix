@@ -692,8 +692,13 @@ TEST_CASE ("MixController: editing the session keeps the sound; preparing again 
     CHECK (c.getEngine().getNumStrips() == 6);
     CHECK (! c.needsReconfigure());                 // the graph is the document again
     CHECK (! c.hasPlan());
-    CHECK (c.getTuneCount() == 0);
-    CHECK (c.getStage() == MixController::Stage::Ready);
+    // And the mix is still the one the engineer tuned. Preparing the graph for one more input
+    // used to throw it away - the tune count went back to 0, the stage back to Ready - and
+    // app/Main.cpp pushed a held copy back afterwards to undo that. The mix belongs to the
+    // session now, so there is nothing to undo and nothing to hold.
+    CHECK (c.getTuneCount() == 1);
+    CHECK (c.getStage() == MixController::Stage::Mixed);
+    CHECK (c.hasKeptMix());
 }
 
 TEST_CASE ("MixController: rebuilding the graph does not reach into the engineer's headphones")
@@ -810,8 +815,8 @@ TEST_CASE ("SessionStore: a session document survives the JSON round trip")
     d.session = c.getSession();
     d.session.purpose = MixPurpose::Livestream;
     d.session.profile = StyleProfileId::ModernWorship;
-    d.inputDevice = "Dante Virtual Soundcard";
-    d.outputDevice = "Dante Virtual Soundcard";
+    d.devices.consoleInput = "Dante Virtual Soundcard";
+    d.devices.broadcastOutput = "Dante Virtual Soundcard";
     d.session.voicing = MasterVoicing::Car;
     d.macros.set (MixMacro::Space, 70.0f);
     d.macros.set (MixMacro::Drums, 35.0f);
@@ -833,7 +838,7 @@ TEST_CASE ("SessionStore: a session document survives the JSON round trip")
     CHECK (back.session.inputs[2].role == ChannelRole::Piano);
     CHECK (back.session.inputs[2].inputA == 2);
     CHECK (back.session.inputs[2].inputB == 3);
-    CHECK (back.inputDevice == "Dante Virtual Soundcard");
+    CHECK (back.devices.consoleInput == "Dante Virtual Soundcard");
     CHECK (back.macros.get (MixMacro::Space) == 70.0f);
     CHECK (back.macros.get (MixMacro::Drums) == 35.0f);
     CHECK (back.macros.get (MixMacro::Energy) == 50.0f);
@@ -866,8 +871,8 @@ TEST_CASE ("SessionStore: save, list, and load a named mix file")
     SessionStore::Document d;
     d.session = band();
     d.session.name = "ListTest Sunday";
-    d.inputDevice = "In";
-    d.outputDevice = "Out";
+    d.devices.consoleInput = "In";
+    d.devices.broadcastOutput = "Out";
     d.hasMix = false;
     // Write into the real sessions folder via a unique name, or fall back to a temp file for the round trip.
     const auto file = juce::File ("/Users/calebwork/Documents/GitHub/Calive/.tmp-session-test.dlive.json");
@@ -878,7 +883,7 @@ TEST_CASE ("SessionStore: save, list, and load a named mix file")
     SessionStore::Document back;
     REQUIRE (SessionStore::load (file, back));
     CHECK (back.session.name == "ListTest Sunday");
-    CHECK (back.outputDevice == "Out");
+    CHECK (back.devices.broadcastOutput == "Out");
     file.deleteFile();
 
     (void) SessionStore::listSessions();
@@ -1274,7 +1279,11 @@ TEST_CASE ("Track history: every tune and hand edit on a channel is remembered, 
     moved.inputs[0].role = ChannelRole::Piano;
     c2.setSession (moved);
     c2.prepare (kSr, kBlock);
-    CHECK (c2.getAllStripHistory().empty());             // a rebuilt graph starts clean ...
+    // A rebuild carries the records with their inputs rather than clearing them for the host to
+    // push back: every channel that is still the same source keeps its history, and the one
+    // that became a piano lost it along with the chain it described.
+    CHECK (c2.getStripHistory (0).empty());
+    CHECK (c2.getAllStripHistory().size() == records.size() - onStrip);
     c2.carryStripHistory (records, band());
     CHECK (c2.getStripHistory (0).empty());              // ... and the records of a source that changed stay gone
     CHECK (c2.getAllStripHistory().size() == records.size() - onStrip);

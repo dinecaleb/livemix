@@ -17,6 +17,19 @@ namespace
         if (n == "tom" || n == "toms") { out = RoleFamily::Tom; return true; }
         return false;
     }
+
+    // The folder name a family is filed under - the one word a SampleChoice stores, and the
+    // one a sentence about it uses.
+    const char* familyFolderName (RoleFamily f) noexcept
+    {
+        switch (f)
+        {
+            case RoleFamily::Kick:  return "kick";
+            case RoleFamily::Snare: return "snare";
+            case RoleFamily::Tom:   return "toms";
+            default:                return "";
+        }
+    }
 }
 
 juce::File SampleLibrary::builtInFolder()
@@ -42,6 +55,8 @@ void SampleLibrary::load()
     banks = SampleBankTable {};
     counts.fill (0);
     sources.clear();
+    overflowed.clear();
+    for (auto& c : catalogue) c.clear();
 
     const auto builtIn = builtInFolder();
     if (builtIn.isDirectory()) loadFolder (builtIn, true);
@@ -56,6 +71,7 @@ void SampleLibrary::load()
         {
             auto b = std::make_unique<SampleBank> (synthesizeBank (family, variant, 48000.0));
             banks.set (family, variant, b.get());
+            catalogue[size_t (family)].push_back ({ b->name, false, {} });
             owned.push_back (std::move (b));
         }
         counts[size_t (family)] = 3;
@@ -76,17 +92,27 @@ void SampleLibrary::loadFolder (const juce::File& root, bool builtIn)
             if (f.isDirectory() || f.hasFileExtension ("wav;aif;aiff;flac")) entries.add (f);
         std::sort (entries.begin(), entries.end(), [] (const juce::File& a, const juce::File& b)
                    { return a.getFileNameWithoutExtension().compareNatural (b.getFileNameWithoutExtension()) < 0; });
+        int dropped = 0;
         for (const auto& entry : entries)
         {
             int& slot = counts[size_t (family)];
-            if (slot >= SampleBankTable::kSounds) break;
+            // The cap is real, so it is said out loud: a ninth kick used to be dropped in
+            // silence, which is indistinguishable from a file DLIVE could not read.
+            if (slot >= SampleBankTable::kSounds) { ++dropped; continue; }
             auto bank = decodeSound (entry, entry.getFileNameWithoutExtension());
             if (bank == nullptr) continue;
             banks.set (family, slot, bank.get());
+            catalogue[size_t (family)].push_back ({ bank->name, ! builtIn,
+                                                   entry.getRelativePathFrom (root).toStdString() });
             owned.push_back (std::move (bank));
             ++slot;
             ++loaded;
         }
+        if (dropped > 0)
+            overflowed.add (juce::String (familyDir.getFullPathName()) + " holds " + juce::String (entries.size())
+                            + " sounds and DLIVE plays " + juce::String (SampleBankTable::kSounds)
+                            + " of each drum, so " + juce::String (dropped)
+                            + " of them are not loaded. Take some out of the folder to reach the rest.");
     }
     if (loaded > 0) sources.add (juce::String (builtIn ? "built-in: " : "yours: ") + root.getFullPathName());
 }
@@ -155,6 +181,44 @@ juce::StringArray SampleLibrary::soundNames (RoleFamily family) const
 int SampleLibrary::numSounds (RoleFamily family) const
 {
     return int (family) >= 0 && int (family) < int (RoleFamily::Count) ? counts[size_t (family)] : 0;
+}
+
+const std::vector<SampleLibrary::Sound>& SampleLibrary::sounds (RoleFamily family) const
+{
+    static const std::vector<Sound> none;
+    if (int (family) < 0 || int (family) >= int (RoleFamily::Count)) return none;
+    return catalogue[size_t (family)];
+}
+
+int SampleLibrary::slotFor (RoleFamily family, const std::string& name, bool user, const std::string& path) const
+{
+    if (name.empty()) return -1;
+    const auto& list = sounds (family);
+    // A user sound's relative path is the stronger identity when the document carries one:
+    // a built-in and a personal sound may share a name, and so may two of the engineer's own
+    // in different sub-folders.
+    if (user && ! path.empty())
+        for (size_t i = 0; i < list.size(); ++i)
+            if (list[i].user && list[i].path == path) return int (i);
+    for (size_t i = 0; i < list.size(); ++i)
+        if (list[i].user == user && list[i].name == name) return int (i);
+    return -1;
+}
+
+bool SampleLibrary::familyFull (RoleFamily family) const
+{
+    return numSounds (family) >= SampleBankTable::kSounds;
+}
+
+// The folder word a SampleChoice stores for this family ("kick", "snare", "toms"); empty for
+// a family that has no Sample stage.
+const char* sampleFamilyFolder (RoleFamily family) noexcept { return familyFolderName (family); }
+
+RoleFamily sampleFamilyFromFolder (const std::string& folder) noexcept
+{
+    RoleFamily f = RoleFamily::Count;
+    familyForFolder (juce::String (folder), f);
+    return f;
 }
 
 } // namespace livemix

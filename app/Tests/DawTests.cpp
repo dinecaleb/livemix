@@ -7,6 +7,7 @@
 #include "native/MultitrackImport.h"
 #include "native/StemNames.h"
 #include "native/SessionStore.h"
+#include "native/SampleLibrary.h"
 #include "native/InputMapStore.h"
 #include "native/MonitorDevice.h"
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -1224,7 +1225,7 @@ TEST_CASE ("SessionStore: the library reads what a session was for without openi
     d.session.name = "DliveSummaryTest";
     d.session.profile = StyleProfileId::ModernWorship;
     d.session.purpose = MixPurpose::Livestream;
-    d.inputDevice = "Dante Virtual Soundcard";
+    d.devices.consoleInput = "Dante Virtual Soundcard";
     d.tuneCount = 3;
     d.hasMix = true;
     // One track with a take on it, so the library can say the session has been recorded.
@@ -1942,4 +1943,609 @@ TEST_CASE ("Monitoring: the built device carries the console's inputs first and 
     // ... and as the console alone, with the broadcast on the interface the headphones are on.
     CHECK (MonitorDevice::layoutFor (scarlett, dvs, &dvs).problem.isEmpty());
     CHECK (MonitorDevice::layoutFor (theirs, scarlett, &dvs).problem.contains ("combined device"));
+}
+
+// ---------------------------------------------------------------------------
+// THE CANONICAL SESSION
+//
+// One owned model (SessionState), one function that reads it out of the live objects and one
+// that puts it back - and both of them compiled into this binary, which is the point. The
+// code these replaced lived in app/Main.cpp, which no test target compiles, and that is why
+// the same four bugs kept coming back. docs/SESSION-STATE.md has the audit.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    // A session with something in every corner of it: a tuned-looking mix on every strip, the
+    // buses, the returns, the master, the monitor, the macros, a link, a scene, a reference,
+    // some track history, two output feeds, LIVE SAFE with limits of its own, and a name for
+    // one drum strip's sound.
+    struct FullSession
+    {
+        MixController controller;
+        DawEngine daw { controller };
+
+        FullSession (bool openDevice)
+        {
+            auto s = band();
+            s.purpose = MixPurpose::Livestream;
+            s.profile = StyleProfileId::ModernWorship;
+            s.delivery = DeliveryLoudness::StreamingLoud;
+            s.voicing = MasterVoicing::Car;
+            s.speechPriority = true;
+            s.inputs[3].focus = true;                  // the lead is pinned
+            s.inputs[2].icon = "waveform";
+            controller.setSession (s);
+            daw.setSession (s);
+            if (openDevice) controller.prepare (kSr, kBlock);
+
+            auto mix = controller.getKept();
+            mix.strips[0].faderDb = -4.5f;
+            mix.strips[0].channel.replaceEnabled = true;
+            mix.strips[0].channel.replaceSound = 1;
+            mix.strips[0].channel.compThresholdDb = -27.5f;
+            mix.strips[1].inputGainDb = 3.0f;
+            mix.strips[1].mute = true;
+            mix.strips[2].pan = -0.4f;
+            mix.strips[3].sendDb[size_t (FxSlot::VocalPlate)] = -7.0f;
+            mix.strips[3].channel.toneBands[2] = { true, FilterType::Peak, 3200.0f, 2.5f, 1.1f };
+            mix.buses[size_t (MixBus::Drums)].channel.compRatio = 3.3f;
+            mix.buses[size_t (MixBus::Vocals)].faderDb = -1.5f;
+            mix.master().channel.limiterCeilingDb = -1.5f;
+            mix.fx[size_t (FxSlot::VocalPlate)].fx.reverbDecayS = 2.4f;
+            mix.fx[size_t (FxSlot::VocalPlate)].returnDb = -2.0f;
+            mix.fxReturnDb = -1.0f;
+            mix.tempoBpm = 96.0f;
+            mix.monitor.gainDb = -8.0f;
+            mix.monitor.source = MixBus::Drums;
+            mix.monitor.point = SoloPoint::PFL;
+            controller.restoreKept (mix, 2);
+            controller.linkStrips ({ 3, 4 });
+            for (int i = 0; i < int (MixMacro::Count); ++i) controller.setMacro (MixMacro (i), 40.0f + float (i));
+
+            OutputFeeds feeds;
+            feeds.count = 2;
+            feeds.feeds[0] = { 0, 1, MixBus::Master, 0.0f, false, false, false };
+            feeds.feeds[1].monitor = true;
+            feeds.feeds[1].left = 2;
+            feeds.feeds[1].right = 3;
+            controller.setOutputFeeds (feeds);
+
+            ReferenceProfile ref;
+            ref.valid = true;
+            ref.name = "Sunday reference";
+            ref.seconds = 184.0f;                   // a reference has to be long enough to be one
+            ref.loudnessLufs = -14.2f;
+            ref.crestFactorDb = 9.5f;
+            controller.setReference (ref);
+
+            controller.keepScene (1);
+            controller.renameScene (1, "Sermon");
+
+            auto policy = LiveSafePolicy::armed();
+            policy.maxFaderStepDb = 2.5f;
+            policy.maxMacroExcursion = 8.0f;
+            controller.setLiveSafePolicy (policy);
+            daw.setLiveSafe (true);
+
+            auto project = daw.getProject();
+            project.tempo = 84.0;
+            project.loopEnabled = true;
+            project.loopStart = 480;
+            project.loopEnd = 96000;
+            project.markers.push_back ({ "Sermon", 48000 });
+            if (! project.tracks.empty())
+            {
+                project.tracks[0].armed = true;
+                project.tracks[0].monitor = MonitorMode::Input;
+                project.tracks[0].height = 96;
+            }
+            daw.setProject (project);
+        }
+    };
+
+    // Everything that has to come back, compared field by field.
+    void checkSameSession (const SessionState& a, const SessionState& b)
+    {
+        CHECK (a.session.name == b.session.name);
+        CHECK (a.session.purpose == b.session.purpose);
+        CHECK (a.session.profile == b.session.profile);
+        CHECK (a.session.delivery == b.session.delivery);
+        CHECK (a.session.voicing == b.session.voicing);
+        CHECK (a.session.speechPriority == b.session.speechPriority);
+        CHECK (a.session.focusInput() == b.session.focusInput());
+        REQUIRE (a.session.inputs.size() == b.session.inputs.size());
+        for (size_t i = 0; i < a.session.inputs.size(); ++i)
+        {
+            CHECK (a.session.inputs[i].name == b.session.inputs[i].name);
+            CHECK (a.session.inputs[i].role == b.session.inputs[i].role);
+            CHECK (a.session.inputs[i].icon == b.session.inputs[i].icon);
+            CHECK (a.session.inputs[i].inputA == b.session.inputs[i].inputA);
+            CHECK (a.session.inputs[i].inputB == b.session.inputs[i].inputB);
+        }
+        CHECK (a.hasMix == b.hasMix);
+        CHECK (a.mix.numStrips == b.mix.numStrips);
+        CHECK (MixPlanner::countParameterChanges (a.mix, b.mix) == 0);
+        for (int i = 0; i < a.mix.numStrips; ++i)
+        {
+            CHECK (a.mix.strips[size_t (i)].mute == b.mix.strips[size_t (i)].mute);
+            CHECK (a.mix.strips[size_t (i)].linkGroup == b.mix.strips[size_t (i)].linkGroup);
+            CHECK_NEAR (a.mix.strips[size_t (i)].faderDb, b.mix.strips[size_t (i)].faderDb, 1e-3f);
+            CHECK_NEAR (a.mix.strips[size_t (i)].pan, b.mix.strips[size_t (i)].pan, 1e-3f);
+        }
+        CHECK_NEAR (a.mix.tempoBpm, b.mix.tempoBpm, 1e-3f);
+        CHECK_NEAR (a.mix.fxReturnDb, b.mix.fxReturnDb, 1e-3f);
+        CHECK (a.mix.monitor.source == b.mix.monitor.source);
+        CHECK (a.mix.monitor.point == b.mix.monitor.point);
+        CHECK_NEAR (a.mix.monitor.gainDb, b.mix.monitor.gainDb, 1e-3f);
+        for (int i = 0; i < int (MixMacro::Count); ++i)
+            CHECK_NEAR (a.macros.get (MixMacro (i)), b.macros.get (MixMacro (i)), 1e-3f);
+        CHECK (a.tuneCount == b.tuneCount);
+        CHECK (a.outputs.count == b.outputs.count);
+        CHECK (hasMonitorFeed (a.outputs) == hasMonitorFeed (b.outputs));
+        CHECK (a.reference.valid == b.reference.valid);
+        CHECK (a.reference.name == b.reference.name);
+        CHECK_NEAR (a.reference.loudnessLufs, b.reference.loudnessLufs, 1e-3f);
+        REQUIRE (a.scenes.size() == b.scenes.size());
+        for (size_t i = 0; i < a.scenes.size(); ++i)
+        {
+            CHECK (a.scenes[i].name == b.scenes[i].name);
+            CHECK (a.scenes[i].kept == b.scenes[i].kept);
+        }
+        CHECK (a.history.size() == b.history.size());
+        CHECK (a.project.liveSafe == b.project.liveSafe);
+        CHECK_NEAR (a.safety.maxFaderStepDb, b.safety.maxFaderStepDb, 1e-3f);
+        CHECK_NEAR (a.safety.maxMacroExcursion, b.safety.maxMacroExcursion, 1e-3f);
+        CHECK_NEAR (float (a.project.tempo), float (b.project.tempo), 1e-3f);
+        CHECK (a.project.loopEnabled == b.project.loopEnabled);
+        CHECK (a.project.loopStart == b.project.loopStart);
+        CHECK (a.project.loopEnd == b.project.loopEnd);
+        CHECK (a.project.markers.size() == b.project.markers.size());
+        REQUIRE (a.project.tracks.size() == b.project.tracks.size());
+        for (size_t i = 0; i < a.project.tracks.size(); ++i)
+        {
+            CHECK (a.project.tracks[i].armed == b.project.tracks[i].armed);
+            CHECK (a.project.tracks[i].monitor == b.project.tracks[i].monitor);
+            CHECK (a.project.tracks[i].height == b.project.tracks[i].height);
+        }
+        CHECK (a.devices.consoleInput == b.devices.consoleInput);
+        CHECK (a.devices.broadcastOutput == b.devices.broadcastOutput);
+        CHECK (a.devices.soloOutput == b.devices.soloOutput);
+        CHECK (a.trackPanelWidth == b.trackPanelWidth);
+        for (int i = 0; i < kMaxStrips; ++i) CHECK (a.samples[size_t (i)] == b.samples[size_t (i)]);
+    }
+
+    const DeviceChoice kDevices { "Dante Virtual Soundcard", "MacBook Pro Speakers", "Scarlett 2i2" };
+}
+
+TEST_CASE ("SessionState: a session with something in every corner survives capture, save, load and apply")
+{
+    FullSession live (true);
+    auto out = captureSession (live.controller, live.daw, kDevices, 260);
+    out.samples[0] = { "kick", "Ludwig 24 Soft", false, "Kick/Ludwig 24 Soft.wav" };
+    REQUIRE (out.hasMix);
+
+    const auto file = scratchFolder().getChildFile ("canonical.dlive.json");
+    file.deleteFile();
+    REQUIRE (SessionStore::save (out, file));
+
+    SessionState back;
+    REQUIRE (SessionStore::load (file, back));
+    checkSameSession (out, back);
+
+    // ...and applying it to a controller that has never seen it gives the same session again,
+    // including the parameters the engine would end up running.
+    MixController fresh;
+    DawEngine freshDaw { fresh };
+    applySession (back, fresh, freshDaw);
+    fresh.prepare (kSr, kBlock);
+    auto again = captureSession (fresh, freshDaw, kDevices, 260);
+    again.samples = out.samples;    // the library names these, and there is none in this test
+    checkSameSession (out, again);
+    CHECK (MixPlanner::countParameterChanges (fresh.getRunning(), live.controller.getRunning()) == 0);
+    file.deleteFile();
+}
+
+TEST_CASE ("SessionState: a session with no audio device open has a whole mix, and saves it")
+{
+    // No prepare() anywhere in this test: nothing is playing, nothing has a sample rate. The
+    // mix is still the engineer's, because rebuild() needs neither.
+    FullSession offline (false);
+    CHECK (! offline.controller.isPrepared());
+    CHECK (offline.controller.isBuilt());
+    CHECK (offline.controller.getGraph().numStrips() == 4);
+    CHECK (offline.controller.hasKeptMix());
+    CHECK_NEAR (offline.controller.getKept().strips[0].faderDb, -4.5f, 1e-3f);
+
+    auto out = captureSession (offline.controller, offline.daw, kDevices, 260);
+    REQUIRE (out.hasMix);                      // the gate used to be `isPrepared() && ...`
+    CHECK (out.mix.numStrips == 4);
+
+    const auto file = scratchFolder().getChildFile ("offline.dlive.json");
+    file.deleteFile();
+    REQUIRE (SessionStore::save (out, file));
+    SessionState back;
+    REQUIRE (SessionStore::load (file, back));
+    checkSameSession (out, back);
+
+    MixController fresh;
+    DawEngine freshDaw { fresh };
+    applySession (back, fresh, freshDaw);      // still no device
+    CHECK (! fresh.isPrepared());
+    CHECK (fresh.getGraph().numStrips() == 4);
+    CHECK_NEAR (fresh.getKept().strips[0].faderDb, -4.5f, 1e-3f);
+    checkSameSession (out, captureSession (fresh, freshDaw, kDevices, 260));
+    file.deleteFile();
+}
+
+TEST_CASE ("SessionState: opening a session without its console, saving, and opening it again with one loses nothing")
+{
+    // The bug this is here for: unplug the interface, launch DLIVE (the last session reloads),
+    // quit. shutdown() always saves, `hasMix` was gated on a device being open, and the
+    // fallback that should have covered it could not run - so the tuned mix, the scenes, the
+    // reference and the track history were erased from the file by launching and quitting.
+    const auto file = scratchFolder().getChildFile ("unplugged.dlive.json");
+    file.deleteFile();
+    {
+        FullSession withDevice (true);
+        auto saved = captureSession (withDevice.controller, withDevice.daw, kDevices, 260);
+        REQUIRE (SessionStore::save (saved, file));
+    }
+    SessionState onDisk;
+    REQUIRE (SessionStore::load (file, onDisk));
+
+    // Open it with nothing plugged in, and save it again - which is all quitting does.
+    SessionState reopened;
+    REQUIRE (SessionStore::load (file, reopened));
+    MixController noDevice;
+    DawEngine noDeviceDaw { noDevice };
+    applySession (reopened, noDevice, noDeviceDaw);
+    CHECK (! noDevice.isPrepared());
+    auto resaved = captureSession (noDevice, noDeviceDaw, kDevices, 260);
+    resaved.samples = reopened.samples;        // the library is what names these; none here
+    REQUIRE (SessionStore::save (resaved, file));
+
+    SessionState afterQuit;
+    REQUIRE (SessionStore::load (file, afterQuit));
+    checkSameSession (onDisk, afterQuit);
+
+    // And now with a console. Everything is still there and the engine runs the same mix.
+    MixController withOne;
+    DawEngine withOneDaw { withOne };
+    applySession (afterQuit, withOne, withOneDaw);
+    withOne.prepare (kSr, kBlock);
+    CHECK (withOne.hasKeptMix());
+    CHECK (withOne.getTuneCount() == 2);
+    CHECK (withOne.hasReference());
+    CHECK (withOne.getScene (1).kept);
+    CHECK (withOne.isLiveSafe());
+    CHECK_NEAR (withOne.getLiveSafePolicy().maxFaderStepDb, 2.5f, 1e-3f);
+    checkSameSession (afterQuit, captureSession (withOne, withOneDaw, kDevices, 260));
+    file.deleteFile();
+}
+
+TEST_CASE ("SessionState: changing the device keeps the reference, the scenes and the engineer's listen")
+{
+    // Every device change used to be wrapped in hold() / applyPendingMix(), and hold() left the
+    // reference at its default, which applyPendingMix() then wrote back over the real one - and
+    // setReference() arms the save, so the loss reached the disk a second later. Opening a
+    // device, changing the output and adding an input all took that path.
+    FullSession live (true);
+    const auto before = captureSession (live.controller, live.daw, kDevices, 260);
+    REQUIRE (before.reference.valid);
+
+    // What AudioHost does on an open, an output swap and a reconfigure: prepare() again.
+    live.controller.prepare (kSr, kBlock);
+    CHECK (live.controller.hasReference());
+    CHECK (live.controller.getReference().name == "Sunday reference");
+    CHECK (live.controller.getScene (1).kept);
+    CHECK (live.controller.getScene (1).name == "Sermon");
+    CHECK_NEAR (live.controller.getMonitor().gainDb, -8.0f, 1e-3f);
+    CHECK (live.controller.getMonitor().source == MixBus::Drums);
+    CHECK (live.controller.getTuneCount() == 2);
+    CHECK (hasMonitorFeed (live.controller.getOutputFeeds()));
+    checkSameSession (before, captureSession (live.controller, live.daw, kDevices, 260));
+
+    // And adding an input keeps every other channel exactly where it was.
+    auto s = live.controller.getSession();
+    s.inputs.insert (s.inputs.begin() + 1, { "Snare", ChannelRole::SnareTop, 7, -1 });
+    live.controller.setSession (s);
+    live.daw.setSession (s);
+    live.controller.prepare (kSr, kBlock);
+    CHECK (live.controller.getGraph().numStrips() == 5);
+    CHECK_NEAR (live.controller.getKept().strips[0].faderDb, -4.5f, 1e-3f);      // the kick did not move
+    CHECK_NEAR (live.controller.getKept().strips[2].inputGainDb, 3.0f, 1e-3f);   // the bass moved along with its gain
+    CHECK (live.controller.getKept().strips[2].mute);
+    CHECK (live.controller.hasReference());
+    CHECK (live.controller.getTuneCount() == 2);
+}
+
+TEST_CASE ("SessionState: a new session keeps nothing from the one that was open")
+{
+    FullSession live (true);
+    REQUIRE (live.controller.hasReference());
+
+    SessionState fresh;
+    fresh.session.name = "Untitled";
+    applySession (fresh, live.controller, live.daw);
+    CHECK (live.controller.getSession().name == "Untitled");
+    CHECK (live.controller.getSession().inputs.empty());
+    CHECK (live.controller.getGraph().numStrips() == 0);
+    CHECK (! live.controller.hasReference());
+    CHECK (! live.controller.hasKeptMix());
+    CHECK (! live.controller.getScene (1).kept);
+    CHECK (live.controller.getTuneCount() == 0);
+    CHECK (! live.controller.isLiveSafe());
+    CHECK (live.controller.getMacros().get (MixMacro::Space) == 50.0f);
+    // The bus chains are the new session's own, not the last one's carried across an empty
+    // assignment list: a different document is a different mix.
+    CHECK_NEAR (live.controller.getKept().buses[size_t (MixBus::Vocals)].faderDb, 0.0f, 1e-3f);
+}
+
+TEST_CASE ("SessionState: every parameter the mix carries reaches the file")
+{
+    // The test that makes "a field was added to the chain and nobody taught the serialiser
+    // about it" impossible rather than unlikely: walk every DSP and FX id and insist the JSON
+    // names it. Adding a parameter without adding it to the document now fails here.
+    FullSession live (true);
+    auto state = captureSession (live.controller, live.daw, kDevices, 0);
+    REQUIRE (state.hasMix);
+    const auto text = juce::JSON::toString (SessionStore::toVar (state), true);
+
+    ChannelParameters channel;
+    int dsp = 0;
+    forEachDspParameter (channel, [&] (const std::string& id, auto&)
+    {
+        ++dsp;
+        CHECK_MESSAGE (text.contains ("\"" + juce::String (id) + "\""), "the document does not carry " + id);
+    });
+    CHECK (dsp > 80);
+
+    FxParameters fx;
+    int fxCount = 0;
+    forEachFxParameter (fx, [&] (const std::string& id, auto&)
+    {
+        ++fxCount;
+        CHECK_MESSAGE (text.contains ("\"" + juce::String (id) + "\""), "the document does not carry " + id);
+    });
+    CHECK (fxCount > 10);
+}
+
+namespace
+{
+    // Turns the document this build writes into one an older build would have written: the
+    // group-bus array cut back to the layout that version had (the master has always been its
+    // last slot), the output feeds' `source` re-indexed to match, and every key that version
+    // did not know about removed. A fixture built from the real serialiser rather than typed
+    // out, so it cannot drift away from what the code actually writes.
+    juce::var downgradeDocument (const juce::var& v, int toVersion)
+    {
+        auto* obj = v.getDynamicObject();
+        if (obj == nullptr) return v;
+        auto* out = new juce::DynamicObject (*obj);
+        out->setProperty ("version", toVersion);
+
+        const int busCount = toVersion >= 4 ? int (MixBus::Count)
+                           : toVersion == 3 ? int (MixBus::Count) - 1
+                                            : int (MixBus::Count) - 2;
+        auto trimBuses = [busCount] (juce::DynamicObject* mix)
+        {
+            if (mix == nullptr) return;
+            if (auto* buses = mix->getProperty ("buses").getArray())
+            {
+                juce::Array<juce::var> older;
+                for (int b = 0; b + 1 < busCount && b < buses->size(); ++b) older.add (buses->getReference (b));
+                older.add (buses->getReference (buses->size() - 1));     // the master, wherever it sat
+                mix->setProperty ("buses", older);
+            }
+        };
+        trimBuses (out->getProperty ("mix").getDynamicObject());
+        if (auto* scenes = out->getProperty ("scenes").getArray())
+            for (auto& sv : *scenes)
+                if (auto* so = sv.getDynamicObject()) trimBuses (so->getProperty ("mix").getDynamicObject());
+        if (auto* feeds = out->getProperty ("outputs").getArray())
+            for (auto& fv : *feeds)
+                if (auto* fo = fv.getDynamicObject())
+                    if (int (fo->getProperty ("source")) >= busCount - 1)
+                        fo->setProperty ("source", busCount - 1);
+
+        if (toVersion < 5) { out->removeProperty ("liveSafeLimits"); out->removeProperty ("samples"); }
+        if (toVersion < 4)
+        {
+            out->removeProperty ("delivery");
+            if (auto* mix = out->getProperty ("mix").getDynamicObject()) mix->removeProperty ("monitor");
+        }
+        if (toVersion < 2) out->removeProperty ("project");
+        return juce::var (out);
+    }
+}
+
+TEST_CASE ("SessionStore: a document from every version DLIVE has ever written still opens")
+{
+    FullSession live (true);
+    auto state = captureSession (live.controller, live.daw, kDevices, 260);
+    state.samples[0] = { "kick", "Ludwig 24 Soft", false, "Kick/Ludwig 24 Soft.wav" };
+    for (int version = 1; version <= SessionStore::kVersion; ++version)
+    {
+        // Serialised afresh each time: juce::var holds its objects by reference, so downgrading
+        // one document in place would quietly downgrade every later version's too.
+        const auto older = downgradeDocument (SessionStore::toVar (state), version);
+        SessionState back;
+        REQUIRE (SessionStore::fromVar (older, back));
+
+        // The assignments, the purpose and the sound have been in the file since version 1.
+        CHECK (back.session.name == state.session.name);
+        REQUIRE (back.session.inputs.size() == state.session.inputs.size());
+        CHECK (back.session.inputs[3].role == ChannelRole::LeadVocal);
+        CHECK (back.session.inputs[3].focus);
+        REQUIRE (back.hasMix);
+        CHECK (back.mix.numStrips == state.mix.numStrips);
+        CHECK_NEAR (back.mix.strips[0].faderDb, -4.5f, 1e-3f);
+
+        // Whatever layout the file used, a stored group is the group it always was and the
+        // last slot is the master.
+        CHECK_NEAR (back.mix.buses[size_t (MixBus::Drums)].channel.compRatio, 3.3f, 1e-3f);
+        CHECK_NEAR (back.mix.master().channel.limiterCeilingDb, -1.5f, 1e-3f);
+        CHECK (back.outputs.feeds[0].source == MixBus::Master);
+        if (version >= 4) CHECK_NEAR (back.mix.buses[size_t (MixBus::Vocals)].faderDb, -1.5f, 1e-3f);
+
+        // What a version did not carry takes its default, and nothing is guessed at.
+        if (version >= 4)
+        {
+            CHECK (back.session.delivery == DeliveryLoudness::StreamingLoud);
+            CHECK (back.mix.monitor.source == MixBus::Drums);
+            CHECK_NEAR (back.mix.monitor.gainDb, -8.0f, 1e-3f);
+        }
+        else
+        {
+            CHECK (back.session.delivery == DeliveryLoudness::FromPurpose);
+            CHECK (back.mix.monitor.mode == SoloMode::Monitor);          // the default listen
+        }
+        if (version >= 5)
+        {
+            CHECK_NEAR (back.safety.maxFaderStepDb, 2.5f, 1e-3f);
+            CHECK (back.samples[0].name == "Ludwig 24 Soft");
+        }
+        else
+        {
+            CHECK_NEAR (back.safety.maxFaderStepDb, LiveSafePolicy {}.maxFaderStepDb, 1e-3f);
+            CHECK (! back.samples[0].set());        // resolved from the index against the library instead
+        }
+        if (version >= 2) CHECK (back.project.markers.size() == 1);
+        else              CHECK (back.project.tracks.size() == state.session.inputs.size());   // syncTracks builds them
+
+        // And it applies: the mix a version-1 document describes still reaches the engine.
+        MixController fresh;
+        DawEngine freshDaw { fresh };
+        applySession (back, fresh, freshDaw);
+        fresh.prepare (kSr, kBlock);
+        CHECK (fresh.hasKeptMix());
+        CHECK_NEAR (fresh.getKept().strips[0].faderDb, -4.5f, 1e-3f);
+        CHECK_NEAR (fresh.getKept().master().channel.limiterCeilingDb, -1.5f, 1e-3f);
+    }
+}
+
+TEST_CASE ("SessionState: every change to the session moves its revision, and nothing else does")
+{
+    FullSession live (true);
+    auto at = [&] { return live.controller.getRevision(); };
+
+    // A mix change, an assignment change, a label, a setting, a scene, the monitor, the
+    // routing, the timeline: whatever moved, the revision moved with it. This is what the host
+    // watches, so a change that does not show up here is a change that never reaches the disk.
+    struct Case { const char* what; std::function<void()> go; };
+    const std::vector<Case> cases {
+        { "a fader",            [&] { live.controller.setStripFader (0, -6.0f); } },
+        { "a mute",             [&] { live.controller.setStripMute (2, true); } },
+        { "a send",             [&] { live.controller.setStripSend (3, FxSlot::VocalDelay, -9.0f); } },
+        { "an input gain",      [&] { live.controller.setStripInputGain (1, 5.0f); } },
+        { "a bus fader",        [&] { live.controller.setBusFader (MixBus::Drums, -2.0f); } },
+        { "the returns",        [&] { live.controller.setFxReturn (-3.0f); } },
+        { "a macro",            [&] { live.controller.setMacro (MixMacro::Space, 61.0f); } },
+        { "the voicing",        [&] { live.controller.setVoicing (MasterVoicing::Earbuds); } },
+        { "the delivery",       [&] { live.controller.setDelivery (DeliveryLoudness::Podcast); } },
+        { "the purpose",        [&] { live.controller.setPurpose (MixPurpose::LiveRecording); } },
+        { "the sound",          [&] { live.controller.setProfile (StyleProfileId::ModernGospel); } },
+        { "a channel name",     [&] { live.controller.setInputName (0, "Kick In"); } },
+        { "a channel icon",     [&] { live.controller.setInputIcon (0, "drum"); } },
+        { "the focal source",   [&] { live.controller.setFocusInput (4); } },
+        { "speech priority",    [&] { live.controller.setSpeechPriority (false); } },
+        { "the monitor level",  [&] { live.controller.setMonitorGain (-3.0f); } },
+        { "solo",               [&] { live.controller.setStripSolo (1, true); } },
+        { "a link",             [&] { live.controller.linkStrips ({ 0, 1 }); } },
+        { "a scene",            [&] { live.controller.keepScene (2); } },
+        { "a scene's name",     [&] { live.controller.renameScene (2, "Choir"); } },
+        { "the reference",      [&] { live.controller.clearReference(); } },
+        { "LIVE SAFE",          [&] { live.controller.setLiveSafe (false); } },
+        { "an Inspector edit",  [&] { auto c = live.controller.getKept().strips[0].channel;
+                                      c.gateEnabled = ! c.gateEnabled;
+                                      live.controller.setStripChannel (0, c); } },
+        { "the routing",        [&] { auto f = live.controller.getOutputFeeds(); f.feeds[0].gainDb = -1.0f;
+                                      live.controller.setOutputFeeds (f); } },
+        { "arming a track",     [&] { auto p = live.daw.getProject(); p.tracks[1].armed = true; live.daw.setProject (p); } },
+        { "the loop",           [&] { live.daw.setLoop (true, 0, 48000); } },
+        { "the assignments",    [&] { auto s = live.controller.getSession();
+                                      s.inputs.push_back ({ "Pastor", ChannelRole::Speech, 9, -1 });
+                                      live.controller.setSession (s); live.daw.setSession (s); } },
+    };
+    for (const auto& c : cases)
+    {
+        const auto before = at();
+        c.go();
+        CHECK_MESSAGE (at() > before, std::string ("the revision did not move for ") + c.what);
+    }
+
+    // And reading it does not. A page that draws thirty times a second must not look like a
+    // change, or DLIVE would write the session file thirty times a second for ever.
+    const auto quiet = at();
+    (void) live.controller.getKept();
+    (void) live.controller.getRunning();
+    (void) live.controller.getMacros();
+    (void) live.controller.getGraph().numStrips();
+    (void) live.controller.getMasterLoudness();
+    (void) live.controller.getMixHealthPercent();
+    (void) live.daw.getProject().lengthSamples();
+    CHECK (at() == quiet);
+}
+
+TEST_CASE ("SessionState: a drum strip's sound is remembered by name, and a sound that has gone says so")
+{
+    SampleLibrary library;
+    library.load();
+    const auto kicks = library.sounds (RoleFamily::Kick);
+    if (kicks.size() < 2) return;      // a machine with no sample folder at all: nothing to check
+
+    MixSession s;
+    s.name = "Sampled";
+    s.inputs = { { "Kick", ChannelRole::KickIn, 0, -1 }, { "Snare", ChannelRole::SnareTop, 1, -1 } };
+    MixController c;
+    DawEngine daw { c };
+    c.setSession (s);
+    daw.setSession (s);
+    c.setSampleBanks (library.table());
+    c.prepare (kSr, kBlock);
+
+    auto chain = c.getKept().strips[0].channel;
+    chain.replaceEnabled = true;
+    chain.replaceSound = 1;
+    c.setStripChannel (0, chain);
+
+    auto state = captureSession (c, daw, kDevices, 0);
+    readSampleChoices (c, library, state.samples);
+    CHECK (state.samples[0].family == "kick");
+    CHECK (state.samples[0].name == kicks[1].name);
+    // The snare's stage is off, and its sound is still named: the slot it is pointing at can
+    // move just as easily, and turning the stage on next Sunday should give the same drum.
+    const auto snares = library.sounds (RoleFamily::Snare);
+    REQUIRE (! snares.empty());
+    CHECK (state.samples[1].family == "snare");
+    CHECK (state.samples[1].name == snares[0].name);
+
+    // The whole point: the index moves, the name does not. Pretend the library came back with
+    // that sound in a different slot - a new built-in shipped, a file renamed - and the session
+    // still plays the sound it was given.
+    MixController reopened;
+    DawEngine reopenedDaw { reopened };
+    applySession (state, reopened, reopenedDaw);
+    reopened.setSampleBanks (library.table());
+    reopened.prepare (kSr, kBlock);
+    auto moved = reopened.getKept().strips[0].channel;
+    moved.replaceSound = 0;                    // as a stale index would have left it
+    reopened.setStripChannel (0, moved);
+    const auto missing = resolveSampleChoices (state.samples, library, reopened);
+    CHECK (missing.empty());
+    CHECK (reopened.getKept().strips[0].channel.replaceSound == 1);
+    CHECK (reopened.getKept().strips[0].channel.replaceEnabled);
+
+    // And a sound that is not there any more is said out loud, with the stage switched off,
+    // rather than silently playing whatever has moved into that slot.
+    auto gone = state;
+    gone.samples[0].name = "A Kick That Was Deleted";
+    gone.samples[0].user = true;
+    gone.samples[0].path = "Kick/A Kick That Was Deleted.wav";
+    const auto notes = resolveSampleChoices (gone.samples, library, reopened);
+    REQUIRE (notes.size() == 1);
+    CHECK (juce::String (notes[0]).contains ("A Kick That Was Deleted"));
+    CHECK (juce::String (notes[0]).contains ("Kick"));
+    CHECK (! reopened.getKept().strips[0].channel.replaceEnabled);
 }

@@ -10,6 +10,7 @@
 #include "native/MixBounce.h"
 #include "native/MixController.h"
 #include "native/MultitrackImport.h"
+#include "native/SessionState.h"
 #include "native/SessionStore.h"
 #include "native/SampleLibrary.h"
 #include "native/DevicePlan.h"
@@ -32,6 +33,10 @@ namespace
     public:
         HostServices (MixController& c, DawEngine& d, AudioHost& h) : controller (c), dawEngine (d), host (h) {}
 
+        // The drum sounds. Set once, after the library has loaded: it is how a strip's chosen
+        // sound is written down by name and found again by name.
+        void setSampleLibrary (SampleLibrary& library) { samples = &library; }
+
         DawEngine& daw() override { return dawEngine; }
 
         juce::Array<Device> inputDevices() override
@@ -46,21 +51,19 @@ namespace
             for (const auto& d : host.listOutputDevices()) out.add ({ d.name, d.inputChannels, d.outputChannels });
             return out;
         }
+        // Opening a device no longer has anything to carry the mix across: MixController owns
+        // the session's state and prepare() only builds the audio graph for it. What used to be
+        // hold() / applyPendingMix() around every one of these calls was a copy of the session
+        // taken and pushed back by hand, and it is what lost the reference mix every time.
         juce::String openDevices (const juce::String& input, const juce::String& output) override
         {
-            hold();
             forgetPairing();
-            const auto err = host.open (input, output);
-            applyPendingMix();
-            return err;
+            return host.open (input, output);
         }
         juce::String openOutputOnly (const juce::String& output) override
         {
-            hold();
             forgetPairing();
-            const auto err = host.openOutputOnly (output);
-            applyPendingMix();
-            return err;
+            return host.openOutputOnly (output);
         }
 
         juce::String changeOutput (const juce::String& output) override
@@ -76,11 +79,8 @@ namespace
                 return again.ok ? juce::String() : again.message;
             }
 
-            // Snapshot the mix, swap the device (prepare rebuilds the graph), then put the mix back.
-            hold();
             const juce::String err = host.setOutputDevice (output);
-            applyPendingMix();
-            if (err.isEmpty()) { broadcastDevice = {}; saveSession(); }
+            if (err.isEmpty()) { broadcastDevice = {}; touchSession(); }
             return err;
         }
 
@@ -104,13 +104,12 @@ namespace
         bool deviceStopped() override { return host.deviceStoppedUnexpectedly(); }
         void reconfigure() override
         {
-            hold();
             // The assignments are what changed, so the timeline hears about them first: every
             // track follows its own input, and the clips stay with the source they were
-            // recorded from instead of sliding under the next one's name.
+            // recorded from instead of sliding under the next one's name. The mix follows its
+            // own inputs inside MixController::rebuild(), which setSession() already called.
             dawEngine.setSession (controller.getSession());
             host.reconfigure();
-            applyPendingMix();
         }
         juce::String currentInputDevice() override { return consoleInput(); }
         juce::String currentOutputDevice() override { return host.getOutputDeviceName(); }
@@ -140,7 +139,7 @@ namespace
             }
             dawEngine.setSession (result.session);
             dawEngine.setProject (result.project);
-            saveSession();
+            touchSession();
             return {};
         }
 
@@ -166,15 +165,16 @@ namespace
 
         void newSession() override
         {
-            MixSession fresh;
-            fresh.name = "Untitled";
-            controller.setSession (fresh);
-            controller.clearReference();
-            dawEngine.setSession (fresh);
-            dawEngine.setProject (Project {});
+            SessionState fresh;
+            fresh.session.name = "Untitled";
+            applySession (fresh, controller, dawEngine);
+            panelWidth = 0;
             dawEngine.locate (0);
             if (host.isOpen()) host.reconfigure();
         }
+
+        void touchSession() override { controller.touch(); }
+        unsigned long long sessionRevision() override { return controller.getRevision(); }
 
         void saveSession() override
         {
@@ -204,40 +204,47 @@ namespace
 
         juce::String loadSession (const juce::File& file) override
         {
-            SessionStore::Document doc;
-            if (! SessionStore::load (file, doc)) return "That file is not a DLIVE session.";
-            controller.setSession (doc.session);
-            dawEngine.setSession (doc.session);
-            dawEngine.setProject (doc.project);
-            panelWidth = doc.trackPanelWidth;
-            pending = doc;
-            forgetPairing();
+            SessionState state;
+            if (! SessionStore::load (file, state)) return "That file is not a DLIVE session.";
+            openState (state);
+            lastSessionPointer().replaceWithText (file.getFullPathName());
+            return {};
+        }
 
-            // The session opens whether or not its console is here: the device is a preference,
-            // the document is the session. What could not be opened becomes a sentence on the
-            // toast, never a refusal (the whole point of a recording is to open it elsewhere).
-            const auto err = openDevicesFor (doc);
-            applyPendingMix();
-            restoreSolo (doc, err);
-            dawEngine.setSession (doc.session);
-            dawEngine.setProject (doc.project);
+        // The whole of opening a session: the document into the controller and the engine, the
+        // drum sounds resolved by name, then whatever devices this Mac has. In that order,
+        // because the session is the document and the device is a preference - which is why it
+        // opens at all with the console unplugged, and why saving it then cannot lose anything.
+        void openState (const SessionState& state)
+        {
+            applySession (state, controller, dawEngine);
+            panelWidth = state.trackPanelWidth;
+            forgetPairing();
+            recoveryNote.clear();
+            if (samples != nullptr)
+                for (const auto& gone : resolveSampleChoices (state.samples, *samples, controller))
+                    recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + juce::String (gone);
+
+            // What could not be opened becomes a sentence on the toast, never a refusal: the
+            // whole point of a recording is to be able to open it somewhere else.
+            const auto err = openDevicesFor (state);
+            restoreSolo (state, err);
             for (const auto& take : dawEngine.recoverUnfinishedTakes())
                 recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + take.note;
             dawEngine.locate (0);
-            lastSessionPointer().replaceWithText (file.getFullPathName());
-            return {};
         }
 
         // Opens the devices a session asks for, or the nearest thing this Mac has (DevicePlan.h),
         // and leaves the sentence about it in the recovery note. Returns the device error when
         // even the planned device would not open (the note carries it too).
-        juce::String openDevicesFor (const SessionStore::Document& doc)
+        juce::String openDevicesFor (const SessionState& doc)
         {
             recoveryNote.clear();
             juce::StringArray ins, outs;
             for (const auto& d : host.listInputDevices()) ins.add (d.name);
             for (const auto& d : host.listOutputDevices()) outs.add (d.name);
-            const auto plan = planDevicesForSession (doc.inputDevice, doc.outputDevice, doc.project.hasAudio(), ins, outs,
+            const auto plan = planDevicesForSession (doc.devices.consoleInput, doc.devices.broadcastOutput,
+                                                    doc.project.hasAudio(), ins, outs,
                                                      host.getInputDeviceName(), host.getOutputDeviceName(), host.isOpen());
             juce::String err;
             switch (plan.action)
@@ -307,18 +314,16 @@ namespace
                 controller.setOutputFeeds (feeds);
                 if (MonitorDevice::dliveDeviceExists())
                 {
-                    hold();
                     // Off the combined device *before* it is destroyed, for the same reason.
                     const auto err = openWith (broadcast, input);
                     consoleInputDevice = {};
                     MonitorDevice::removeDliveDevice();
                     host.rescanDevices();
-                    applyPendingMix();
                     if (err.isNotEmpty()) return { false, err };
                 }
                 broadcastDevice = {};
                 consoleInputDevice = {};
-                saveSession();
+                touchSession();
                 return { true, "Solo is switched off. Everything goes out of " + broadcast + " as before." };
             }
 
@@ -331,7 +336,7 @@ namespace
                 soloDevice = wanted;
                 broadcastDevice = broadcast;
                 routeOutputs (0, 2);
-                saveSession();
+                touchSession();
                 return { true, "Solo goes to outputs 3-4 of " + broadcast + ". The stream is on 1-2 and never changes." };
             }
 
@@ -355,7 +360,6 @@ namespace
             // go inside another; that one stays a separate input, glued on by JUCE as before.
             const bool foldInput = inputDev.uid.isNotEmpty() && ! inputDev.isAggregate;
 
-            hold();
             // Never destroy the device the audio is running on. Rebuilding the pairing - which
             // is what choosing a solo device does when one is already set up - starts by
             // removing the combined device, and if that is the open one, CoreAudio is being
@@ -369,12 +373,8 @@ namespace
             }
 
             const auto built = MonitorDevice::combine (broadcastDev, soloDev, foldInput ? &inputDev : nullptr);
-            if (! built.ok)
-            {
-                // Back where we started, with the broadcast still playing.
-                applyPendingMix();
-                return { false, built.error };
-            }
+            // Back where we started, with the broadcast still playing.
+            if (! built.ok) return { false, built.error };
 
             // Only the pairs the feeds need are opened: the engine addresses at most kMaxOutputs
             // channels, and behind sixty-four Dante outputs the headphone pair sits well past
@@ -403,18 +403,16 @@ namespace
                 host.rescanDevices();
                 host.waitForOutputDevice (broadcast);
                 const auto back = openWith (broadcast, input);
-                applyPendingMix();
                 juce::String why = err.isNotEmpty() ? err : juce::String ("it came back without a separate pair for solo");
                 if (back.isNotEmpty()) why += "; and " + broadcast + " could not be reopened afterwards: " + back + " - choose it again under Set-up";
                 return { false, "Those two could not be joined (" + why + "). Nothing has been changed. "
                                 "Some devices - Bluetooth especially - refuse to be combined; try a wired one." };
             }
-            applyPendingMix();
 
             broadcastDevice = broadcast;
             soloDevice = wanted;
             routeOutputs (broadcastSlot, soloSlot);
-            saveSession();
+            touchSession();
             return { true, built.summary };
         }
 
@@ -429,57 +427,16 @@ namespace
         int trackPanelWidth() override { return panelWidth; }
         void setTrackPanelWidth (int px) override { panelWidth = px; }
 
-        // Restoring a mix that a device change is about to wipe.
-        void holdMix (const SessionStore::Document& doc) { pending = doc; }
         // The session remembers which device solo went to; the pairing is rebuilt from that
         // after the console is open, so a Mac that lost the built device still comes back right.
         // A pairing that cannot be rebuilt is not an error opening the session: solo has nowhere
         // to go, which the Outputs sheet and the LIVE page say.
-        void restoreSolo (const SessionStore::Document& doc, const juce::String& openError)
+        void restoreSolo (const SessionState& doc, const juce::String& openError)
         {
-            if (openError.isNotEmpty() || doc.soloDevice.isEmpty() || ! host.isOpen()) return;
-            setSoloOutputDevice (doc.soloDevice);
+            if (openError.isNotEmpty() || doc.devices.soloOutput.isEmpty() || ! host.isOpen()) return;
+            setSoloOutputDevice (doc.devices.soloOutput);
         }
-        void applyPendingMix()
-        {
-            if (! pending.has_value() || ! controller.isPrepared()) return;
-            controller.setOutputFeeds (pending->outputs);   // routing belongs to the device, not the mix
-            controller.setReference (pending->reference);   // always, so one session's reference never follows another
-            controller.restoreScenes (pending->scenes);     // the scenes belong to the session; recall checks the inputs by name
-            if (pending->hasMix)
-            {
-                // The mix follows its input across a rebuild, the way the timeline's clips
-                // already do: a channel moved, dropped or added on ASSIGN or on TRACKS leaves
-                // every other channel's chain, gain, fader and sends exactly where they were.
-                // getKept() here is the rebuilt session's baselines, so an input that is new to
-                // the session - or one that became a different source - starts from its own.
-                controller.carryKept (pending->mix, pending->session, pending->tuneCount);
-                controller.carryStripHistory (pending->history, pending->session);   // the records follow their inputs the same way
-                for (int i = 0; i < int (MixMacro::Count); ++i) controller.setMacro (MixMacro (i), pending->macros.get (MixMacro (i)));
-            }
-            pending.reset();
-        }
-
     private:
-        void hold()
-        {
-            SessionStore::Document snap;
-            // The session the snapshotted mix belongs to - the one the graph still runs - not
-            // the document, which may already have been replaced by the change we are holding
-            // the mix across.
-            snap.session = controller.getPreparedSession();
-            snap.macros = controller.getMacros();
-            snap.outputs = controller.getOutputFeeds();
-            snap.tuneCount = controller.getTuneCount();
-            // The kept mix outlives setSession (only prepare() clears it), so a snapshot taken
-            // after the assignments changed still has the faders and chains to put back.
-            snap.hasMix = controller.hasKeptMix();
-            if (snap.hasMix) { snap.mix = controller.getKept(); snap.history = controller.getAllStripHistory(); }
-            else if (pending.has_value() && pending->hasMix) snap = *pending;
-            snap.scenes = controller.getScenes();
-            pending = snap;
-        }
-
         juce::File documentFile() const
         {
             const auto folder = dawEngine.getProject().folder;
@@ -487,39 +444,23 @@ namespace
             return folder.getChildFile (folder.getFileName() + ".dlive.json");
         }
 
+        // One line, and it is the tested one: SessionState.cpp reads the session out of the
+        // controller and the engine. What was here was fourteen getters and a dead fallback
+        // that meant a session opened without its console saved itself empty.
         bool writeDocument (const juce::File& file)
         {
-            SessionStore::Document d;
-            d.session = controller.getSession();
-            d.project = dawEngine.getProject();
-            d.inputDevice = consoleInput();              // the console, never the device DLIVE built around it
-            d.outputDevice = broadcastOutputDevice();
-            d.soloDevice = soloOutputDevice();
-            d.macros = controller.getMacros();
-            d.outputs = controller.getOutputFeeds();
-            d.tuneCount = controller.getTuneCount();
-            d.hasMix = controller.isPrepared() && controller.hasKeptMix();
-            if (d.hasMix) { d.mix = controller.getKept(); d.history = controller.getAllStripHistory(); }
-            d.scenes = controller.getScenes();
-            d.reference = controller.getReference();      // what the mix is aimed at, already measured
-            d.trackPanelWidth = panelWidth;
-            if (controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready)
-            {
-                auto record = juce::JSON::parse (juce::String (controller.getTuneLive().toJson().write()));
-                if (auto* o = record.getDynamicObject())
-                {
-                    juce::Array<juce::var> review;
-                    for (const auto& line : controller.getTuneLive().getReviewLines()) review.add (juce::String (line));
-                    o->setProperty ("review", review);
-                }
-                d.tuneLive = record;
-            }
-            else if (pending.has_value()) d.tuneLive = pending->tuneLive;
-            else if (pending.has_value() && pending->hasMix) { d.hasMix = true; d.mix = pending->mix; d.history = pending->history; d.tuneCount = pending->tuneCount; }
-            if (! SessionStore::save (d, file)) return false;
+            auto state = captureSession (controller, dawEngine, deviceChoice(), panelWidth);
+            if (samples != nullptr) readSampleChoices (controller, *samples, state.samples);
+            if (! SessionStore::save (state, file)) return false;
             dawEngine.getProject().folder = file.getParentDirectory();
             lastSessionPointer().replaceWithText (file.getFullPathName());
             return true;
+        }
+
+        // The devices as the engineer chose them, never the one DLIVE built around them.
+        DeviceChoice deviceChoice()
+        {
+            return { consoleInput(), broadcastOutputDevice(), soloOutputDevice() };
         }
 
         // The console's own input device. While DLIVE's built device carries the console's
@@ -530,7 +471,7 @@ namespace
             return consoleInputDevice.isNotEmpty() ? consoleInputDevice : host.getInputDeviceName();
         }
         // Opening devices from Set-up is a fresh start: whatever pairing was in place is over.
-        void forgetPairing() { broadcastDevice = {}; soloDevice = {}; consoleInputDevice = {}; }
+        void forgetPairing() { broadcastDevice = {}; soloDevice = {}; consoleInputDevice = {}; controller.touch(); }
 
         // Reopen on an output device, keeping whatever input is already in use. A session built
         // from imported stems has no console attached at all, and opening with an empty input
@@ -565,7 +506,9 @@ namespace
         MixController& controller;
         DawEngine& dawEngine;
         AudioHost& host;
-        std::optional<SessionStore::Document> pending;
+        // The drum sounds, for turning each strip's `replaceSound` index into a name on save and
+        // back into an index on open. Null in a context that has no library (a tool, a test).
+        SampleLibrary* samples = nullptr;
         int panelWidth = 0;             // TRACKS channel panel; 0 = the page's own default
         // The two devices the user chose. While a combined device is open, the *open* device is
         // DLIVE's own and these are what the user actually picked; consoleInputDevice is the
@@ -618,30 +561,20 @@ public:
         dawEngine = std::make_unique<DawEngine> (*controller);
         host = std::make_unique<AudioHost> (*controller, *dawEngine);
         services = std::make_unique<HostServices> (*controller, *dawEngine, *host);
+        services->setSampleLibrary (*samples);
 
-        SessionStore::Document doc;
+        SessionState state;
         const auto pointer = lastSessionPointer();
         const bool restored = pointer.existsAsFile()
-                              && SessionStore::load (juce::File (pointer.loadFileAsString().trim()), doc);
-        if (restored)
-        {
-            controller->setSession (doc.session);
-            dawEngine->setSession (doc.session);
-            dawEngine->setProject (doc.project);
-        }
+                              && SessionStore::load (juce::File (pointer.loadFileAsString().trim()), state);
 
         window = std::make_unique<MainWindow> (getApplicationName(), *controller, *services);
 
         if (restored)
         {
-            // The same as opening it from the library: the session comes back whether or not
-            // its console is plugged in today, on whatever device this Mac has.
-            services->holdMix (doc);
-            const auto err = services->openDevicesFor (doc);
-            services->applyPendingMix();
-            services->restoreSolo (doc, err);
-            dawEngine->setSession (doc.session);
-            dawEngine->setProject (doc.project);
+            // Exactly the same path as opening it from the library, so there is one way a
+            // session comes back: the document first, then whatever devices this Mac has.
+            services->openState (state);
             window->view().showPage (controller->getSession().inputs.empty() ? MainView::Page::Assign
                                                                              : MainView::Page::Tracks);
             const auto note = services->takeRecoveryNote();

@@ -291,3 +291,58 @@ Consequences worth remembering:
 Still open after this milestone: fades and crossfades, comping, moving clips between tracks, markers drawn in the
 ruler, count-in and metronome, processed-stem and stereo-master recording alongside the raw inputs, House Sound,
 drum reinforcement, third-party plugin hosting, and the React bridge spike.
+
+---
+
+## 11. The canonical session (2026-09-27)
+
+Persistence had been re-fixed four times in a week. The audit is `docs/SESSION-STATE.md`; the cause was that
+the code which assembled the session document lived in `app/Main.cpp`, which no test target compiles, and that
+it assembled it by hand from about fourteen getters plus a second, partial copy (`pending`) taken across every
+device change. This milestone removes the shape, not the symptoms.
+
+```
+UI  ·  Tune  ·  Mix Buddy  ·  macros  ·  scenes  ·  the timeline
+      │  every mutation                        every mutation bumps
+      ▼                                        MixController::touch()
+MixController  (session, kept mix, macros, scenes, reference, feeds, LIVE SAFE, strip history)
+DawEngine      (the timeline: tracks, clips, markers, loop)
+      │                                              │
+      │  captureSession()            applySession()  │        revision moved, then quiet for ~1 s
+      ▼                                              ▲        ────────────────────────────────▶
+   SessionState  ──  SessionStore (JSON, v5)  ──────┘                     the session file
+      │
+      │  compose() → publish() → TripleBuffer  (unchanged)
+      ▼
+MixEngine::process()
+```
+
+What changed, and why each one matters:
+
+- **`MixController::rebuild()`** builds the routing graph from the assignments and carries the kept mix across
+  it. It needs no device and no sample rate, because `RoutingGraph::build` and `startingPoint()` take neither.
+  `setSession()` calls it, so the mix always matches the assignments.
+- **`prepare()` builds the audio graph and nothing else.** It used to reset the mix, the macros, the tune
+  count, the scenes and the strip history, and `Main.cpp` pushed a held copy back afterwards to undo that.
+  Since only a device opening called it, the lifetime of the session's state was the lifetime of a device.
+  Now a session opened with the console unplugged has its whole mix, shows it, edits it and saves it.
+- **`SessionState` (`app/native/SessionState.h`) is the one owned model**, and the only thing `SessionStore`
+  serialises. `captureSession()` and `applySession()` are the only ways in and out, and both are in
+  `DLIVE_APP_SOURCES`, so both are tested. `hold()`, `pending` and `applyPendingMix()` are gone.
+- **Saving follows a revision.** Every change bumps `MixController::touch()`; `MainView`'s tick writes a second
+  after the revision stops moving. 39 hand-placed `saveSession()` calls became 3 (Save, Save As, and saving the
+  old session before replacing it), plus `touchSession()` where a page edits the timeline in place.
+- **A drum strip's sound is stored by name.** `replaceSound` keeps its released meaning - an index, 0..7 - and
+  a `SampleChoice` beside it carries family, name, built-in/user and relative path. The index is resolved from
+  the name at load; a sound that has gone is said in a sentence and the stage is switched off, never left
+  pointing at whatever has moved into that slot. The 8-per-family cap now says so too.
+- **LIVE SAFE's limits are stored**, and are armed *last* when a session opens: it bounds what a person may
+  move mid-service, not what a document contains. Arming it first meant a session saved under LIVE SAFE came
+  back with its macros pulled to the edge of the fence.
+- **`MixEngine::getStrip()` is bounds-safe.** Strip indices come from the session's graph, which is a step
+  ahead of the engine's whenever no device has re-prepared yet - including the whole time a session is open
+  with nothing plugged in. Past the end it reads an idle strip: silent meters, nothing allocated.
+
+`SessionStore::kVersion` is 5. Versions 1-4 open, and there is a test that downgrades the document this build
+writes to each of them and checks it comes back.
+

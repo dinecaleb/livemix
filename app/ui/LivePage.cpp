@@ -274,7 +274,6 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     {
         auto& daw = services.daw();
         daw.setLiveSafe (! daw.isLiveSafe());
-        services.saveSession();
         if (onLiveSafeChanged) onLiveSafeChanged();
         if (onToast) onToast (daw.isLiveSafe() ? "LIVE SAFE on. The sound is locked: re-routes and re-tunes are blocked."
                                                : "LIVE SAFE off. Re-routes and re-tunes are allowed again.");
@@ -295,7 +294,7 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         sceneKeeps[size_t (i)]->setFontPx (11.0f);
         sceneKeeps[size_t (i)]->setCaps (true);
         sceneKeeps[size_t (i)]->setTooltip ("Keep the mix as it is now under this name.");
-        sceneKeeps[size_t (i)]->onClick = [this, i] { controller.keepScene (i); services.saveSession(); refreshScenes(); };
+        sceneKeeps[size_t (i)]->onClick = [this, i] { controller.keepScene (i); refreshScenes(); };
         addAndMakeVisible (*sceneKeeps[size_t (i)]);
     }
     refreshScenes();

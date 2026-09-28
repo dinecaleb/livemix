@@ -103,7 +103,18 @@ public:
     }
 
     // Meters (any thread).
-    const ChannelProcessor& getStrip (int index) const noexcept { return strips[size_t (index)]->processor; }
+    //
+    // Strip indices come from the RoutingGraph, and the *session's* graph is a step ahead of
+    // the engine's whenever the assignments have changed and no device has re-prepared yet -
+    // including the whole time a session is open with nothing plugged in, when the engine has
+    // no strips at all. So an index past what is running reads an idle strip: silent meters,
+    // default options, nothing allocated. A page that draws a channel DLIVE is not yet
+    // playing draws it quiet, which is the truth, instead of reading past the end of a vector.
+    const ChannelProcessor& getStrip (int index) const noexcept
+    {
+        if (index < 0 || index >= numStrips) return idle;
+        return strips[size_t (index)]->processor;
+    }
     const ChannelProcessor& getBus (MixBus bus) const noexcept { return buses[size_t (bus)].processor; }
     ChannelProcessor& getBus (MixBus bus) noexcept { return buses[size_t (bus)].processor; }
     const FxChain& getFx (FxSlot slot) const noexcept { return fx[size_t (slot)].chain; }
@@ -166,6 +177,7 @@ private:
     RoutingGraph graph;
 
     std::vector<std::unique_ptr<Strip>> strips;
+    ChannelProcessor idle;              // never prepared, never processed: what getStrip() reads past the end
     std::array<Bus, int (MixBus::Count)> buses;
     std::array<Fx, int (FxSlot::Count)> fx;
     Monitor monitor;

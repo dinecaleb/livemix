@@ -34,6 +34,7 @@ set(DLIVE_APP_SOURCES
     native/OpenAiMixProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/Intelligence/AISettings.cpp
     ${CMAKE_SOURCE_DIR}/src/Intelligence/HttpJson.cpp
+    native/SessionState.cpp
     native/SessionStore.cpp
     native/InputMapStore.cpp
     native/ThemeStore.cpp

@@ -36,6 +36,11 @@ public:
     // LIVE SAFE is one switch with two halves: the timeline half lives on the Project (it is
     // saved with the session) and the mix half is the policy MixController enforces. This is
     // the one place both are set, so they can never disagree about whether the lock is on.
+    // The timeline changed. Same counter as the mix, because it is the same document: the host
+    // saves when the revision has moved and gone quiet. Pages that edit `getProject()` in place
+    // call this instead of asking for a save of their own.
+    void touch() { controller.touch(); }
+
     void setLiveSafe (bool on)
     {
         project.liveSafe = on;

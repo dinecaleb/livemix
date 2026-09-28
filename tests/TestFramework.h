@@ -29,6 +29,11 @@ namespace testfw
 #define REQUIRE(expr) \
     do { if (! (expr)) { testfw::reportFailure (__FILE__, __LINE__, "REQUIRE failed: " #expr); throw testfw::RequireFailed {}; } } while (0)
 
+// For a check inside a loop, where "CHECK failed: text.contains (...)" says nothing about
+// which of the eighty parameters was the one missing.
+#define CHECK_MESSAGE(expr, message) \
+    do { if (! (expr)) testfw::reportFailure (__FILE__, __LINE__, std::string ("CHECK failed: ") + (message)); } while (0)
+
 #define CHECK_NEAR(a, b, tol) \
     do { const double va_ = double (a), vb_ = double (b), vt_ = double (tol); \
          if (std::fabs (va_ - vb_) > vt_) testfw::reportFailure (__FILE__, __LINE__, \

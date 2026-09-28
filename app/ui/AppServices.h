@@ -69,6 +69,12 @@ public:
     virtual juce::String outputDisplayName() { return currentOutputDevice(); }
 
     // ---- the session document ----
+    // Something about the session changed. The host saves when the revision has moved and then
+    // gone quiet, so a page that edits the timeline in place says this and nothing else - it
+    // never decides when a write happens, or how. saveSession() below is now only for the
+    // moments the *user* asked to save (File > Save, Save As, before replacing the document).
+    virtual void touchSession() {}
+    virtual unsigned long long sessionRevision() { return 0; }
     virtual void saveSession() = 0;
     // Start over: clears the assignments, the timeline and the mix, keeping the device open.
     virtual void newSession() = 0;

@@ -472,7 +472,7 @@ int main (int argc, char** argv)
             d.session.name = seed.name;
             d.session.profile = seed.profile;
             d.session.purpose = seed.purpose;
-            d.inputDevice = "Dante Virtual Soundcard";
+            d.devices.consoleInput = "Dante Virtual Soundcard";
             d.tuneCount = 2;
             d.hasMix = true;
             const int counts[5] = { seed.drums, seed.bass, seed.music, seed.vocals, seed.speech };

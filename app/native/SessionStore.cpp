@@ -456,9 +456,10 @@ juce::var toVar (const Document& d)
     obj->setProperty ("delivery", int (d.session.delivery));   // how loud the finished mix should be
     obj->setProperty ("voicing", int (d.session.voicing));     // who the finished mix is for
     if (d.trackPanelWidth > 0) obj->setProperty ("trackPanelWidth", d.trackPanelWidth);
-    obj->setProperty ("inputDevice", d.inputDevice);
-    obj->setProperty ("outputDevice", d.outputDevice);
-    if (d.soloDevice.isNotEmpty()) obj->setProperty ("soloDevice", d.soloDevice);
+    // The devices the engineer chose, under the keys they have always had.
+    obj->setProperty ("inputDevice", d.devices.consoleInput);
+    obj->setProperty ("outputDevice", d.devices.broadcastOutput);
+    if (d.devices.soloOutput.isNotEmpty()) obj->setProperty ("soloDevice", d.devices.soloOutput);
     juce::Array<juce::var> inputs;
     for (const auto& in : d.session.inputs)
     {
@@ -503,6 +504,47 @@ juce::var toVar (const Document& d)
         feeds.add (juce::var (fo));
     }
     obj->setProperty ("outputs", feeds);
+
+    // LIVE SAFE's limits. Whether it is *on* lives on the project, which is its one authority;
+    // these are how far a single move may go while it is, and they used to go back to their
+    // defaults on every launch because nothing wrote them down.
+    {
+        auto* ls = new juce::DynamicObject();
+        ls->setProperty ("maxFaderStepDb", d.safety.maxFaderStepDb);
+        ls->setProperty ("maxMasterStepDb", d.safety.maxMasterStepDb);
+        ls->setProperty ("maxInputGainStepDb", d.safety.maxInputGainStepDb);
+        ls->setProperty ("maxPanStep", d.safety.maxPanStep);
+        ls->setProperty ("maxSendStepDb", d.safety.maxSendStepDb);
+        ls->setProperty ("maxAiFaderMoveDb", d.safety.maxAiFaderMoveDb);
+        ls->setProperty ("maxAiEqDeltaDb", d.safety.maxAiEqDeltaDb);
+        ls->setProperty ("maxAiMasterMoveDb", d.safety.maxAiMasterMoveDb);
+        ls->setProperty ("minMasterHeadroomDb", d.safety.minMasterHeadroomDb);
+        ls->setProperty ("maxMacroExcursion", d.safety.maxMacroExcursion);
+        obj->setProperty ("liveSafeLimits", juce::var (ls));
+    }
+
+    // WHICH SOUND EACH DRUM STRIP PLAYS, BY NAME. `replaceSound` inside the strip's chain is
+    // still the index the engine reads and still a released parameter ID; this is the identity
+    // it is resolved from, because the index means "the fourth kick I found today" and the
+    // name does not. Absent for a strip with no Sample stage, or none chosen. Parallel to the
+    // mix's strips.
+    {
+        juce::Array<juce::var> samples;
+        int last = -1;
+        for (int i = 0; i < kMaxStrips; ++i) if (d.samples[size_t (i)].set()) last = i;
+        for (int i = 0; i <= last; ++i)
+        {
+            const auto& c = d.samples[size_t (i)];
+            if (! c.set()) { samples.add (juce::var()); continue; }
+            auto* so = new juce::DynamicObject();
+            so->setProperty ("family", juce::String (c.family));
+            so->setProperty ("name", juce::String (c.name));
+            if (c.user) so->setProperty ("user", true);                              // absent = built-in
+            if (! c.path.empty()) so->setProperty ("path", juce::String (c.path));   // relative, for a user sound
+            samples.add (juce::var (so));
+        }
+        if (last >= 0) obj->setProperty ("samples", samples);
+    }
     return juce::var (obj);
 }
 
@@ -526,9 +568,9 @@ bool fromVar (const juce::var& v, Document& d)
     const int voicing = obj->hasProperty ("voicing") ? int (obj->getProperty ("voicing")) : 0;
     d.session.voicing = voicing > 0 && voicing < int (MasterVoicing::Count) ? MasterVoicing (voicing) : MasterVoicing::Neutral;
     d.trackPanelWidth = int (obj->getProperty ("trackPanelWidth"));
-    d.inputDevice = obj->getProperty ("inputDevice").toString();
-    d.outputDevice = obj->getProperty ("outputDevice").toString();
-    d.soloDevice = obj->getProperty ("soloDevice").toString();
+    d.devices.consoleInput = obj->getProperty ("inputDevice").toString();
+    d.devices.broadcastOutput = obj->getProperty ("outputDevice").toString();
+    d.devices.soloOutput = obj->getProperty ("soloDevice").toString();
     if (auto* inputs = obj->getProperty ("inputs").getArray())
         for (const auto& iv : *inputs)
         {
@@ -580,6 +622,36 @@ bool fromVar (const juce::var& v, Document& d)
         }
         if (n > 0) d.outputs.count = n;
     }
+    if (auto* ls = obj->getProperty ("liveSafeLimits").getDynamicObject())
+    {
+        // A field the file does not carry keeps its default, so a document from before the
+        // limits were stored opens with exactly the policy it ran under.
+        auto read = [ls] (const char* key, float& field, float lo, float hi)
+        {
+            if (ls->hasProperty (juce::Identifier (key)))
+                field = juce::jlimit (lo, hi, float (double (ls->getProperty (juce::Identifier (key)))));
+        };
+        read ("maxFaderStepDb", d.safety.maxFaderStepDb, 0.0f, 60.0f);
+        read ("maxMasterStepDb", d.safety.maxMasterStepDb, 0.0f, 60.0f);
+        read ("maxInputGainStepDb", d.safety.maxInputGainStepDb, 0.0f, 60.0f);
+        read ("maxPanStep", d.safety.maxPanStep, 0.0f, 2.0f);
+        read ("maxSendStepDb", d.safety.maxSendStepDb, 0.0f, 60.0f);
+        read ("maxAiFaderMoveDb", d.safety.maxAiFaderMoveDb, 0.0f, 12.0f);
+        read ("maxAiEqDeltaDb", d.safety.maxAiEqDeltaDb, 0.0f, 12.0f);
+        read ("maxAiMasterMoveDb", d.safety.maxAiMasterMoveDb, 0.0f, 12.0f);
+        read ("minMasterHeadroomDb", d.safety.minMasterHeadroomDb, 0.0f, 12.0f);
+        read ("maxMacroExcursion", d.safety.maxMacroExcursion, 0.0f, 50.0f);
+    }
+    if (auto* samples = obj->getProperty ("samples").getArray())
+        for (int i = 0; i < samples->size() && i < kMaxStrips; ++i)
+            if (auto* so = (*samples)[i].getDynamicObject())
+            {
+                auto& c = d.samples[size_t (i)];
+                c.family = so->getProperty ("family").toString().toStdString();
+                c.name = so->getProperty ("name").toString().toStdString();
+                c.user = so->hasProperty ("user") && bool (so->getProperty ("user"));
+                c.path = so->getProperty ("path").toString().toStdString();
+            }
     d.project.syncTracks (d.session);
     return true;
 }

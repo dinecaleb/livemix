@@ -35,7 +35,7 @@ public:
     // ---- Session (Setup) ----
     const MixSession& getSession() const noexcept { return session; }
     void setSession (const MixSession& s);            // audio must be stopped or reconfigure() called afterwards
-    void setSessionName (const std::string& name) { session.name = name; }
+    void setSessionName (const std::string& name) { session.name = name; touch(); }
     // Correcting what an input is called. A name is a label, not routing, so this does not
     // rebuild the graph: the kept mix, the plan, the listen and the timeline's clips all
     // survive it, and TRACKS, MIXER and the Inspector are renamed together because the
@@ -81,8 +81,37 @@ public:
     struct LoudnessMove { bool possible = false; float fromLufs = -120.0f, targetLufs = -23.0f, moveDb = 0.0f; std::string why; };
     LoudnessMove previewLoudnessMove() const;
 
+    // ---- THE SESSION'S OWN STATE: rebuilt from the assignments, with no device in sight ----
+    //
+    // rebuild() is what makes a DLIVE session a document rather than a side effect of an open
+    // audio device. It builds the routing graph from the assignments and carries the kept mix
+    // across it - every strip that survived keeps its chain, its gain, its fader and its sends,
+    // found by the same identity the timeline uses for its clips - and it needs neither a
+    // device nor a sample rate to do it (RoutingGraph::build and startingPoint() take neither).
+    //
+    // This used to live half in prepare() and half in app/Main.cpp, as a `pending` Document
+    // snapshotted before a device change and pushed back afterwards. That is why a session
+    // opened without its console had no mix, and why saving one wiped what was on disk.
+    // docs/SESSION-STATE.md has the whole story.
+    //
+    // setSession() calls this, so the mix always matches the assignments. It does not publish:
+    // the audio thread keeps running the graph it was prepared with until prepare() says
+    // otherwise, exactly as before.
+    void rebuild();
+    bool isBuilt() const noexcept { return built; }
+
+    // Put the document back to blank, then load a different one on top. A session opened from
+    // a file, or a new empty one, carries nothing across from whatever was loaded before: a
+    // different session is a different mix, and "carry the mix onto the new assignments" is
+    // exactly the wrong thing to do when the assignments belong to somebody else's Sunday.
+    // applySession() in SessionState.h is the only caller, and the only way in.
+    void resetDocument();
+
     // ---- Engine lifecycle (AudioHost calls these with the device stopped) ----
-    void prepare (double sampleRate, int maxBlockSize);   // builds the graph for the session, clears any plan
+    // Builds the *audio graph* for the session at this rate, and publishes. It never decides
+    // whether the session's state exists - rebuild() owns that - so opening a device no longer
+    // resets the mix, and closing one no longer loses it.
+    void prepare (double sampleRate, int maxBlockSize);
     // Does the engine have a graph it can run? This is what the audio callback asks before it
     // does anything, so it must mean exactly that - and in particular it must not go false
     // just because the *document* changed, or editing the assignments would silence the room.
@@ -90,15 +119,17 @@ public:
     // The document has been changed and the graph has not caught up yet. The mix keeps
     // playing the graph it has; a host calls prepare() when the user is ready for the change.
     bool needsReconfigure() const noexcept { return graphStale; }
-    // The session the running graph was built for. setSession() replaces the document before
-    // the device has been stopped and the graph rebuilt, so this - not getSession() - is what
-    // the mix that is currently loaded belongs to, and what carrying it across a rebuild has
-    // to be read against.
-    const MixSession& getPreparedSession() const noexcept { return preparedSession; }
+    // The session `graph` and `kept` were built for. setSession() replaces the document and
+    // rebuilds in one breath, so these agree again immediately; the name is from when "prepared"
+    // could only mean "the session a device happened to be opened for".
+    const MixSession& getPreparedSession() const noexcept { return builtSession; }
     double getSampleRate() const noexcept { return sampleRate; }
     int getBlockSize() const noexcept { return blockSize; }
     const MixEngine& getEngine() const noexcept { return engine; }
-    const RoutingGraph& getGraph() const noexcept { return engine.getGraph(); }
+    // The session's graph, which is the one the UI and the planner mean. The engine holds an
+    // identical one built from the same pure function; it is a step behind only between an
+    // assignment change and the next prepare(), and MixEngine::getStrip() is safe across that.
+    const RoutingGraph& getGraph() const noexcept { return graph; }
     // Sample replacement: the sounds the drum strips can play (app/native/SampleLibrary owns
     // them for the app's lifetime). Message thread; the engine reads a pointer, never a copy.
     // Publishing a new table (the engineer imported a sound) re-applies the mix so every
@@ -501,8 +532,19 @@ public:
     int getMixHealthPercent() const;
     std::vector<std::string> getMixHealthNotes() const;
 
+    // ---- THE SESSION'S REVISION: what saving follows ----
+    //
+    // Every change to anything a SessionState carries bumps this. The host saves when it has
+    // moved and then gone quiet, so "was this saved?" is a question about the document rather
+    // than about whether thirty-nine call sites all remembered to ask. A bump that is missed
+    // delays a save; the next one writes the whole document, so it catches up. A save that was
+    // never called did not.
+    unsigned long long getRevision() const noexcept { return revision; }
+    // Something about the session changed. Safe to call twice, cheap, and the only thing the
+    // UI has to remember for a change of its own (a timeline edit) to be written down.
+    void touch() noexcept { ++revision; }
+
     std::function<void (const std::string&)> onMessage;   // one-line notices for a toast
-    std::function<void()> onMixChanged;                   // the kept mix, the macros or an Advanced edit changed: worth saving
 
 private:
     void publish();
@@ -510,7 +552,11 @@ private:
     void startListening (const ListenSettings&, int strip, int bus = -1);   // -1, -1 = the whole mix
 
     MixSession session;
-    MixSession preparedSession;         // what the running graph was built for
+    MixSession builtSession;            // what `graph` and `kept` below were built for
+    RoutingGraph graph;                 // built by rebuild(), from the assignments alone
+    bool built = false;                 // rebuild() has run: there is a mix, device or no device
+    bool stateStale = true;             // the session has moved ahead of `graph` and `kept`
+    unsigned long long revision = 1;    // bumped by touch(): what the host's autosave follows
     MixEngine engine;
     MixCapture capture;
     // The last complete listen, kept so a reference (or a re-plan) can work from what DLIVE
@@ -570,6 +616,7 @@ private:
     std::array<MixScene, kMixScenes> scenes;
     std::vector<std::string> inputNamesNow() const;
     void recordStripTune (int strip, const std::string& what, const StripParameters& before, const StripParameters& after);
+    std::array<std::vector<StripTuneRecord>, kMaxStrips> carriedStripHistory (const MixSession& previous) const;
 
     std::vector<ChatTurn> chat;
     bool chatRun = false;               // this live run came from the chat, not from TUNE LIVE MIX

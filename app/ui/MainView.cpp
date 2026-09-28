@@ -772,7 +772,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     tracksPage->onPanelWidthChanged = [this]
     {
         services.setTrackPanelWidth (tracksPage->panelWidth());
-        services.saveSession();
+        services.touchSession();
     };
     tracksPage->onTimelineChanged = [this] { updateChrome(); };
     tracksPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
@@ -806,7 +806,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     transportBar->onTimelineChanged = [this] { timelineChanged(); };
 
     controller.onMessage = [this] (const std::string& m) { showToast (m); };
-    controller.onMixChanged = [this] { requestSave(); };
+    seenRevision = services.sessionRevision();
 
     setWantsKeyboardFocus (true);
     showPage (! services.listSessions().isEmpty() ? Page::Sessions : Page::Device);
@@ -828,7 +828,7 @@ MainView::~MainView()
     channelSheet.reset();
     chatSheet.reset();
     controller.onMessage = nullptr;
-    controller.onMixChanged = nullptr;
+
     setLookAndFeel (nullptr);
     juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
 }
@@ -838,7 +838,7 @@ juce::MenuBarModel* MainView::getMenuModel() { return menu.get(); }
 void MainView::enterSession()
 {
     services.reconfigure();
-    services.saveSession();
+    services.touchSession();
     advancedPage->rebuild();
     mixerPage->rebuild();
     if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
@@ -849,7 +849,7 @@ void MainView::enterSession()
 void MainView::timelineChanged()
 {
     tracksPage->rebuild();
-    services.saveSession();
+    services.touchSession();
     updateChrome();
 }
 
@@ -1491,7 +1491,7 @@ void MainView::applyInputMapping (const juce::File& file)
             if (r != 1) return;
             controller.setSession (session);
             services.reconfigure();
-            services.saveSession();
+            services.touchSession();
             assignPage->refresh();
             updateChrome();
             resized();
@@ -1503,7 +1503,7 @@ void MainView::applyInputMapping (const juce::File& file)
 
     controller.setSession (result.session);
     services.reconfigure();
-    services.saveSession();
+    services.touchSession();
     assignPage->refresh();
     updateChrome();
     resized();
@@ -1573,7 +1573,6 @@ void MainView::handleCommand (int id)
             auto& project = services.daw().getProject();
             for (auto& t : project.tracks) t.armed = (id == 300);
             services.daw().refresh();
-            services.saveSession();
             tracksPage->repaint();
             showToast (id == 300 ? "Every track is set to record." : "No tracks are set to record.");
             break;
@@ -1586,7 +1585,6 @@ void MainView::handleCommand (int id)
             auto& project = services.daw().getProject();
             for (auto& t : project.tracks) t.monitor = mode;
             services.daw().refresh();
-            services.saveSession();
             tracksPage->repaint();
             showToast (juce::String ("Monitoring: ") + monitorModeName (mode) + " on every track.");
             break;
@@ -1716,7 +1714,6 @@ void MainView::handleCommand (int id)
             daw.setLiveSafe (! daw.isLiveSafe());
             livePage->rebuild();
             updateChrome();
-            services.saveSession();
             showToast (daw.isLiveSafe()
                            ? juce::String ("LIVE SAFE on. The sound is locked: re-routes and re-tunes are blocked. ") + liveSafe::allowedSummary()
                            : juce::String ("LIVE SAFE off. Re-routes and re-tunes are allowed again."));
@@ -1968,6 +1965,14 @@ void MainView::timerCallback()
     if (chainFoot->isVisible() && slowTicks % 3 == 0) updateChainFoot();
 
     if (toastTicks > 0 && --toastTicks == 0) toast->setVisible (false);
+    // The session is saved because it changed, wherever the change came from - a fader, a clip,
+    // a scene, a device, the assignments - and a second after the last one, so a knob drag is
+    // one write rather than thirty.
+    if (const auto revision = services.sessionRevision(); revision != seenRevision)
+    {
+        seenRevision = revision;
+        saveTicks = 30;
+    }
     if (saveTicks > 0 && --saveTicks == 0) services.saveSession();
 
     if (tuningLiveWasOn != controller.isTuningLive()) { tuningLiveWasOn = controller.isTuningLive(); updateChrome(); }

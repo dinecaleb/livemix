@@ -1,6 +1,8 @@
 #pragma once
 #include <juce_core/juce_core.h>
+#include <array>
 #include <memory>
+#include <string>
 #include <vector>
 #include "DSP/SampleBank.h"
 
@@ -22,13 +24,34 @@ class SampleLibrary
 public:
     SampleLibrary() = default;
 
+    // One loaded sound, in the slot order the engine's `replaceSound` indexes. `user` and
+    // `path` are what makes a slot identifiable across a reload: the index moves whenever the
+    // folders change, the name does not. See SampleChoice in SessionState.h.
+    struct Sound
+    {
+        std::string name;        // the file (or folder) name, without its extension
+        bool user = false;       // from ~/Music/DLIVE/Samples rather than the bundle
+        std::string path;        // relative to that folder ("Snare/My Snare.wav"); empty for a placeholder
+    };
+
     // Decodes everything it finds. Message thread; touches files and allocates.
     void load();
 
     const SampleBankTable* table() const noexcept { return &banks; }
     juce::StringArray soundNames (RoleFamily family) const;
     int numSounds (RoleFamily family) const;
+    // In slot order, so `sounds(family)[i]` is what `replaceSound == i` plays.
+    const std::vector<Sound>& sounds (RoleFamily family) const;
+    // The slot that holds this sound now, or -1 when it is not loaded. A user sound is matched
+    // on its relative path when it has one (two folders may hold a "Kick" each) and on its
+    // name otherwise; a built-in is matched on its name, which is its identity in the bundle.
+    int slotFor (RoleFamily family, const std::string& name, bool user, const std::string& path = {}) const;
+    // True when the family is full, so the next sound found would be dropped.
+    bool familyFull (RoleFamily family) const;
     juce::StringArray whereLoadedFrom() const { return sources; }   // for the log and the tests
+    // "The kick folder holds 11 sounds; DLIVE loads the first 8." One line per family that
+    // overflowed, so the limit is said out loud rather than silently applied.
+    juce::StringArray whatWasLeftOut() const { return overflowed; }
 
     // Where the built-in bank is: the bundle's Resources, else the source folder the build was
     // configured from. Empty when neither exists (a test on a machine without the repo).
@@ -42,8 +65,16 @@ private:
 
     std::vector<std::unique_ptr<SampleBank>> owned;
     SampleBankTable banks;
+    std::array<std::vector<Sound>, int (RoleFamily::Count)> catalogue;
     std::array<int, int (RoleFamily::Count)> counts {};
     juce::StringArray sources;
+    juce::StringArray overflowed;   // the families whose folders hold more than kSounds
 };
+
+// The folder word a family's sounds are filed under, which is what a SessionState stores to
+// name a sound independently of its slot: "kick", "snare", "toms", or empty for a family with
+// no Sample stage. And the way back.
+const char* sampleFamilyFolder (RoleFamily family) noexcept;
+RoleFamily sampleFamilyFromFolder (const std::string& folder) noexcept;
 
 } // namespace livemix

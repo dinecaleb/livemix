@@ -554,7 +554,46 @@ out of `Main.cpp` into `DLIVE_APP_SOURCES`**, or none of the rest can be written
 
 ---
 
-## 7. What this document commits to
+## 7. What was built (2026-09-27)
+
+Step 2 of the phase, all of §5 except where noted. `dlive_app_tests` 90/90, `livemix_tests` 204/204, every
+product builds, the UI snapshots render unchanged.
+
+| §5 | Built | Where |
+| --- | --- | --- |
+| 5.1 One owned model | yes | `app/native/SessionState.h`; `SessionStore` serialises nothing else. `SessionStore::Document` is an alias for it |
+| 5.1 One capture, one apply | yes | `captureSession()` / `applySession()` in `SessionState.cpp`, both in `DLIVE_APP_SOURCES` and therefore tested. `hold()`, `pending`, `applyPendingMix()` and `holdMix()` deleted |
+| 5.2 Splitting `prepare()` | yes | `MixController::rebuild()` (pure, no device, no rate) and `prepare()` (the audio graph only). `resetDocument()` is the blank slate a different document is loaded onto |
+| 5.3 Saving by revision | yes | `MixController::touch()` / `getRevision()`; `MainView`'s tick writes a second after the revision stops moving. 39 `saveSession()` calls became 3 |
+| 5.4 Sample identity | yes | `SampleChoice` + `SampleLibrary::slotFor()`; `readSampleChoices` / `resolveSampleChoices`. The cap says so now (`whatWasLeftOut()`) |
+| 5.5 Device state, modelled | **no** | `DeviceChoice` is stored, but the `DeviceStage` enum and the output-only fallback on a refused input are Phase 2 work with the hot-plug listener |
+| 5.6 Version 5 + migration | yes | `kVersion = 5`; a test downgrades this build's document to 1, 2, 3 and 4 and opens each |
+| 5.7 Realtime invariants | yes | Nothing new on the audio thread; `compose()` → `publish()` → `TripleBuffer` untouched. `MixEngine::getStrip()` gained a bounds check, which it needed the moment the UI could draw a strip with no device open |
+
+Two things were found while building it that were not in the audit:
+
+- **LIVE SAFE was rewriting the document it protects.** Arming it before restoring a session clamped the
+  restored macros to `50 ± maxMacroExcursion` and could refuse the stored output feeds. `applySession()` arms
+  it last: it bounds what a *person* may move mid-service, not what a document contains.
+- **`MixEngine::getStrip()` read past the end of its vector** as soon as the session's graph could be wider
+  than the engine's - which is the normal state of a session opened with nothing plugged in.
+
+Still open from this phase:
+
+- **The timeline has no choke point.** `DawEngine::getProject()` hands out a mutable reference and
+  `TracksPage` edits it in place in about a dozen places, so those paths call `services.touchSession()` by
+  hand. `refresh()`, `setProject()`, `setLoop()` and `setSession()` bump on their own. Making `Project`
+  mutation go through `DawEngine` belongs with the TracksPage work in Phase 2. A missed bump now delays a
+  save rather than losing one - the next bump writes the whole document - which a missed `saveSession()` did
+  not.
+- **Step 3** (autosave on a background thread, the crash-recovery sidecar and marker, persistent mix history)
+  and **step 4** (device states, output-only on a refused input) are not started. The serialiser they need is
+  in place and takes one `SessionState`.
+- The microphone-permission question in §4 still needs the runtime experiment described there.
+
+---
+
+## 8. What this document commits to
 
 - `SessionState` is the one owned model; `SessionStore` serialises nothing else.
 - `prepare()` builds a graph. It never decides whether the session exists.

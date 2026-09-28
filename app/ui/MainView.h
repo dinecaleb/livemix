@@ -53,7 +53,9 @@ public:
         return p == Page::Sessions || p == Page::Device || p == Page::Assign || p == Page::Purpose;
     }
     void showToast (const juce::String& text);
-    void requestSave() { saveTicks = 30; }   // saved a second after the last change
+    // Saving follows the document's revision, not a call site: the tick notices it has moved and
+    // writes a second after it stops moving. docs/SESSION-STATE.md, §5.3.
+    unsigned long long seenRevision = 0;
 
     // The macOS menu bar. The application attaches it; the headless snapshot tool does not.
     juce::MenuBarModel* getMenuModel();

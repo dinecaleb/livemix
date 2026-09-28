@@ -1,70 +1,35 @@
 #pragma once
 #include <array>
 #include <juce_core/juce_core.h>
-#include "Mix/MixSession.h"
-#include "Mix/MixParameters.h"
-#include "Mix/MixMacros.h"
-#include "Mix/ReferenceMix.h"
-#include "Mix/OutputFeeds.h"
-#include "MixHistory.h"
-#include "Project.h"
+#include "SessionState.h"
 
 namespace livemix
 {
 
-// Local-first, versioned JSON for one DLIVE session: the device, the assignments,
-// purpose and sound, the five macros, the kept mix (every strip, bus and return) and the
-// timeline (tracks, takes, markers). Sonic profiles and targets are code data, never
-// stored here. House Sound (targets and preferences rather than frozen values) will be a
-// separate, later document.
+// Local-first, versioned JSON for one DLIVE session. The session itself is SessionState
+// (SessionState.h) - the one owned model - and this file does nothing but write it down and
+// read it back. Sonic profiles and targets are code data, never stored here. House Sound
+// (targets and preferences rather than frozen values) will be a separate, later document.
 //
 // A session is a folder, so the recordings live beside the document:
 //   ~/Music/DLIVE/Sunday Service/Sunday Service.dlive.json
 //   ~/Music/DLIVE/Sunday Service/Audio Files/Kick_001.wav ...
-// Version 1 documents (a single file, no timeline) still open.
+// Every earlier version still opens; see kVersion.
 namespace SessionStore
 {
     // 3 added the SPEECH group bus between VOCALS and MASTER; 4 added AMBIENCE the same way
     // (and with it the monitor / solo bus, which is new state rather than a moved index).
-    // Every earlier version still opens: busFromStoredIndex remaps whatever layout it finds.
-    inline constexpr int kVersion = 4;
+    // 5 is the canonical session: the same mix, plus the LIVE SAFE limits, which used to go
+    // back to their defaults on every launch, and a name for each drum strip's sound, so a
+    // reopened session plays the sound it was given rather than whatever now sits in that
+    // slot. Every earlier version still opens: busFromStoredIndex remaps whatever layout it
+    // finds, and a sample with no name stored is resolved from its index against the library
+    // as it is at load time.
+    inline constexpr int kVersion = 5;
 
-    struct Document
-    {
-        MixSession session;
-        Project project;            // timeline: tracks, clips, markers, loop
-        juce::String inputDevice, outputDevice;
-        // The device solo goes to, when one was chosen (empty = solo has nowhere to go). Stored as the
-        // device the user picked, never the combined device DLIVE built around it: that one is rebuilt
-        // on opening, so a session survives a Mac that lost it.
-        juce::String soloDevice;
-        MixMacroValues macros;
-        bool hasMix = false;
-        MixParameters mix;          // the kept mix (without macros); valid when hasMix
-        OutputFeeds outputs;        // where the sound leaves the device (monitoring, not mix)
-        int tuneCount = 0;
-        // The track history: every tune and hand edit that landed on each channel, as the
-        // strip before and after, so the Inspector can show what changed and put an earlier
-        // setting back on Monday as it could on Sunday. Empty until something is tuned.
-        std::vector<StripTuneRecord> history;
-        // The scenes: the whole mix kept for the band, the pastor, the choir - four slots,
-        // recalled in one press on LIVE. Empty slots are saved by name only.
-        std::vector<MixScene> scenes;
-        // The last TUNE LIVE MIX run, as a record: what it intended, what it built and what
-        // it refused. Reading only - the mix itself is in `mix`, so opening yesterday's
-        // session sounds exactly as it did without contacting any provider, ever. Null when
-        // no live run has been made.
-        juce::var tuneLive;
-        // REFERENCE MIX: the finished recording this session is aimed at, already measured.
-        // The measurement is what is stored, not the file, so reopening a service a year later
-        // still knows what it was aimed at even if the song has been moved off the machine.
-        ReferenceProfile reference;
-        // How wide the TRACKS channel panel was left. A layout preference rather than part of
-        // the mix, stored with the session for the same reason a track's row height is: an
-        // engineer sets it once for a room full of long channel names and expects it back.
-        // 0 = never set, so the page uses its own default.
-        int trackPanelWidth = 0;
-    };
+    // The old name for SessionState, kept because it reads well at the call sites that mean
+    // "the thing on disk".
+    using Document = SessionState;
 
     struct Listing
     {

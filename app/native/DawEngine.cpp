@@ -81,6 +81,9 @@ void DawEngine::rebuildPlayer()
 
 void DawEngine::refresh()
 {
+    // Everything that changes the timeline republishes through here - clips, arming, monitoring,
+    // the loop - so this is the one place that has to say "the document moved".
+    touch();
     if (clipsDirty && prepared) rebuildPlayer();
 
     auto& table = routeMailbox.beginWrite();
