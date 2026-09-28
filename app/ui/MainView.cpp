@@ -44,7 +44,7 @@ public:
         Dine::fillRounded (g, r, refuse ? Dine::refuse : Dine::control, Dine::Radius::card);
         g.setColour (refuse ? Dine::warn : Dine::ink);
         g.setFont (Dine::text (13.0f));
-        g.drawFittedText (text, getLocalBounds().reduced (18, 10), juce::Justification::centredLeft, 4, 1.0f);
+        Dine::drawFittedText (g, text, getLocalBounds().reduced (18, 10), juce::Justification::centredLeft, 4, 1.0f);
     }
 private:
     juce::String text;
@@ -89,7 +89,7 @@ public:
         else    Dine::fillRounded (g, r, down ? Dine::controlOn : over ? Dine::controlHot : Dine::control, Dine::Radius::control);
         g.setColour (on ? Dine::onAccent : over ? Dine::ink : Dine::ink2);
         g.setFont (Dine::caps (fontPx, track));
-        g.drawText (label(), getLocalBounds(), juce::Justification::centred);
+        Dine::drawText (g, label(), getLocalBounds(), juce::Justification::centred);
     }
 
 private:
@@ -160,7 +160,7 @@ public:
         r.removeFromLeft (4);
         g.setColour (Dine::ink3);
         g.setFont (Dine::Type::bodySmall());
-        g.drawText (words, r, juce::Justification::centredLeft, true);
+        Dine::drawText (g, words, r, juce::Justification::centredLeft, true);
     }
 
 private:
@@ -203,7 +203,7 @@ public:
         auto inner = getLocalBounds().reduced (16, 0).withTrimmedRight (got.getWidth() + never.getWidth() + 30);
         g.setColour (Dine::ink2);
         g.setFont (Dine::Type::body());
-        g.drawText (text, inner, juce::Justification::centredLeft, true);
+        Dine::drawText (g, text, inner, juce::Justification::centredLeft, true);
     }
 
     void resized() override
@@ -266,12 +266,12 @@ public:
         g.setFont (Dine::Type::labelControl());
         const auto label = text();
         const int labelW = Dine::textWidth (Dine::Type::labelControl(), label);
-        g.drawText (label, inner.removeFromLeft (labelW), juce::Justification::centredLeft);
+        Dine::drawText (g, label, inner.removeFromLeft (labelW), juce::Justification::centredLeft);
 
         inner.removeFromLeft (14);
         clearArea = inner;
         g.setColour (Dine::onHot.withAlpha (overClear ? 1.0f : 0.8f));
-        g.drawText (juce::String (Glyph::cross()) + "  CLEAR ALL", inner, juce::Justification::centredLeft);
+        Dine::drawText (g, juce::String (Glyph::cross()) + "  CLEAR ALL", inner, juce::Justification::centredLeft);
     }
 
     void mouseMove (const juce::MouseEvent& e) override
@@ -324,7 +324,7 @@ public:
         if (over || down) Dine::fillRounded (g, r, down ? Dine::fill : Dine::fillSoft, Dine::Radius::chip);
         g.setColour (over || down ? Dine::ink : Dine::ink2);
         g.setFont (Dine::Type::body());
-        g.drawText (name, getLocalBounds().reduced (12, 0), juce::Justification::centredLeft, true);
+        Dine::drawText (g, name, getLocalBounds().reduced (12, 0), juce::Justification::centredLeft, true);
     }
 
 private:
@@ -372,7 +372,7 @@ public:
                      : on || over ? Dine::ink
                      : Dine::ink3);
         g.setFont (Dine::Type::labelTab());
-        g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
+        Dine::drawText (g, getButtonText(), getLocalBounds(), juce::Justification::centred);
     }
 
 private:
@@ -471,11 +471,11 @@ private:
         auto area = r.removeFromLeft (w).reduced (14, 0);
         g.setColour (Dine::ink3);
         g.setFont (labelFont);
-        g.drawText (label.toUpperCase(), area.removeFromLeft (Dine::textWidth (labelFont, label.toUpperCase())), juce::Justification::centredLeft);
+        Dine::drawText (g, label.toUpperCase(), area.removeFromLeft (Dine::textWidth (labelFont, label.toUpperCase())), juce::Justification::centredLeft);
         area.removeFromLeft (8);
         g.setColour (ink);
         g.setFont (valueFont);
-        g.drawText (value, area, juce::Justification::centredLeft);
+        Dine::drawText (g, value, area, juce::Justification::centredLeft);
     }
 
     struct Look
@@ -599,7 +599,7 @@ public:
         {
             g.setColour (Dine::ink4);
             g.setFont (Dine::caps (9.5f, 0.12f));
-            g.drawText (c.second, c.first, juce::Justification::bottomLeft);
+            Dine::drawText (g, c.second, c.first, juce::Justification::bottomLeft);
         }
 
         // the device
@@ -607,7 +607,7 @@ public:
         foot.removeFromBottom (kChangeH + 10);          // the button lays itself out down there
         g.setColour (Dine::ink4);
         g.setFont (Dine::Type::labelSection());
-        g.drawText ("AUDIO DEVICE", foot.removeFromTop (12), juce::Justification::bottomLeft);
+        Dine::drawText (g, "AUDIO DEVICE", foot.removeFromTop (12), juce::Justification::bottomLeft);
         foot.removeFromTop (6);
         const bool running = services.isAudioRunning();
         auto line = foot.removeFromTop (16);
@@ -615,21 +615,21 @@ public:
         g.fillEllipse (line.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat());
         line.removeFromLeft (7);
         g.setFont (Dine::text (11.5f, 500));
-        g.drawText (footState, line, juce::Justification::centredLeft, true);
+        Dine::drawText (g, footState, line, juce::Justification::centredLeft, true);
         foot.removeFromTop (3);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (11.5f));
-        g.drawText (footName, foot.removeFromTop (16), juce::Justification::centredLeft, true);
+        Dine::drawText (g, footName, foot.removeFromTop (16), juce::Justification::centredLeft, true);
         foot.removeFromTop (2);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (10.0f));
-        g.drawText (footSpec, foot.removeFromTop (14), juce::Justification::centredLeft, true);
+        Dine::drawText (g, footSpec, foot.removeFromTop (14), juce::Justification::centredLeft, true);
         if (footXruns > 0)
         {
             foot.removeFromTop (3);
             g.setColour (Dine::warn);
             g.setFont (Dine::text (11.0f));
-            g.drawText (juce::String (footXruns) + " dropped buffers", foot.removeFromTop (14), juce::Justification::centredLeft, true);
+            Dine::drawText (g, juce::String (footXruns) + " dropped buffers", foot.removeFromTop (14), juce::Justification::centredLeft, true);
         }
     }
 
@@ -2761,7 +2761,7 @@ void MainView::paint (juce::Graphics& g)
         g.setColour (Dine::accent);
         g.setFont (wordmarkFont());
         cell.removeFromLeft (26 + 14);
-        g.drawText ("DLIVE", cell.removeFromLeft (wordmarkWidth()), juce::Justification::centredLeft);
+        Dine::drawText (g, "DLIVE", cell.removeFromLeft (wordmarkWidth()), juce::Justification::centredLeft);
         // The counts end where the buttons begin - measured from where the buttons actually are,
         // so the two can never be drawn over each other whatever widened one of them.
         for (juce::Component* button : { static_cast<juce::Component*> (chatButton.get()),
@@ -2769,7 +2769,7 @@ void MainView::paint (juce::Graphics& g)
             if (button->isVisible()) cell.setRight (juce::jmin (cell.getRight(), button->getX() - 14));
         g.setColour (Dine::ink3);
         g.setFont (Dine::Type::body());
-        g.drawText (counts, cell, juce::Justification::centredRight, true);
+        Dine::drawText (g, counts, cell, juce::Justification::centredRight, true);
 
         // The divider that sets ROUTING apart from the five mixing workspaces.
         if (tabs[0] != nullptr && tabs[1] != nullptr && tabs[0]->isVisible())

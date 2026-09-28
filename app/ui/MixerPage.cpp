@@ -483,7 +483,7 @@ public:
         {
             g.setColour (Dine::ink2);
             g.setFont (Dine::Type::labelStrip());
-            g.drawText ("MASTER", col.name, juce::Justification::centred);
+            Dine::drawText (g, "MASTER", col.name, juce::Justification::centred);
         }
         else
         {
@@ -491,7 +491,7 @@ public:
             g.setColour (mute ? Dine::ink3 : Dine::ink);
             g.setFont (Dine::text (12.0f, selected ? 600 : 500));
             auto head = col.name.withTrimmedRight (markW);
-            g.drawText (name, head, juce::Justification::centredLeft, true);
+            Dine::drawText (g, name, head, juce::Justification::centredLeft, true);
             if (mute)
             {
                 g.setColour (Dine::ink3);
@@ -502,7 +502,7 @@ public:
 
             g.setColour (Dine::ink4);
             g.setFont (Dine::Type::monoMeter());
-            g.drawText (inputText, col.input, juce::Justification::centredLeft, true);
+            Dine::drawText (g, inputText, col.input, juce::Justification::centredLeft, true);
             // The tuned lamp: DLIVE has been through this channel. Teal, like everything it did.
             if (tuned)
             {
@@ -519,7 +519,7 @@ public:
             const bool bad = chip.isNotEmpty() && advice.level != MixController::InputAdvice::Level::Healthy;
             g.setColour (bad ? gainAdviceColour (advice.level) : Dine::ink4);
             g.setFont (Dine::Type::monoMeter());
-            g.drawText (bad ? chip : trimText, col.trim, juce::Justification::centredLeft, true);
+            Dine::drawText (g, bad ? chip : trimText, col.trim, juce::Justification::centredLeft, true);
         }
 
         // ---- the master's loudness
@@ -531,10 +531,10 @@ public:
                 auto line = block.removeFromTop (18);
                 g.setColour (Dine::ink3);
                 g.setFont (Dine::Type::monoSmall());
-                g.drawText (k, line, juce::Justification::centredLeft);
+                Dine::drawText (g, k, line, juce::Justification::centredLeft);
                 g.setColour (c);
                 g.setFont (Dine::Type::monoValue());
-                g.drawText (v, line, juce::Justification::centredRight);
+                Dine::drawText (g, v, line, juce::Justification::centredRight);
             };
             row ("LUFS-I", integratedText, Dine::ink);
             row ("Short", shortTermText, Dine::ink);
@@ -560,7 +560,7 @@ public:
                 }
                 g.setColour (used ? Dine::ink2 : Dine::ink4);
                 g.setFont (Dine::Type::labelMicro());
-                g.drawText (used ? insertList[i].label.toUpperCase() : juce::String (Glyph::dash()),
+                Dine::drawText (g, used ? insertList[i].label.toUpperCase() : juce::String (Glyph::dash()),
                             area.withTrimmedLeft (7), juce::Justification::centredLeft, true);
             }
         }
@@ -573,7 +573,7 @@ public:
                 const bool has = i < sendList.size();
                 g.setColour (Dine::ink4);
                 g.setFont (Dine::Type::labelMicro());
-                g.drawText (has ? sendList[i].label.substring (0, 1).toUpperCase() : juce::String (Glyph::dash()),
+                Dine::drawText (g, has ? sendList[i].label.substring (0, 1).toUpperCase() : juce::String (Glyph::dash()),
                             col.sendLabels[i], juce::Justification::centredLeft);
                 const auto track = col.sendTracks[i].toFloat();
                 Dine::fillRounded (g, track, Dine::well, 2.0f);
@@ -592,7 +592,7 @@ public:
             const auto text = kind == Kind::Channel ? panText (pan.getValue()) : juce::String (Glyph::dash());
             g.setColour (text == "C" || kind != Kind::Channel ? Dine::ink4 : Dine::ink2);
             g.setFont (Dine::Type::monoSmall());
-            g.drawText (text, col.panRead, juce::Justification::centred);
+            Dine::drawText (g, text, col.panRead, juce::Justification::centred);
         }
 
         // ---- the scale down the left of the throw, at the design's seven stops
@@ -604,7 +604,7 @@ public:
                 const int y = col.fader.getY() + juce::roundToInt (float (col.fader.getHeight()) * stop.at);
                 auto line = juce::Rectangle<int> (col.scale.getX(), y - 5, col.scale.getWidth(), 10);
                 g.setColour (Dine::ink4);
-                g.drawText (stop.label, line.withTrimmedRight (5), juce::Justification::centredRight);
+                Dine::drawText (g, stop.label, line.withTrimmedRight (5), juce::Justification::centredRight);
                 g.setColour (Dine::hairStrong);
                 g.fillRect (float (col.scale.getRight() - 4), float (y), 3.0f, 1.0f);
             }
@@ -634,12 +634,12 @@ public:
         // ---- the fader's number, and the loudest this strip has been
         g.setColour (mute ? Dine::ink4 : Dine::ink);
         g.setFont (Dine::Type::monoValue());
-        g.drawText (levelText, col.level, juce::Justification::centred);
+        Dine::drawText (g, levelText, col.level, juce::Justification::centred);
         if (col.hasPeak)
         {
             g.setColour (Dine::ink4);
             g.setFont (Dine::Type::monoSmall());
-            g.drawText (peakText, col.peak, juce::Justification::centred);
+            Dine::drawText (g, peakText, col.peak, juce::Justification::centred);
         }
 
         // ---- the plate: where this strip ends up, on a tint of that group's own colour
@@ -649,7 +649,7 @@ public:
             Dine::fillRounded (g, col.plate.toFloat(), c.withAlpha (mute ? 0.10f : 0.18f), Dine::Radius::chip);
             g.setColour (c.withAlpha (mute ? 0.5f : 1.0f));
             g.setFont (Dine::Type::labelMicro());
-            g.drawText (outText, col.plate, juce::Justification::centred, true);
+            Dine::drawText (g, outText, col.plate, juce::Justification::centred, true);
         }
     }
 
@@ -669,7 +669,7 @@ public:
         inner.removeFromLeft (12);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (11.0f, 500));
-        g.drawText (numberText, inner.removeFromLeft (24), juce::Justification::centredLeft);
+        Dine::drawText (g, numberText, inner.removeFromLeft (24), juce::Justification::centredLeft);
         inner.removeFromLeft (12);
         auto nameCell = inner.removeFromLeft (132);
         if (link != 0)
@@ -680,7 +680,7 @@ public:
         }
         g.setColour (mute ? Dine::ink3 : Dine::ink);
         g.setFont (Dine::text (12.5f, selected ? 600 : 500));
-        g.drawText (name, nameCell, juce::Justification::centredLeft, true);
+        Dine::drawText (g, name, nameCell, juce::Justification::centredLeft, true);
         if (mute)
         {
             const int w = juce::jmin (nameCell.getWidth(), Dine::textWidth (Dine::text (12.5f, 500), name));
@@ -697,19 +697,19 @@ public:
         {
             g.setColour (Dine::ink3);
             g.setFont (Dine::mono (10.5f, 500));
-            g.drawText (integratedText + " LUFS", gainCell, juce::Justification::centredLeft);
+            Dine::drawText (g, integratedText + " LUFS", gainCell, juce::Justification::centredLeft);
         }
 
         // level and pan readouts beside their controls
         g.setColour (mute ? Dine::ink4 : Dine::ink2);
         g.setFont (Dine::mono (12.0f, 500));
-        g.drawText (levelText, valueRect, juce::Justification::centredRight);
+        Dine::drawText (g, levelText, valueRect, juce::Justification::centredRight);
         if (kind == Kind::Channel)
         {
             const auto text = panText (pan.getValue());
             g.setColour (text == "C" ? Dine::ink4 : Dine::ink3);
             g.setFont (Dine::mono (10.0f, 500));
-            g.drawText (text, panReadRect, juce::Justification::centredRight);
+            Dine::drawText (g, text, panReadRect, juce::Justification::centredRight);
         }
 
         // where it goes
@@ -717,7 +717,7 @@ public:
         {
             g.setColour (tint().withAlpha (mute ? 0.5f : 1.0f));
             g.setFont (Dine::caps (9.0f, 0.08f));
-            g.drawText (outText, r.reduced (12, 0), juce::Justification::centredRight, true);
+            Dine::drawText (g, outText, r.reduced (12, 0), juce::Justification::centredRight, true);
         }
     }
 
@@ -1094,22 +1094,22 @@ public:
         g.setColour (Dine::ink4);
         g.setFont (Dine::caps (9.5f, 0.12f));
         r.removeFromLeft (3 + 12);
-        g.drawText ("#", r.removeFromLeft (24), juce::Justification::centredLeft);
+        Dine::drawText (g, "#", r.removeFromLeft (24), juce::Justification::centredLeft);
         r.removeFromLeft (12);
-        g.drawText ("NAME", r.removeFromLeft (132), juce::Justification::centredLeft);
+        Dine::drawText (g, "NAME", r.removeFromLeft (132), juce::Justification::centredLeft);
         r.removeFromLeft (12);
-        g.drawText ("GAIN STAGING", r.removeFromLeft (92), juce::Justification::centredLeft);
+        Dine::drawText (g, "GAIN STAGING", r.removeFromLeft (92), juce::Justification::centredLeft);
         r.removeFromLeft (12);
-        g.drawText ("LEVEL ARRIVING", r.removeFromLeft (150), juce::Justification::centredLeft);
+        Dine::drawText (g, "LEVEL ARRIVING", r.removeFromLeft (150), juce::Justification::centredLeft);
         r.removeFromLeft (12);
-        g.drawText ("FADER", r.removeFromLeft (96), juce::Justification::centredLeft);
+        Dine::drawText (g, "FADER", r.removeFromLeft (96), juce::Justification::centredLeft);
         r.removeFromLeft (12);
-        g.drawText ("DB", r.removeFromLeft (58), juce::Justification::centredRight);
+        Dine::drawText (g, "DB", r.removeFromLeft (58), juce::Justification::centredRight);
         r.removeFromLeft (12);
-        g.drawText ("PAN", r.removeFromLeft (78), juce::Justification::centred);
+        Dine::drawText (g, "PAN", r.removeFromLeft (78), juce::Justification::centred);
         r.removeFromLeft (12 + 32 + 12);
-        g.drawText ("R " + Glyph::dot() + " A " + Glyph::dot() + " M " + Glyph::dot() + " S", r.removeFromLeft (104), juce::Justification::centred);
-        g.drawText ("BUS", r, juce::Justification::centredRight);
+        Dine::drawText (g, "R " + Glyph::dot() + " A " + Glyph::dot() + " M " + Glyph::dot() + " S", r.removeFromLeft (104), juce::Justification::centred);
+        Dine::drawText (g, "BUS", r, juce::Justification::centredRight);
     }
 
 private:
@@ -1432,7 +1432,7 @@ void MixerPage::paint (juce::Graphics& g)
         auto empty = getLocalBounds().withTrimmedTop (kHeaderH).reduced (kPadX, 20);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        g.drawFittedText ("Assign inputs first. The console fills with a strip for each one, then the group buses and the master.",
+        Dine::drawFittedText (g, "Assign inputs first. The console fills with a strip for each one, then the group buses and the master.",
                           empty.removeFromTop (60), juce::Justification::topLeft, 3);
     }
 }

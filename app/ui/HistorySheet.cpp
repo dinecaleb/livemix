@@ -88,11 +88,11 @@ void HistorySheet::paint (juce::Graphics& g)
     auto r = card.reduced (26, 26);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (19.0f, 600));
-    g.drawText ("Mix history", r.removeFromTop (24), juce::Justification::centredLeft);
+    Dine::drawText (g, "Mix history", r.removeFromTop (24), juce::Justification::centredLeft);
     r.removeFromTop (10);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (12.5f));
-    g.drawText (rows.empty() ? juce::String ("Nothing yet. Every tune, scene and morning of mixing lands here.")
+    Dine::drawText (g, rows.empty() ? juce::String ("Nothing yet. Every tune, scene and morning of mixing lands here.")
                              : juce::String (rows.size()) + (rows.size() == 1 ? " place to go back to. Where the mix is now is kept before it moves."
                                                                               : " places to go back to. Where the mix is now is kept before it moves."),
                 r.removeFromTop (22), juce::Justification::centredLeft, true);
@@ -111,7 +111,7 @@ void HistorySheet::paintRows (juce::Graphics& g)
 
         g.setColour (Dine::ink3);
         g.setFont (Dine::mono (11.5f, 500));
-        g.drawText (row->when, t.removeFromLeft (92), juce::Justification::centredLeft);
+        Dine::drawText (g, row->when, t.removeFromLeft (92), juce::Justification::centredLeft);
         t.removeFromLeft (10);
 
         // A tune is the thing people come back to, so it is the thing that stands out.
@@ -123,7 +123,7 @@ void HistorySheet::paintRows (juce::Graphics& g)
         }
         g.setColour (row->sameConsole ? Dine::ink : Dine::ink4);
         g.setFont (Dine::text (13.0f, 500));
-        g.drawText (row->sameConsole ? row->what : row->what + "   (different inputs)",
+        Dine::drawText (g, row->sameConsole ? row->what : row->what + "   (different inputs)",
                     t, juce::Justification::centredLeft, true);
     }
 }

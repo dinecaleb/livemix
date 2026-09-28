@@ -77,13 +77,13 @@ public:
             {
                 g.setColour (Dine::ink2);
                 g.setFont (Dine::text (13.0f));
-                g.drawFittedText (r.text, inner.removeFromTop (20), juce::Justification::topLeft, 1);
+                Dine::drawFittedText (g, r.text, inner.removeFromTop (20), juce::Justification::topLeft, 1);
                 inner.removeFromTop (6);
                 g.setFont (Dine::text (12.0f));
                 for (const auto& l : r.lines)
                 {
                     g.setColour (Dine::ink3);
-                    g.drawFittedText (juce::String (Glyph::dot()) + "  " + juce::String (l),
+                    Dine::drawFittedText (g, juce::String (Glyph::dot()) + "  " + juce::String (l),
                                       inner.removeFromTop (20), juce::Justification::topLeft, 1);
                 }
                 continue;
@@ -92,7 +92,7 @@ public:
             g.setColour (r.kind == Row::Kind::Refused ? Dine::warn : Dine::ink);
             g.setFont (Dine::text (13.0f));
             const int th = textHeight (r.text, inner.getWidth(), 13.0f);
-            g.drawFittedText (r.text, inner.removeFromTop (th), juce::Justification::topLeft, 40);
+            Dine::drawFittedText (g, r.text, inner.removeFromTop (th), juce::Justification::topLeft, 40);
 
             if (! r.lines.empty()) inner.removeFromTop (6);
             g.setFont (Dine::text (11.5f));
@@ -103,7 +103,7 @@ public:
                 g.setColour (Dine::accent.withAlpha (0.55f));
                 g.fillRect (line.getX(), line.getY() + 4, 2, juce::jmax (8, lh - 4));
                 g.setColour (Dine::ink3);
-                g.drawFittedText (l, line.withTrimmedLeft (12), juce::Justification::topLeft, 40);
+                Dine::drawFittedText (g, l, line.withTrimmedLeft (12), juce::Justification::topLeft, 40);
             }
         }
     }
@@ -257,10 +257,10 @@ void ChatSheet::paint (juce::Graphics& g)
     auto head = inner.removeFromTop (26);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (14.0f));
-    g.drawText ("Mix Buddy", head.withTrimmedRight (70), juce::Justification::centredLeft);
+    Dine::drawText (g, "Mix Buddy", head.withTrimmedRight (70), juce::Justification::centredLeft);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (11.5f));
-    g.drawText ("DLIVE's mix engineer, in plain words", head.withTrimmedLeft (86).withTrimmedRight (70), juce::Justification::centredLeft, true);
+    Dine::drawText (g, "DLIVE's mix engineer, in plain words", head.withTrimmedLeft (86).withTrimmedRight (70), juce::Justification::centredLeft, true);
 
     // What it is for and what it is not, always on screen - so nobody types a request it cannot honour.
     {
@@ -269,11 +269,11 @@ void ChatSheet::paint (juce::Graphics& g)
         auto r = note.reduced (12, 9);
         g.setFont (Dine::text (11.5f));
         g.setColour (Dine::ink2);
-        g.drawFittedText ("Ask about the mix: a source louder or quieter, forward or back, brighter, warmer, less boom, "
+        Dine::drawFittedText (g, "Ask about the mix: a source louder or quieter, forward or back, brighter, warmer, less boom, "
                           "less harsh, more or less room, the master louder without clipping.",
                           r.removeFromTop (r.getHeight() / 2), juce::Justification::topLeft, 3, 1.0f);
         g.setColour (Dine::ink3);
-        g.drawFittedText ("Not for anything else: it cannot touch the recording, the routing, the device or a preamp, "
+        Dine::drawFittedText (g, "Not for anything else: it cannot touch the recording, the routing, the device or a preamp, "
                           "and it never keeps a change - you press KEEP.",
                           r, juce::Justification::topLeft, 3, 1.0f);
     }
@@ -283,7 +283,7 @@ void ChatSheet::paint (juce::Graphics& g)
     g.setFont (Dine::text (10.5f));
     const auto provider = controller.getTuneLive().getProvider();
     juce::String who = provider != nullptr ? juce::String (provider->getName()) : juce::String ("DLIVE built-in, offline");
-    g.drawText ((controller.isLiveSafe() ? juce::String ("LIVE SAFE is on: changes stay small. ") : juce::String ("Nothing changes until you press KEEP. "))
+    Dine::drawText (g, (controller.isLiveSafe() ? juce::String ("LIVE SAFE is on: changes stay small. ") : juce::String ("Nothing changes until you press KEEP. "))
                     + who, foot, juce::Justification::centredLeft, true);
 }
 

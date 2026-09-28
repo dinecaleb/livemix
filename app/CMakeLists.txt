@@ -142,6 +142,7 @@ if (LIVEMIX_BUILD_TESTS)
     # on every engine change. ctest runs both, so the reachability guard is in CI either way.
     add_executable(dlive_ui_tests
         Tests/ReachabilityTests.cpp
+        Tests/TextCacheTests.cpp
         ${DLIVE_UI_SOURCES}
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp)
     target_include_directories(dlive_ui_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)

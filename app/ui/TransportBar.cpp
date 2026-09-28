@@ -270,12 +270,12 @@ void TransportBar::paint (juce::Graphics& g)
     if (! showClock) return;
     g.setColour (recording ? Dine::crit : Dine::ink);
     g.setFont (Dine::mono (16.0f, 500).withExtraKerningFactor (0.04f));
-    g.drawText (timeText, timeCell, juce::Justification::centredLeft);
+    Dine::drawText (g, timeText, timeCell, juce::Justification::centredLeft);
     if (showLength)
     {
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (11.0f));
-        g.drawText ("/ " + lengthText, lengthCell, juce::Justification::centredLeft);
+        Dine::drawText (g, "/ " + lengthText, lengthCell, juce::Justification::centredLeft);
     }
 }
 

@@ -129,10 +129,10 @@ void ExportSheet::paint (juce::Graphics& g)
     auto r = card.reduced (26, 24);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (19.0f, 600));
-    g.drawText ("Export", r.removeFromTop (26), juce::Justification::centredLeft);
+    Dine::drawText (g, "Export", r.removeFromTop (26), juce::Justification::centredLeft);
     g.setColour (Dine::ink3);
     g.setFont (Dine::Type::bodySmall());
-    g.drawText ("The recorded timeline, through the mix as it is now.", r.removeFromTop (18),
+    Dine::drawText (g, "The recorded timeline, through the mix as it is now.", r.removeFromTop (18),
                 juce::Justification::centredLeft, true);
 
     auto row = [&] (juce::Rectangle<int> area, const juce::String& caption, const juce::String& note)
@@ -140,12 +140,12 @@ void ExportSheet::paint (juce::Graphics& g)
         if (area.isEmpty()) return;
         g.setColour (Dine::ink4);
         g.setFont (Dine::Type::labelSection());
-        g.drawText (caption, area.removeFromTop (14), juce::Justification::centredLeft);
+        Dine::drawText (g, caption, area.removeFromTop (14), juce::Justification::centredLeft);
         if (note.isNotEmpty())
         {
             g.setColour (Dine::ink3);
             g.setFont (Dine::Type::caption());
-            g.drawText (note, area.removeFromBottom (14), juce::Justification::centredLeft, true);
+            Dine::drawText (g, note, area.removeFromBottom (14), juce::Justification::centredLeft, true);
         }
     };
 
@@ -161,16 +161,16 @@ void ExportSheet::paint (juce::Graphics& g)
         auto area = loudnessRow;
         g.setColour (Dine::ink4);
         g.setFont (Dine::Type::labelSection());
-        g.drawText ("DELIVERY LOUDNESS", area.removeFromTop (14), juce::Justification::centredLeft);
+        Dine::drawText (g, "DELIVERY LOUDNESS", area.removeFromTop (14), juce::Justification::centredLeft);
         const auto loud = controller.getMasterLoudness();
         const bool known = loud.known && loud.integratedLufs > -100.0f;
         g.setColour (Dine::ink2);
         g.setFont (Dine::Type::body());
-        g.drawText (juce::String (loud.targetLufs, 1) + " LUFS  " + juce::String (Glyph::dot()) + "  from the session's purpose",
+        Dine::drawText (g, juce::String (loud.targetLufs, 1) + " LUFS  " + juce::String (Glyph::dot()) + "  from the session's purpose",
                     area.removeFromTop (20), juce::Justification::centredLeft, true);
         g.setColour (! known ? Dine::ink4 : loud.onTarget() ? Dine::ok : Dine::warn);
         g.setFont (Dine::Type::caption());
-        g.drawText (! known ? "Nothing measured yet."
+        Dine::drawText (g, ! known ? "Nothing measured yet."
                             : loud.onTarget() ? "The mix is on target."
                                               : "The mix is " + juce::String (std::abs (loud.deltaLu()), 1) + " LU "
                                                     + (loud.deltaLu() > 0.0f ? "louder" : "quieter")
@@ -184,7 +184,7 @@ void ExportSheet::paint (juce::Graphics& g)
         Dine::fillRounded (g, sentenceRow.toFloat(), Dine::item, Dine::Radius::chip);
         g.setColour (Dine::ink2);
         g.setFont (Dine::Type::bodySmall());
-        g.drawFittedText (summary(), sentenceRow.reduced (14, 8), juce::Justification::centredLeft, 2);
+        Dine::drawFittedText (g, summary(), sentenceRow.reduced (14, 8), juce::Justification::centredLeft, 2);
     }
 }
 

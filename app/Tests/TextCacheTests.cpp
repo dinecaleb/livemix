@@ -1,0 +1,240 @@
+// THE TEXT CACHE: the same pixels JUCE would have drawn, and far fewer layouts to draw them.
+//
+// Every `g.drawText` in the application became `Dine::drawText`, because JUCE's own layout
+// cache holds 128 strings for the whole window and one workspace of DLIVE uses several times
+// that - so past 128 each paint re-shaped what the paint before it had shaped. Measured on a
+// 48-channel console, TUNE's warm repaint was 20.0 ms and INSPECTOR's 19.0; with the layouts
+// kept they are 9.6 and 6.9.
+//
+// A faster wrong pixel is no use, so this is the test that matters: render the same string the
+// same way through `juce::Graphics` and through `Dine`, and require the two images to be
+// identical. Every text style the design has, at every text size, in both the plain and the
+// fitted form, justified every way, with and without the ellipsis, and including the cases
+// that go wrong quietly - a string too long for its box, an empty one, one rectangle a pixel
+// wide, a name with an accent in it.
+#include "TestFramework.h"
+#include "ui/AppTheme.h"
+#include <juce_graphics/juce_graphics.h>
+#include <vector>
+
+using namespace livemix;
+
+namespace
+{
+    // The two images, and where they first differ. A count rather than a bool: "3 pixels out"
+    // and "the whole string is 2 px to the left" are different bugs.
+    struct Diff { int pixels = 0; int firstX = -1, firstY = -1; };
+
+    Diff compare (const juce::Image& a, const juce::Image& b)
+    {
+        Diff d;
+        const juce::Image::BitmapData pa (a, juce::Image::BitmapData::readOnly);
+        const juce::Image::BitmapData pb (b, juce::Image::BitmapData::readOnly);
+        for (int y = 0; y < a.getHeight(); ++y)
+            for (int x = 0; x < a.getWidth(); ++x)
+                if (pa.getPixelColour (x, y) != pb.getPixelColour (x, y))
+                {
+                    if (d.pixels == 0) { d.firstX = x; d.firstY = y; }
+                    ++d.pixels;
+                }
+        return d;
+    }
+
+    // Draws `paint` into a fresh image of the given size. The same renderer both times, so a
+    // difference can only come from the layout.
+    template <typename Paint>
+    juce::Image render (int w, int h, Paint&& paint)
+    {
+        juce::Image image (juce::Image::ARGB, w, h, true);
+        juce::Graphics g (image);
+        g.fillAll (juce::Colours::black);
+        g.setColour (juce::Colours::white);
+        paint (g);
+        return image;
+    }
+
+    std::vector<juce::Font> everyStyle()
+    {
+        return { Dine::Type::wordmark(), Dine::Type::headingPage(), Dine::Type::headingCard(),
+                 Dine::Type::body(), Dine::Type::bodySmall(), Dine::Type::caption(),
+                 Dine::Type::labelTab(), Dine::Type::labelControl(), Dine::Type::labelStrip(),
+                 Dine::Type::labelSection(), Dine::Type::labelMicro(),
+                 Dine::Type::monoClock(), Dine::Type::monoValue(), Dine::Type::monoSmall(),
+                 Dine::Type::monoMeter() };
+    }
+
+    const std::vector<juce::String>& everyString()
+    {
+        static const std::vector<juce::String> strings {
+            "WARMTH", "Lead Vocal", "-12.4 dB", "", " ", "1", "KICK IN - stage right 12",
+            "A name far too long for the box it has been given to sit in", "Bb", "48 kHz",
+            "Andr\xc3\xa9 - r\xc3\xa9p\xc3\xa9tition", "TUNE LIVE MIX", "00:00:00", "3.5 kHz  +2.0 dB"
+        };
+        return strings;
+    }
+
+    const std::vector<juce::Justification>& everyJustification()
+    {
+        static const std::vector<juce::Justification> js {
+            juce::Justification::left, juce::Justification::right, juce::Justification::centred,
+            juce::Justification::centredLeft, juce::Justification::centredRight,
+            juce::Justification::topLeft, juce::Justification::bottomRight,
+            juce::Justification::horizontallyCentred, juce::Justification::horizontallyJustified
+        };
+        return js;
+    }
+}
+
+TEST_CASE ("Dine::drawText draws exactly the pixels juce::Graphics::drawText draws")
+{
+    const std::pair<int, int> boxes[] = { { 200, 24 }, { 40, 12 }, { 1, 10 }, { 300, 60 }, { 48, 11 } };
+    int compared = 0;
+
+    for (const float scale : { 1.0f, 1.2f, 1.35f })
+    {
+        Dine::setTextScale (scale);
+        for (const auto& font : everyStyle())
+            for (const auto& text : everyString())
+                for (const auto& [w, h] : boxes)
+                    for (const auto& just : everyJustification())
+                        for (const bool ellipses : { true, false })
+                        {
+                            const juce::Rectangle<int> area (3, 2, w, h);
+                            const auto mine = render (w + 8, h + 6, [&] (juce::Graphics& g)
+                                { g.setFont (font); Dine::drawText (g, text, area, just, ellipses); });
+                            const auto theirs = render (w + 8, h + 6, [&] (juce::Graphics& g)
+                                { g.setFont (font); g.drawText (text, area, just, ellipses); });
+
+                            const auto d = compare (mine, theirs);
+                            CHECK_MESSAGE (d.pixels == 0,
+                                           ("\"" + text + "\" at " + juce::String (w) + "x" + juce::String (h)
+                                            + ", scale " + juce::String (scale) + ", just " + juce::String (just.getFlags())
+                                            + ", ellipses " + juce::String (int (ellipses)) + ": "
+                                            + juce::String (d.pixels) + " pixels differ, first at "
+                                            + juce::String (d.firstX) + "," + juce::String (d.firstY)).toStdString());
+                            ++compared;
+                        }
+    }
+
+    Dine::setTextScale (1.0f);
+    CHECK (compared > 3000);
+}
+
+TEST_CASE ("Dine::drawFittedText draws exactly the pixels juce::Graphics::drawFittedText draws")
+{
+    const std::pair<int, int> boxes[] = { { 200, 40 }, { 60, 34 }, { 120, 14 }, { 300, 80 } };
+    int compared = 0;
+
+    for (const auto& font : everyStyle())
+        for (const auto& text : everyString())
+            for (const auto& [w, h] : boxes)
+                for (const auto& just : everyJustification())
+                    for (const int lines : { 1, 2, 4 })
+                        for (const float minScale : { 0.0f, 0.7f, 1.0f })
+                        {
+                            const juce::Rectangle<int> area (3, 2, w, h);
+                            const auto mine = render (w + 8, h + 6, [&] (juce::Graphics& g)
+                                { g.setFont (font); Dine::drawFittedText (g, text, area, just, lines, minScale); });
+                            const auto theirs = render (w + 8, h + 6, [&] (juce::Graphics& g)
+                                { g.setFont (font); g.drawFittedText (text, area, just, lines, minScale); });
+
+                            const auto d = compare (mine, theirs);
+                            CHECK_MESSAGE (d.pixels == 0,
+                                           ("\"" + text + "\" at " + juce::String (w) + "x" + juce::String (h)
+                                            + ", " + juce::String (lines) + " lines, minScale " + juce::String (minScale)
+                                            + ", just " + juce::String (just.getFlags()) + ": "
+                                            + juce::String (d.pixels) + " pixels differ, first at "
+                                            + juce::String (d.firstX) + "," + juce::String (d.firstY)).toStdString());
+                            ++compared;
+                        }
+
+    CHECK (compared > 3000);
+}
+
+TEST_CASE ("The text cache answers from memory the second time, and never grows without bound")
+{
+    Dine::clearTextCache();
+    Dine::resetTextCacheStats();
+
+    // A page's worth of labels, drawn twice. The second pass must lay nothing out again.
+    const auto drawAPage = []
+    {
+        juce::Image image (juce::Image::ARGB, 400, 40, true);
+        juce::Graphics g (image);
+        for (int i = 0; i < 200; ++i)
+        {
+            g.setFont (Dine::Type::labelStrip());
+            Dine::drawText (g, "CHANNEL " + juce::String (i), juce::Rectangle<int> (0, 0, 120, 14),
+                            juce::Justification::centredLeft);
+        }
+    };
+
+    drawAPage();
+    const auto first = Dine::textCacheStats();
+    CHECK (first.misses == 200);
+
+    drawAPage();
+    const auto second = Dine::textCacheStats();
+    CHECK_MESSAGE (second.misses == first.misses,
+                   "the second pass laid out " + std::to_string (second.misses - first.misses)
+                   + " strings again; it should have found all 200 already laid out");
+    CHECK (second.hits >= 200);
+
+    // Churn: a readout is a new string every frame, and a cache that only ever grew would keep
+    // every number a meter has ever shown. Two generations of 4096, so never past 8192.
+    for (int i = 0; i < 30000; ++i)
+    {
+        juce::Image image (juce::Image::ARGB, 80, 16, true);
+        juce::Graphics g (image);
+        g.setFont (Dine::Type::monoValue());
+        Dine::drawText (g, juce::String (-i * 0.01, 2) + " dB", juce::Rectangle<int> (0, 0, 70, 14),
+                        juce::Justification::centredRight);
+    }
+    const auto after = Dine::textCacheStats();
+    CHECK_MESSAGE (after.size <= 8192, "the cache holds " + std::to_string (after.size) + " layouts");
+
+    Dine::clearTextCache();
+    CHECK (Dine::textCacheStats().size == 0);
+}
+
+TEST_CASE ("Text size clears the cache, because every role is a different face at a different scale")
+{
+    Dine::setTextScale (1.0f);
+    Dine::clearTextCache();
+
+    juce::Image image (juce::Image::ARGB, 200, 30, true);
+    {
+        juce::Graphics g (image);
+        g.setFont (Dine::Type::body());
+        Dine::drawText (g, "Lead Vocal", juce::Rectangle<int> (0, 0, 180, 20), juce::Justification::centredLeft);
+    }
+    CHECK (Dine::textCacheStats().size == 1);
+
+    Dine::setTextScale (1.35f);
+    CHECK (Dine::textCacheStats().size == 0);
+
+    // And the larger face really does draw larger, rather than the cache handing back the old one.
+    const auto atStandard = [] (float scale)
+    {
+        Dine::setTextScale (scale);
+        juce::Image im (juce::Image::ARGB, 300, 40, true);
+        juce::Graphics g (im);
+        g.fillAll (juce::Colours::black);
+        g.setColour (juce::Colours::white);
+        g.setFont (Dine::Type::body());
+        Dine::drawText (g, "Lead Vocal", juce::Rectangle<int> (0, 0, 300, 40), juce::Justification::centredLeft);
+        int lit = 0;
+        const juce::Image::BitmapData p (im, juce::Image::BitmapData::readOnly);
+        for (int y = 0; y < im.getHeight(); ++y)
+            for (int x = 0; x < im.getWidth(); ++x)
+                if (p.getPixelColour (x, y).getBrightness() > 0.5f) ++lit;
+        return lit;
+    };
+
+    const auto standard = atStandard (1.0f);
+    const auto larger = atStandard (1.35f);
+    Dine::setTextScale (1.0f);
+    CHECK_MESSAGE (larger > standard,
+                   "Larger text drew " + std::to_string (larger) + " lit pixels against "
+                   + std::to_string (standard) + " at Standard");
+}

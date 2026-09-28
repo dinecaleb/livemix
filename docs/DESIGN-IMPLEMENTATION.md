@@ -8,7 +8,8 @@ which engine phase owns it.
 The design file is **`2wv5QSnvrSSQXtDzfuShIn`** ("DLIVE Desktop v2", Sept 2026).
 The baseline this is all measured against is `docs/design/baseline/`.
 
-**Status: UI-0 to UI-6 done (UI-5 has two items left, §3e). UI-7 part done (§3g). New sources and the guides, §3h.**
+**Status: UI-0 to UI-6 done (UI-5 has two items left, §3e). UI-7 part done (§3g). New sources and the
+guides, §3h. UI-8 has paid the frame cost down and closed the decision §3b left open (§3i).**
 
 ---
 
@@ -186,6 +187,12 @@ Full repaint is the price of a **page switch or a resize**, not of a frame. It w
 one frame on INSPECTOR at the baseline (33.75 ms). **This needs a decision**: accept it as the
 cost of the design's chrome, or pay down the kerned-text draw cost before UI-3.
 
+> **Resolved in UI-8 (§3i), and this paragraph's diagnosis was wrong.** It was not eight labels
+> at 0.1 ms and it was not all page-switch cost: on TUNE and INSPECTOR it was being paid on every
+> paint, and the cause was JUCE's 128-entry layout cache thrashing rather than anything about
+> kerning. Both columns above also average a cold repaint with four warm ones, so neither figure
+> in them is a thing that happens. §3i has the numbers that replace them.
+
 ## 3c. UI-3: the mixer and the channel strip
 
 The Handoff page does not exist, but the **Channel Strip component does**, and
@@ -243,6 +250,10 @@ a short list - and the measurement rebuilds all 48 strips' image caches at once.
 are cached (`setBufferedToImage`), so this is the price of a page switch, not of a frame. It
 compounds with UI-2's increase: MIXER's full repaint is 8.4 ms at the UI-0 baseline and 14.0 ms
 now. **Still awaiting the decision in §3b.**
+
+> **Resolved in UI-8 (§3i).** Split into the two things it was measuring, MIXER's repaint is
+> 3.2 - 3.6 ms warm - the strips do cache, and in use this is what a frame costs - against
+> 11.8 - 15.7 ms to arrive on the page and rebuild all 48 of their images.
 
 ## 3d. UI-4: the ROUTING workspace, and Purpose as a sheet
 
@@ -489,6 +500,115 @@ by this design work and nothing caught it: step 1 said the sidebar is where you 
 inputs" (they left it in UI-4) and step 5 said "R sets a track to record" while describing the
 mixer (R left the strip in UI-3). Both are corrected, and step 2 now rings the ROUTING tab
 itself rather than the whole row of six.
+
+## 3i. UI-8: the frame cost, paid down - and what it really was
+
+The decision left open in §3b and §3c was whether to accept the chrome's drawing cost or pay it
+down before more UI was built. **Paid down, and it was not what §3b said it was.**
+
+### The measurement was wrong first
+
+§3b blamed "eight ordinary labels at about 0.1 ms each, because a Barlow Condensed run with a
+kerning factor cannot take JUCE's fast glyph path", and called the whole increase page-switch
+cost. Two of those three claims were false, and the way they were found is the point:
+
+- **`--frames` averaged one cold repaint with four warm ones.** A page switch and a steady
+  frame were being added together and divided by five, so neither number existed. Split apart,
+  MIXER's repaint is 24.9 ms cold and **3.7 ms warm** - its 48 strips really do cache - while
+  TUNE's was 20.5 cold and **20.0 warm**. TUNE and INSPECTOR were not paying a page-switch
+  cost. They were paying it on **every paint**, and the doc said otherwise.
+- **The mean drifted 15 % with the fan**, which is why §3b had to build two binaries and run
+  them alternately. Every figure is now the **fastest of seven rounds**: the fastest round is
+  the one the thermal state cannot inflate, and two builds are comparable again without being
+  interleaved.
+- **`--paint`** was added: the same run, plus the paint tree, each component costing what it
+  costs *with its siblings drawing around it*. Timed on its own instead, a component has the
+  glyph caches to itself and looks about twice as cheap - which is how the first version of
+  this walk blamed `MainView::paint` for 11 ms of work that a probe put at **0.26 ms**.
+
+With the tree honest it named two functions: `MixPage::paint` at 8.0 ms and
+`AdvancedPage::paint` at 9.1 ms of a 20 ms window.
+
+### What it was
+
+**JUCE's own layout cache holds 128 strings for the whole window**
+(`GlyphArrangementCache`, `juce_GraphicsContext.cpp`), and it is an LRU. A workspace of DLIVE
+needs 110 to 179 - and it asks for them in the **same order every paint**, which is the one
+access pattern an LRU is worst at: a cycle longer than the cache evicts precisely the entry
+wanted next, so the hit rate collapses to nearly nothing and every paint re-shapes every string
+through HarfBuzz. 169 wanted against 128 kept is not a near miss; it is a cache that has
+stopped being one.
+
+Confirmed before anything was built, by enlarging that cache in the vendored JUCE and measuring:
+TUNE's warm repaint 20.0 → 9.4 ms, INSPECTOR 19.0 → 7.7. Then reverted - DLIVE does not fork
+JUCE.
+
+Two things it was **not**, both tested and both rejected:
+
+- *the renderer.* The harness drew into a plain `juce::Image`, which is JUCE's software
+  rasteriser - a renderer a window never uses, since a macOS window sends a run of text to
+  `CTFontDrawGlyphs`. Worth fixing anyway, and it is fixed (`NativeImageType`, which also makes
+  every `setBufferedToImage` strip cache itself the way it does on screen) - but it moved TUNE
+  by 1.5 ms, not by 10. The layout cache sits **above** the renderer, so this was never a
+  measuring artefact: the app was paying it too.
+- *kerning, and a missing fast glyph path.* Tracking does make HarfBuzz disable ligatures
+  (`juce_SimpleShapedText.cpp`), so a tracked run is a little dearer to shape. It is dearer
+  **once**. It only looked like a per-frame cost because it was being paid every frame.
+
+### The fix
+
+`Dine::drawText` and `Dine::drawFittedText`, in `AppTheme`, and **all 361 call sites moved onto
+them**. Same arguments, same defaults, font and colour still taken from the `Graphics` - so the
+change reads as a rename - over a cache big enough for a real console.
+
+**Two generations rather than an LRU.** A lookup checks the live generation and then the one
+behind it, promoting what it finds; when the live one fills, the old one is dropped and the live
+one becomes it. One hash, no bookkeeping, bounded at twice the limit, and immune to the cyclic
+pattern that defeats an LRU - and the bound matters, because a readout like `-12.4 dB` is a new
+string every frame and a cache that only grew would hold every number a meter had ever shown.
+4096 per generation.
+
+It beats enlarging JUCE's cache, because JUCE's returns the arrangement **by value** - a copy of
+every positioned glyph on every hit. Ours returns a reference.
+
+### The pixels are the same, and that is tested
+
+A faster wrong pixel is no use, so `app/Tests/TextCacheTests.cpp` renders the same string twice -
+once through `juce::Graphics`, once through `Dine` - and requires the two images to be
+**identical, pixel for pixel**. Every one of the design's 15 text styles, at all three text
+sizes, plain and fitted, nine justifications, with and without the ellipsis, over strings that
+include an empty one, one too long for its box, a box one pixel wide and a name with accents in
+it: about 7,000 comparisons, 0 pixels different. Plus: the second pass over a page lays nothing
+out again, 30,000 changing readouts never take the cache past 8,192 layouts, and Text Size
+clears it - with a check that Larger really does draw larger rather than the cache handing back
+the old face.
+
+### The cost now
+
+| | cold repaint, before | cold, now | warm, before | warm, now | layouts |
+| --- | --- | --- | --- | --- | --- |
+| TRACKS | 7.4 | 6.0 - 7.3 | 7.4 | 6.1 - 7.5 | 115 |
+| MIXER | 24.9 | 11.8 - 15.7 | 3.7 | 3.2 - 3.6 | 169 |
+| TUNE | 20.5 | 8.6 - 9.1 | 20.0 | 8.5 - 9.4 | 131 |
+| LIVE | 5.4 | 5.3 - 5.7 | 5.2 | 5.4 - 5.6 | 110 |
+| INSPECTOR | 19.1 | 6.5 - 7.2 | 19.0 | 6.5 - 7.1 | 179 |
+
+**Per tick is unchanged at about 1.2 ms**, which is the number the 30 Hz budget depends on.
+Every workspace now repaints whole, from nothing, inside half a frame - INSPECTOR was 33.8 ms at
+the UI-0 baseline and is 7 ms. MIXER's cold figure is the one that still moves run to run,
+because it rebuilds 48 buffered strip images and that is allocation, not drawing.
+
+The "before" column is this harness measuring the commit before this one. It is **not**
+comparable with the single "full repaint" column in §3b and §3c: that one averaged a cold
+repaint with four warm ones, so it sat between the two numbers here and matched neither.
+
+### `layouts` is the figure to watch from here
+
+It is a **count**, not a clock: how many strings a workspace lays out to draw itself once from
+nothing. It is identical on every machine and in every thermal state, so it is what a
+frame-budget regression is actually caught by - and a page that starts *building* strings inside
+`paint()` shows up in it before it shows up in any millisecond. `--frames` prints it per
+workspace.
 
 ## 4. The screens
 

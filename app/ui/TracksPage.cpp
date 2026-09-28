@@ -1216,7 +1216,7 @@ void TracksPage::paint (juce::Graphics& g)
             if (dropTrack < 0)
             {
                 g.setFont (Dine::caps (10.0f, 0.08f, 500));
-                g.drawText ("NEW TRACK", band.reduced (12, 0), juce::Justification::centredLeft);
+                Dine::drawText (g, "NEW TRACK", band.reduced (12, 0), juce::Justification::centredLeft);
             }
         }
 
@@ -1224,7 +1224,7 @@ void TracksPage::paint (juce::Graphics& g)
         {
             g.setColour (Dine::ink4);
             g.setFont (Dine::text (13.0f));
-            g.drawFittedText ("Nothing recorded yet. Press the red R on each track you want to record, then press "
+            Dine::drawFittedText (g, "Nothing recorded yet. Press the red R on each track you want to record, then press "
                               "Record - or import a folder of stems from the File menu.",
                               lanes.reduced (40, 0).withHeight (46).withY (lanes.getY() + 30),
                               juce::Justification::centredTop, 2);
@@ -1261,7 +1261,7 @@ void TracksPage::paint (juce::Graphics& g)
         {
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (12.5f));
-            g.drawText ("No tracks yet", headers.reduced (16, 20), juce::Justification::topLeft);
+            Dine::drawText (g, "No tracks yet", headers.reduced (16, 20), juce::Justification::topLeft);
         }
     }
 
@@ -1360,13 +1360,13 @@ void TracksPage::paintToolbar (juce::Graphics& g)
             else info = "Nothing selected";
             g.setColour (services.daw().getProject().liveSafe && selection.track < 0 ? Dine::warn : Dine::ink3);
             g.setFont (Dine::text (13.0f));
-            g.drawText (info, row, juce::Justification::centredRight, true);
+            Dine::drawText (g, info, row, juce::Justification::centredRight, true);
         }
         auto zoomCell = toolbarArea().withRight (zoomOutButton->getX() - 6).withTrimmedRight (0);
         zoomCell = zoomCell.removeFromRight (44);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (11.0f));
-        g.drawText (juce::String (juce::roundToInt (pixelsPerSecond / 18.0 * 100.0)) + "%", zoomCell, juce::Justification::centredRight);
+        Dine::drawText (g, juce::String (juce::roundToInt (pixelsPerSecond / 18.0 * 100.0)) + "%", zoomCell, juce::Justification::centredRight);
     }
 }
 
@@ -1386,12 +1386,12 @@ void TracksPage::paintRuler (juce::Graphics& g)
         g.setColour (Dine::ink4);
         g.setFont (Dine::caps (11.0f, 0.08f, 500));
         auto text = cell.reduced (14, 0);
-        g.drawText ("MARKERS", text, juce::Justification::centredLeft);
+        Dine::drawText (g, "MARKERS", text, juce::Justification::centredLeft);
         if (project.numArmed() > 0)
         {
             g.setColour (Dine::crit);
             g.setFont (Dine::mono (10.0f, 500));
-            g.drawText (juce::String (project.numArmed()) + " TO RECORD", text, juce::Justification::centredRight, true);
+            Dine::drawText (g, juce::String (project.numArmed()) + " TO RECORD", text, juce::Justification::centredRight, true);
         }
     }
 
@@ -1419,7 +1419,7 @@ void TracksPage::paintRuler (juce::Graphics& g)
         if (range.getWidth() > 60.0f)
         {
             g.setFont (Dine::caps (7.5f, 0.1f, 600));
-            g.drawText (project.loopEnabled ? "LOOP" : "LOOP OFF", range.toNearestInt(), juce::Justification::centred);
+            Dine::drawText (g, project.loopEnabled ? "LOOP" : "LOOP OFF", range.toNearestInt(), juce::Justification::centred);
         }
     }
 
@@ -1445,7 +1445,7 @@ void TracksPage::paintRuler (juce::Graphics& g)
         juce::String label = total >= 60 && step >= 60.0 ? juce::String (total / 60) + "m"
                            : juce::String (total / 60) + ":" + juce::String (total % 60).paddedLeft ('0', 2);
         if (step < 1.0) label += "." + juce::String (int ((sec - double (total)) * 10.0 + 0.5));
-        g.drawText (label, x + 4, area.getBottom() - 24, 60, 12, juce::Justification::bottomLeft, false);
+        Dine::drawText (g, label, x + 4, area.getBottom() - 24, 60, 12, juce::Justification::bottomLeft, false);
     }
 }
 
@@ -1465,7 +1465,7 @@ void TracksPage::paintMarkers (juce::Graphics& g)
         Dine::fillRounded (g, flag.toFloat(), hot ? Dine::controlHot : Dine::control, Dine::Radius::chip);
         g.setColour (hot ? Dine::ink : Dine::ink2);
         g.setFont (Dine::text (10.0f));
-        g.drawText (markers[size_t (i)].name, flag.reduced (6, 0), juce::Justification::centredLeft, true);
+        Dine::drawText (g, markers[size_t (i)].name, flag.reduced (6, 0), juce::Justification::centredLeft, true);
     }
 }
 
@@ -1503,7 +1503,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
         text.removeFromLeft (8);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (11.0f));
-        g.drawText (juce::String (track + 1).paddedLeft ('0', 2), text.removeFromLeft (20), juce::Justification::centredLeft);
+        Dine::drawText (g, juce::String (track + 1).paddedLeft ('0', 2), text.removeFromLeft (20), juce::Justification::centredLeft);
     }
 
     const auto chip = gainChipFor (track < int (advice.size()) ? advice[size_t (track)] : MixController::InputAdvice {});
@@ -1529,7 +1529,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
             nameCell.removeFromRight (6);
         }
         const int room = nameCell.getWidth() - (wrongName ? 15 : 0);
-        g.drawText (juce::String (input.name), nameCell.removeFromLeft (juce::jlimit (0, room, Dine::textWidth (nameFont, input.name) + 1)),
+        Dine::drawText (g, juce::String (input.name), nameCell.removeFromLeft (juce::jlimit (0, room, Dine::textWidth (nameFont, input.name) + 1)),
                     juce::Justification::centredLeft, true);
         if (wrongName && nameCell.getWidth() >= 13)
             Dine::drawIcon (g, Dine::Icon::Warn, nameCell.removeFromLeft (13).toFloat().withSizeKeepingCentre (11.0f, 11.0f), Dine::warn);
@@ -1542,7 +1542,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
         auto noteLine = lines.withSizeKeepingCentre (lines.getWidth(), 34).removeFromBottom (14);
         g.setColour (Dine::ink4);
         g.setFont (Dine::text (10.0f));
-        g.drawText (note, noteLine, juce::Justification::centredLeft, true);
+        Dine::drawText (g, note, noteLine, juce::Justification::centredLeft, true);
     }
 
     // ---- TUNE: the chip beside the keys, in the accent, the verb the whole app uses
@@ -1551,7 +1551,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
         Dine::fillRounded (g, tune.toFloat(), Dine::control, Dine::Radius::chip);
         g.setColour (project.liveSafe ? Dine::ink4 : Dine::accent);
         g.setFont (Dine::caps (compact ? 9.0f : 9.5f, 0.1f, 600));
-        g.drawText ("TUNE", tune, juce::Justification::centred);
+        Dine::drawText (g, "TUNE", tune, juce::Justification::centred);
     }
 
     // ---- R / A / M / S: the console's own keys
@@ -1560,7 +1560,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
         Dine::fillRounded (g, cell.toFloat(), on ? colour : Dine::control, Dine::Radius::chip);
         g.setColour (on ? Dine::onAccent : Dine::ink2);
         g.setFont (Dine::text (compact ? 10.0f : 11.0f, 600));
-        g.drawText (label, cell, juce::Justification::centred);
+        Dine::drawText (g, label, cell, juce::Justification::centred);
     };
     key (keyCell (track, 0), "R", state.armed, Dine::keyRec);
     key (keyCell (track, 1), state.monitor == MonitorMode::Input ? "I" : "A", monitoring, Dine::keyMon);
@@ -1588,7 +1588,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
         {
             g.setColour (dim ? Dine::ink4 : Dine::ink2);
             g.setFont (Dine::mono (11.0f, 500));
-            g.drawText ((faderDb >= 0.0f ? "+" : Glyph::minus()) + juce::String (std::fabs (faderDb), 1),
+            Dine::drawText (g, (faderDb >= 0.0f ? "+" : Glyph::minus()) + juce::String (std::fabs (faderDb), 1),
                         juce::Rectangle<int> (cell.getRight() + 8, cell.getY(), 52, cell.getHeight()), juce::Justification::centredRight);
         }
     }
@@ -1648,7 +1648,7 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
         {
             g.setColour (juce::Colours::black.withAlpha (0.65f));
             g.setFont (Dine::text (10.0f));
-            g.drawText (clip.name.isEmpty() ? juce::String (session.inputs[size_t (track)].name) : clip.name,
+            Dine::drawText (g, clip.name.isEmpty() ? juce::String (session.inputs[size_t (track)].name) : clip.name,
                         box.reduced (7, 0).withTrimmedTop (2).withHeight (14), juce::Justification::centredLeft, true);
         }
         if (selected)
@@ -1664,7 +1664,7 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
     {
         g.setColour (Dine::crit.withAlpha (0.55f));
         g.setFont (Dine::caps (10.0f, 0.08f));
-        g.drawText ("TO RECORD", area.reduced (12, 0).withWidth (96), juce::Justification::centredLeft);
+        Dine::drawText (g, "TO RECORD", area.reduced (12, 0).withWidth (96), juce::Justification::centredLeft);
     }
 }
 

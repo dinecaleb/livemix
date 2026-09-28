@@ -48,10 +48,10 @@ public:
         auto text = getLocalBounds().reduced (16, 0);
         g.setColour (chosen || over ? Dine::ink : Dine::ink2);
         g.setFont (Dine::text (13.0f, chosen ? 600 : 500));
-        g.drawText (theme.name, text.removeFromTop (getHeight() / 2 + 2), juce::Justification::bottomLeft);
+        Dine::drawText (g, theme.name, text.removeFromTop (getHeight() / 2 + 2), juce::Justification::bottomLeft);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (10.5f));
-        g.drawText (theme.note.isNotEmpty() ? theme.note : (theme.builtIn ? "DLIVE's own" : "Yours"),
+        Dine::drawText (g, theme.note.isNotEmpty() ? theme.note : (theme.builtIn ? "DLIVE's own" : "Yours"),
                     text, juce::Justification::topLeft, true);
     }
 };
@@ -82,10 +82,10 @@ public:
         auto text = getLocalBounds().reduced (8).withTrimmedLeft (46);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (11.5f, 600));
-        g.drawText (token.key, text.removeFromTop (text.getHeight() / 2), juce::Justification::bottomLeft);
+        Dine::drawText (g, token.key, text.removeFromTop (text.getHeight() / 2), juce::Justification::bottomLeft);
         g.setColour (Dine::ink3);
         g.setFont (Dine::mono (10.5f));
-        g.drawText (ThemeStore::hex (c.getARGB()), text, juce::Justification::topLeft);
+        Dine::drawText (g, ThemeStore::hex (c.getARGB()), text, juce::Justification::topLeft);
     }
 
 private:
@@ -502,12 +502,12 @@ void ThemeSheet::paint (juce::Graphics& g)
     auto head = r.removeFromTop (Dine::Metric::button);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (19.0f, 600));
-    g.drawText ("Appearance", head, juce::Justification::centredLeft);
+    Dine::drawText (g, "Appearance", head, juce::Justification::centredLeft);
     if (! textSizeLabel.isEmpty())
     {
         g.setColour (Dine::ink4);
         g.setFont (Dine::Type::labelSection());
-        g.drawText ("TEXT SIZE", textSizeLabel, juce::Justification::centredRight);
+        Dine::drawText (g, "TEXT SIZE", textSizeLabel, juce::Justification::centredRight);
         if (textSizes[0] != nullptr && textSizes[2] != nullptr)
             Dine::drawSegmentTrack (g, juce::Rectangle<int> (textSizes[0]->getX() - 2, textSizes[0]->getY() - 2,
                                                              textSizes[2]->getRight() - textSizes[0]->getX() + 4,
@@ -515,7 +515,7 @@ void ThemeSheet::paint (juce::Graphics& g)
     }
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (12.0f));
-    g.drawText ("Pick a theme, or make one of your own. Every window follows; the mix is never touched.",
+    Dine::drawText (g, "Pick a theme, or make one of your own. Every window follows; the mix is never touched.",
                 r.removeFromTop (16), juce::Justification::centredLeft);
     r.removeFromTop (14);
 
@@ -549,7 +549,7 @@ void ThemeSheet::paint (juce::Graphics& g)
         note = "Yours, based on " + baseName() + " " + dot() + " " + file + (edited ? " " + dot() + " changed, not yet saved" : "");
     g.setColour (edited ? Dine::warn : Dine::ink3);
     g.setFont (Dine::text (11.5f));
-    g.drawText (note, r.removeFromTop (16), juce::Justification::centredLeft, true);
+    Dine::drawText (g, note, r.removeFromTop (16), juce::Justification::centredLeft, true);
     r.removeFromTop (12);
 
     // The sample strip's ground, and the parts drawn by hand: a meter and two chips.

@@ -92,11 +92,11 @@ public:
 
         g.setColour (std::fabs (value - 50.0f) > 0.5f ? Dine::ink : Dine::ink2);
         g.setFont (Dine::Type::monoValue());
-        g.drawText (juce::String (juce::roundToInt (value)), dial, juce::Justification::centred);
+        Dine::drawText (g, juce::String (juce::roundToInt (value)), dial, juce::Justification::centred);
 
         g.setColour (Dine::ink4);
         g.setFont (Dine::Type::labelSection());
-        g.drawText (label, cap, juce::Justification::centred);
+        Dine::drawText (g, label, cap, juce::Justification::centred);
     }
 
     void mouseDown (const juce::MouseEvent&) override { dragFrom = value; }
@@ -241,27 +241,27 @@ public:
             Dine::fillRounded (g, chip, muted ? Dine::keyMute : soloed ? Dine::accent : Dine::control, Dine::Radius::chip);
             g.setColour (muted || soloed ? Dine::onAccent : Dine::ink3);
             g.setFont (chipFont);
-            g.drawText (state, chip, juce::Justification::centred);
+            Dine::drawText (g, state, chip, juce::Justification::centred);
             head.removeFromRight (6);
         }
         g.setColour (used ? tint() : Dine::ink4);
         g.setFont (Dine::caps (13.0f, 0.06f));
-        g.drawText (name(), head, juce::Justification::centredLeft, true);
+        Dine::drawText (g, name(), head, juce::Justification::centredLeft, true);
 
         if (isMaster())
         {
             // The master's level is its loudness: the integrated LUFS where the groups show their fader.
             g.setColour (Dine::ink4);
             g.setFont (Dine::caps (9.0f, 0.08f, 500));
-            g.drawText ("LUFS", readout.translated (0, -13), juce::Justification::centredRight);
+            Dine::drawText (g, "LUFS", readout.translated (0, -13), juce::Justification::centredRight);
             g.setColour (Dine::ink2);
             g.setFont (Dine::mono (12.0f, 500));
-            g.drawText (loudness, readout, juce::Justification::centredRight);
+            Dine::drawText (g, loudness, readout, juce::Justification::centredRight);
             return;
         }
         g.setColour (! used ? Dine::ink4 : Dine::ink2);
         g.setFont (Dine::mono (12.0f, 500));
-        g.drawText (used ? dbText (float (fader.getValue())) : Glyph::dash(), readout, juce::Justification::centredRight);
+        Dine::drawText (g, used ? dbText (float (fader.getValue())) : Glyph::dash(), readout, juce::Justification::centredRight);
     }
 
     void resized() override
@@ -327,7 +327,7 @@ public:
         else           g.fillEllipse (dot);
         g.setColour (recording ? Dine::onAccent : Dine::ink);
         g.setFont (Dine::caps (11.0f, 0.06f));
-        g.drawText (recording ? "STOP" : "RECORD", inner.withTrimmedLeft (int (d) + 8), juce::Justification::centredLeft, false);
+        Dine::drawText (g, recording ? "STOP" : "RECORD", inner.withTrimmedLeft (int (d) + 8), juce::Justification::centredLeft, false);
     }
 
     int idealWidth() const { return 12 * 2 + 10 + 8 + Dine::textWidth (Dine::caps (11.0f, 0.06f), "RECORD"); }
@@ -643,7 +643,7 @@ void LivePage::paint (juce::Graphics& g)
         g.setColour (Dine::ink);
         g.setFont (Dine::Type::headingPage());
         head.removeFromLeft (60);
-        g.drawText ("Live", l.head.reduced (kPadX, 0).withWidth (60), juce::Justification::centredLeft);
+        Dine::drawText (g, "Live", l.head.reduced (kPadX, 0).withWidth (60), juce::Justification::centredLeft);
 
         // ON AIR: lit whenever the engine is running and the broadcast is not muted.
         const bool onAir = look.running && ! controller.isBroadcastMuted();
@@ -655,13 +655,13 @@ void LivePage::paint (juce::Graphics& g)
             g.setColour (Dine::crit);
             g.fillEllipse (float (pill.getX() + 12), float (pill.getCentreY() - 3), 6.0f, 6.0f);
             g.setFont (Dine::Type::labelControl());
-            g.drawText ("ON AIR", pill.withTrimmedLeft (24), juce::Justification::centredLeft);
+            Dine::drawText (g, "ON AIR", pill.withTrimmedLeft (24), juce::Justification::centredLeft);
         }
         else
         {
             g.setColour (Dine::ink4);
             g.setFont (Dine::Type::labelControl());
-            g.drawText (controller.isBroadcastMuted() ? "BROADCAST MUTED" : "NOT RUNNING", pill, juce::Justification::centredLeft, true);
+            Dine::drawText (g, controller.isBroadcastMuted() ? "BROADCAST MUTED" : "NOT RUNNING", pill, juce::Justification::centredLeft, true);
         }
 
         head.removeFromLeft (14);
@@ -669,7 +669,7 @@ void LivePage::paint (juce::Graphics& g)
         {
             g.setColour (Dine::ink3);
             g.setFont (Dine::Type::bodySmall());
-            g.drawText (look.marker, head, juce::Justification::centredLeft, true);
+            Dine::drawText (g, look.marker, head, juce::Justification::centredLeft, true);
         }
     }
 
@@ -685,15 +685,15 @@ void LivePage::paint (juce::Graphics& g)
             inner.removeFromRight (trimRight);
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (12.0f));
-            g.drawText (label, inner.removeFromTop (14), juce::Justification::topLeft);
+            Dine::drawText (g, label, inner.removeFromTop (14), juce::Justification::topLeft);
             inner.removeFromTop (6);
             g.setColour (valueInk);
             g.setFont (monoValue ? Dine::mono (19.0f, 500) : Dine::text (19.0f, 600));
-            g.drawText (value, inner.removeFromTop (24), juce::Justification::topLeft, true);
+            Dine::drawText (g, value, inner.removeFromTop (24), juce::Justification::topLeft, true);
             inner.removeFromTop (4);
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (12.0f));
-            g.drawFittedText (note, inner, juce::Justification::topLeft, 2, 1.0f);
+            Dine::drawFittedText (g, note, inner, juce::Justification::topLeft, 2, 1.0f);
         };
         card (row.removeFromLeft (w), "Recording", look.recording, look.recordingNote,
               look.isRecording ? Dine::recGround : Dine::card, look.isRecording ? Dine::crit : Dine::ink3, true,
@@ -717,7 +717,7 @@ void LivePage::paint (juce::Graphics& g)
             auto head = inner.removeFromTop (12);
             g.setColour (Dine::ink4);
             g.setFont (Dine::Type::labelSection());
-            g.drawText ("BROADCAST  " + juce::String (Glyph::dot()) + "  " + look.output.toUpperCase(),
+            Dine::drawText (g, "BROADCAST  " + juce::String (Glyph::dot()) + "  " + look.output.toUpperCase(),
                         head, juce::Justification::centredLeft, true);
             inner.removeFromTop (4);
 
@@ -730,10 +730,10 @@ void LivePage::paint (juce::Graphics& g)
             // always the same width, and measuring a string on every paint is how a page ends
             // up spending its frame on glyph layout.
             const juce::String shortTerm = known ? juce::String (loud.shortTermLufs, 1) : juce::String (Glyph::dash());
-            g.drawText (shortTerm, big.removeFromLeft (96), juce::Justification::centredLeft);
+            Dine::drawText (g, shortTerm, big.removeFromLeft (96), juce::Justification::centredLeft);
             g.setColour (Dine::ink3);
             g.setFont (Dine::Type::caption());
-            g.drawText ("LUFS short-term", big, juce::Justification::centredLeft, true);
+            Dine::drawText (g, "LUFS short-term", big, juce::Justification::centredLeft, true);
             inner.removeFromTop (6);
 
             // the three that decide whether it is right. Loudness range (LRA) is not measured,
@@ -750,10 +750,10 @@ void LivePage::paint (juce::Graphics& g)
                 if (c.isEmpty()) return;
                 g.setColour (Dine::ink4);
                 g.setFont (Dine::Type::caption());
-                g.drawText (k, c.removeFromTop (13), juce::Justification::topLeft, true);
+                Dine::drawText (g, k, c.removeFromTop (13), juce::Justification::topLeft, true);
                 g.setColour (ink);
                 g.setFont (Dine::Type::monoValue());
-                g.drawText (v, c, juce::Justification::topLeft, true);
+                Dine::drawText (g, v, c, juce::Justification::topLeft, true);
             };
             const bool integrated = loud.known && loud.integratedLufs > -100.0f;
             small (cols.removeFromLeft (cw), "Integrated",
@@ -801,7 +801,7 @@ void LivePage::paint (juce::Graphics& g)
         {
             g.setColour (Dine::ink4);
             g.setFont (Dine::Type::caption());
-            g.drawText ("LIVE SAFE", l.macros.reduced (18, 10).removeFromTop (kMonCaption),
+            Dine::drawText (g, "LIVE SAFE", l.macros.reduced (18, 10).removeFromTop (kMonCaption),
                         juce::Justification::centredRight, true);
         }
     }
@@ -816,14 +816,14 @@ void LivePage::paint (juce::Graphics& g)
         auto levelRow = inner.withTrimmedTop (Dine::Metric::control + kMonRowGap).withHeight (Dine::Metric::control);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        g.drawText ("Monitor level", levelRow.removeFromLeft (110), juce::Justification::centredLeft);
+        Dine::drawText (g, "Monitor level", levelRow.removeFromLeft (110), juce::Justification::centredLeft);
         g.setColour (Dine::ink2);
         g.setFont (Dine::mono (12.0f, 500));
-        g.drawText (dbText (look.monitorDb), levelRow.removeFromRight (58), juce::Justification::centredRight);
+        Dine::drawText (g, dbText (look.monitorDb), levelRow.removeFromRight (58), juce::Justification::centredRight);
         auto note = inner.withTrimmedTop (Dine::Metric::control + kMonRowGap + Dine::Metric::control + kMonNoteGap).withHeight (kMonNote);
         g.setColour (look.inPlace || ! look.routed ? Dine::warn : look.soloCount > 0 ? Dine::accent : Dine::ink3);
         g.setFont (Dine::text (12.5f));
-        g.drawText (look.monitorNote, note, juce::Justification::centredLeft, true);
+        Dine::drawText (g, look.monitorNote, note, juce::Justification::centredLeft, true);
     }
 
     // ---- LIVE SAFE: what it locks, blocks and allows, printed
@@ -858,11 +858,11 @@ void LivePage::paint (juce::Graphics& g)
             auto t = box.reduced (12, 12);
             g.setColour (rule.amber ? Dine::warn : Dine::ink);
             g.setFont (Dine::text (13.0f));
-            g.drawText (rule.what, t.removeFromTop (16), juce::Justification::topLeft);
+            Dine::drawText (g, rule.what, t.removeFromTop (16), juce::Justification::topLeft);
             t.removeFromTop (4);
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (12.0f));
-            g.drawFittedText (rule.why, t, juce::Justification::topLeft, 3, 1.0f);
+            Dine::drawFittedText (g, rule.why, t, juce::Justification::topLeft, 3, 1.0f);
             inner.removeFromTop (3);
         }
     }

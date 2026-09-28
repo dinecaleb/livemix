@@ -270,7 +270,7 @@ void MacroPad::paint (juce::Graphics& g)
     // ---- the head: the title, centred over the square
     g.setColour (Dine::ink3);
     g.setFont (Dine::caps (10.5f, 0.10f));
-    g.drawText (title, head, juce::Justification::centred);
+    Dine::drawText (g, title, head, juce::Justification::centred);
     if (! compact && ! snapRow.isEmpty()) Dine::fillRounded (g, snapRow.toFloat(), Dine::tile, Dine::Radius::control);
 
     // ---- the square
@@ -320,10 +320,10 @@ void MacroPad::paint (juce::Graphics& g)
         g.setColour (Dine::ink4);
         g.setFont (Dine::caps (9.5f, 0.08f, 500));
         const auto in = pad.reduced (10, 8);
-        g.drawText (corners.tl, in, juce::Justification::topLeft);
-        g.drawText (corners.tr, in, juce::Justification::topRight);
-        g.drawText (corners.bl, in, juce::Justification::bottomLeft);
-        g.drawText (corners.br, in, juce::Justification::bottomRight);
+        Dine::drawText (g, corners.tl, in, juce::Justification::topLeft);
+        Dine::drawText (g, corners.tr, in, juce::Justification::topRight);
+        Dine::drawText (g, corners.bl, in, juce::Justification::bottomLeft);
+        Dine::drawText (g, corners.br, in, juce::Justification::bottomRight);
 
         // the values, inside the square on the line under the top corner words, only once
         // there is something to say (at the plan the dashed ring says it all)
@@ -331,7 +331,7 @@ void MacroPad::paint (juce::Graphics& g)
         {
             g.setColour (dragging ? Dine::ink : Dine::ink2);
             g.setFont (Dine::mono (11.0f, 500));
-            g.drawText (describeValues(), in.withTrimmedTop (16).removeFromTop (14), juce::Justification::centred);
+            Dine::drawText (g, describeValues(), in.withTrimmedTop (16).removeFromTop (14), juce::Justification::centred);
         }
 
         // the puck
@@ -491,20 +491,20 @@ void MacroRibbon::paint (juce::Graphics& g)
     const bool moved = isOffCentre();
     g.setColour (Dine::ink3);
     g.setFont (Dine::caps (10.5f, 0.10f));
-    g.drawText (MixMacros::name (macro), label, juce::Justification::centredLeft);
+    Dine::drawText (g, MixMacros::name (macro), label, juce::Justification::centredLeft);
 
     // The two ends, as quiet as the pads' corner words; the one the value leans to lights up.
     g.setFont (Dine::caps (9.5f, 0.08f, 500));
     g.setColour (value < 49.5f ? Dine::ink2 : Dine::ink4);
-    g.drawText (juce::String (MixMacros::lowLabel (macro)).toUpperCase(), low, juce::Justification::centredLeft);
+    Dine::drawText (g, juce::String (MixMacros::lowLabel (macro)).toUpperCase(), low, juce::Justification::centredLeft);
     g.setColour (value > 50.5f ? Dine::ink2 : Dine::ink4);
-    g.drawText (juce::String (MixMacros::highLabel (macro)).toUpperCase(), high, juce::Justification::centredRight);
+    Dine::drawText (g, juce::String (MixMacros::highLabel (macro)).toUpperCase(), high, juce::Justification::centredRight);
 
     if (moved || dragging)
     {
         g.setColour (Dine::ink2);
         g.setFont (Dine::mono (11.0f, 500));
-        g.drawText (juce::String (int (std::round (value))), readout, juce::Justification::centredRight);
+        Dine::drawText (g, juce::String (int (std::round (value))), readout, juce::Justification::centredRight);
     }
 
     if (track.getWidth() <= 0) return;

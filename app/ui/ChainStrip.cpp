@@ -147,7 +147,7 @@ void ChainStrip::paint (juce::Graphics& g)
         auto cell = row.removeFromRight (juce::jmin (row.getWidth() / 2, Dine::textWidth (noteFont, note)));
         g.setColour (Dine::warn);
         g.setFont (noteFont);
-        g.drawText (note, cell, juce::Justification::centredRight);
+        Dine::drawText (g, note, cell, juce::Justification::centredRight);
         row.removeFromRight (14);
     }
 
@@ -155,7 +155,7 @@ void ChainStrip::paint (juce::Graphics& g)
     {
         g.setColour (Dine::ink4);
         g.setFont (Dine::text (12.0f));
-        g.drawText (empty, row, juce::Justification::centredLeft, true);
+        Dine::drawText (g, empty, row, juce::Justification::centredLeft, true);
         return;
     }
 
@@ -164,7 +164,7 @@ void ChainStrip::paint (juce::Graphics& g)
     const auto nameFont = Dine::text (13.0f, 600);
     g.setColour (hover ? Dine::ink : Dine::ink2);
     g.setFont (nameFont);
-    g.drawText (name, row.removeFromLeft (juce::jmin (180, Dine::textWidth (nameFont, name))),
+    Dine::drawText (g, name, row.removeFromLeft (juce::jmin (180, Dine::textWidth (nameFont, name))),
                 juce::Justification::centredLeft, true);
     row.removeFromLeft (8);
 
@@ -183,7 +183,7 @@ void ChainStrip::paint (juce::Graphics& g)
         Dine::fillRounded (g, chip.toFloat(), Dine::control, Dine::Radius::chip);
         g.setColour (! s.active ? Dine::ink4 : out ? Dine::accent : Dine::ink2);
         g.setFont (font);
-        g.drawText (textValue, chip, juce::Justification::centred);
+        Dine::drawText (g, textValue, chip, juce::Justification::centred);
         row.removeFromLeft (8);
     }
 }

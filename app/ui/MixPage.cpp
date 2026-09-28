@@ -108,7 +108,7 @@ public:
         auto r = getLocalBounds().reduced (10, 14);
         g.setColour (used ? groupColour (group) : Dine::ink4);
         g.setFont (Dine::caps (11.0f, 0.06f, 500));
-        g.drawText (groupName (group), r.removeFromTop (14), juce::Justification::centred);
+        Dine::drawText (g, groupName (group), r.removeFromTop (14), juce::Justification::centred);
         if (heard == 2)
         {
             g.setColour (Dine::ok);
@@ -121,19 +121,19 @@ public:
         }
         g.setColour (! used ? Dine::ink4 : muted ? Dine::warn : Dine::ink2);
         g.setFont (Dine::mono (11.0f, 500));
-        g.drawText (! used ? "not in this mix" : muted ? "NOT HEARD" : dbText (float (fader.getValue())), readout, juce::Justification::centred);
+        Dine::drawText (g, ! used ? "not in this mix" : muted ? "NOT HEARD" : dbText (float (fader.getValue())), readout, juce::Justification::centred);
         if (used && tunedText.isNotEmpty() && readout.getY() > 30)
         {
             g.setColour (tunedText.startsWithIgnoreCase ("Tuned") ? Dine::accent.withAlpha (0.7f) : Dine::ink4);
             g.setFont (Dine::Type::monoMeter());
-            g.drawText (tunedText, readout.translated (0, -12), juce::Justification::centred, true);
+            Dine::drawText (g, tunedText, readout.translated (0, -12), juce::Justification::centred, true);
         }
 
         if (canTune())
         {
             g.setColour (isMouseOver (true) ? Dine::accent : Dine::ink3);
             g.setFont (Dine::caps (9.5f, 0.06f));
-            g.drawText ("TUNE", verbRect, juce::Justification::centred);
+            Dine::drawText (g, "TUNE", verbRect, juce::Justification::centred);
         }
     }
 
@@ -246,7 +246,7 @@ public:
         juce::String text = tunes > 0 ? "Tuned " + juce::String (tunes) + (tunes == 1 ? " time" : " times") + " this session"
                                       : juce::String ("Not tuned yet");
         if (page.controller.hasReference()) text += "  " + Glyph::dot() + "  aimed at " + juce::String (page.controller.getReference().name);
-        g.drawText (text, stamp, juce::Justification::centredLeft, true);
+        Dine::drawText (g, text, stamp, juce::Justification::centredLeft, true);
 
         // the pad card: a 2 px accent edge down its left
         {
@@ -262,7 +262,7 @@ public:
             auto in = card.reduced (16, 14).withTrimmedLeft (0);
             g.setColour (Dine::accent);
             g.setFont (Dine::caps (10.5f, 0.10f));
-            g.drawText (heading, in.removeFromTop (14), juce::Justification::centredLeft, true);
+            Dine::drawText (g, heading, in.removeFromTop (14), juce::Justification::centredLeft, true);
             in.removeFromTop (8);
             drawWrapped (g, body, Dine::text (12.5f), Dine::ink2, in);
         }
@@ -343,7 +343,7 @@ public:
         verbRect = r.removeFromRight (verbW);
         g.setColour (Dine::accent);
         g.setFont (verbFont);
-        g.drawText ("TUNE CHANNEL", verbRect, juce::Justification::centredRight);
+        Dine::drawText (g, "TUNE CHANNEL", verbRect, juce::Justification::centredRight);
         r.removeFromRight (8);
 
         // THE FOCAL SOURCE: what the mix is built around. Shown always once it is set, offered
@@ -355,7 +355,7 @@ public:
             focusRect = r.removeFromRight (Dine::textWidth (focusFont, "FOCUS"));
             g.setColour (focal ? Dine::accent : Dine::ink4);
             g.setFont (focusFont);
-            g.drawText ("FOCUS", focusRect, juce::Justification::centredRight);
+            Dine::drawText (g, "FOCUS", focusRect, juce::Justification::centredRight);
             r.removeFromRight (10);
         }
 
@@ -367,7 +367,7 @@ public:
         }
         g.setColour (selected ? Dine::ink : Dine::ink2);
         g.setFont (Dine::text (12.5f, selected ? 600 : 400));
-        g.drawText (name, r, juce::Justification::centredLeft, true);
+        Dine::drawText (g, name, r, juce::Justification::centredLeft, true);
     }
 
     juce::String name;
@@ -472,7 +472,7 @@ public:
         auto r = card.reduced (34, 34);
         g.setColour (Dine::ink4);
         g.setFont (Dine::caps (12.0f, 0.10f));
-        g.drawText (verb + (working ? " IS WORKING" : waiting ? " IS WAITING" : " IS LISTENING"), r.removeFromTop (14), juce::Justification::centred);
+        Dine::drawText (g, verb + (working ? " IS WORKING" : waiting ? " IS WAITING" : " IS LISTENING"), r.removeFromTop (14), juce::Justification::centred);
         r.removeFromTop (12);
 
         // The number: seconds left in a listen, per cent through the work.
@@ -482,7 +482,7 @@ public:
                                          : juce::String (juce::jmax (0, int (std::ceil (seconds * (1.0f - progress))))) + " s";
         g.setColour (Dine::ink);
         g.setFont (Dine::mono (52.0f, 500));
-        g.drawText (big, r.removeFromTop (58), juce::Justification::centred);
+        Dine::drawText (g, big, r.removeFromTop (58), juce::Justification::centred);
         r.removeFromTop (8);
 
         juce::String hearing;
@@ -504,7 +504,7 @@ public:
         }
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (13.0f));
-        g.drawFittedText (hearing, r.removeFromTop (40), juce::Justification::centredTop, 2);
+        Dine::drawFittedText (g, hearing, r.removeFromTop (40), juce::Justification::centredTop, 2);
         r.removeFromTop (10);
 
         auto bar = r.removeFromTop (4);
@@ -536,7 +536,7 @@ public:
                 const int w = Dine::textWidth (font, label) + 16;
                 g.setColour (at > i ? Dine::accent : at == i ? Dine::ink : Dine::ink4);
                 g.setFont (font);
-                g.drawText (label, row.removeFromLeft (w), juce::Justification::centred);
+                Dine::drawText (g, label, row.removeFromLeft (w), juce::Justification::centred);
             }
         }
         else
@@ -549,7 +549,7 @@ public:
             {
                 g.setColour (i <= phaseIndex ? Dine::accent : Dine::ink4);
                 g.setFont (font);
-                g.drawText (labels[i], row.removeFromLeft (84), juce::Justification::centred);
+                Dine::drawText (g, labels[i], row.removeFromLeft (84), juce::Justification::centred);
             }
         }
     }
@@ -797,11 +797,11 @@ public:
         const auto titleFont = Dine::text (22.0f);
         g.setColour (Dine::ink);
         g.setFont (titleFont);
-        g.drawText (title, head.removeFromLeft (Dine::textWidth (titleFont, title)), juce::Justification::centredLeft);
+        Dine::drawText (g, title, head.removeFromLeft (Dine::textWidth (titleFont, title)), juce::Justification::centredLeft);
         head.removeFromLeft (14);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        g.drawText (plan->noChangeRequired ? juce::String (plan->headline)
+        Dine::drawText (g, plan->noChangeRequired ? juce::String (plan->headline)
                                            : "Heard " + juce::String (plan->stripsHeard) + " inputs, proposed "
                                                  + juce::String (plan->parametersChanged) + " settings and "
                                                  + juce::String (plan->fadersChanged) + " levels. " + juce::String (plan->headline),
@@ -813,7 +813,7 @@ public:
             auto row = r.removeFromTop (kChipH);
             g.setColour (everythingPicked() ? Dine::ink3 : Dine::accent);
             g.setFont (Dine::caps (10.0f, 0.08f));
-            g.drawText (everythingPicked() ? "KEEP" : "KEEPING", row.removeFromLeft (kKeepLabelW), juce::Justification::centredLeft);
+            Dine::drawText (g, everythingPicked() ? "KEEP" : "KEEPING", row.removeFromLeft (kKeepLabelW), juce::Justification::centredLeft);
             r.removeFromTop (12);
         }
         for (const auto& b : bullets())
@@ -826,7 +826,7 @@ public:
             auto left = row.removeFromLeft (150);
             g.setColour (b.done ? Dine::ink : Dine::ink3);
             g.setFont (Dine::text (13.0f));
-            g.drawFittedText (b.what, left, juce::Justification::topLeft, 5, 1.0f);
+            Dine::drawFittedText (g, b.what, left, juce::Justification::topLeft, 5, 1.0f);
             row.removeFromLeft (18);
             if (! b.done)
             {
@@ -836,7 +836,7 @@ public:
             }
             g.setColour (Dine::ink2);
             g.setFont (Dine::text (13.0f));
-            g.drawFittedText (b.why.isEmpty() ? juce::String ("Applied.") : b.why, row, juce::Justification::topLeft, 5, 1.0f);
+            Dine::drawFittedText (g, b.why.isEmpty() ? juce::String ("Applied.") : b.why, row, juce::Justification::topLeft, 5, 1.0f);
         }
     }
 
@@ -1480,10 +1480,10 @@ void MixPage::paint (juce::Graphics& g)
         g.setColour (Dine::ink);
         g.setFont (Dine::Type::headingPage());
         const int titleW = Dine::textWidth (Dine::Type::headingPage(), "Tune") + 18;
-        g.drawText ("Tune", head.removeFromLeft (titleW), juce::Justification::centredLeft);
+        Dine::drawText (g, "Tune", head.removeFromLeft (titleW), juce::Justification::centredLeft);
         g.setColour (Dine::ink4);
         g.setFont (Dine::Type::labelSection());
-        g.drawText ("WHAT TO TUNE", head.removeFromLeft (Dine::textWidth (Dine::Type::labelSection(), "WHAT TO TUNE") + 18),
+        Dine::drawText (g, "WHAT TO TUNE", head.removeFromLeft (Dine::textWidth (Dine::Type::labelSection(), "WHAT TO TUNE") + 18),
                     juce::Justification::centredLeft);
         // The track the segments sit in, so the three of them read as one control.
         if (scopeTabs[0] != nullptr && scopeTabs[2] != nullptr)
@@ -1505,7 +1505,7 @@ void MixPage::paint (juce::Graphics& g)
         {
             g.setColour (raisePossible ? Dine::ink2 : Dine::ink3);
             g.setFont (Dine::mono (11.5f, 500));
-            g.drawText (masterNote, note, juce::Justification::centredRight, true);
+            Dine::drawText (g, masterNote, note, juce::Justification::centredRight, true);
         }
     }
 
@@ -1525,7 +1525,7 @@ void MixPage::paint (juce::Graphics& g)
     {
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.0f));
-        g.drawFittedText ("Assign inputs to see them here.", l.rail.reduced (14, 50).removeFromTop (40), juce::Justification::topLeft, 2);
+        Dine::drawFittedText (g, "Assign inputs to see them here.", l.rail.reduced (14, 50).removeFromTop (40), juce::Justification::topLeft, 2);
     }
 
     int faintCount = 0;
@@ -1539,11 +1539,11 @@ void MixPage::paint (juce::Graphics& g)
         auto r = box.reduced (12, 10);
         g.setColour (Dine::warn);
         g.setFont (Dine::text (12.0f, 600));
-        g.drawText (faintCount == 1 ? "Check this input" : "Check these inputs", r.removeFromTop (16), juce::Justification::centredLeft);
+        Dine::drawText (g, faintCount == 1 ? "Check this input" : "Check these inputs", r.removeFromTop (16), juce::Justification::centredLeft);
         r.removeFromTop (4);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (11.5f));
-        g.drawFittedText (faintNames + " never rose above a whisper. Left where it is - a faint input is usually a mic that is off.",
+        Dine::drawFittedText (g, faintNames + " never rose above a whisper. Left where it is - a faint input is usually a mic that is off.",
                           r, juce::Justification::topLeft, 3);
     }
 }

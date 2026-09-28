@@ -239,14 +239,14 @@ void ReferenceSheet::drawBalance (juce::Graphics& g, juce::Rectangle<int> area) 
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (11.0f));
         const int w1 = Dine::textWidth (Dine::text (11.0f), "the reference");
-        g.drawText ("the reference", legend.removeFromLeft (w1), juce::Justification::centredLeft);
+        Dine::drawText (g, "the reference", legend.removeFromLeft (w1), juce::Justification::centredLeft);
         legend.removeFromLeft (14);
         dot = legend.removeFromLeft (9).withSizeKeepingCentre (7, 7);
         g.setColour (Dine::accent);
         g.fillRoundedRectangle (dot.toFloat(), 1.5f);
         legend.removeFromLeft (6);
         g.setColour (Dine::ink2);
-        g.drawText (controller.hasListened() ? "this mix" : "this mix (listen first)", legend, juce::Justification::centredLeft, true);
+        Dine::drawText (g, controller.hasListened() ? "this mix" : "this mix (listen first)", legend, juce::Justification::centredLeft, true);
     }
     inner.removeFromTop (8);
     auto labels = inner.removeFromBottom (13);
@@ -284,7 +284,7 @@ void ReferenceSheet::drawBalance (juce::Graphics& g, juce::Rectangle<int> area) 
 
         g.setColour (Dine::ink4);
         g.setFont (Dine::text (9.5f));
-        g.drawText (shortBand (Band (i)), label, juce::Justification::centred);
+        Dine::drawText (g, shortBand (Band (i)), label, juce::Justification::centred);
     }
 }
 
@@ -303,12 +303,12 @@ void ReferenceSheet::paint (juce::Graphics& g)
         auto head = r.removeFromTop (18);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (19.0f, 600));
-        g.drawText ("MATCH TO REFERENCE", head.removeFromLeft (240), juce::Justification::centredLeft);
+        Dine::drawText (g, "MATCH TO REFERENCE", head.removeFromLeft (240), juce::Justification::centredLeft);
         if (s == State::Chosen)
         {
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (11.5f));
-            g.drawText (juce::String (controller.getReference().name), head, juce::Justification::centredRight, true);
+            Dine::drawText (g, juce::String (controller.getReference().name), head, juce::Justification::centredRight, true);
         }
     }
     r.removeFromTop (12);
@@ -318,11 +318,11 @@ void ReferenceSheet::paint (juce::Graphics& g)
 
     if (s == State::Measuring)
     {
-        g.drawText ("Listening to " + measuringName, r.removeFromTop (26), juce::Justification::topLeft, true);
+        Dine::drawText (g, "Listening to " + measuringName, r.removeFromTop (26), juce::Justification::topLeft, true);
         r.removeFromTop (6);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText ("DLIVE is measuring the whole song the way it measures the band: its tonal balance, how dense it "
+        Dine::drawFittedText (g, "DLIVE is measuring the whole song the way it measures the band: its tonal balance, how dense it "
                           "is and how wide it sits. The console keeps running while it reads.",
                           r.removeFromTop (56), juce::Justification::topLeft, 3);
         return;
@@ -331,16 +331,16 @@ void ReferenceSheet::paint (juce::Graphics& g)
     if (s == State::Refused)
     {
         g.setColour (Dine::warn);
-        g.drawText (error.isNotEmpty() ? "That file will not do" : "That is not a mix to aim at",
+        Dine::drawText (g, error.isNotEmpty() ? "That file will not do" : "That is not a mix to aim at",
                     r.removeFromTop (26), juce::Justification::topLeft, true);
         r.removeFromTop (8);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (13.0f, 600));
-        g.drawFittedText (error.isNotEmpty() ? error : refusedReason, r.removeFromTop (36), juce::Justification::topLeft, 2);
+        Dine::drawFittedText (g, error.isNotEmpty() ? error : refusedReason, r.removeFromTop (36), juce::Justification::topLeft, 2);
         r.removeFromTop (4);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText (error.isNotEmpty() ? "Pick the finished stereo mix of a song you want this service to sound like."
+        Dine::drawFittedText (g, error.isNotEmpty() ? "Pick the finished stereo mix of a song you want this service to sound like."
                                              : refusedGuidance,
                           r.removeFromTop (54), juce::Justification::topLeft, 3);
         return;
@@ -348,11 +348,11 @@ void ReferenceSheet::paint (juce::Graphics& g)
 
     if (s == State::Empty)
     {
-        g.drawText ("Sound like a record you know", r.removeFromTop (26), juce::Justification::topLeft, true);
+        Dine::drawText (g, "Sound like a record you know", r.removeFromTop (26), juce::Justification::topLeft, true);
         r.removeFromTop (6);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText ("Add a finished song and DLIVE aims the master at it: the tonal balance it has, how wide it sits "
+        Dine::drawFittedText (g, "Add a finished song and DLIVE aims the master at it: the tonal balance it has, how wide it sits "
                           "and how dense it is. It uses the listen it already has of your band, so it costs nothing at the "
                           "console.",
                           r.removeFromTop (56), juce::Justification::topLeft, 3);
@@ -375,7 +375,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
             row.removeFromLeft (9);
             g.setColour (Dine::ink2);
             g.setFont (Dine::text (12.0f));
-            g.drawText (lines[i], row, juce::Justification::centredLeft, true);
+            Dine::drawText (g, lines[i], row, juce::Justification::centredLeft, true);
         }
         return;
     }
@@ -384,7 +384,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
     const auto& ref = controller.getReference();
     const auto& m = shown;
 
-    g.drawText (juce::String (ref.name), r.removeFromTop (26), juce::Justification::topLeft, true);
+    Dine::drawText (g, juce::String (ref.name), r.removeFromTop (26), juce::Justification::topLeft, true);
     r.removeFromTop (2);
     {
         juce::StringArray parts;
@@ -394,7 +394,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
         if (ref.tempoConfidence > 0.35f && ref.tempoBpm > 40.0f) parts.add (juce::String (int (std::round (ref.tempoBpm))) + " BPM");
         g.setColour (Dine::ink3);
         g.setFont (Dine::mono (11.0f));
-        g.drawText (parts.joinIntoString ("  " + juce::String (Glyph::dot()) + "  "), r.removeFromTop (16), juce::Justification::centredLeft, true);
+        Dine::drawText (g, parts.joinIntoString ("  " + juce::String (Glyph::dot()) + "  "), r.removeFromTop (16), juce::Justification::centredLeft, true);
     }
 
     r.removeFromTop (12);
@@ -412,7 +412,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
         row.removeFromLeft (9);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (12.5f));
-        g.drawText (juce::String (aim), row, juce::Justification::centredLeft, true);
+        Dine::drawText (g, juce::String (aim), row, juce::Justification::centredLeft, true);
     }
     for (const auto& limit : m.limits)
     {
@@ -422,7 +422,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
         row.removeFromLeft (9);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (11.5f));
-        g.drawFittedText (juce::String (limit), row, juce::Justification::topLeft, 2);
+        Dine::drawFittedText (g, juce::String (limit), row, juce::Justification::topLeft, 2);
     }
 
 }

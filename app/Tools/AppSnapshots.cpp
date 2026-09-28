@@ -11,6 +11,7 @@
 #include "native/ThemeStore.h"
 #include "native/StemNames.h"
 #include <algorithm>
+#include <functional>
 #include <iostream>
 #include <cstdio>
 #include <random>
@@ -382,6 +383,7 @@ namespace
 // 33 ms a 30 Hz tick has to fit inside.
 //
 //   dlive_ui_snapshots --frames [channels=48] [frames=120]
+//   dlive_ui_snapshots --paint  [channels=48] [frames=120]   the same, plus the paint tree
 // ---------------------------------------------------------------------------
 // The band on the desk. Given a real multitrack (--stems) every input is assigned from the
 // file that recorded it, by the name the console wrote; otherwise the synthetic sixteen are
@@ -431,7 +433,79 @@ static std::vector<int> backingVocalInputs()
     return { 11, 12, 13 };
 }
 
-static int measureFrames (int channels, int frames)
+// Where a page's paint actually goes, component by component. A workspace is a tree and a
+// wall-clock total for the whole window says nothing about which branch of it to fix - the two
+// real regressions in this work were both found by asking this question rather than by reading
+// layout code. `--paint` prints the tree with the cost of each subtree, warm, so what is left
+// after every cache has done its job is what shows up.
+static void paintHotspots (juce::Component& c, juce::Image& canvas, int reps, int depth,
+                           juce::Point<int> origin, juce::Rectangle<int> clip,
+                           double inclusiveMs, double threshold)
+{
+    struct Child { juce::Component* c; double ms; juce::Point<int> origin; juce::Rectangle<int> clip; };
+    std::vector<Child> children;
+
+    for (auto* child : c.getChildren())
+    {
+        if (! child->isVisible() || child->getBounds().isEmpty()) continue;
+        const auto within = clip.getIntersection (child->getBounds() + origin);
+        if (within.isEmpty()) continue;
+        children.push_back ({ child, 1.0e9, origin + child->getPosition(), within });
+    }
+
+    // Every sibling timed inside ONE pass over the whole row of them, repeated, keeping each
+    // one's fastest pass. Timing a component on its own instead gets the answer wrong, and
+    // wrong in the flattering direction: painted by itself it has JUCE's glyph caches to
+    // itself, and the first thing this walk was used to find was text being laid out again
+    // because a sibling had evicted it. A component costs what it costs with the rest of the
+    // window drawing around it.
+    for (int r = 0; r < reps; ++r)
+    {
+        juce::Graphics g (canvas);
+        for (auto& child : children)
+        {
+            const auto t0 = std::chrono::steady_clock::now();
+            {
+                juce::Graphics::ScopedSaveState save (g);
+                g.reduceClipRegion (child.clip);
+                g.setOrigin (child.origin);
+                child.c->paintEntireComponent (g, true);
+            }
+            child.ms = std::min (child.ms, std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - t0).count());
+        }
+    }
+
+    double childTotal = 0.0;
+    for (const auto& child : children) childTotal += child.ms;
+
+    const auto name = [] (juce::Component& x)
+    {
+        auto n = x.getComponentID();
+        if (n.isEmpty()) n = x.getName();
+        if (n.isEmpty()) n = juce::String (typeid (x).name());
+        return n;
+    };
+
+    // What this component draws itself, as opposed to what its children draw.
+    const auto self = inclusiveMs - childTotal;
+    if (self >= threshold)
+        std::printf ("  %*s%-*s %6.2f ms drawn by %s itself\n", depth * 2, "",
+                     juce::jmax (4, 34 - depth * 2), "(itself)", juce::jmax (0.0, self),
+                     name (c).toRawUTF8());
+
+    std::sort (children.begin(), children.end(), [] (const Child& a, const Child& b) { return a.ms > b.ms; });
+
+    for (const auto& child : children)
+    {
+        if (child.ms < threshold) continue;
+        std::printf ("  %*s%-*s %6.2f ms\n", depth * 2, "",
+                     juce::jmax (4, 34 - depth * 2),
+                     name (*child.c).substring (0, juce::jmax (4, 32 - depth * 2)).toRawUTF8(), child.ms);
+        paintHotspots (*child.c, canvas, reps, depth + 1, child.origin, child.clip, child.ms, threshold);
+    }
+}
+
+static int measureFrames (int channels, int frames, bool detail)
 {
     Rig rig;
     auto& view = *rig.view;
@@ -461,7 +535,7 @@ static int measureFrames (int channels, int frames)
     rig.services.reconfigure();          // the same three steps the application takes
     rig.pump (120);
 
-    struct Result { const char* name; double tickMs; double steadyMs; double fullMs; };
+    struct Result { const char* name; double tickMs; double coldMs; double warmMs; long long layouts; };
     std::vector<Result> results;
 
     // Deliberately no window. Timing a real one on macOS measures the window server's vsync,
@@ -473,59 +547,118 @@ static int measureFrames (int channels, int frames)
                                      MainView::Page::Tune, MainView::Page::Live, MainView::Page::Inspector };
     const char* names[] = { "TRACKS", "MIXER", "TUNE", "LIVE", "INSPECTOR" };
 
+    // Everything a page has cached, thrown away: a page switch or a resize arrives with every
+    // buffered strip's image dirty, and that is the moment worth timing.
+    const std::function<void (juce::Component&)> invalidate = [&invalidate] (juce::Component& c)
+    {
+        c.repaint();
+        for (auto* child : c.getChildren())
+            invalidate (*child);
+    };
+
+    const auto paintWholeWindow = [&view] (juce::Image& canvas)
+    {
+        juce::Graphics g (canvas);
+        view.paint (g);
+        for (auto* child : view.getChildren())
+            if (child->isVisible() && ! child->getBounds().isEmpty())
+            {
+                juce::Graphics::ScopedSaveState save (g);
+                g.reduceClipRegion (child->getBounds());
+                g.setOrigin (child->getPosition());
+                child->paintEntireComponent (g, true);
+            }
+    };
+
+    // Every number below is the MINIMUM of `reps` rounds, not the mean. On a laptop the mean
+    // of anything drifts about 15 % with the fan, uniformly across all five workspaces, so a
+    // before/after taken minutes apart says nothing; the fastest round the machine managed is
+    // the one measurement the thermal state cannot inflate. It also means two binaries no
+    // longer have to be run alternately to be comparable.
+    const int reps = 7;
+
     for (size_t p = 0; p < sizeof (pages) / sizeof (pages[0]); ++p)
     {
         view.showPage (pages[p]);
         rig.pump (120);
 
-        juce::Image canvas (juce::Image::ARGB, view.getWidth(), view.getHeight(), true);
+        // NativeImageType, not the default software one, and that is the whole difference
+        // between measuring DLIVE and measuring a renderer DLIVE never uses. On macOS a window
+        // paints through CoreGraphics, where a run of text goes to CTFontDrawGlyphs; a plain
+        // juce::Image paints through JUCE's own software rasteriser, which builds an outline
+        // per glyph behind a 128-entry cache and re-builds it the moment a page has more
+        // distinct glyphs than that. A native image also makes every setBufferedToImage strip
+        // cache itself the way it does on screen, because JUCE asks the context which image
+        // type to use. Still no window, so still none of the window server's vsync.
+        juce::Image canvas (juce::Image::ARGB, view.getWidth(), view.getHeight(), true,
+                            juce::NativeImageType());
+
+        double tick = 1.0e9, cold = 1.0e9, warm = 1.0e9;
 
         // What one timer tick costs: every refresh() on this page, with real audio underneath
-        // so the meters really move and the pages really have new numbers to show.
-        double tickTotal = 0.0;
-        for (int f = 0; f < frames; ++f)
+        // so the meters really move and the pages really have new numbers. Measured in rounds
+        // of its own, before any full repaint: a page arrives at its tick with its caches warm,
+        // and timing the two interleaved measures the tick against a state it never meets.
+        for (int r = 0; r < reps; ++r)
         {
-            rig.feed (0.03);
-            const auto t0 = std::chrono::steady_clock::now();
-            rig.pump (1);
-            tickTotal += std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - t0).count();
-        }
-
-        // What painting the whole window costs. This is the price of a page switch or a
-        // resize - and it is also the price a page pays *every frame* if its refresh() calls
-        // repaint() on itself rather than on the few things that moved. That is the number to
-        // keep an eye on: it is the ceiling every other frame is measured against.
-        double fullTotal = 0.0;
-        for (int f = 0; f < 5; ++f)
-        {
-            const auto a = std::chrono::steady_clock::now();
+            double tickTotal = 0.0;
+            for (int f = 0; f < frames; ++f)
             {
-                juce::Graphics g (canvas);
-                view.paint (g);
-                for (auto* child : view.getChildren())
-                    if (child->isVisible() && ! child->getBounds().isEmpty())
-                    {
-                        juce::Graphics::ScopedSaveState save (g);
-                        g.reduceClipRegion (child->getBounds());
-                        g.setOrigin (child->getPosition());
-                        child->paintEntireComponent (g, true);
-                    }
+                rig.feed (0.03);
+                const auto t0 = std::chrono::steady_clock::now();
+                rig.pump (1);
+                tickTotal += std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - t0).count();
             }
-            fullTotal += std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - a).count();
+            tick = std::min (tick, tickTotal / frames);
         }
 
-        results.push_back ({ names[p], tickTotal / frames, 0.0, fullTotal / 5.0 });
+        for (int r = 0; r < reps; ++r)
+        {
+            // COLD: the price of arriving on this page. Every cached strip image is dirty and
+            // every string on it has to be laid out for the first time.
+            invalidate (view);
+            const auto c0 = std::chrono::steady_clock::now();
+            paintWholeWindow (canvas);
+            cold = std::min (cold, std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - c0).count());
+
+            // WARM: the same window again with nothing invalidated. What is left is the
+            // drawing the caches cannot save - and the gap between the two is what a text or
+            // image cache can actually win.
+            const auto w0 = std::chrono::steady_clock::now();
+            paintWholeWindow (canvas);
+            warm = std::min (warm, std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - w0).count());
+        }
+
+        // How many strings this workspace has to lay out to draw itself once from nothing.
+        // A count, not a clock: it is the same on every machine and in every thermal state, so
+        // it is the figure a frame-budget regression is actually caught by. A page that starts
+        // building strings in paint() shows up here before it shows up in the milliseconds.
+        Dine::clearTextCache();
+        Dine::resetTextCacheStats();
+        invalidate (view);
+        paintWholeWindow (canvas);
+        const auto layouts = Dine::textCacheStats().misses;
+
+        results.push_back ({ names[p], tick, cold, warm, layouts });
+
+        if (detail)
+        {
+            std::printf ("\n%s - where the warm paint goes (anything over 0.30 ms)\n", names[p]);
+            paintHotspots (view, canvas, 3, 0, {}, view.getLocalBounds(), warm, 0.30);
+        }
     }
 
-    std::printf ("\nFRAME COST  (%d channels, %d frames, %d x %d)\n",
-                 channels, frames, view.getWidth(), view.getHeight());
-    std::printf ("  %-11s %10s %14s\n", "workspace", "tick ms", "full repaint");
+    std::printf ("\nFRAME COST  (%d channels, %d frames, %d reps, %d x %d)\n",
+                 channels, frames, reps, view.getWidth(), view.getHeight());
+    std::printf ("  %-11s %10s %14s %10s %10s\n", "workspace", "tick ms", "cold repaint", "warm", "layouts");
     for (const auto& r : results)
-        std::printf ("  %-11s %9.2f %13.2f%s\n", r.name, r.tickMs, r.fullMs,
-                     (r.tickMs + r.fullMs) > 33.0 ? "   a page that repaints itself whole would miss the frame" : "");
-    std::printf ("  tick = one refresh() of this page. full repaint = the whole window.\n");
-    std::printf ("  a page must not call repaint() on itself per tick: at these sizes that alone\n"
-                 "  spends the whole 33.3 ms a 30 Hz frame has.\n");
+        std::printf ("  %-11s %9.2f %13.2f %9.2f %10lld%s\n", r.name, r.tickMs, r.coldMs, r.warmMs, r.layouts,
+                     (r.tickMs + r.coldMs) > 33.0 ? "   a page that repaints itself whole would miss the frame" : "");
+    std::printf ("  every time is the fastest of %d rounds, so the fan cannot flatter it; layouts is\n"
+                 "  a count and does not move at all.\n", reps);
+    std::printf ("  tick = one refresh() of this page. cold = arriving on it, every cache dirty.\n"
+                 "  warm = the same window again. a page must not call repaint() on itself per\n"
+                 "  tick: at these sizes that alone spends the whole 33.3 ms a 30 Hz frame has.\n");
     return 0;
 }
 
@@ -658,9 +791,11 @@ int main (int argc, char** argv)
     if (argc > 1 && juce::String (argv[1]) == "--sizes")
         return renderSizes (juce::File (argc > 2 ? juce::String (argv[2])
                                                  : juce::File::getCurrentWorkingDirectory().getChildFile ("app-sizes").getFullPathName()));
-    if (argc > 1 && juce::String (argv[1]) == "--frames")
+    // --frames  the five workspaces' frame cost.  --paint  the same, plus where it goes.
+    if (argc > 1 && (juce::String (argv[1]) == "--frames" || juce::String (argv[1]) == "--paint"))
         return measureFrames (argc > 2 ? juce::String (argv[2]).getIntValue() : 48,
-                              argc > 3 ? juce::String (argv[3]).getIntValue() : 120);
+                              argc > 3 ? juce::String (argv[3]).getIntValue() : 120,
+                              juce::String (argv[1]) == "--paint");
 
     const juce::File dir (argc > 1 ? juce::String (argv[1]) : juce::File::getCurrentWorkingDirectory().getChildFile ("app-snapshots").getFullPathName());
     dir.createDirectory();

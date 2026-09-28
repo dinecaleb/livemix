@@ -137,11 +137,11 @@ void drawSetupHead (juce::Graphics& g, juce::Rectangle<int> r, const juce::Strin
 {
     g.setColour (Dine::ink);
     g.setFont (Dine::text (20.0f, 600));
-    g.drawText (title, r.removeFromTop (26), juce::Justification::centredLeft);
+    Dine::drawText (g, title, r.removeFromTop (26), juce::Justification::centredLeft);
     r.removeFromTop (6);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (13.0f));
-    g.drawFittedText (sentence, r.removeFromTop (20).withWidth (juce::jmin (r.getWidth(), 620)), juce::Justification::topLeft, 1);
+    Dine::drawFittedText (g, sentence, r.removeFromTop (20).withWidth (juce::jmin (r.getWidth(), 620)), juce::Justification::topLeft, 1);
 }
 
 void drawSetupFooter (juce::Graphics& g, juce::Rectangle<int> page, const juce::String& note, int reservedRight)
@@ -152,7 +152,7 @@ void drawSetupFooter (juce::Graphics& g, juce::Rectangle<int> page, const juce::
     r.removeFromRight (reservedRight + 12);
     g.setColour (Dine::ink4);
     g.setFont (Dine::text (12.5f));
-    g.drawText (note, r, juce::Justification::centredRight, true);
+    Dine::drawText (g, note, r, juce::Justification::centredRight, true);
 }
 
 // ============================================================================ SessionsPage
@@ -191,7 +191,7 @@ public:
         g.setColour (Dine::ink);
         g.setFont (Dine::text (15.0f));
         const int nameW = juce::jmin (Dine::textWidth (Dine::text (15.0f), it.listing.name), name.getWidth() - (tag.isEmpty() ? 0 : 70));
-        g.drawText (it.listing.name, name.removeFromLeft (nameW), juce::Justification::centredLeft, true);
+        Dine::drawText (g, it.listing.name, name.removeFromLeft (nameW), juce::Justification::centredLeft, true);
         if (tag.isNotEmpty())
         {
             name.removeFromLeft (8);
@@ -202,7 +202,7 @@ public:
         text.removeFromTop (5);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.5f));
-        g.drawText (it.summary.valid ? juce::String (styleProfileName (it.summary.profile)) + "  " + Glyph::dot() + "  "
+        Dine::drawText (g, it.summary.valid ? juce::String (styleProfileName (it.summary.profile)) + "  " + Glyph::dot() + "  "
                                            + juce::String (mixPurposeName (it.summary.purpose)) + "  " + Glyph::dot() + "  "
                                            + page.folderText (it.listing.file)
                                      : juce::String ("Not a DLIVE session"),
@@ -220,14 +220,14 @@ public:
         for (int bus = 0; bus < int (MixBus::Master); ++bus) if (it.summary.perBus[size_t (bus)] > 0) ++groupsUsed;
         g.setColour (Dine::ink4);
         g.setFont (Dine::text (12.0f));
-        g.drawText (it.summary.valid ? juce::String (it.summary.inputs) + " inputs across " + juce::String (groupsUsed) + " groups"
+        Dine::drawText (g, it.summary.valid ? juce::String (it.summary.inputs) + " inputs across " + juce::String (groupsUsed) + " groups"
                                      + (it.summary.tracks > 0 ? "  " + Glyph::dot() + "  " + juce::String (it.summary.tracks) + " tracks recorded" : juce::String())
                                      : juce::String (Glyph::dash()),
                     barArea, juce::Justification::centredLeft, true);
 
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        g.drawText (it.when, when, juce::Justification::centredRight, true);
+        Dine::drawText (g, it.when, when, juce::Justification::centredRight, true);
     }
 
     static constexpr int kSoundW = 140, kPurposeW = 130, kCountW = 56, kWhenW = 120;
@@ -383,19 +383,19 @@ void SessionsPage::paint (juce::Graphics& g)
     }
     g.setColour (Dine::ink4);
     g.setFont (Dine::text (12.5f));
-    g.drawText ("Sorted by when it was last saved", L.toolbar.withTrimmedRight (2), juce::Justification::centredRight, true);
+    Dine::drawText (g, "Sorted by when it was last saved", L.toolbar.withTrimmedRight (2), juce::Justification::centredRight, true);
 
     if (shown.empty())
     {
         auto empty = L.main.reduced (30, 40).removeFromTop (90);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (15.0f, 600));
-        g.drawText (items.empty() ? "No sessions saved yet" : "Nothing matches that",
+        Dine::drawText (g, items.empty() ? "No sessions saved yet" : "Nothing matches that",
                     empty.removeFromTop (20), juce::Justification::centredTop);
         empty.removeFromTop (6);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        g.drawFittedText (items.empty() ? "Start a new session and it is saved into ~/Music/DLIVE as you work."
+        Dine::drawFittedText (g, items.empty() ? "Start a new session and it is saved into ~/Music/DLIVE as you work."
                                         : "Try a different word, or switch the filter back to All.",
                           empty.removeFromTop (34), juce::Justification::centredTop, 2);
     }
@@ -463,14 +463,14 @@ public:
         auto text = r.withSizeKeepingCentre (r.getWidth(), 38);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (13.5f));
-        g.drawText (deviceName, text.removeFromTop (18), juce::Justification::centredLeft, true);
+        Dine::drawText (g, deviceName, text.removeFromTop (18), juce::Justification::centredLeft, true);
         text.removeFromTop (4);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.5f));
         juce::String meta = juce::String (inputChannels) + " in  " + Glyph::dot() + "  " + juce::String (outputChannels) + " out";
         if (! usable)  meta += "  " + Glyph::dot() + "  output only: nothing comes in this way";
         else if (open) meta += "  " + Glyph::dot() + "  open now";
-        g.drawText (meta, text, juce::Justification::centredLeft, true);
+        Dine::drawText (g, meta, text, juce::Justification::centredLeft, true);
     }
 
     juce::String deviceName;
@@ -495,10 +495,10 @@ public:
         auto name = r.removeFromTop (r.getHeight() / 2 + 1).withTrimmedTop (4);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (12.5f));
-        g.drawText (deviceName, name, juce::Justification::centredLeft, true);
+        Dine::drawText (g, deviceName, name, juce::Justification::centredLeft, true);
         g.setColour (Dine::ink4);
         g.setFont (Dine::text (11.0f));
-        g.drawText (outputChannels >= 2 ? "Output 1-2  " + Glyph::dot() + "  " + juce::String (outputChannels) + " available"
+        Dine::drawText (g, outputChannels >= 2 ? "Output 1-2  " + Glyph::dot() + "  " + juce::String (outputChannels) + " available"
                                         : "No stereo pair",
                     r, juce::Justification::centredLeft, true);
     }
@@ -699,11 +699,11 @@ void DevicePage::paint (juce::Graphics& g)
         auto r = juce::Rectangle<int> (col.list).withSizeKeepingCentre (col.list.getWidth() - 60, 74);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (14.0f, 600));
-        g.drawText ("No inputs yet", r.removeFromTop (18), juce::Justification::centredLeft);
+        Dine::drawText (g, "No inputs yet", r.removeFromTop (18), juce::Justification::centredLeft);
         r.removeFromTop (4);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText ("Connect your interface or console and rescan. You can also work from a folder of stems while nothing is plugged in.",
+        Dine::drawFittedText (g, "Connect your interface or console and rescan. You can also work from a folder of stems while nothing is plugged in.",
                           r.removeFromTop (36), juce::Justification::topLeft, 2);
     }
 
@@ -716,7 +716,7 @@ void DevicePage::paint (juce::Graphics& g)
     {
         g.setColour (Dine::ink4);
         g.setFont (Dine::Type::labelSection());
-        g.drawText ("INPUT ACCESS  " + juce::String (Glyph::dot()) + "  macOS", col.accessCaption, juce::Justification::centredLeft);
+        Dine::drawText (g, "INPUT ACCESS  " + juce::String (Glyph::dot()) + "  macOS", col.accessCaption, juce::Justification::centredLeft);
 
         const auto state = services.deviceState();
         const bool refused = state.stage == DeviceStage::InputRefused;
@@ -735,7 +735,7 @@ void DevicePage::paint (juce::Graphics& g)
             ? state.why
             : juce::String ("Devices are always listed and mappable. If macOS refuses the inputs, DLIVE still "
                             "opens, plays and mixes, and tells you here.");
-        g.drawFittedText (sentence, inner, juce::Justification::topLeft, 4);
+        Dine::drawFittedText (g, sentence, inner, juce::Justification::topLeft, 4);
     }
 
     Dine::fillRounded (g, spec.toFloat(), Dine::card, Dine::Radius::card);
@@ -759,18 +759,18 @@ void DevicePage::paint (juce::Graphics& g)
         auto r = row.reduced (16, 0);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        g.drawText (lines[i].key, r.removeFromLeft (130), juce::Justification::centredLeft, true);
+        Dine::drawText (g, lines[i].key, r.removeFromLeft (130), juce::Justification::centredLeft, true);
         // The note explains the number. In a column narrow enough that it would be three
         // letters and an ellipsis it explains nothing, so it gives way to the number instead.
         if (r.getWidth() > 300)
         {
             g.setColour (Dine::ink4);
             g.setFont (Dine::text (12.0f));
-            g.drawText (lines[i].note, r.removeFromRight (juce::jmin (260, r.getWidth() / 2)), juce::Justification::centredRight, true);
+            Dine::drawText (g, lines[i].note, r.removeFromRight (juce::jmin (260, r.getWidth() / 2)), juce::Justification::centredRight, true);
         }
         g.setColour (lines[i].colour);
         g.setFont (Dine::mono (12.5f, 500));
-        g.drawText (lines[i].value, r, juce::Justification::centredLeft, true);
+        Dine::drawText (g, lines[i].value, r, juce::Justification::centredLeft, true);
     }
 
     // ---- no band in the room
@@ -780,7 +780,7 @@ void DevicePage::paint (juce::Graphics& g)
         if (r.getWidth() < 200) r = {};
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.5f));
-        g.drawText ("No band in the room? A folder of stems becomes tracks and clips, and everything from here works exactly as it does live.",
+        Dine::drawText (g, "No band in the room? A folder of stems becomes tracks and clips, and everything from here works exactly as it does live.",
                     r, juce::Justification::centredLeft, true);
     }
 
@@ -788,7 +788,7 @@ void DevicePage::paint (juce::Graphics& g)
     {
         g.setColour (Dine::crit);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText (error, juce::Rectangle<int> (L.main).removeFromBottom (30), juce::Justification::centredLeft, 2);
+        Dine::drawFittedText (g, error, juce::Rectangle<int> (L.main).removeFromBottom (30), juce::Justification::centredLeft, 2);
     }
 
     // ---- the right column: what is arriving, then where it comes out
@@ -804,7 +804,7 @@ void DevicePage::paint (juce::Graphics& g)
         {
             g.setColour (Dine::ink4);
             g.setFont (Dine::text (12.5f));
-            g.drawFittedText (running ? "No inputs on this device." : "Press Continue and the meters fill in - your console is untouched.",
+            Dine::drawFittedText (g, running ? "No inputs on this device." : "Press Continue and the meters fill in - your console is untouched.",
                               meters.removeFromTop (40), juce::Justification::topLeft, 2);
         }
         for (int c = 0; c < n; ++c)
@@ -813,7 +813,7 @@ void DevicePage::paint (juce::Graphics& g)
             auto row = meters.removeFromTop (22);
             g.setColour (Dine::ink4);
             g.setFont (Dine::mono (11.0f));
-            g.drawText (juce::String (c + 1).paddedLeft ('0', 2), row.removeFromLeft (24), juce::Justification::centredLeft);
+            Dine::drawText (g, juce::String (c + 1).paddedLeft ('0', 2), row.removeFromLeft (24), juce::Justification::centredLeft);
             row.removeFromLeft (10);
             const float db = running ? services.daw().inputPeakDb (c) : -120.0f;
             auto note = row.removeFromRight (110);
@@ -823,13 +823,13 @@ void DevicePage::paint (juce::Graphics& g)
             const bool clip = db > -0.2f;
             g.setColour (clip ? Dine::crit : Dine::warn);
             g.setFont (Dine::text (11.0f));
-            g.drawText (clip ? "clipping" : faint ? "nothing arriving" : juce::String(), note, juce::Justification::centredLeft);
+            Dine::drawText (g, clip ? "clipping" : faint ? "nothing arriving" : juce::String(), note, juce::Justification::centredLeft);
         }
         if (channels > 16)
         {
             g.setColour (Dine::ink4);
             g.setFont (Dine::text (11.0f));
-            g.drawText ("and " + juce::String (channels - 16) + " more", meters.removeFromTop (16), juce::Justification::centredLeft);
+            Dine::drawText (g, "and " + juce::String (channels - 16) + " more", meters.removeFromTop (16), juce::Justification::centredLeft);
         }
 
         auto outs = rail.removeFromBottom (outsH);
@@ -971,7 +971,7 @@ public:
         auto r = b.reduced (12, 0);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (11.0f));
-        g.drawText (e.linkedToNext ? juce::String (input + 1) + Glyph::minus() + juce::String (input + 2) : juce::String (input + 1),
+        Dine::drawText (g, e.linkedToNext ? juce::String (input + 1) + Glyph::minus() + juce::String (input + 2) : juce::String (input + 1),
                     r.removeFromLeft (kNumW), juce::Justification::centredLeft);
 
         // the signal column: what is arriving on this channel right now
@@ -989,7 +989,7 @@ public:
         auto busCell = right.removeFromRight (kBusW).withTrimmedLeft (kGap);
         g.setColour (tint);
         g.setFont (Dine::caps (11.0f, 0.06f, 500));
-        g.drawText (e.assigned ? juce::String (mixBusName (bus)).toUpperCase() : "NOT USED", busCell, juce::Justification::centredLeft, true);
+        Dine::drawText (g, e.assigned ? juce::String (mixBusName (bus)).toUpperCase() : "NOT USED", busCell, juce::Justification::centredLeft, true);
 
         // an unassigned input that is carrying signal is worth saying out loud
         if (! e.assigned && db > -54.0f)
@@ -1050,14 +1050,14 @@ public:
         g.setColour (over ? Dine::ink : Dine::ink4);
         g.setFont (Dine::caps (9.5f, 0.12f));
         const int w = Dine::textWidth (Dine::caps (9.5f, 0.12f), name.toUpperCase());
-        g.drawText (name.toUpperCase(), r.removeFromLeft (w), juce::Justification::centredLeft);
+        Dine::drawText (g, name.toUpperCase(), r.removeFromLeft (w), juce::Justification::centredLeft);
         r.removeFromLeft (8);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (10.0f));
-        g.drawText (juce::String (n), r.removeFromLeft (24), juce::Justification::centredLeft);
+        Dine::drawText (g, juce::String (n), r.removeFromLeft (24), juce::Justification::centredLeft);
         g.setColour (Dine::ink4);
         g.setFont (Dine::text (11.0f));
-        g.drawText (over ? "Select them all" : unused ? "stays out of the mix" : juce::String(),
+        Dine::drawText (g, over ? "Select them all" : unused ? "stays out of the mix" : juce::String(),
                     r, juce::Justification::centredRight, true);
     }
 
@@ -1084,10 +1084,10 @@ public:
         auto title = r.removeFromTop (r.getHeight() / 2 + 1).withTrimmedTop (5);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (12.5f));
-        g.drawText (heading, title, juce::Justification::centredLeft, true);
+        Dine::drawText (g, heading, title, juce::Justification::centredLeft, true);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (11.0f));
-        g.drawFittedText (detail, r.withTrimmedBottom (4), juce::Justification::topLeft, 2);
+        Dine::drawFittedText (g, detail, r.withTrimmedBottom (4), juce::Justification::topLeft, 2);
     }
 
     juce::String heading, detail;
@@ -1649,7 +1649,7 @@ void AssignPage::paint (juce::Graphics& g)
         auto line = progress.removeFromTop (17);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (13.0f));
-        g.drawText (juce::String (assigned) + " of " + juce::String (total) + " assigned", line, juce::Justification::centredRight, true);
+        Dine::drawText (g, juce::String (assigned) + " of " + juce::String (total) + " assigned", line, juce::Justification::centredRight, true);
         progress.removeFromTop (6);
         std::vector<Dine::BarSlice> slices;
         for (int b = 0; b < int (MixBus::Master); ++b)
@@ -1664,7 +1664,7 @@ void AssignPage::paint (juce::Graphics& g)
         progress.removeFromTop (5);
         g.setColour (Dine::ink4);
         g.setFont (Dine::text (11.5f));
-        g.drawText (unused > 0 ? juce::String (unused) + " still open" : "Every input placed",
+        Dine::drawText (g, unused > 0 ? juce::String (unused) + " still open" : "Every input placed",
                     progress.removeFromTop (14), juce::Justification::centredRight, true);
     }
 
@@ -1682,7 +1682,7 @@ void AssignPage::paint (juce::Graphics& g)
                         .withSizeKeepingCentre (bulkButton.getX() - L.toolbar.getX() - 9, L.toolbar.getHeight());
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (13.0f));
-        g.drawText (juce::String (selectionCount()) + (selectionCount() == 1 ? " input selected" : " inputs selected"),
+        Dine::drawText (g, juce::String (selectionCount()) + (selectionCount() == 1 ? " input selected" : " inputs selected"),
                     label, juce::Justification::centredLeft, true);
     }
 
@@ -1691,12 +1691,12 @@ void AssignPage::paint (juce::Graphics& g)
         auto empty = L.main.reduced (30, 40).removeFromTop (72);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (14.0f, 600));
-        g.drawText (numInputs == 0 ? "No inputs to name yet" : "Nothing matches that",
+        Dine::drawText (g, numInputs == 0 ? "No inputs to name yet" : "Nothing matches that",
                     empty.removeFromTop (18), juce::Justification::centredLeft);
         empty.removeFromTop (4);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText (numInputs == 0 ? "Go back and pick a device with inputs, or import a folder of stems."
+        Dine::drawFittedText (g, numInputs == 0 ? "Go back and pick a device with inputs, or import a folder of stems."
                                          : "Clear the search, or switch the filter back to All.",
                           empty.removeFromTop (34), juce::Justification::topLeft, 2);
     }
@@ -1835,17 +1835,17 @@ public:
             {
                 g.setColour (Dine::ink4);
                 g.setFont (Dine::text (11.0f));
-                g.drawText (tag, top.removeFromRight (w), juce::Justification::centredRight, true);
+                Dine::drawText (g, tag, top.removeFromRight (w), juce::Justification::centredRight, true);
             }
         }
         g.setColour (Dine::ink);
         g.setFont (Dine::text (15.0f));
-        g.drawText (heading, top, juce::Justification::centredLeft, true);
+        Dine::drawText (g, heading, top, juce::Justification::centredLeft, true);
 
         r.removeFromTop (10);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText (detail, r.removeFromTop (specs.empty() ? r.getHeight() : 40), juce::Justification::topLeft, 3, 1.0f);
+        Dine::drawFittedText (g, detail, r.removeFromTop (specs.empty() ? r.getHeight() : 40), juce::Justification::topLeft, 3, 1.0f);
 
         if (specs.empty()) return;
         r.removeFromTop (10);
@@ -1853,7 +1853,7 @@ public:
         for (const auto& s : specs) line += (line.isEmpty() ? "" : "  " + juce::String (Glyph::dot()) + "  ") + s.second;
         g.setColour (Dine::accent);
         g.setFont (Dine::mono (11.0f));
-        g.drawText (line, r.removeFromTop (14), juce::Justification::centredLeft, true);
+        Dine::drawText (g, line, r.removeFromTop (14), juce::Justification::centredLeft, true);
     }
 
     juce::String heading, detail, tag;
@@ -2040,11 +2040,11 @@ void PurposePage::paintBody (juce::Graphics& g)
     row.removeFromLeft (deliveryButton.getWidth() + 14);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (12.5f));
-    g.drawText (deliveryLoudnessHint (session.delivery), row, juce::Justification::centredLeft, true);
+    Dine::drawText (g, deliveryLoudnessHint (session.delivery), row, juce::Justification::centredLeft, true);
     main.removeFromTop (18);
     g.setColour (Dine::ink2);
     g.setFont (Dine::text (13.0f));
-    g.drawFittedText ("DLIVE will land the mix at " + lufs (target.targetLufs) + ", never letting it peak past "
+    Dine::drawFittedText (g, "DLIVE will land the mix at " + lufs (target.targetLufs) + ", never letting it peak past "
                           + dbtp (target.truePeakCeilingDb) + ", and tune every group toward "
                           + juce::String (styleProfileName (session.profile)) + ". Purpose and sound can be switched mid-service: "
                           "the next tune follows the new one, and anything you moved by hand is kept.",

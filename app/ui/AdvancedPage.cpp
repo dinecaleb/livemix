@@ -58,7 +58,7 @@ namespace
     {
         g.setColour (c);
         g.setFont (capsFont (px, 600));
-        g.drawText (text, r, j, true);
+        Dine::drawText (g, text, r, j, true);
     }
 }
 
@@ -78,10 +78,10 @@ public:
         r.removeFromLeft (8);
         g.setColour (Dine::ink4);
         g.setFont (Dine::caps (9.5f, 0.12f));
-        g.drawText (label, r.removeFromLeft (r.getWidth() - 30), juce::Justification::centredLeft, true);
+        Dine::drawText (g, label, r.removeFromLeft (r.getWidth() - 30), juce::Justification::centredLeft, true);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (10.0f));
-        g.drawText (countText, r, juce::Justification::centredRight);
+        Dine::drawText (g, countText, r, juce::Justification::centredRight);
     }
 
 private:
@@ -129,7 +129,7 @@ public:
 
         g.setColour (mute ? Dine::ink4 : on ? Dine::ink : Dine::ink2);
         g.setFont (Dine::text (12.5f, on ? 600 : 400));
-        g.drawText (name, r, juce::Justification::centredLeft, true);
+        Dine::drawText (g, name, r, juce::Justification::centredLeft, true);
         if (mute)
         {
             g.setColour (Dine::ink4);
@@ -283,11 +283,11 @@ public:
         auto text = lay.text;
         g.setColour (Dine::ink);
         g.setFont (Dine::text (19.0f, 600));
-        g.drawText (title, text.removeFromTop (24), juce::Justification::centredLeft, true);
+        Dine::drawText (g, title, text.removeFromTop (24), juce::Justification::centredLeft, true);
         text.removeFromTop (4);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        g.drawText (sub + "  " + Glyph::dot() + "  " + provenance, text.removeFromTop (16), juce::Justification::topLeft, true);
+        Dine::drawText (g, sub + "  " + Glyph::dot() + "  " + provenance, text.removeFromTop (16), juce::Justification::topLeft, true);
 
         if (lay.showMeters)
         {
@@ -303,13 +303,13 @@ public:
             drawCaps (g, "INPUT GAIN", top.removeFromLeft (Dine::textWidth (capsFont (9.5f), "INPUT GAIN")), Dine::ink4);
             g.setColour (Dine::ink2);
             g.setFont (Dine::mono (12.0f, 500));
-            g.drawText (db1 (float (gain.getValue())) + " dB", top, juce::Justification::centredRight);
+            Dine::drawText (g, db1 (float (gain.getValue())) + " dB", top, juce::Justification::centredRight);
             col.removeFromTop (26);
             auto panRow = col.removeFromTop (18);
             drawCaps (g, "PAN", panRow.removeFromLeft (30), Dine::ink4);
             g.setColour (Dine::ink2);
             g.setFont (Dine::mono (10.5f));
-            g.drawText (panText (float (pan.getValue())), panRow.removeFromRight (46), juce::Justification::centredRight);
+            Dine::drawText (g, panText (float (pan.getValue())), panRow.removeFromRight (46), juce::Justification::centredRight);
         }
 
         {
@@ -319,14 +319,14 @@ public:
             drawCaps (g, levelLabel, top.removeFromLeft (Dine::textWidth (capsFont (9.5f), levelLabel)), Dine::ink4);
             g.setColour (Dine::ink);
             g.setFont (Dine::mono (16.0f, 500));
-            g.drawText (db1 (float (fader.getValue())) + " dB", top, juce::Justification::centredRight);
+            Dine::drawText (g, db1 (float (fader.getValue())) + " dB", top, juce::Justification::centredRight);
             col.removeFromTop (24);
             auto scale = col.removeFromTop (12);
             g.setColour (Dine::ink4);
             g.setFont (Dine::mono (9.5f));
-            g.drawText (Glyph::minus() + juce::String ("60"), scale, juce::Justification::centredLeft);
-            g.drawText ("0", scale.withWidth (int (scale.getWidth() * 60.0f / 72.0f)), juce::Justification::centredRight);
-            g.drawText ("+12", scale, juce::Justification::centredRight);
+            Dine::drawText (g, Glyph::minus() + juce::String ("60"), scale, juce::Justification::centredLeft);
+            Dine::drawText (g, "0", scale.withWidth (int (scale.getWidth() * 60.0f / 72.0f)), juce::Justification::centredRight);
+            Dine::drawText (g, "+12", scale, juce::Justification::centredRight);
         }
     }
 
@@ -416,7 +416,7 @@ private:
         const float peak = meter != nullptr ? meter->getMaxPeakDb() : -120.0f;
         g.setColour (Dine::ink2);
         g.setFont (Dine::mono (12.0f, 500));
-        g.drawText (label + " " + (peak <= -119.0f ? juce::String (Glyph::dash()) : db1 (peak)), top, juce::Justification::centredLeft);
+        Dine::drawText (g, label + " " + (peak <= -119.0f ? juce::String (Glyph::dash()) : db1 (peak)), top, juce::Justification::centredLeft);
         r.removeFromTop (6);
         const int channels = meter != nullptr ? juce::jlimit (1, 2, meter->getNumChannels()) : 1;
         for (int c = 0; c < channels; ++c)
@@ -550,14 +550,14 @@ public:
         Dine::drawSection (g, head.withTrimmedRight (40), "WHAT DLIVE DID");
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (10.0f));
-        g.drawText (controller.getTuneCount() > 0 ? "TUNE " + juce::String (controller.getTuneCount()) : juce::String ("no tune yet"),
+        Dine::drawText (g, controller.getTuneCount() > 0 ? "TUNE " + juce::String (controller.getTuneCount()) : juce::String ("no tune yet"),
                     head.withTrimmedRight (26), juce::Justification::centredRight);
 
         auto top = area.removeFromTop (sentenceHeight()).reduced (18, 0);
         top.removeFromTop (8);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText (sentence, top.removeFromTop (juce::jmax (0, top.getHeight() - (tuneChannel.isVisible() ? 82 : 44))),
+        Dine::drawFittedText (g, sentence, top.removeFromTop (juce::jmax (0, top.getHeight() - (tuneChannel.isVisible() ? 82 : 44))),
                           juce::Justification::topLeft, 5, 1.0f);
 
         if (const int gh = gainHeight(); gh > 0)
@@ -620,21 +620,21 @@ private:
         r = r.reduced (12, 12);
         g.setColour (colour);
         g.setFont (Dine::caps (11.0f, 0.08f, 500));
-        g.drawText (juce::String (advice.headline).toUpperCase(), r.removeFromTop (14), juce::Justification::centredLeft, true);
+        Dine::drawText (g, juce::String (advice.headline).toUpperCase(), r.removeFromTop (14), juce::Justification::centredLeft, true);
         r.removeFromTop (6);
         auto figures = r.removeFromTop (13);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (10.0f));
         if (std::fabs (advice.digitalGainDb) >= 0.05f)
-            g.drawText ("DLIVE " + db1 (advice.digitalGainDb), figures.removeFromRight (66), juce::Justification::centredRight);
-        g.drawText (advice.capturePeakDb <= -119.0f ? juce::String ("no signal")
+            Dine::drawText (g, "DLIVE " + db1 (advice.digitalGainDb), figures.removeFromRight (66), juce::Justification::centredRight);
+        Dine::drawText (g, advice.capturePeakDb <= -119.0f ? juce::String ("no signal")
                                                     : juce::String (advice.capturePeakDb, 1) + " dBFS in",
                     figures, juce::Justification::centredLeft, true);
         if (! advice.needsAttention()) return;
         r.removeFromTop (5);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.0f));
-        g.drawFittedText (juce::String (advice.detail), r, juce::Justification::topLeft, 4, 1.0f);
+        Dine::drawFittedText (g, juce::String (advice.detail), r, juce::Justification::topLeft, 4, 1.0f);
     }
 
     void paintFoot (juce::Graphics& g, juce::Rectangle<int> r)
@@ -650,13 +650,13 @@ private:
             const juce::String lufs = st > -100.0f ? juce::String (st, 1) : Glyph::dash();
             g.setColour (Dine::ink);
             g.setFont (bigFont);
-            g.drawText (lufs, figures.removeFromLeft (Dine::textWidth (bigFont, lufs) + 8), juce::Justification::centredLeft);
+            Dine::drawText (g, lufs, figures.removeFromLeft (Dine::textWidth (bigFont, lufs) + 8), juce::Justification::centredLeft);
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (11.0f));
-            g.drawText ("LUFS short term", figures, juce::Justification::centredLeft, true);
+            Dine::drawText (g, "LUFS short term", figures, juce::Justification::centredLeft, true);
             g.setColour (Dine::ink3);
             g.setFont (Dine::mono (11.0f));
-            g.drawText (st > -100.0f ? juce::String (tp, 1) + " dBTP" : juce::String(), r.removeFromTop (14),
+            Dine::drawText (g, st > -100.0f ? juce::String (tp, 1) + " dBTP" : juce::String(), r.removeFromTop (14),
                         juce::Justification::topLeft);
             return;
         }
@@ -667,10 +667,10 @@ private:
         auto top = r.removeFromTop (16);
         g.setColour (Dine::ink3);
         g.setFont (Dine::mono (11.0f));
-        g.drawText ("Headroom", top.removeFromLeft (top.getWidth() - 80), juce::Justification::centredLeft);
+        Dine::drawText (g, "Headroom", top.removeFromLeft (top.getWidth() - 80), juce::Justification::centredLeft);
         g.setColour (Dine::ink);
         g.setFont (Dine::mono (11.0f, 500));
-        g.drawText (peak <= -119.0f ? Glyph::dash() : juce::String (head, 1) + " dB", top, juce::Justification::centredRight);
+        Dine::drawText (g, peak <= -119.0f ? Glyph::dash() : juce::String (head, 1) + " dB", top, juce::Justification::centredRight);
         r.removeFromTop (6);
         auto bar = r.removeFromTop (6);
         Dine::drawWell (g, bar.toFloat(), 2.0f);
@@ -682,7 +682,7 @@ private:
         r.removeFromTop (6);
         g.setColour (Dine::ink4);
         g.setFont (Dine::text (11.0f));
-        g.drawText (headline, r.removeFromTop (14), juce::Justification::topLeft, true);
+        Dine::drawText (g, headline, r.removeFromTop (14), juce::Justification::topLeft, true);
     }
 
     // The list itself: one row per stage, painted in one place and hit-tested the same way.
@@ -759,22 +759,22 @@ private:
                 g.setColour (Dine::ink4);
                 g.setFont (Dine::mono (10.0f));
                 const int whenW = Dine::textWidth (Dine::mono (10.0f), v.when);
-                g.drawText (v.when, top.removeFromRight (whenW), juce::Justification::centredRight);
+                Dine::drawText (g, v.when, top.removeFromRight (whenW), juce::Justification::centredRight);
                 top.removeFromRight (8);
                 g.setColour (Dine::ink);
                 g.setFont (Dine::text (13.0f));
-                g.drawText (v.what, top, juce::Justification::centredLeft, true);
+                Dine::drawText (g, v.what, top, juce::Justification::centredLeft, true);
 
                 body.removeFromTop (5);
                 g.setColour (Dine::ink2);
                 g.setFont (Dine::mono (11.0f, 500));
-                g.drawText (v.summary, body.removeFromTop (14), juce::Justification::centredLeft, true);
+                Dine::drawText (g, v.summary, body.removeFromTop (14), juce::Justification::centredLeft, true);
                 if (v.lines.isEmpty()) continue;
                 body.removeFromTop (5);
                 g.setColour (Dine::ink3);
                 g.setFont (Dine::text (12.0f));
                 for (const auto& line : v.lines)
-                    g.drawText (line, body.removeFromTop (16), juce::Justification::centredLeft, true);
+                    Dine::drawText (g, line, body.removeFromTop (16), juce::Justification::centredLeft, true);
             }
         }
 
@@ -796,16 +796,16 @@ private:
                 top.removeFromRight (8);
                 g.setColour (v.on ? Dine::ink : Dine::ink3);
                 g.setFont (Dine::text (13.0f));
-                g.drawText (v.label.substring (0, 1) + v.label.substring (1).toLowerCase(), top, juce::Justification::centredLeft, true);
+                Dine::drawText (g, v.label.substring (0, 1) + v.label.substring (1).toLowerCase(), top, juce::Justification::centredLeft, true);
 
                 body.removeFromTop (5);
                 g.setColour (Dine::ink2);
                 g.setFont (Dine::mono (11.0f, 500));
-                g.drawText (v.value, body.removeFromTop (14), juce::Justification::centredLeft, true);
+                Dine::drawText (g, v.value, body.removeFromTop (14), juce::Justification::centredLeft, true);
                 body.removeFromTop (5);
                 g.setColour (Dine::ink3);
                 g.setFont (Dine::text (12.0f));
-                g.drawFittedText (v.why, body, juce::Justification::topLeft, 4, 1.0f);
+                Dine::drawFittedText (g, v.why, body, juce::Justification::topLeft, 4, 1.0f);
             }
         }
 
@@ -1253,8 +1253,8 @@ void AdvancedPage::paint (juce::Graphics& g)
         auto row = foot.removeFromTop (16);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (10.0f));
-        g.drawText (k, row, juce::Justification::centredLeft);
-        g.drawText (v, row, juce::Justification::centredRight);
+        Dine::drawText (g, k, row, juce::Justification::centredLeft);
+        Dine::drawText (g, v, row, juce::Justification::centredRight);
     };
     line ("Rate", controller.isPrepared() ? juce::String (sr / 1000.0, 1) + " kHz" : Glyph::dash());
     line ("Buffer", controller.isPrepared() ? juce::String (block) + " smp" : Glyph::dash());

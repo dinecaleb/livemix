@@ -156,16 +156,16 @@ void Tutorial::paint (juce::Graphics& g)
 
     g.setColour (Dine::accent);
     g.setFont (Dine::caps (10.0f, 0.14f));
-    g.drawText (s.eyebrow, inner.removeFromTop (14), juce::Justification::topLeft);
+    Dine::drawText (g, s.eyebrow, inner.removeFromTop (14), juce::Justification::topLeft);
     inner.removeFromTop (6);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (21.0f, 600));
-    g.drawText (s.title, inner.removeFromTop (26), juce::Justification::topLeft, true);
+    Dine::drawText (g, s.title, inner.removeFromTop (26), juce::Justification::topLeft, true);
     inner.removeFromTop (6);
 
     g.setColour (Dine::ink2);
     g.setFont (Dine::text (12.5f));
-    g.drawFittedText (s.body, inner, juce::Justification::topLeft, 4);
+    Dine::drawFittedText (g, s.body, inner, juce::Justification::topLeft, 4);
 
     // Seven dots: where you are, and how much is left.
     for (int i = 0; i < int (steps().size()); ++i)

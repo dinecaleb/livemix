@@ -15,7 +15,7 @@ namespace
     {
         g.setColour (Dine::ink4);
         g.setFont (Dine::Type::labelSection());
-        g.drawText (text, r, juce::Justification::centredLeft);
+        Dine::drawText (g, text, r, juce::Justification::centredLeft);
     }
 }
 
@@ -88,16 +88,16 @@ public:
             auto inner = card.reduced (14, 10);
             g.setColour (Dine::ink);
             g.setFont (Dine::Type::headingCard());
-            g.drawText (row.title, inner.removeFromTop (18), juce::Justification::centredLeft, true);
+            Dine::drawText (g, row.title, inner.removeFromTop (18), juce::Justification::centredLeft, true);
             g.setColour (row.routed ? Dine::ink3 : Dine::warn);
             g.setFont (Dine::Type::bodySmall());
-            g.drawText (row.what + "   " + juce::String (Glyph::dash()) + "   " + row.where,
+            Dine::drawText (g, row.what + "   " + juce::String (Glyph::dash()) + "   " + row.where,
                         inner.removeFromTop (16), juce::Justification::centredLeft, true);
             if (row.note.isNotEmpty())
             {
                 g.setColour (Dine::ink4);
                 g.setFont (Dine::Type::caption());
-                g.drawText (row.note, inner.removeFromTop (14), juce::Justification::centredLeft, true);
+                Dine::drawText (g, row.note, inner.removeFromTop (14), juce::Justification::centredLeft, true);
             }
             r.removeFromTop (8);
         }
@@ -115,10 +115,10 @@ public:
             if (inner.getHeight() < 30) return;
             g.setColour (Dine::ink4);
             g.setFont (Dine::Type::caption());
-            g.drawText (k, inner.removeFromTop (14), juce::Justification::centredLeft, true);
+            Dine::drawText (g, k, inner.removeFromTop (14), juce::Justification::centredLeft, true);
             g.setColour (Dine::ink2);
             g.setFont (Dine::Type::bodySmall());
-            g.drawText (v, inner.removeFromTop (16), juce::Justification::centredLeft, true);
+            Dine::drawText (g, v, inner.removeFromTop (16), juce::Justification::centredLeft, true);
             inner.removeFromTop (2);
         };
         row ("Solo goes to", look.soloTo);
@@ -255,7 +255,7 @@ void RoutingPage::paint (juce::Graphics& g)
     g.setColour (Dine::ink);
     g.setFont (Dine::Type::headingPage());
     const int titleW = Dine::textWidth (Dine::Type::headingPage(), "Routing") + 20;
-    g.drawText ("Routing", head.removeFromLeft (titleW), juce::Justification::centredLeft);
+    Dine::drawText (g, "Routing", head.removeFromLeft (titleW), juce::Justification::centredLeft);
 
     // The sentence that says what this workspace is, on a tint when LIVE SAFE makes it a
     // warning rather than a statement.
@@ -274,7 +274,7 @@ void RoutingPage::paint (juce::Graphics& g)
         }
         g.setColour (safe ? Dine::warn : Dine::ink4);
         g.setFont (Dine::Type::bodySmall());
-        g.drawText (liveSafeNote, chip.withTrimmedLeft (safe ? 24 : 0), juce::Justification::centredLeft, true);
+        Dine::drawText (g, liveSafeNote, chip.withTrimmedLeft (safe ? 24 : 0), juce::Justification::centredLeft, true);
     }
 
     g.setColour (Dine::hair);
@@ -286,7 +286,7 @@ void RoutingPage::paint (juce::Graphics& g)
         // the outputs are a tab away rather than squeezed into nothing.
         g.setColour (Dine::ink4);
         g.setFont (Dine::Type::caption());
-        g.drawText ("The device and the outputs need a wider window.",
+        Dine::drawText (g, "The device and the outputs need a wider window.",
                     headArea.reduced (Dine::Metric::padX, 0), juce::Justification::centredRight, true);
     }
 }

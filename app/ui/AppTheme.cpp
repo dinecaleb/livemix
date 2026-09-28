@@ -1,5 +1,7 @@
 #include "AppTheme.h"
 #include "BinaryData.h"
+#include <unordered_map>
+#include <cmath>
 
 namespace livemix
 {
@@ -39,7 +41,15 @@ namespace
     float gTextScale = 1.0f;
 }
 
-void Dine::setTextScale (float scale) { gTextScale = juce::jlimit (1.0f, 2.0f, scale); }
+void Dine::setTextScale (float scale)
+{
+    const auto wanted = juce::jlimit (1.0f, 2.0f, scale);
+    if (juce::exactlyEqual (wanted, gTextScale)) return;
+    gTextScale = wanted;
+    // Every role is a different size now, so every layout held is for a face nothing will ask
+    // for again. A colour is not baked into a layout, so a theme change needs no such thing.
+    clearTextCache();
+}
 float Dine::textScale() { return gTextScale; }
 
 juce::Font Dine::text (float px, int weight)
@@ -84,6 +94,227 @@ juce::Font Dine::Type::monoMeter()    { return mono (8.0f, 400); }
 int Dine::textWidth (const juce::Font& f, const juce::String& t)
 {
     return int (std::ceil (juce::GlyphArrangement::getStringWidth (f, t))) + 2;
+}
+
+// ============================================================================ drawing text
+// The layout cache. Laying a string out means shaping it - HarfBuzz, kerning, ligature
+// suppression where the design asks for tracking, then a position per glyph - and it is the
+// same answer every frame for every label that has not changed. JUCE caches it too, in 128
+// entries shared by the whole window, which is fewer than one workspace of DLIVE uses: 48
+// strips of a dozen labels each is 576 strings before the chrome has drawn anything. Past 128
+// the cache stops being a cache and every paint re-shapes what the paint before it shaped.
+//
+// Two generations rather than a least-recently-used list. A lookup checks the live generation
+// and then the one behind it, promoting what it finds; when the live one is full the old one is
+// dropped and it becomes the old one. That keeps whatever has been drawn in the last two
+// sweeps, costs one hash and no bookkeeping, and cannot grow past twice the limit - which
+// matters, because a readout like "-12.4 dB" is a new string every frame and a cache that only
+// ever grew would hold every number the meter has ever shown.
+namespace
+{
+    struct TextLayoutKey
+    {
+        juce::Font font;
+        juce::String text;
+        float width = 0.0f, height = 0.0f, minScale = 0.0f;
+        int justification = 0, maxLines = 1;
+        bool fitted = false, ellipses = true;
+
+        bool operator== (const TextLayoutKey& o) const
+        {
+            return justification == o.justification && maxLines == o.maxLines
+                && fitted == o.fitted && ellipses == o.ellipses
+                && juce::exactlyEqual (width, o.width) && juce::exactlyEqual (height, o.height)
+                && juce::exactlyEqual (minScale, o.minScale)
+                && text == o.text && font == o.font;
+        }
+    };
+
+    struct TextLayoutKeyHash
+    {
+        size_t operator() (const TextLayoutKey& k) const noexcept
+        {
+            size_t h = size_t (k.text.hashCode64());
+            const auto mix = [&h] (size_t v) { h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2); };
+            // The font is hashed on its size alone and compared in full on equality: two roles
+            // at the same size land in the same bucket and are told apart there, which is
+            // cheaper than asking a Font for its typeface on every label.
+            mix (size_t (std::lround (double (k.font.getHeight()) * 64.0)));
+            mix (size_t (std::lround (double (k.width) * 4.0)));
+            mix (size_t (std::lround (double (k.height) * 4.0)));
+            mix (size_t (k.justification) * 131u + size_t (k.maxLines) * 17u
+                 + size_t (k.fitted) * 3u + size_t (k.ellipses));
+            return h;
+        }
+    };
+
+    class TextLayoutCache
+    {
+    public:
+        // Room for a 48-channel console and the chrome around it, twice over. Each entry is a
+        // short string's worth of positioned glyphs, so the whole cache is a few megabytes at
+        // its fullest - and it is only ever as full as the window is busy.
+        static constexpr size_t kPerGeneration = 4096;
+
+        // Returns the layout, building it if this is the first time anyone has asked. `build`
+        // is only called on a miss.
+        template <typename Build>
+        const juce::GlyphArrangement& get (const TextLayoutKey& key, Build&& build)
+        {
+            if (const auto found = live.find (key); found != live.end())
+            {
+                ++hits;
+                return found->second;
+            }
+
+            if (const auto found = previous.find (key); found != previous.end())
+            {
+                ++hits;
+                return live.emplace (key, std::move (found->second)).first->second;
+            }
+
+            ++misses;
+
+            if (live.size() >= kPerGeneration)
+            {
+                previous = std::move (live);
+                live.clear();
+            }
+
+            return live.emplace (key, build()).first->second;
+        }
+
+        void clear() { live.clear(); previous.clear(); }
+        long long hitCount() const { return hits; }
+        long long missCount() const { return misses; }
+        size_t size() const { return live.size() + previous.size(); }
+        void resetCounts() { hits = 0; misses = 0; }
+
+    private:
+        std::unordered_map<TextLayoutKey, juce::GlyphArrangement, TextLayoutKeyHash> live, previous;
+        long long hits = 0, misses = 0;
+    };
+
+    TextLayoutCache& textLayouts()
+    {
+        static TextLayoutCache cache;
+        return cache;
+    }
+
+    // Painting is the message thread's job and this cache is its own. A try-lock rather than a
+    // lock so that anything which ever does render off it - a thumbnail, a test rig - draws
+    // uncached instead of waiting behind a paint.
+    juce::CriticalSection& textLayoutLock()
+    {
+        static juce::CriticalSection lock;
+        return lock;
+    }
+
+    void drawLayout (juce::Graphics& g, const TextLayoutKey& key, juce::Point<float> at)
+    {
+        const auto build = [&key]
+        {
+            juce::GlyphArrangement a;
+            if (key.fitted)
+            {
+                a.addFittedText (key.font, key.text, 0.0f, 0.0f, key.width, key.height,
+                                 juce::Justification (key.justification), key.maxLines, key.minScale);
+            }
+            else
+            {
+                a.addCurtailedLineOfText (key.font, key.text, 0.0f, 0.0f, key.width, key.ellipses);
+                a.justifyGlyphs (0, a.getNumGlyphs(), 0.0f, 0.0f, key.width, key.height,
+                                 juce::Justification (key.justification));
+            }
+            return a;
+        };
+
+        const juce::ScopedTryLock tryLock (textLayoutLock());
+
+        if (! tryLock.isLocked())
+        {
+            build().draw (g, juce::AffineTransform::translation (at.x, at.y));
+            return;
+        }
+
+        textLayouts().get (key, build).draw (g, juce::AffineTransform::translation (at.x, at.y));
+    }
+}
+
+void Dine::drawText (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,
+                     juce::Justification justification, bool useEllipsesIfTooBig)
+{
+    if (text.isEmpty() || ! g.clipRegionIntersects (area.getSmallestIntegerContainer()))
+        return;
+
+    TextLayoutKey key;
+    key.font = g.getCurrentFont();
+    key.text = text;
+    key.width = area.getWidth();
+    key.height = area.getHeight();
+    key.justification = justification.getFlags();
+    key.ellipses = useEllipsesIfTooBig;
+    drawLayout (g, key, area.getPosition());
+}
+
+void Dine::drawText (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area,
+                     juce::Justification justification, bool useEllipsesIfTooBig)
+{
+    drawText (g, text, area.toFloat(), justification, useEllipsesIfTooBig);
+}
+
+void Dine::drawText (juce::Graphics& g, const juce::String& text,
+                     int x, int y, int width, int height,
+                     juce::Justification justification, bool useEllipsesIfTooBig)
+{
+    drawText (g, text, juce::Rectangle<int> (x, y, width, height).toFloat(),
+              justification, useEllipsesIfTooBig);
+}
+
+void Dine::drawFittedText (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area,
+                           juce::Justification justification, int maximumNumberOfLines,
+                           float minimumHorizontalScale)
+{
+    if (text.isEmpty() || area.isEmpty() || ! g.clipRegionIntersects (area))
+        return;
+
+    TextLayoutKey key;
+    key.font = g.getCurrentFont();
+    key.text = text;
+    key.width = float (area.getWidth());
+    key.height = float (area.getHeight());
+    key.justification = justification.getFlags();
+    key.maxLines = maximumNumberOfLines;
+    key.minScale = minimumHorizontalScale;
+    key.fitted = true;
+    drawLayout (g, key, area.getPosition().toFloat());
+}
+
+void Dine::drawFittedText (juce::Graphics& g, const juce::String& text,
+                           int x, int y, int width, int height,
+                           juce::Justification justification, int maximumNumberOfLines,
+                           float minimumHorizontalScale)
+{
+    drawFittedText (g, text, juce::Rectangle<int> (x, y, width, height),
+                    justification, maximumNumberOfLines, minimumHorizontalScale);
+}
+
+Dine::TextCacheStats Dine::textCacheStats()
+{
+    const juce::ScopedLock lock (textLayoutLock());
+    return { textLayouts().hitCount(), textLayouts().missCount(), (long long) textLayouts().size() };
+}
+
+void Dine::resetTextCacheStats()
+{
+    const juce::ScopedLock lock (textLayoutLock());
+    textLayouts().resetCounts();
+}
+
+void Dine::clearTextCache()
+{
+    const juce::ScopedLock lock (textLayoutLock());
+    textLayouts().clear();
 }
 
 // ============================================================================ surfaces
@@ -160,7 +391,7 @@ void Dine::drawSection (juce::Graphics& g, juce::Rectangle<int> r, const juce::S
 {
     g.setColour (ink4);
     g.setFont (caps (12.0f, 0.08f));
-    g.drawText (label, r, juce::Justification::centredLeft, true);
+    Dine::drawText (g, label, r, juce::Justification::centredLeft, true);
 }
 
 juce::Colour Dine::mix (juce::Colour tint, float amount, juce::Colour over) noexcept
@@ -173,7 +404,7 @@ void Dine::drawStatusChip (juce::Graphics& g, juce::Rectangle<float> r, const ju
     fillRounded (g, r, mix (colour, 0.20f), Radius::chip);
     g.setColour (colour);
     g.setFont (caps (px, 0.06f, 500));
-    g.drawText (label, r, juce::Justification::centred, true);
+    Dine::drawText (g, label, r, juce::Justification::centred, true);
 }
 
 juce::ColourGradient Dine::meterGradient (juce::Rectangle<float> r, bool vertical)
@@ -670,7 +901,7 @@ void DineChip::paintButton (juce::Graphics& g, bool over, bool)
     }
     g.setColour (on || over ? Dine::ink : Dine::ink3);
     g.setFont (Dine::text (12.0f, 500));
-    g.drawText (label, inner, juce::Justification::centred, true);
+    Dine::drawText (g, label, inner, juce::Justification::centred, true);
 }
 
 // ============================================================================ pills
@@ -690,7 +921,7 @@ void Dine::drawPill (juce::Graphics& g, juce::Rectangle<float> r, const juce::St
     }
     g.setColour (colour);
     g.setFont (caps (10.0f, 0.06f, 500));
-    g.drawText (label, inner, juce::Justification::centredLeft);
+    Dine::drawText (g, label, inner, juce::Justification::centredLeft);
 }
 
 // ============================================================================ PanBar
@@ -880,7 +1111,7 @@ void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
     if (iconW > 0) block.removeFromLeft (6);
     g.setColour (fg);
     g.setFont (font);
-    g.drawText (label, block, juce::Justification::centredLeft);
+    Dine::drawText (g, label, block, juce::Justification::centredLeft);
 }
 
 // ============================================================================ DinePopup
@@ -909,7 +1140,7 @@ void DinePopup::paintButton (juce::Graphics& g, bool over, bool down)
     }
     g.setColour (! isEnabled() ? Dine::ink4 : over ? Dine::ink : Dine::ink2);
     g.setFont (Dine::text (12.5f, 500));
-    g.drawText (value, inner, juce::Justification::centredLeft, true);
+    Dine::drawText (g, value, inner, juce::Justification::centredLeft, true);
 }
 
 // ============================================================================ DineNavItem
@@ -942,12 +1173,12 @@ void DineNavItem::paintButton (juce::Graphics& g, bool over, bool)
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (10.5f));
         const int w = Dine::textWidth (Dine::mono (10.5f), meta);
-        g.drawText (meta, right.removeFromRight (w), juce::Justification::centredRight);
+        Dine::drawText (g, meta, right.removeFromRight (w), juce::Justification::centredRight);
         right.removeFromRight (4);
     }
     g.setColour (fg);
     g.setFont (Dine::text (12.5f, 500));
-    g.drawText (label, right, juce::Justification::centredLeft, true);
+    Dine::drawText (g, label, right, juce::Justification::centredLeft, true);
 }
 
 // ============================================================================ DineKey
@@ -980,7 +1211,7 @@ void DineKey::paintButton (juce::Graphics& g, bool over, bool down)
 
     g.setColour (! isEnabled() ? Dine::ink4 : on ? Dine::onAccent : over ? Dine::ink : Dine::ink2);
     g.setFont (Dine::text (juce::jlimit (9.0f, 11.0f, float (getHeight()) * 0.5f), 600));
-    g.drawText (letter, getLocalBounds(), juce::Justification::centred, false);
+    Dine::drawText (g, letter, getLocalBounds(), juce::Justification::centred, false);
 }
 
 // ============================================================================ DinePanelTab
@@ -1035,7 +1266,7 @@ void DinePanelTab::paintButton (juce::Graphics& g, bool over, bool down)
                             .translated (r.getWidth(), below.getY()));
         g.setColour (over ? Dine::ink2 : Dine::ink3);
         g.setFont (Dine::caps (10.0f, 0.14f, 500));
-        g.drawText (name.toUpperCase(), juce::Rectangle<float> (0.0f, 0.0f, below.getHeight(), r.getWidth()),
+        Dine::drawText (g, name.toUpperCase(), juce::Rectangle<float> (0.0f, 0.0f, below.getHeight(), r.getWidth()),
                     juce::Justification::centred, false);
     }
 }
@@ -1060,7 +1291,7 @@ void DineSwitch::paintButton (juce::Graphics& g, bool over, bool)
     r.removeFromLeft (7);
     g.setColour (on ? Dine::ink : Dine::ink3);
     g.setFont (Dine::text (11.5f));
-    g.drawText (on ? onText : offText, r, juce::Justification::centredLeft);
+    Dine::drawText (g, on ? onText : offText, r, juce::Justification::centredLeft);
 }
 
 // ============================================================================ DineLookAndFeel
@@ -1217,19 +1448,19 @@ void DineLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectangl
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (11.0f));
         const int w = Dine::textWidth (Dine::mono (11.0f), shortcutKeyText) + 6;
-        g.drawText (shortcutKeyText, content.removeFromRight (w), juce::Justification::centredRight);
+        Dine::drawText (g, shortcutKeyText, content.removeFromRight (w), juce::Justification::centredRight);
     }
 
     g.setColour (! isActive ? Dine::ink4 : isHighlighted ? Dine::ink : isTicked ? Dine::accent : Dine::ink2);
     g.setFont (Dine::text (12.5f));
-    g.drawText (text, content, juce::Justification::centredLeft, true);
+    Dine::drawText (g, text, content, juce::Justification::centredLeft, true);
 }
 
 void DineLookAndFeel::drawPopupMenuSectionHeader (juce::Graphics& g, const juce::Rectangle<int>& area, const juce::String& name)
 {
     g.setColour (Dine::ink4);
     g.setFont (Dine::caps (10.0f, 0.10f));
-    g.drawText (name.toUpperCase(), area.reduced (16, 0), juce::Justification::centredLeft, true);
+    Dine::drawText (g, name.toUpperCase(), area.reduced (16, 0), juce::Justification::centredLeft, true);
 }
 
 void DineLookAndFeel::getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int, int& idealWidth, int& idealHeight)
@@ -1256,7 +1487,7 @@ void DineLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text, 
     Dine::fillRounded (g, r, Dine::popover, Dine::Radius::control);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (12.0f));
-    g.drawFittedText (text, r.reduced (10.0f, 6.0f).toNearestInt(), juce::Justification::centredLeft, 4);
+    Dine::drawFittedText (g, text, r.reduced (10.0f, 6.0f).toNearestInt(), juce::Justification::centredLeft, 4);
 }
 
 void DineLookAndFeel::fillTextEditorBackground (juce::Graphics& g, int w, int h, juce::TextEditor& e)

@@ -135,11 +135,11 @@ void CheckSheet::paint (juce::Graphics& g)
     auto r = card.reduced (26, 26);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (19.0f, 600));
-    g.drawText ("Check inputs", r.removeFromTop (24), juce::Justification::centredLeft);
+    Dine::drawText (g, "Check inputs", r.removeFromTop (24), juce::Justification::centredLeft);
     r.removeFromTop (12);
     g.setColour (rows.empty() ? Dine::ink3 : Dine::ink2);
     g.setFont (Dine::mono (12.5f, 500));
-    g.drawText (rows.empty() ? juce::String ("No inputs are assigned yet.") : headline(), r.removeFromTop (24), juce::Justification::centredLeft, true);
+    Dine::drawText (g, rows.empty() ? juce::String ("No inputs are assigned yet.") : headline(), r.removeFromTop (24), juce::Justification::centredLeft, true);
     r.removeFromTop (12);
 
     // The column heads.
@@ -147,13 +147,13 @@ void CheckSheet::paint (juce::Graphics& g)
         auto head = r.removeFromTop (22);
         g.setColour (Dine::ink4);
         g.setFont (Dine::caps (9.5f, 0.08f, 500));
-        g.drawText ("INPUT", head.removeFromLeft (170), juce::Justification::centredLeft);
-        g.drawText ("SOURCE", head.removeFromLeft (120), juce::Justification::centredLeft);
-        g.drawText ("STATE", head.removeFromRight (74), juce::Justification::centredRight);
+        Dine::drawText (g, "INPUT", head.removeFromLeft (170), juce::Justification::centredLeft);
+        Dine::drawText (g, "SOURCE", head.removeFromLeft (120), juce::Justification::centredLeft);
+        Dine::drawText (g, "STATE", head.removeFromRight (74), juce::Justification::centredRight);
         head.removeFromRight (12);
-        g.drawText ("PEAK", head.removeFromRight (64), juce::Justification::centredRight);
+        Dine::drawText (g, "PEAK", head.removeFromRight (64), juce::Justification::centredRight);
         head.removeFromRight (12);
-        g.drawText ("LEVEL NOW", head, juce::Justification::centredLeft);
+        Dine::drawText (g, "LEVEL NOW", head, juce::Justification::centredLeft);
     }
 
     r.removeFromBottom (14 + Dine::Metric::button);
@@ -166,11 +166,11 @@ void CheckSheet::paint (juce::Graphics& g)
         auto t = line.reduced (12, 0);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (13.0f, 500));
-        g.drawText (row.name, t.removeFromLeft (158), juce::Justification::centredLeft, true);
+        Dine::drawText (g, row.name, t.removeFromLeft (158), juce::Justification::centredLeft, true);
         t.removeFromLeft (12);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.0f));
-        g.drawText (row.role, t.removeFromLeft (108), juce::Justification::centredLeft, true);
+        Dine::drawText (g, row.role, t.removeFromLeft (108), juce::Justification::centredLeft, true);
         t.removeFromLeft (12);
         // The word, then the peak, then the bar in what is left.
         auto stateCell = t.removeFromRight (74);
@@ -180,7 +180,7 @@ void CheckSheet::paint (juce::Graphics& g)
         t.removeFromRight (12);
         g.setColour (row.holdDb > -119.0f ? Dine::ink2 : Dine::ink4);
         g.setFont (Dine::mono (11.5f, 500));
-        g.drawText (row.holdDb > -119.0f ? juce::String (row.holdDb, 1) : Glyph::dash(), t.removeFromRight (64), juce::Justification::centredRight);
+        Dine::drawText (g, row.holdDb > -119.0f ? juce::String (row.holdDb, 1) : Glyph::dash(), t.removeFromRight (64), juce::Justification::centredRight);
         t.removeFromRight (12);
         auto bar = t.withSizeKeepingCentre (t.getWidth(), 6);
         Dine::drawWell (g, bar.toFloat(), 2.0f);

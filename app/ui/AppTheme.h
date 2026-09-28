@@ -222,6 +222,42 @@ namespace Dine
 
     int textWidth (const juce::Font&, const juce::String&);
 
+    // ---------------------------------------------------------------- drawing text
+    // Use these, not g.drawText / g.drawFittedText, everywhere in the application.
+    //
+    // They do exactly what JUCE's versions do - same arguments, same defaults, the font and
+    // colour still come from the Graphics - and they lay the glyphs out through a cache big
+    // enough for a real console. JUCE has a cache of its own and it holds 128 entries for the
+    // whole window (juce_GraphicsContext.cpp), which a 48-channel MIXER or the Inspector goes
+    // through several times over in a single paint: every string a sibling evicted is shaped
+    // again by HarfBuzz the next time round. Measured, that was two thirds of what TUNE and
+    // INSPECTOR spent painting - 20.0 ms of warm repaint against 9.4 with the layouts kept.
+    //
+    // Message thread only, like all painting. Nothing here runs on the audio thread.
+    void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<int> area,
+                   juce::Justification, bool useEllipsesIfTooBig = true);
+    void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<float> area,
+                   juce::Justification, bool useEllipsesIfTooBig = true);
+    void drawText (juce::Graphics&, const juce::String&, int x, int y, int width, int height,
+                   juce::Justification, bool useEllipsesIfTooBig = true);
+    void drawFittedText (juce::Graphics&, const juce::String&, juce::Rectangle<int> area,
+                         juce::Justification, int maximumNumberOfLines,
+                         float minimumHorizontalScale = 0.0f);
+    void drawFittedText (juce::Graphics&, const juce::String&, int x, int y, int width, int height,
+                         juce::Justification, int maximumNumberOfLines,
+                         float minimumHorizontalScale = 0.0f);
+
+    // How many strings were laid out rather than found already laid out. A count, not a clock:
+    // it is the same on every machine, so it is the number a frame-budget regression is caught
+    // by. `dlive_ui_snapshots --paint` prints it per workspace.
+    struct TextCacheStats { long long hits, misses, size; };
+    TextCacheStats textCacheStats();
+    void resetTextCacheStats();
+    // Text size changes every role's size, so every layout held is for a face nothing will ask
+    // for again; `setTextScale` does this itself. A theme change does not - a colour is taken
+    // from the Graphics when the glyphs are drawn and is never baked into a layout.
+    void clearTextCache();
+
     // Surfaces -------------------------------------------------------------
     void fillRounded (juce::Graphics&, juce::Rectangle<float>, juce::Colour, float radius);
     void hairlineRounded (juce::Graphics&, juce::Rectangle<float>, juce::Colour, float radius);

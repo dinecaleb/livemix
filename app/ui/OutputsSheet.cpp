@@ -120,17 +120,17 @@ public:
         auto inner = getLocalBounds().reduced (12, 0);
         g.setColour (feed.mute ? Dine::ink3 : Dine::ink);
         g.setFont (Dine::text (13.0f));
-        g.drawText (feed.monitor ? juce::String ("Monitor") : juce::String (feedName (feedIndex)), inner.removeFromLeft (150), juce::Justification::centredLeft);
+        Dine::drawText (g, feed.monitor ? juce::String ("Monitor") : juce::String (feedName (feedIndex)), inner.removeFromLeft (150), juce::Justification::centredLeft);
 
         g.setColour (feed.mute ? Dine::ink4 : Dine::ink2);
         g.setFont (Dine::mono (11.0f, 500));
-        g.drawText (db1 (feed.gainDb), levelRect.withTrimmedLeft (levelRect.getWidth() - 54), juce::Justification::centredRight);
+        Dine::drawText (g, db1 (feed.gainDb), levelRect.withTrimmedLeft (levelRect.getWidth() - 54), juce::Justification::centredRight);
 
         if (feed.left >= 0 && ! sheet.pairExists (feed.left / 2))
         {
             g.setColour (Dine::warn);
             g.setFont (Dine::text (10.0f));
-            g.drawText ("not on this device", pairButton.getBounds().withY (pairButton.getBottom()).withHeight (11),
+            Dine::drawText (g, "not on this device", pairButton.getBounds().withY (pairButton.getBottom()).withHeight (11),
                         juce::Justification::centredLeft);
         }
     }
@@ -437,7 +437,7 @@ void OutputsSheet::paint (juce::Graphics& g)
     auto r = card.reduced (26, 26);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (19.0f, 600));
-    g.drawText ("Outputs", r.removeFromTop (24), juce::Justification::centredLeft);
+    Dine::drawText (g, "Outputs", r.removeFromTop (24), juce::Justification::centredLeft);
     r.removeFromTop (12);
 
     // The two choices this sheet exists for: where the broadcast goes, and where the engineer listens.
@@ -446,11 +446,11 @@ void OutputsSheet::paint (juce::Graphics& g)
         auto line = r.removeFromTop (Dine::Metric::control);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (13.0f));
-        g.drawText ("Broadcast", line.removeFromLeft (labelW), juce::Justification::centredLeft);
+        Dine::drawText (g, "Broadcast", line.removeFromLeft (labelW), juce::Justification::centredLeft);
         auto after = line.withTrimmedLeft (300 + 12);
         g.setColour (channels >= 2 ? Dine::ink3 : Dine::warn);
         g.setFont (Dine::text (12.0f));
-        g.drawText (channels <= 0 ? "no device open"
+        Dine::drawText (g, channels <= 0 ? "no device open"
                                   : juce::String (channels) + (channels == 1 ? " output channel" : " output channels")
                                         + "   " + Glyph::dot() + "   always stereo, on 1-2",
                     after, juce::Justification::centredLeft, true);
@@ -460,12 +460,12 @@ void OutputsSheet::paint (juce::Graphics& g)
         auto line = r.removeFromTop (Dine::Metric::control);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (13.0f));
-        g.drawText ("Solo", line.removeFromLeft (labelW), juce::Justification::centredLeft);
+        Dine::drawText (g, "Solo", line.removeFromLeft (labelW), juce::Justification::centredLeft);
         auto after = line.withTrimmedLeft (300 + 12);
         const bool set = services.soloOutputDevice().isNotEmpty();
         g.setColour (set ? Dine::ok : Dine::ink4);
         g.setFont (Dine::text (12.0f));
-        g.drawText (set ? "only you hear this" : "solo has nowhere to go yet", after, juce::Justification::centredLeft, true);
+        Dine::drawText (g, set ? "only you hear this" : "solo has nowhere to go yet", after, juce::Justification::centredLeft, true);
         r.removeFromTop (16);
     }
 
@@ -473,11 +473,11 @@ void OutputsSheet::paint (juce::Graphics& g)
     auto head = r.removeFromTop (36).withTrimmedBottom (10).reduced (12, 0);
     g.setColour (Dine::ink4);
     g.setFont (Dine::caps (11.0f, 0.06f, 500));
-    g.drawText ("FEED", head.removeFromLeft (150), juce::Justification::centredLeft);
-    g.drawText ("SOURCE", head.removeFromLeft (190), juce::Justification::centredLeft);
-    g.drawText ("DESTINATION", head.removeFromLeft (170), juce::Justification::centredLeft);
-    g.drawText ("STATE", head.removeFromRight (158), juce::Justification::centredRight);
-    g.drawText ("LEVEL", head, juce::Justification::centredLeft);
+    Dine::drawText (g, "FEED", head.removeFromLeft (150), juce::Justification::centredLeft);
+    Dine::drawText (g, "SOURCE", head.removeFromLeft (190), juce::Justification::centredLeft);
+    Dine::drawText (g, "DESTINATION", head.removeFromLeft (170), juce::Justification::centredLeft);
+    Dine::drawText (g, "STATE", head.removeFromRight (158), juce::Justification::centredRight);
+    Dine::drawText (g, "LEVEL", head, juce::Justification::centredLeft);
 
     // Along the foot: how many feeds, and what is set up for the engineer, in one sentence.
     auto foot = card.reduced (26, 26).removeFromBottom (40 + Dine::Metric::button);
@@ -485,12 +485,12 @@ void OutputsSheet::paint (juce::Graphics& g)
     count.removeFromLeft (juce::jmax (120, addButton.getWidth()) + 12);
     g.setColour (Dine::ink4);
     g.setFont (Dine::text (13.0f));
-    g.drawText (juce::String (controller.getOutputFeeds().count) + " of " + juce::String (kMaxOutputFeeds) + " feeds in use", count, juce::Justification::centredLeft);
+    Dine::drawText (g, juce::String (controller.getOutputFeeds().count) + " of " + juce::String (kMaxOutputFeeds) + " feeds in use", count, juce::Justification::centredLeft);
     foot.removeFromTop (14);
     const auto headphones = services.headphonesSummary();
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (12.5f));
-    g.drawFittedText (headphones.isNotEmpty()
+    Dine::drawFittedText (g, headphones.isNotEmpty()
                           ? headphones + " While LIVE SAFE is on the monitor bus cannot be re-routed: the room and the stream never hear it, and it never disappears on you."
                           : juce::String ("Pick the device you listen on above. It can be a different box from the broadcast - DLIVE joins them for you."),
                       foot, juce::Justification::topLeft, 2);

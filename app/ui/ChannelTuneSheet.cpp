@@ -170,12 +170,12 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
         auto head = r.removeFromTop (24);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (19.0f, 600));
-        g.drawText ("TUNE CHANNEL  " + juce::String (Glyph::dot()) + "  " + name, head.withTrimmedRight (70), juce::Justification::centredLeft, true);
+        Dine::drawText (g, "TUNE CHANNEL  " + juce::String (Glyph::dot()) + "  " + name, head.withTrimmedRight (70), juce::Justification::centredLeft, true);
     }
     r.removeFromTop (10);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (12.5f));
-    g.drawFittedText ("The console keeps playing behind this sheet. DLIVE listens to this input alone and proposes a chain for it. Nothing is committed by asking.",
+    Dine::drawFittedText (g, "The console keeps playing behind this sheet. DLIVE listens to this input alone and proposes a chain for it. Nothing is committed by asking.",
                       r.removeFromTop (36), juce::Justification::topLeft, 2);
     r.removeFromTop (10);
 
@@ -203,11 +203,11 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
             }
             g.setColour (Dine::ink);
             g.setFont (Dine::mono (24.0f, 500));
-            g.drawText (waiting ? Glyph::dash() : juce::String (int (std::round (progress * 100.0f))),
+            Dine::drawText (g, waiting ? Glyph::dash() : juce::String (int (std::round (progress * 100.0f))),
                         ring.withTrimmedBottom (22.0f).toNearestInt(), juce::Justification::centred);
             g.setColour (Dine::ink2);
             g.setFont (Dine::text (10.0f));
-            g.drawText (waiting ? "waiting" : "% listened",
+            Dine::drawText (g, waiting ? "waiting" : "% listened",
                         ring.withTrimmedTop (ring.getHeight() * 0.5f + 8.0f).withHeight (16.0f).toNearestInt(),
                         juce::Justification::centred);
         }
@@ -216,13 +216,13 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
         auto title = text.removeFromTop (24);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (18.0f, 600));
-        g.drawText (planning ? "Building this channel" : waiting ? "Waiting for " + name : "Listening to " + name,
+        Dine::drawText (g, planning ? "Building this channel" : waiting ? "Waiting for " + name : "Listening to " + name,
                     title, juce::Justification::topLeft, true);
         text.removeFromTop (6);
         auto body = text.removeFromTop (60);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        g.drawFittedText (waiting ? "Play this source the way it is played in the service. DLIVE starts as soon as it hears it, "
+        Dine::drawFittedText (g, waiting ? "Play this source the way it is played in the service. DLIVE starts as soon as it hears it, "
                                     "and the rest of the mix keeps running underneath."
                                   : "Keep playing. Only " + name + " is decided from this listen - every other channel, the groups "
                                     "and the master stay exactly where they are.",
@@ -246,7 +246,7 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
 
     g.setColour (Dine::ink);
     g.setFont (Dine::text (19.0f, 600));
-    g.drawText (juce::String (plan->headline), r.removeFromTop (24), juce::Justification::centredLeft, true);
+    Dine::drawText (g, juce::String (plan->headline), r.removeFromTop (24), juce::Justification::centredLeft, true);
 
     r.removeFromTop (4);
     {
@@ -263,7 +263,7 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
                                                     : parts.joinIntoString ("  " + juce::String (Glyph::dot()) + "  ");
         g.setColour (Dine::ink3);
         g.setFont (Dine::mono (11.0f));
-        g.drawText (counts, r.removeFromTop (16), juce::Justification::centredLeft, true);
+        Dine::drawText (g, counts, r.removeFromTop (16), juce::Justification::centredLeft, true);
     }
 
     r.removeFromTop (10);
@@ -278,13 +278,13 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
         row = row.reduced (12, 8);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (13.0f));
-        g.drawText (line.first, row.removeFromLeft (150), juce::Justification::topLeft, true);
+        Dine::drawText (g, line.first, row.removeFromLeft (150), juce::Justification::topLeft, true);
         row.removeFromLeft (14);
         if (line.second.isNotEmpty())
         {
             g.setColour (Dine::ink2);
             g.setFont (Dine::text (12.5f));
-            g.drawFittedText (line.second, row, juce::Justification::topLeft, 3, 1.0f);
+            Dine::drawFittedText (g, line.second, row, juce::Justification::topLeft, 3, 1.0f);
         }
     }
 
