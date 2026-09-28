@@ -230,12 +230,29 @@ it is not the accent. That is right: teal in DLIVE means *this is what DLIVE did
 chosen*, and solo is neither - it is the engineer's own listen, which the room never hears.
 `CLAUDE.md` said "solo teal" and now says otherwise.
 
-### One thing left the mixer strip
+### One thing left the mixer strip, and came back
 
 **Record-arm (R) and monitoring (A).** The design's strip carries two keys, mute and solo, and
-that is what DLIVE's does now. Neither became impossible: every TRACKS row still has its own R
-and A, and ROUTING has a REC column - which is where somebody setting a service up already is.
-This is the change in this phase most worth arguing with.
+for one phase that is what DLIVE's carried. Neither became impossible - every TRACKS row still
+had its own R and A, and ROUTING has a REC column - but this was called the change in the phase
+most worth arguing with, and the argument went the other way.
+
+**They are back in UI-8, in a row of their own above mute and solo.** Somebody who has just set
+a microphone up is looking at the console, and sending them to another workspace to arm it is
+sending them away from the mix. Paired above rather than crowded beside, because what a strip
+records and what the engineer hears are two different questions and the hand should not confuse
+them.
+
+A **group keeps the row and leaves it empty**, though a group has no track behind it to record.
+That is not waste: the keys on a console run in lines across it, and the first build of this had
+a group's M sitting exactly where a channel's R sits - the eye reads down the desk and the hand
+finds the wrong key. Found by looking at the render, which is the only way it would have been.
+
+It costs 19 px of the throw and it fits at **1180 x 760**, the smallest window. The row gives way
+after the sends and before the peak reading: what a strip is set to record is asked once before
+the service, and the fader's travel is asked all through it. `dlive_ui_tests` now pins all four
+keys to the strip by the tooltip each one carries, so a later phase cannot quietly take them
+again - a key that stopped explaining itself fails it too.
 
 ### The frame cost
 
@@ -623,7 +640,7 @@ each phase reads its own frames properly before building, and corrects its rows 
 | 02 | ROUTING | **`RoutingPage`** hosting `DevicePage` + `AssignPage` embedded, plus an outputs column | **done** - every behaviour moved intact | staged edits behind APPLY not done (see §3d) | UI-4 |
 | 02b | ROUTING · INPUT ACCESS REFUSED | `DevicePage`'s INPUT ACCESS card | **done** - ALLOWED / REFUSED / NOT ASKED YET with the sentence | hot-plug waits on its engine phase | UI-4 |
 | 03 | TRACKS | `TracksPage.cpp` | timeline, clips, markers, loop, row heights, arm, monitor, per-track TUNE | restyle only | UI-2/3 |
-| 04 | MIXER | `MixerPage.cpp` | **done** - the strip is the design's component, the group panel is pinned, the slots open their stage | R and A left the strip (§3c) | UI-3 |
+| 04 | MIXER | `MixerPage.cpp` | **done** - the strip is the design's component, the group panel is pinned, the slots open their stage | R and A are back above mute and solo, a deliberate fifth row the design does not draw (§3c) | UI-3, UI-8 |
 | 05 | TUNE | `MixPage.cpp` | TUNE MIX, `startTuneBus`, TUNE CHANNEL, the decisions, the diff, the sentences, KEEP / REVERT / RE-TUNE | scope picker as one control; per-change UNDO; groups rail with last-tune time; **AIM AT ★favourite** and the **NOW / FAVOURITE** comparison; **SPEAKING / SINGING** per voice | UI-5 (+ §6) |
 | 06 | LIVE | `LivePage.cpp` | scenes, the five macros, flat group faders, loudness, ON AIR | the Autopilot card | UI-5 (+ §6) |
 | 07 | INSPECTOR · Sample replacement | `AdvancedPage` + `ChainEditor` | the Sample stage in full | restyle | UI-6 |

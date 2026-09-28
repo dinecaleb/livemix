@@ -769,19 +769,28 @@ public:
         const int sendsH = kind != Kind::Master && showSends ? 2 * 12 : 0;
         const int panH = kind != Kind::Master ? 24 + 2 + 10 : 0;
         const int keysH = kind != Kind::Master ? 18 : 0;
+        // R and A, above mute and solo. Only a channel has a track behind it to record, but a
+        // group keeps the row and leaves it empty, because the keys on a console run in lines
+        // across it: if a group's M sat where a channel's R sits, the eye would read down the
+        // desk and the hand would find the wrong key.
+        const int recKeysH = kind != Kind::Master ? 16 : 0;
         const int levelH = 12, peakH = kind == Kind::Master ? 0 : 10;
         const int plateH = kind == Kind::Master ? 0 : 20;
         const int throwMin = 90;
 
         // What gives way, and in what order, when the window is too short for all of it.
         bool keepInserts = slots > 0, keepSends = sendsH > 0, keepPan = panH > 0,
-             keepPeak = peakH > 0, keepPlate = plateH > 0;
+             keepPeak = peakH > 0, keepPlate = plateH > 0, keepRecKeys = recKeysH > 0;
         auto need = [&]
         {
             return (keepInserts ? insertsH + 5 : 0) + (keepSends ? sendsH + 6 : 0) + (keepPan ? panH + 6 : 0)
-                 + (keepPlate ? plateH + 8 : 0) + (keepPeak ? peakH + 2 : 0) + levelH + 4 + (keysH > 0 ? keysH + 4 : 0);
+                 + (keepPlate ? plateH + 8 : 0) + (keepPeak ? peakH + 2 : 0) + levelH + 4 + (keysH > 0 ? keysH + 4 : 0)
+                 + (keepRecKeys ? recKeysH + 3 : 0);
         };
         if (body.getHeight() - need() < throwMin) keepSends = false;
+        // R and A go before the peak reading but after the sends: what a strip is set to record
+        // is a question asked before the service, and the fader's travel is asked all through it.
+        if (body.getHeight() - need() < throwMin) keepRecKeys = false;
         if (body.getHeight() - need() < throwMin) keepPeak = false;
         if (body.getHeight() - need() < throwMin) keepPan = false;
         if (body.getHeight() - need() < throwMin) keepPlate = false;
@@ -817,6 +826,7 @@ public:
             col.hasPan = true;
             body.removeFromTop (6);
         }
+        if (keepRecKeys) { col.recKeys = body.removeFromTop (recKeysH); col.hasRecKeys = true; body.removeFromTop (3); }
         if (keysH > 0) { col.keys = body.removeFromTop (keysH); body.removeFromTop (4); }
 
         // ---- the foot, from the bottom up
@@ -874,20 +884,27 @@ public:
             monitorButton.setVisible (false);
             return;
         }
-        // The design's strip carries two keys: mute and solo. Record-arm and monitoring left the
-        // console for the places that own them - the R and A keys on every TRACKS row, and the
-        // REC column on ROUTING - which is where a person setting a service up already is.
+        // The design's strip carries two keys, mute and solo. DLIVE's carries four: R and A sit
+        // in a row of their own above them. They are on every TRACKS row and in ROUTING's REC
+        // column too, but somebody who has just set a microphone up is looking at the console,
+        // and asking them to go to another workspace to arm it is asking them to leave the mix.
+        // Paired above rather than beside, because what a strip records and what the engineer
+        // hears are two different questions and the hand should not confuse them.
         muteButton.setVisible (kind != Kind::Master);
         soloButton.setVisible (kind != Kind::Master);
-        armButton.setVisible (false);
-        monitorButton.setVisible (false);
+        armButton.setVisible (col.hasRecKeys && kind == Kind::Channel);
+        monitorButton.setVisible (col.hasRecKeys && kind == Kind::Channel);
 
-        auto keys = col.keys;
         const int gap = 2;
-        const int w = (keys.getWidth() - gap) / 2;
-        muteButton.setBounds (keys.removeFromLeft (w));
-        keys.removeFromLeft (gap);
-        soloButton.setBounds (keys.removeFromLeft (w));
+        const auto pair = [gap] (juce::Rectangle<int> row, DineKey& left, DineKey& right)
+        {
+            const int w = (row.getWidth() - gap) / 2;
+            left.setBounds (row.removeFromLeft (w));
+            row.removeFromLeft (gap);
+            right.setBounds (row.removeFromLeft (w));
+        };
+        if (col.hasRecKeys && kind == Kind::Channel) pair (col.recKeys, armButton, monitorButton);
+        pair (col.keys, muteButton, soloButton);
     }
 
     void layoutRow()
@@ -1031,11 +1048,12 @@ public:
     struct Col
     {
         juce::Rectangle<int> busBar, name, input, tunedLamp, trim, loudness, panKnob, panRead,
-                             scale, fader, meter, gr, body, level, peak, keys, plate;
+                             scale, fader, meter, gr, body, level, peak, recKeys, keys, plate;
         std::vector<juce::Rectangle<int>> insertRows;
         std::array<juce::Rectangle<int>, 2> sendLabels {}, sendTracks {};
         bool hasLoudness = false, hasInserts = false, hasSends = false, hasPan = false,
-             hasPlate = false, hasTrim = false, hasPeak = false, hasScale = false, hasGr = false;
+             hasPlate = false, hasTrim = false, hasPeak = false, hasScale = false, hasGr = false,
+             hasRecKeys = false;
     };
     struct SendView { juce::String label; float db = kSilenceDb; };
 

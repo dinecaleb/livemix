@@ -430,6 +430,61 @@ TEST_CASE ("The mixer's insert slots open that stage in the Inspector, and an un
     CHECK (inspector.selectedStageIndex() == was);
 }
 
+// Everything a mixer strip offers, found by the tooltip each key carries rather than by
+// reaching into MixerPage - the tooltip is what a person reads, so a key that stopped
+// explaining itself is a regression too. Counted inside one page and no further: a workspace
+// this window is not showing still has its components built, and `isVisible` is a component's
+// own flag rather than whether anything is on screen - with no peer behind it, nothing in a
+// test is ever `isShowing`.
+static int keysTooltipped (juce::Component& c, const juce::String& startsWith)
+{
+    int found = 0;
+    if (c.isVisible())
+        if (auto* tip = dynamic_cast<juce::SettableTooltipClient*> (&c))
+            if (tip->getTooltip().startsWith (startsWith)) ++found;
+
+    for (auto* child : c.getChildren())
+        found += keysTooltipped (*child, startsWith);
+
+    return found;
+}
+
+TEST_CASE ("The mixer strip carries four keys: record, monitoring, mute and solo")
+{
+    Window window;
+    auto& view = *window.view;
+    view.showPage (MainView::Page::Mixer);
+    window.pump (60);
+
+    // R and A left the strip when it was first built to the design's 48 x 680 anatomy, and came
+    // back: somebody who has just set a microphone up is looking at the console, and sending
+    // them to TRACKS to arm it is sending them away from the mix. They are still on every TRACKS
+    // row and in ROUTING's REC column as well - three ways in, and this is the one a phase could
+    // quietly take away again.
+    auto& mixer = view.getMixerPage();
+    const int armed = keysTooltipped (mixer, "Set to record");
+    const int monitoring = keysTooltipped (mixer, "Monitoring");
+    CHECK_MESSAGE (armed > 0, "no record-arm key on any mixer strip");
+    CHECK_MESSAGE (monitoring > 0, "no monitoring key on any mixer strip");
+
+    // One of each per channel strip, and none on a group or the master - a group has no track
+    // behind it to record.
+    CHECK (armed == monitoring);
+
+    // Mute and solo are on the channels AND on the groups, so there are strictly more of them.
+    const int muted = keysTooltipped (mixer, "Muted");
+    const int soloed = keysTooltipped (mixer, "Soloed");
+    CHECK_MESSAGE (muted == soloed, "mute keys " + std::to_string (muted) + ", solo keys " + std::to_string (soloed)
+                                    + ", arm keys " + std::to_string (armed));
+    CHECK_MESSAGE (muted > armed, "the groups should carry mute and solo as well as the channels");
+
+    // They are still on every TRACKS row and in ROUTING's REC column too, and this test does
+    // not check those: TRACKS paints its R and A into the row rather than building a component
+    // per track - 48 tracks of four buttons each is a lot of components for something a row can
+    // draw - so there is no tooltip there for this walk to find. What it guards is the mixer,
+    // which is the place they were taken from and the place they could be taken from again.
+}
+
 // ------------------------------------------------------------------------- the first run
 TEST_CASE ("The first Sunday: sessions, a device, the inputs, the purpose, and the console - end to end")
 {
