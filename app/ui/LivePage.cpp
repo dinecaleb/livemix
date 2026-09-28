@@ -739,10 +739,15 @@ void LivePage::paint (juce::Graphics& g)
             // the three that decide whether it is right. Loudness range (LRA) is not measured,
             // so the third is how far from target this mix actually is - which is the number
             // somebody is looking for anyway.
+            // Three readings need about 90 px each to be readable. On the smallest window they
+            // do not have it, so the third gives way rather than all three colliding - the
+            // target bar underneath already says what "against target" says.
             auto cols = inner.removeFromTop (28);
-            const int cw = cols.getWidth() / 3;
+            const int columns = cols.getWidth() >= 270 ? 3 : 2;
+            const int cw = cols.getWidth() / columns;
             auto small = [&] (juce::Rectangle<int> c, const juce::String& k, const juce::String& v, juce::Colour ink)
             {
+                if (c.isEmpty()) return;
                 g.setColour (Dine::ink4);
                 g.setFont (Dine::Type::caption());
                 g.drawText (k, c.removeFromTop (13), juce::Justification::topLeft, true);
@@ -756,6 +761,7 @@ void LivePage::paint (juce::Graphics& g)
             small (cols.removeFromLeft (cw), "True peak",
                    loud.truePeakDb > -100.0f ? juce::String (loud.truePeakDb, 1) + " dBTP" : juce::String (Glyph::dash()),
                    loud.truePeakDb > loud.ceilingDb ? Dine::crit : Dine::ink);
+            if (columns < 3) cols = {};
             small (cols, "Against target",
                    integrated ? juce::String (loud.deltaLu() >= 0.0f ? "+" : "") + juce::String (loud.deltaLu(), 1) + " LU"
                               : juce::String (Glyph::dash()),

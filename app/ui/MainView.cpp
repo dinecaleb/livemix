@@ -1207,6 +1207,11 @@ void MainView::showPage (Page p)
     // whatever workspace is already there.
     if (p == Page::Purpose) { showPurpose(); return; }
 
+    // PURPOSE AND SOUND is a sheet *over a workspace*. Going to a different workspace is
+    // leaving it, so it goes with you - a sheet that survives the move ends up sitting over a
+    // console it has nothing to do with.
+    if (purposeSheet != nullptr && p != page) purposeSheet.reset();
+
     page = p;
     const bool routing = p == Page::Device;
     sessionsPage->setVisible (p == Page::Sessions);
