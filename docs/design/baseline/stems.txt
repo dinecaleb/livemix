@@ -1,0 +1,90 @@
+stems: 19 sources on 37 inputs from caleb
+  in  1/+1  FLOOR TOM_1      Floor Tom          peak   -6.5 dBFS
+  in  3/+1  HIGH HAT_1       Hi-Hat             peak   -0.9 dBFS
+  in  5/+1  KICK             Kick In            peak   -7.5 dBFS
+  in  7/+1  Overhead         Overhead           peak  -90.7 dBFS   (silent: this source is not in the recording)
+  in  9/+1  TOM 1_1          Rack Tom           peak   -0.6 dBFS
+  in 11/+1  TOM 2_1          Floor Tom          peak   -6.5 dBFS
+  in 13/+1  BASS GTR_1       Bass DI            peak   -9.4 dBFS
+  in 15     DRUM PAD         Synth Pad          peak  -91.1 dBFS   (silent: this source is not in the recording)
+  in 16/+1  Keys L           Piano              peak   -0.4 dBFS
+  in 18/+1  LOOP_1           Synth Pad          peak  -12.9 dBFS
+  in 20/+1  bgv 1            Backing Vocal      peak   -2.6 dBFS
+  in 22/+1  bgv 2            Backing Vocal      peak   -8.4 dBFS
+  in 24/+1  bgv 3            Backing Vocal      peak   -3.8 dBFS
+  in 26/+1  bgv 4            Backing Vocal      peak   -0.1 dBFS
+  in 28/+1  bgv 5            Backing Vocal      peak   -3.7 dBFS
+  in 30/+1  bgv 6            Backing Vocal      peak -100.0 dBFS   (silent: this source is not in the recording)
+  in 32/+1  Lead             Lead Vocal         peak   -2.1 dBFS
+  in 34/+1  Pastor           Speech             peak  -81.3 dBFS   (silent: this source is not in the recording)
+  in 36/+1  Crowd            Crowd Mic          peak  -86.9 dBFS   (silent: this source is not in the recording)
+wrote 00-sessions
+wrote 01-device
+wrote 02-assign-empty
+wrote 03-assign
+wrote 03b-assign-selection
+wrote 04-purpose
+wrote 05-tracks-empty
+wrote 06-tracks
+wrote 06f-tracks-linked
+wrote 06b-tracks-short-rows
+wrote 06c-tracks-tall-rows
+wrote 06e-tracks-reordered
+wrote 06d-tracks-name-mismatch
+wrote 07-tune-ready
+wrote 08-tune-listening
+wrote 09-tune-preview
+wrote 10-tune-preview-before
+wrote 07c-tune-reference-empty
+wrote 07d-tune-reference
+wrote 08b-tune-live-listening
+wrote 08c-tune-live-working
+wrote 09b-tune-live-result
+wrote 11-inspector-strip
+wrote 11d-inspector-history
+wrote 11b-inspector-eq
+wrote 11c-inspector-comp
+wrote 11e-inspector-sample
+wrote 12-inspector-send
+wrote 12b-inspector-sends
+wrote 13-inspector-bus
+wrote 14-inspector-master
+wrote 14b-inspector-panels-folded
+wrote 15-mixer-no-sidebar
+wrote 15-mixer
+wrote 15b-mixer-narrow
+wrote 15c-mixer-wide
+wrote 15d-mixer-list
+wrote 15e-mixer-groups
+wrote 15g-mixer-mute-solo
+wrote 15h-mixer-linked
+wrote 15i-mixer-linked-narrow
+wrote 15f-mixer-bypass
+wrote 26-mixer-window-min
+wrote 26b-mixer-window-min-list
+wrote 16b-tune-rail-folded
+wrote 16-tune-macros
+wrote 16c-tune-macros-live-safe
+wrote 17-live
+wrote 17b-live-muted
+wrote 17c-live-scenes-dimmed
+wrote 19-channel-listening
+wrote 20-channel-tuned
+wrote 18-outputs
+wrote 18b-check-inputs
+wrote 18c-mix-history
+wrote 27-chat
+wrote 27b-chat-answered
+wrote 21-min-tracks
+wrote 22-min-mixer
+wrote 23-min-tune
+wrote 24-min-live
+wrote 25-min-inspector
+wrote 28-getting-started
+wrote 30-theme-studio-teal
+wrote 30-theme-lime-desk
+wrote 30-theme-slate
+wrote 30-theme-tape
+wrote 30-theme-daylight
+wrote 31-appearance
+stage 5, health 0%

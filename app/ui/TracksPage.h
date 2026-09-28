@@ -36,7 +36,14 @@ public:
     std::function<void()> onSessionChanged;           // a source changed: the routing is rebuilt
 
     void refresh();                    // 30 Hz
-    void rebuild();                    // the session, the timeline or the device changed
+    void rebuild();
+    // The snapshot tool. A clip draws as a flat block until juce::AudioThumbnail has scanned
+    // its file, and thumbnails are otherwise made lazily, the first time a clip is painted -
+    // so a headless render photographs an empty timeline. These two make the scan start now
+    // and say when it has finished.
+    void primeThumbnails();
+    bool waveformsReady() const;
+                    // the session, the timeline or the device changed
 
     // The channel this workspace has picked out (its header is lit and the chain strip
     // along the foot reads it), or -1. This is what the Mix menu's TUNE CHANNEL tunes.

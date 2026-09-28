@@ -1,0 +1,11 @@
+
+FRAME COST  (48 channels, 120 frames, 1520 x 960)
+  workspace      tick ms   full repaint
+  TRACKS           1.26         15.19
+  MIXER            1.29          8.43
+  TUNE             1.26         17.96
+  LIVE             1.27         11.23
+  INSPECTOR        1.28         33.75   a page that repaints itself whole would miss the frame
+  tick = one refresh() of this page. full repaint = the whole window.
+  a page must not call repaint() on itself per tick: at these sizes that alone
+  spends the whole 33.3 ms a 30 Hz frame has.

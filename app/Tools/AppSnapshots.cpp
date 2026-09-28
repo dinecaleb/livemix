@@ -9,6 +9,8 @@
 #include "native/MixController.h"
 #include "ui/MainView.h"
 #include "native/ThemeStore.h"
+#include "native/StemNames.h"
+#include <algorithm>
 #include <iostream>
 #include <cstdio>
 #include <random>
@@ -21,7 +23,126 @@ namespace
 {
     constexpr double kSr = 48000.0;
     constexpr int kBlock = 128;
-    constexpr int kInputs = 16;
+    constexpr int kSyntheticInputs = 16;
+
+    // A REAL SERVICE, when one is given (--stems <folder>).
+    //
+    // The synthetic band further down is sine tones and noise bursts. It is enough to prove a
+    // meter moves, and not enough to look at: a spectrum of a sine is a spike, a waveform of a
+    // noise burst is a block, and a mix of them tells you nothing about whether the console
+    // reads right. So every screen that is going to be compared against the design is rendered
+    // from a real multitrack instead - the same recordings TUNE MIX is checked against
+    // (docs/BUILD-AND-VERIFY.md). The tones stay as the fallback, so CI and a machine with no
+    // recordings on it still render every screen.
+    //
+    // Nothing is copied: the timeline's clips point at the files where they are, and the engine
+    // is fed a window held in memory.
+    struct StemSet
+    {
+        struct Stem
+        {
+            juce::String name;                  // the display name, take number stripped
+            ChannelRole role = ChannelRole::Count;
+            juce::File file;
+            juce::AudioBuffer<float> audio;     // the window fed to the engine
+            juce::int64 lengthInFile = 0;       // the whole file, for the timeline clip
+            int firstInput = 0;
+            bool stereo = false;
+            float peakDb = -120.0f;
+        };
+
+        std::vector<Stem> stems;
+        std::vector<std::pair<int, int>> channels;   // input number -> (stem, channel in it)
+        juce::String source;
+
+        bool loaded() const { return ! stems.empty(); }
+        int numInputs() const { return int (channels.size()); }
+
+        // Reads `seconds` from `offset` out of every file in the folder whose name names a
+        // source DLIVE knows. Returns a sentence on failure, "" on success.
+        juce::String load (const juce::File& folder, double seconds, double offset)
+        {
+            if (! folder.isDirectory()) return "There is no folder at " + folder.getFullPathName();
+
+            juce::AudioFormatManager formats;
+            formats.registerBasicFormats();
+
+            juce::Array<juce::File> files;
+            folder.findChildFiles (files, juce::File::findFiles, false, "*.wav;*.aif;*.aiff");
+            files.sort();
+
+            for (const auto& file : files)
+            {
+                ChannelRole role {};
+                if (! StemNames::guessRole (file.getFileNameWithoutExtension(), role)) continue;
+
+                std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+                if (reader == nullptr) continue;
+
+                Stem stem;
+                stem.name = StemNames::cleanName (file.getFileNameWithoutExtension());
+                stem.role = role;
+                stem.file = file;
+                stem.lengthInFile = reader->lengthInSamples;
+                stem.stereo = reader->numChannels > 1;
+
+                const int channelCount = stem.stereo ? 2 : 1;
+                const auto start = juce::int64 (offset * reader->sampleRate);
+                const int wanted = int (seconds * reader->sampleRate);
+                const int available = int (juce::jmax (juce::int64 (0), reader->lengthInSamples - start));
+                const int frames = juce::jmin (wanted, available);
+                if (frames <= kBlock) continue;                      // nothing there to feed
+
+                stem.audio.setSize (channelCount, frames);
+                reader->read (&stem.audio, 0, frames, start, true, channelCount > 1);
+                stem.peakDb = juce::Decibels::gainToDecibels (stem.audio.getMagnitude (0, frames));
+                stems.push_back (std::move (stem));
+            }
+
+            if (stems.empty()) return "No file in " + folder.getFullPathName() + " names a source DLIVE knows.";
+
+            // The desk order the design draws: the kit, then the band, then the voices, then the
+            // room - which is the order the engine already puts a group in, so sorting by group
+            // and then by name gives the console its familiar shape.
+            std::sort (stems.begin(), stems.end(), [] (const Stem& a, const Stem& b)
+            {
+                const auto ga = int (mixBusForRole (a.role)), gb = int (mixBusForRole (b.role));
+                if (ga != gb) return ga < gb;
+                return a.name.compareNatural (b.name) < 0;
+            });
+
+            for (auto& stem : stems)
+            {
+                stem.firstInput = int (channels.size());
+                channels.push_back ({ int (&stem - stems.data()), 0 });
+                if (stem.stereo) channels.push_back ({ int (&stem - stems.data()), 1 });
+            }
+            source = folder.getFileName();
+            return {};
+        }
+
+        // The stem an input number belongs to, or nullptr.
+        const Stem* forInput (int input) const
+        {
+            if (input < 0 || input >= int (channels.size())) return nullptr;
+            return &stems[size_t (channels[size_t (input)].first)];
+        }
+
+        float sample (int input, long long p) const
+        {
+            if (input < 0 || input >= int (channels.size())) return 0.0f;
+            const auto& [which, channel] = channels[size_t (input)];
+            const auto& audio = stems[size_t (which)].audio;
+            if (audio.getNumSamples() == 0) return 0.0f;
+            // The window loops, so a long render never runs off the end of it.
+            return audio.getSample (channel, int (p % audio.getNumSamples()));
+        }
+    };
+
+    StemSet gStems;
+    // How many inputs the fake device offers: the real multitrack's channel count when one was
+    // given, else the synthetic sixteen.
+    int gInputs = kSyntheticInputs;
 
     class FakeServices : public AppServices
     {
@@ -35,7 +156,7 @@ namespace
         juce::String openOutputOnly (const juce::String& out) override { output = out; running = true; return {}; }
         juce::String changeOutput (const juce::String& out) override { output = out; return {}; }
         bool isAudioRunning() override { return running; }
-        int numInputChannels() override { return running ? kInputs : 0; }
+        int numInputChannels() override { return running ? gInputs : 0; }
         int numOutputChannels() override { return running ? 8 : 0; }        // a four-pair interface
         juce::StringArray outputChannelNames() override
         {
@@ -113,16 +234,19 @@ namespace
             view = std::make_unique<MainView> (controller, services);
             view->setSize (1520, 960);
             view->setVisible (true);
-            in.assign (kInputs, std::vector<float> (kBlock, 0.0f));
-            ip.resize (kInputs);
+            in.assign (size_t (gInputs), std::vector<float> (kBlock, 0.0f));
+            ip.resize (size_t (gInputs));
             outL.resize (kBlock); outR.resize (kBlock);
         }
 
         void pump (int ms) { juce::MessageManager::getInstance()->runDispatchLoopUntil (ms); }
 
-        // A church band on 16 inputs, matching the assignments made below.
+        // A church band on 16 inputs, matching the assignments made below - or the real
+        // multitrack, when one was given (--stems).
         float sample (int input, long long p)
         {
+            if (gStems.loaded()) return gStems.sample (input, p);
+
             const float t = float (p) / float (kSr);
             const float beat = std::fmod (t, 0.5f);
             switch (input)
@@ -150,13 +274,13 @@ namespace
             const int blocks = int (seconds * kSr / kBlock);
             for (int b = 0; b < blocks; ++b)
             {
-                for (int c = 0; c < kInputs; ++c)
+                for (int c = 0; c < gInputs; ++c)
                 {
                     for (int i = 0; i < kBlock; ++i) in[size_t (c)][size_t (i)] = sample (c, pos + i);
                     ip[size_t (c)] = in[size_t (c)].data();
                 }
                 float* op[2] = { outL.data(), outR.data() };
-                if (controller.isPrepared()) dawEngine.processBlock (ip.data(), kInputs, op, 2, kBlock);
+                if (controller.isPrepared()) dawEngine.processBlock (ip.data(), gInputs, op, 2, kBlock);
                 pos += kBlock;
                 if ((b % 4) == 0) pump (1);
                 else std::this_thread::sleep_for (std::chrono::microseconds (300));
@@ -164,9 +288,15 @@ namespace
         }
 
         // Writes one short WAV per assigned track and puts it on the timeline, so the Tracks
-        // workspace shows the waveforms it will show in the real application.
+        // workspace shows the waveforms it will show in the real application. The audio is
+        // whatever `sample` is serving - the real service when one was given, else the tones.
+        //
+        // The window is written out rather than the clip pointing back at the original file:
+        // a 150 MB service take is still being scanned for its thumbnail long after the render
+        // has finished, and the clip photographs as a flat block.
         void recordSyntheticTake (const juce::File& folder, double seconds)
         {
+            if (gStems.loaded()) seconds = juce::jmax (seconds, 30.0);   // a minute of service, not six seconds of tone
             folder.createDirectory();
             auto project = dawEngine.getProject();
             project.folder = folder;
@@ -205,6 +335,21 @@ namespace
             dawEngine.setProject (project);
         }
 
+        // A clip draws as a flat block until its thumbnail has been scanned, and a real service
+        // take is a hundred times the audio the synthetic one was. Give the scan its time
+        // before anything is photographed, rather than photograph an empty timeline.
+        void waitForWaveforms (int ms = 6000)
+        {
+            view->getTracksPage().primeThumbnails();
+            const auto until = juce::Time::getMillisecondCounter() + juce::uint32 (ms);
+            while (juce::Time::getMillisecondCounter() < until)
+            {
+                pump (50);
+                if (view->getTracksPage().waveformsReady()) break;
+            }
+            view->getTracksPage().repaint();
+        }
+
         void snap (const juce::File& dir, const juce::String& name)
         {
             pump (80);
@@ -233,6 +378,54 @@ namespace
 //
 //   dlive_ui_snapshots --frames [channels=48] [frames=120]
 // ---------------------------------------------------------------------------
+// The band on the desk. Given a real multitrack (--stems) every input is assigned from the
+// file that recorded it, by the name the console wrote; otherwise the synthetic sixteen are
+// assigned the way they always were. One place, so the snapshot walk and the size renders can
+// never photograph two different consoles.
+static void assignBand (MainView& view)
+{
+    auto& assign = view.getAssignPage();
+
+    if (gStems.loaded())
+    {
+        for (const auto& stem : gStems.stems)
+            assign.assign (stem.firstInput, stem.role, stem.name, stem.stereo);
+        return;
+    }
+
+    assign.assign (0, ChannelRole::KickIn, "Kick");
+    assign.assign (1, ChannelRole::SnareTop, "Snare");
+    assign.assign (2, ChannelRole::RackTom, "Rack Tom");
+    assign.assign (3, ChannelRole::FloorTom, "Floor Tom");
+    assign.assign (4, ChannelRole::Overhead, "OH", true);
+    assign.assign (6, ChannelRole::Room, "Room");
+    assign.assign (7, ChannelRole::BassDI, "Bass");
+    assign.assign (8, ChannelRole::Piano, "Keys", true);
+    assign.assign (10, ChannelRole::LeadVocal, "Lead");
+    assign.assign (11, ChannelRole::BackingVocal, "BGV 1");
+    assign.assign (12, ChannelRole::BackingVocal, "BGV 2");
+    assign.assign (13, ChannelRole::BackingVocal, "BGV 3");
+    assign.assign (14, ChannelRole::Speech, "Pastor");
+}
+
+// The first three backing vocals on this console, by input number: 11, 12 and 13 on the
+// synthetic band, and wherever the real multitrack put them.
+static std::vector<int> backingVocalInputs()
+{
+    std::vector<int> picked;
+    if (gStems.loaded())
+    {
+        for (const auto& stem : gStems.stems)
+        {
+            if (stem.role != ChannelRole::BackingVocal) continue;
+            picked.push_back (stem.firstInput);
+            if (picked.size() == 3) break;
+        }
+        return picked;
+    }
+    return { 11, 12, 13 };
+}
+
 static int measureFrames (int channels, int frames)
 {
     Rig rig;
@@ -347,25 +540,13 @@ static int renderSizes (const juce::File& dir)
     auto& view = *rig.view;
     rig.services.openDevices ("Dante Virtual Soundcard", "Dante Virtual Soundcard");
     view.showPage (MainView::Page::Assign);
-    auto& assign = view.getAssignPage();
-    assign.assign (0, ChannelRole::KickIn, "Kick");
-    assign.assign (1, ChannelRole::SnareTop, "Snare");
-    assign.assign (2, ChannelRole::RackTom, "Rack Tom");
-    assign.assign (3, ChannelRole::FloorTom, "Floor Tom");
-    assign.assign (4, ChannelRole::Overhead, "OH", true);
-    assign.assign (6, ChannelRole::Room, "Room");
-    assign.assign (7, ChannelRole::BassDI, "Bass");
-    assign.assign (8, ChannelRole::Piano, "Keys", true);
-    assign.assign (10, ChannelRole::LeadVocal, "Lead");
-    assign.assign (11, ChannelRole::BackingVocal, "BGV 1");
-    assign.assign (12, ChannelRole::BackingVocal, "BGV 2");
-    assign.assign (13, ChannelRole::BackingVocal, "BGV 3");
-    assign.assign (14, ChannelRole::Speech, "Pastor");
+    assignBand (view);
     view.showPage (MainView::Page::Purpose);
     view.getPurposePage().onContinue();
     rig.feed (1.0);
     rig.recordSyntheticTake (dir.getChildFile ("take"), 6.0);
     view.getTracksPage().rebuild();
+    rig.waitForWaveforms();
     view.getTracksPage().zoomToFit();
     rig.controller.startTuneMix ({ 4.0f, -45.0f, 5.0f });
     rig.feed (5.5);
@@ -373,7 +554,10 @@ static int renderSizes (const juce::File& dir)
     rig.controller.keepPlan();
     rig.feed (0.5);
 
-    for (const auto& size : { std::pair<int, int> { 1280, 800 }, { 1440, 900 }, { 1920, 1080 } })
+    // The three desk sizes the design is drawn at, and the smallest window the application
+    // allows (app/Main.cpp's setResizeLimits): a layout that survives 1180 x 760 survives a
+    // laptop in a booth with a stream window beside it.
+    for (const auto& size : { std::pair<int, int> { 1180, 760 }, { 1280, 800 }, { 1440, 900 }, { 1920, 1080 } })
     {
         rig.view->setSize (size.first, size.second);
         const juce::String tag = juce::String (size.first) + "x" + juce::String (size.second);
@@ -422,14 +606,43 @@ int main (int argc, char** argv)
     }
 
     // --theme <name> renders the whole set under one of the built-in (or saved) themes.
+    // --stems <folder> renders every screen from a real service multitrack instead of the
+    // synthetic band - which is what a render being compared against the design must use.
     juce::String themeName;
+    juce::File stemsFolder;
     std::vector<char*> args (argv, argv + argc);
     for (size_t a = 1; a + 1 < args.size(); ++a)
         if (juce::String (args[a]) == "--theme") { themeName = args[a + 1]; args.erase (args.begin() + long (a), args.begin() + long (a) + 2); break; }
+    for (size_t a = 1; a + 1 < args.size(); ++a)
+        if (juce::String (args[a]) == "--stems") { stemsFolder = juce::File (juce::String (args[a + 1])); args.erase (args.begin() + long (a), args.begin() + long (a) + 2); break; }
+    if (stemsFolder == juce::File() )
+    {
+        // So --sizes and --frames pick the same recording up without repeating it.
+        const auto fromEnv = juce::SystemStats::getEnvironmentVariable ("DLIVE_STEMS", {});
+        if (fromEnv.isNotEmpty()) stemsFolder = juce::File (fromEnv);
+    }
     argc = int (args.size());
     argv = args.data();
 
     juce::ScopedJuceInitialiser_GUI juceInit;
+
+    if (stemsFolder != juce::File())
+    {
+        // A minute in, so the band is playing rather than walking on. Thirty seconds is longer
+        // than the longest listen a screen needs, and the window loops after that.
+        if (const auto problem = gStems.load (stemsFolder, 30.0, 60.0); problem.isNotEmpty())
+        {
+            std::cerr << "--stems: " << problem << "\n";
+            return 2;
+        }
+        gInputs = gStems.numInputs();
+        std::printf ("stems: %d sources on %d inputs from %s\n", int (gStems.stems.size()), gInputs, gStems.source.toRawUTF8());
+        for (const auto& stem : gStems.stems)
+            std::printf ("  in %2d%-4s %-16s %-18s peak %6.1f dBFS%s\n",
+                         stem.firstInput + 1, stem.stereo ? "/+1" : "", stem.name.toRawUTF8(),
+                         channelRoleName (stem.role), stem.peakDb,
+                         stem.peakDb < -60.0f ? "   (silent: this source is not in the recording)" : "");
+    }
     if (argc > 1 && juce::String (argv[1]) == "--sizes")
         return renderSizes (juce::File (argc > 2 ? juce::String (argv[2])
                                                  : juce::File::getCurrentWorkingDirectory().getChildFile ("app-sizes").getFullPathName()));
@@ -502,25 +715,15 @@ int main (int argc, char** argv)
     rig.services.openDevices ("Dante Virtual Soundcard", "Dante Virtual Soundcard");
     view.showPage (MainView::Page::Assign);
     rig.snap (dir, "02-assign-empty");
-    auto& assign = view.getAssignPage();
-    assign.assign (0, ChannelRole::KickIn, "Kick");
-    assign.assign (1, ChannelRole::SnareTop, "Snare");
-    assign.assign (2, ChannelRole::RackTom, "Rack Tom");
-    assign.assign (3, ChannelRole::FloorTom, "Floor Tom");
-    assign.assign (4, ChannelRole::Overhead, "OH", true);
-    assign.assign (6, ChannelRole::Room, "Room");
-    assign.assign (7, ChannelRole::BassDI, "Bass");
-    assign.assign (8, ChannelRole::Piano, "Keys", true);
-    assign.assign (10, ChannelRole::LeadVocal, "Lead");
-    assign.assign (11, ChannelRole::BackingVocal, "BGV 1");
-    assign.assign (12, ChannelRole::BackingVocal, "BGV 2");
-    assign.assign (13, ChannelRole::BackingVocal, "BGV 3");
-    assign.assign (14, ChannelRole::Speech, "Pastor");
+    assignBand (view);
     rig.snap (dir, "03-assign");
 
     // Inputs picked out: the toolbar becomes the bulk one - set what they are, fill a kit
-    // down them in order, name them from their role, link them as pairs, or drop them.
-    assign.selectInputs ({ 11, 12, 13 });
+    // down them in order, name them from their role, link them as pairs, or drop them. Three
+    // backing vocals are the case it was made for, so it is three backing vocals whichever
+    // console this is.
+    auto& assign = view.getAssignPage();
+    assign.selectInputs (backingVocalInputs());
     rig.snap (dir, "03b-assign-selection");
     assign.selectInputs ({});
 
@@ -535,6 +738,7 @@ int main (int argc, char** argv)
     const auto take = dir.getChildFile ("take");
     rig.recordSyntheticTake (take, 6.0);
     view.getTracksPage().rebuild();
+    rig.waitForWaveforms();
     view.getTracksPage().zoomToFit();
 
     // Markers, so the ruler's marker lane and its lines are really exercised.

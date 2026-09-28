@@ -568,6 +568,22 @@ juce::Rectangle<int> TracksPage::meterCell (int track) const
     return { right - 8, top + (h - mh) / 2, 8, mh };
 }
 
+void TracksPage::primeThumbnails()
+{
+    const auto& project = services.daw().getProject();
+    for (const auto& track : project.tracks)
+        for (const auto& clip : track.clips)
+            thumbnailFor (clip);
+}
+
+bool TracksPage::waveformsReady() const
+{
+    if (thumbnails.empty()) return false;
+    for (const auto& t : thumbnails)
+        if (t.second != nullptr && ! t.second->isFullyLoaded()) return false;
+    return true;
+}
+
 juce::AudioThumbnail* TracksPage::thumbnailFor (const AudioClip& clip)
 {
     const auto file = services.daw().getProject().fileFor (clip);

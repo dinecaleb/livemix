@@ -1,0 +1,44 @@
+LiveMix ChannelProcessor benchmark @ 48000 Hz, stereo, full chain (gate+3 EQ+comp+transient+4 EQ+sat)
+instances  block      us/block/inst  us/block/all   budget%     
+1          32         2.60           2.6            0.4         
+8          32         2.47           19.7           3.0         
+16         32         2.40           38.3           5.7         
+32         32         2.24           71.6           10.7        
+48         32         2.25           107.8          16.2        
+1          64         5.92           5.9            0.4         
+8          64         5.94           47.5           3.6         
+16         64         5.60           89.5           6.7         
+32         64         5.25           168.1          12.6        
+48         64         5.29           254.1          19.1        
+1          128        12.91          12.9           0.5         
+8          128        13.04          104.3          3.9         
+16         128        12.41          198.5          7.4         
+32         128        11.42          365.3          13.7        
+48         128        11.55          554.3          20.8        
+1          256        27.68          27.7           0.5         
+8          256        27.54          220.3          4.1         
+16         256        26.16          418.5          7.8         
+32         256        24.18          773.9          14.5        
+48         256        24.44          1173.0         22.0        
+
+Sample replacement benchmark @ 48000 Hz, mono, full chain + detector + voices (a kick, two hits a second)
+instances  block      us/block/inst  us/block/all   budget%     
+6          32         1.78           10.7           1.6         
+106        32         1.97           11.8           1.8         
+6          128        8.59           51.5           1.9         
+106        128        9.88           59.3           2.2         
+
+Dine FX FxChain benchmark @ 48000 Hz, stereo (Vocal Plate / Vocal Throw alternating)
+instances  block      us/block/inst  us/block/all   budget%     
+1          64         5.95           6.0            0.4         
+4          64         6.80           27.2           2.0         
+8          64         6.81           54.5           4.1         
+16         64         6.83           109.3          8.2         
+1          128        12.21          12.2           0.5         
+4          128        13.91          55.6           2.1         
+8          128        13.68          109.5          4.1         
+16         128        13.97          223.5          8.4         
+1          256        25.28          25.3           0.5         
+4          256        28.34          113.4          2.1         
+8          256        28.30          226.4          4.2         
+16         256        28.37          453.9          8.5         
