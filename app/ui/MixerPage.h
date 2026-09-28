@@ -55,6 +55,10 @@ public:
     int selectedStrip() const noexcept { return selected; }
     MixBus selectedBus() const noexcept { return selectedBusValue; }
 
+    // How many group buses are pinned beside the master right now. The rail is the point of
+    // the console layout rather than a decoration, so it is a thing the tests can ask about.
+    int pinnedGroupCount() const;
+
     void setWindowButtonVisible (bool);
     // The chain along the foot belongs to the window now; the detached mixer keeps its own.
     void setFootShown (bool);
@@ -91,6 +95,7 @@ private:
     bool showSends = true, footShown = true;
     int selected = -1;
     MixBus selectedBusValue = MixBus::Count;
+    int railLeft = 0;                // where the pinned group rail begins; 0 = there is none
     int tick = 0;                    // so the gain advice is re-read twice a second, not thirty times
     int adviceForTune = -1;
 

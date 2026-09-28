@@ -18,6 +18,8 @@ namespace
     constexpr int kRowGap    = 3;
     constexpr int kListHeadH = 30;
     constexpr int kMasterW   = 150;     // the pinned master column
+    constexpr int kGroupPinW = 62;      // ... and each pinned group beside it: the narrow width, always
+    constexpr int kRailGap   = 10;      // the seam between the channels and the pinned rail
     constexpr int kMaxStripH = 900;
 
     int columnWidthFor (MixerPage::Size s) noexcept
@@ -229,8 +231,21 @@ public:
     MixBus getBus() const noexcept { return bus; }
     int getStripIndex() const noexcept { return strip; }
 
+    // Pinned beside the master rather than scrolled with the channels. A pinned group is
+    // always narrow, whatever width the channels are set to, and says so with a hairline down
+    // its left so the rail reads as one thing.
+    void setPinned (bool p)
+    {
+        if (p == pinned) return;
+        pinned = p;
+        setLayout (layout, p ? Size::Narrow : wantedSize);
+    }
+    bool isPinned() const noexcept { return pinned; }
+
     void setLayout (Layout l, Size s)
     {
+        if (! pinned) wantedSize = s;
+        if (pinned) s = Size::Narrow;
         layout = l;
         size = s;
         setOpaque (l == Layout::Column);
@@ -930,6 +945,8 @@ public:
     bool mute = false, solo = false, bypassed = false, updating = false, selected = false;
     Layout layout = Layout::Column;
     Size size = Size::Normal;
+    Size wantedSize = Size::Normal;      // what the page asked for, kept while this strip is pinned narrow
+    bool pinned = false;
     Dine::Icon icon;
     DineMeter meter;
     juce::Slider fader;
@@ -1287,6 +1304,12 @@ void MixerPage::paint (juce::Graphics& g)
     trackFor (showTabs[0].get(), showTabs[2].get());
     if (view == View::Strips) trackFor (sizeTabs[0].get(), sizeTabs[2].get());
 
+    if (railLeft > 0)
+    {
+        g.setColour (Dine::hair);
+        g.fillRect (railLeft, kHeaderH, 1, getHeight() - kHeaderH - footHeight());
+    }
+
     if (strips.empty())
     {
         auto empty = getLocalBounds().withTrimmedTop (kHeaderH).reduced (kPadX, 20);
@@ -1337,9 +1360,18 @@ void MixerPage::resized()
 
     chainStrip.setBounds (getLocalBounds().removeFromBottom (footHeight()));
 
+    railLeft = 0;                    // the list has no pinned rail, so it has no seam either
     if (view == View::Strips) layoutStrips();
     else                      layoutList();
     repaint();
+}
+
+int MixerPage::pinnedGroupCount() const
+{
+    int n = 0;
+    for (const auto& s : strips)
+        if (s->getKind() == Strip::Kind::Bus && s->isPinned() && s->isVisible()) ++n;
+    return n;
 }
 
 MixerPage::Strip* MixerPage::masterStrip() const
@@ -1349,11 +1381,26 @@ MixerPage::Strip* MixerPage::masterStrip() const
     return nullptr;
 }
 
+// THE GROUPS ARE PINNED, NOT SCROLLED.
+//
+// A group bus is not one more channel: it is the thing an engineer reaches for when something
+// is wrong with a whole section, and on a thirty-two channel console it used to be seven
+// screens to the right of wherever the pointer was. So the group buses sit in a fixed rail
+// beside the master, always on screen, at the narrow width whatever width the channels are
+// set to - the channels are what a size setting is about.
+//
+// They are the same `Strip` objects, moved between the bank and the page rather than drawn
+// twice: a bus meter is consumed when it is read (`consumeMaxPeakDb`), so two widgets reading
+// one bus would each get half its peaks.
+//
+// The one exception is the GROUPS filter, which says "show me only the groups and the master":
+// there they go back into the bank at full width, because that is what was asked for.
 void MixerPage::layoutStrips()
 {
     auto area = getLocalBounds().withTrimmedTop (kHeaderH).withTrimmedBottom (footHeight());
     const int h = juce::jmax (180, area.getHeight());
     const int stripH = juce::jmin (h, kMaxStripH);
+    const bool pinGroups = show != Show::Groups;
 
     auto* master = masterStrip();
     if (master != nullptr && visibleInFilter (*master))
@@ -1363,6 +1410,36 @@ void MixerPage::layoutStrips()
         master->setBounds (area.removeFromRight (kMasterW).withHeight (stripH));
     }
     else if (master != nullptr) master->setVisible (false);
+
+    // The pinned rail, right to left in console order, so DRUMS is furthest from the master
+    // exactly as it is in the bank.
+    railLeft = 0;
+    if (pinGroups)
+    {
+        auto rail = area;
+        for (int b = int (MixBus::Master) - 1; b >= 0; --b)
+        {
+            for (auto& s : strips)
+            {
+                if (s->getKind() != Strip::Kind::Bus || s->getBus() != MixBus (b)) continue;
+                // The filter is about the bank. "Only the inputs" means show me the channels
+                // rather than every bus strip among them - it is not a request to lose the
+                // groups, which is the one thing the rail is for.
+                if (s->getParentComponent() != this) addAndMakeVisible (*s);
+                s->setPinned (true);
+                s->setVisible (true);
+                s->setBounds (rail.removeFromRight (kGroupPinW).withHeight (stripH));
+            }
+        }
+        // The seam: a gutter and a hairline, so the channels obviously end and the rail
+        // obviously begins rather than one strip appearing to be cut in half.
+        if (rail.getRight() < area.getRight())
+        {
+            rail.removeFromRight (kRailGap);
+            railLeft = rail.getRight() + kRailGap / 2;
+        }
+        area = rail;
+    }
     viewport.setBounds (area);
 
     int x = 0;
@@ -1372,6 +1449,9 @@ void MixerPage::layoutStrips()
         for (auto& s : strips)
         {
             if (s->getBus() != bus || s.get() == master) continue;
+            const bool pinnedHere = pinGroups && s->getKind() == Strip::Kind::Bus;
+            if (pinnedHere) continue;
+            if (s->getParentComponent() != bank.get()) { s->setPinned (false); bank->addAndMakeVisible (*s); }
             const bool wanted = visibleInFilter (*s);
             s->setVisible (wanted);
             if (! wanted) continue;
@@ -1387,6 +1467,15 @@ void MixerPage::layoutList()
 {
     if (auto* master = masterStrip(); master != nullptr && master->getParentComponent() != bank.get())
         bank->addAndMakeVisible (*master);
+    // The list has no pinned rail: a group that was pinned beside the master on the console
+    // comes back into the bank, or it would be laid out in the page's coordinates and drawn
+    // over the tool row.
+    for (auto& s : strips)
+        if (s->getKind() == Strip::Kind::Bus && s->getParentComponent() != bank.get())
+        {
+            s->setPinned (false);
+            bank->addAndMakeVisible (*s);
+        }
     viewport.setBounds (getLocalBounds().withTrimmedTop (kHeaderH).withTrimmedBottom (footHeight()).reduced (kPadX, 0));
 
     const int w = juce::jmax (760, viewport.getMaximumVisibleWidth());

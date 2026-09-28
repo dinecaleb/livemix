@@ -75,7 +75,17 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   and LIST (a row per source) - with a filter (All / Inputs / Groups), pan and R/A/M/S. The bank is **one console
   surface, not a row of cards**: a column is a flat `#13161c` plane 3 px apart from the next, carries its
   group's colour as a 3 px band along its top (5 px when picked out), and the master is pinned to the right as
-  a 150 px column with LUFS-I / Short / True pk / Limiter / Target under its fader. A STRIPS column reads top to bottom the way a console does:
+  a 150 px column with LUFS-I / Short / True pk / Limiter / Target under its fader.
+  **The group buses are pinned beside it (2026-09-28).** A group is not one more channel: it is what an
+  engineer reaches for when something is wrong with a whole section, and on a thirty-two channel console it
+  used to be seven screens to the right of wherever the pointer was. So every used group bus sits in a fixed
+  rail left of the master, at the narrow width whatever width the *channels* are set to, with a gutter and a
+  hairline for a seam. They are the same `Strip` objects moved between the bank and the page rather than drawn
+  twice - a bus meter is consumed when it is read (`consumeMaxPeakDb`), so two widgets on one bus would each
+  get half its peaks. The All / Inputs filter is about the bank and never takes the rail away; only GROUPS
+  ("show me the groups and the master") puts them back in the bank at full width, and LIST has no rail at all.
+  `MixerPage::pinnedGroupCount()` is what `dlive_ui_tests` asks; LIVE has carried the same four controls per
+  group as tiles since Milestone 7. A STRIPS column reads top to bottom the way a console does:
   number and name, the gain-staging chip, INSERTS (the chain stages that are actually on, from `activeChainStages`),
   SENDS (the used FX slots, a readout - sends are edited in the Inspector), PAN, then the fader and meter, the level
   and peak, the keys, and the bus it feeds. **The slots are fixed** - three inserts, two sends, and the gain and pan

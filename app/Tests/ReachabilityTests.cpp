@@ -463,3 +463,74 @@ TEST_CASE ("Reachability: anything soloed says so from every workspace, and one 
     CHECK (! view.isSoloBarShown());
     CHECK (controller.getSoloed().empty());
 }
+
+// ------------------------------------------------------------------- the group rail
+// A group bus is not one more channel: it is what an engineer reaches for when something is
+// wrong with a whole section, and on a thirty-two channel console it used to be seven screens
+// to the right of wherever the pointer was. So the groups are pinned beside the master, and
+// this says they are still there - on a console big enough for it to matter, at the smallest
+// window the application allows.
+TEST_CASE ("Reachability: the group buses are pinned beside the master, on a console of any size")
+{
+    Window window;
+    auto& view = *window.view;
+    auto& controller = window.controller;
+
+    // Thirty-two sources across every group, which is the case the rail exists for.
+    MixSession session;
+    session.name = "Group rail";
+    const ChannelRole roles[] = { ChannelRole::KickIn, ChannelRole::SnareTop, ChannelRole::BassDI,
+                                  ChannelRole::Piano, ChannelRole::ElectricGuitarClean, ChannelRole::LeadVocal,
+                                  ChannelRole::BackingVocal, ChannelRole::Speech, ChannelRole::Room };
+    for (int i = 0; i < 32; ++i)
+    {
+        InputAssignment a;
+        a.role = roles[size_t (i) % (sizeof (roles) / sizeof (roles[0]))];
+        a.name = (juce::String (channelRoleName (a.role)) + " " + juce::String (i + 1)).toStdString();
+        a.inputA = i;
+        session.inputs.push_back (a);
+    }
+    controller.setSession (session);
+    window.services.reconfigure();
+    view.setSize (1180, 760);            // app/Main.cpp's smallest allowed window
+    view.showPage (MainView::Page::Mixer);
+    window.pump (30);
+
+    auto& mixer = view.getMixerPage();
+    int used = 0;
+    for (int b = 0; b < int (MixBus::Master); ++b)
+        if (controller.getEngine().isBusUsed (MixBus (b))) ++used;
+    REQUIRE (used >= 4);
+    CHECK_MESSAGE (mixer.pinnedGroupCount() == used,
+                   "the console pins " + std::to_string (mixer.pinnedGroupCount()) + " of "
+                       + std::to_string (used) + " group buses");
+
+    // Folding the sidebar, resizing, and the narrow and wide strip widths do not lose them.
+    view.setSidebarShown (false);
+    window.pump (10);
+    CHECK (mixer.pinnedGroupCount() == used);
+    mixer.setStripSize (MixerPage::Size::Wide);
+    window.pump (10);
+    CHECK (mixer.pinnedGroupCount() == used);
+    mixer.setStripSize (MixerPage::Size::Narrow);
+    view.setSidebarShown (true);
+    window.pump (10);
+    CHECK (mixer.pinnedGroupCount() == used);
+
+    // "Only the inputs" is about the channels, so the groups stay pinned; "only the groups and
+    // the master" is a request to look at them, so they go back into the bank at full width.
+    mixer.setShow (MixerPage::Show::Inputs);
+    window.pump (10);
+    CHECK (mixer.pinnedGroupCount() == used);
+    mixer.setShow (MixerPage::Show::Groups);
+    window.pump (10);
+    CHECK (mixer.pinnedGroupCount() == 0);
+    // ...and the list has no rail at all.
+    mixer.setShow (MixerPage::Show::All);
+    mixer.setView (MixerPage::View::List);
+    window.pump (10);
+    CHECK (mixer.pinnedGroupCount() == 0);
+    mixer.setView (MixerPage::View::Strips);
+    window.pump (10);
+    CHECK (mixer.pinnedGroupCount() == used);
+}
