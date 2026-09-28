@@ -1749,46 +1749,73 @@ void MainView::handleCommand (int id)
     }
 }
 
-bool MainView::keyPressed (const juce::KeyPress& key)
+// The shortcut table, as data. Nothing here runs a command or touches the window, so it can
+// be read and asserted (app/Tests/ReachabilityTests.cpp) without a file chooser opening.
+int MainView::commandForKey (const juce::KeyPress& key, Page page)
 {
-    const bool cmd = key.getModifiers().isCommandDown();
+    const auto mods = key.getModifiers();
     const auto code = key.getKeyCode();
 
-    if (cmd)
+    if (mods.isCommandDown())
     {
-        if (code == 'S' && key.getModifiers().isCtrlDown()) { handleCommand (610); return true; }
-        if (code == 'S' && ! key.getModifiers().isShiftDown()) { handleCommand (102); return true; }
-        if (code == 'S') { handleCommand (103); return true; }
-        if (code == 'Z') { handleCommand (200); return true; }
-        if (code == 'E') { handleCommand (201); return true; }
-        if (code == 'O') { handleCommand (101); return true; }
-        if (code == 'N') { handleCommand (100); return true; }
-        if (code == '=' || code == '+') { handleCommand (605); return true; }
-        if (code == '-') { handleCommand (606); return true; }
-        if (code == '0') { handleCommand (607); return true; }
+        if (code == 'S' && mods.isCtrlDown()) return 610;
+        if (code == 'S' && ! mods.isShiftDown()) return 102;
+        if (code == 'S') return 103;
+        if (code == 'Z') return 200;
+        if (code == 'E') return 201;
+        if (code == 'O') return 101;
+        if (code == 'N') return 100;
+        if (code == '=' || code == '+') return 605;
+        if (code == '-') return 606;
+        if (code == '0') return 607;
         // Cmd-1..5 follow the tab bar left to right: TRACKS MIXER TUNE LIVE INSPECTOR.
         if (code >= '1' && code <= '5')
         {
             static constexpr int kTabCommand[5] = { 600, 601, 602, 603, 604 };
-            handleCommand (kTabCommand[code - '1']);
-            return true;
+            return kTabCommand[code - '1'];
         }
+        return 0;
+    }
+
+    if (code == juce::KeyPress::spaceKey)  return 500;
+    if (code == juce::KeyPress::returnKey) return 502;
+    if (code == 'R') return 501;
+    if (code == 'L') return 503;
+    if (code == 'B') return 403;
+    if (code == 'T') return 404;
+    if (code == 'M') return 203;
+    if (code == '[') return 611;
+    if (code == ']') return 612;
+    // A clip is only deleted where there are clips.
+    if (code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey)
+        return page == Page::Tracks ? 202 : 0;
+    return 0;
+}
+
+juce::String MainView::openSheetName() const
+{
+    if (outputsSheet != nullptr) return "outputs";
+    if (checkSheet   != nullptr) return "check";
+    if (historySheet != nullptr) return "history";
+    if (themeSheet   != nullptr) return "appearance";
+    if (channelSheet != nullptr) return "channel";
+    if (chatSheet    != nullptr) return "chat";
+    return {};
+}
+
+bool MainView::keyPressed (const juce::KeyPress& key)
+{
+    // Escape belongs to whatever is open over the workspace, so it is not in the table.
+    if (key.getKeyCode() == juce::KeyPress::escapeKey)
+    {
+        if (openSheetName().isNotEmpty()) { closeSheets(); return true; }
         return false;
     }
 
-    if (code == juce::KeyPress::spaceKey)  { handleCommand (500); return true; }
-    if (code == juce::KeyPress::returnKey) { handleCommand (502); return true; }
-    if (code == 'R')                       { handleCommand (501); return true; }
-    if (code == 'L')                       { handleCommand (503); return true; }
-    if (code == 'B')                       { handleCommand (403); return true; }
-    if (code == 'T')                       { handleCommand (404); return true; }
-    if (code == 'M')                       { handleCommand (203); return true; }
-    if (code == '[')                       { handleCommand (611); return true; }
-    if (code == ']')                       { handleCommand (612); return true; }
-    if (code == juce::KeyPress::escapeKey) { if (chatSheet != nullptr || outputsSheet != nullptr || checkSheet != nullptr || historySheet != nullptr || themeSheet != nullptr) { closeSheets(); return true; } }
-    if (code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey)
+    if (const int command = commandForKey (key, page); command != 0)
     {
-        if (page == Page::Tracks) { handleCommand (202); return true; }
+        handleCommand (command);
+        return true;
     }
     return false;
 }

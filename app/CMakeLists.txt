@@ -133,6 +133,21 @@ if (LIVEMIX_BUILD_TESTS)
     add_test(NAME dlive_app_tests COMMAND dlive_app_tests)
 endif()
 
+if (LIVEMIX_BUILD_TESTS)
+    # dlive_ui_tests: the window itself. Separate from dlive_app_tests because it links the
+    # whole UI and every JUCE GUI module with it, and dlive_app_tests is the fast one that runs
+    # on every engine change. ctest runs both, so the reachability guard is in CI either way.
+    add_executable(dlive_ui_tests
+        Tests/ReachabilityTests.cpp
+        ${DLIVE_UI_SOURCES}
+        ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp)
+    target_include_directories(dlive_ui_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)
+    target_compile_definitions(dlive_ui_tests PRIVATE ${DLIVE_DEFINES} JUCE_STANDALONE_APPLICATION=1
+        DLIVE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
+    target_link_libraries(dlive_ui_tests PRIVATE ${DLIVE_LIBS} juce::juce_recommended_config_flags)
+    add_test(NAME dlive_ui_tests COMMAND dlive_ui_tests)
+endif()
+
 # Real-device soak check (opens an audio device through AudioHost, runs the engine, reports).
 add_executable(dlive_device_check Tools/DeviceCheck.cpp native/AudioHost.cpp native/MonitorDevice.cpp native/MicPermission.mm ${DLIVE_APP_SOURCES})
 target_include_directories(dlive_device_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)

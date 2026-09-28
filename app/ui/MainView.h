@@ -61,6 +61,17 @@ public:
     // The macOS menu bar. The application attaches it; the headless snapshot tool does not.
     juce::MenuBarModel* getMenuModel();
 
+    // Which command a key press asks for, as data rather than as a chain of ifs: 0 when the
+    // key is not bound. `keyPressed` is this plus the two bindings that depend on what is
+    // open (Escape closes a sheet) - so the whole shortcut table can be read, asserted by the
+    // reachability test (app/Tests/ReachabilityTests.cpp) and listed to the user, without a
+    // command actually being run. Nothing here has a side effect.
+    static int commandForKey (const juce::KeyPress&, Page);
+
+    // Which sheet is open, by the name the reachability test and the snapshot tool use:
+    // "outputs", "check", "history", "appearance", "channel", "chat", or "" for none.
+    juce::String openSheetName() const;
+
     // The sidebar folds to a named handle; a workspace's own panels fold from `[` and `]`.
     void setSidebarShown (bool);
     bool isSidebarShown() const noexcept { return sidebarShown; }
