@@ -196,6 +196,19 @@ ThemeSheet::ThemeSheet (bool persist) : persisting (persist)
     folderButton.onClick = [this] { revealFolder(); };
     closeButton.onClick = [this] { if (onClose) onClose(); };
 
+    // TEXT SIZE, beside the themes: "can I read it" and "does it suit the room" are the same
+    // moment's question. It scales the type roles and nothing else, so the console keeps its
+    // shape and a name that no longer fits gets an ellipsis.
+    for (int i = 0; i < 3; ++i)
+    {
+        const auto& size = ThemeStore::textSizes()[size_t (i)];
+        textSizes[size_t (i)] = std::make_unique<DineButton> (size.name, DineButton::Style::Segment);
+        textSizes[size_t (i)]->setTooltip ("Bigger words, the same console: strips, rows and meters keep their size.");
+        textSizes[size_t (i)]->onClick = [this, v = size.scale] { applyTextSize (v); };
+        addAndMakeVisible (*textSizes[size_t (i)]);
+    }
+    applyTextSize (Dine::textScale());
+
     // The sample: the keys on, a filled and a resting button, a balance. They are real
     // widgets reading the live tokens, so what the picker moves is what the console gets.
     for (auto* k : { &keyMute, &keySolo, &keyRec, &keyMon }) { addAndMakeVisible (*k); k->setOn (true); k->setInterceptsMouseClicks (false, false); }
@@ -404,6 +417,19 @@ void ThemeSheet::resized()
     closeButton.setBounds (head.removeFromRight (closeButton.idealWidth()).withSizeKeepingCentre (closeButton.idealWidth(), Dine::Metric::button));
     head.removeFromRight (8);
     folderButton.setBounds (head.removeFromRight (folderButton.idealWidth()).withSizeKeepingCentre (folderButton.idealWidth(), Dine::Metric::button));
+    head.removeFromRight (18);
+    {
+        // TEXT SIZE sits on the head row, at the right, where a setting of the window rather
+        // than of the theme belongs.
+        auto row = head.withSizeKeepingCentre (head.getWidth(), Dine::Metric::control);
+        for (int i = 2; i >= 0; --i)
+        {
+            const int w = juce::jmax (72, textSizes[size_t (i)]->idealWidth());
+            textSizes[size_t (i)]->setBounds (row.removeFromRight (w));
+        }
+        row.removeFromRight (10);
+        textSizeLabel = row.removeFromRight (juce::jmin (row.getWidth(), 90));
+    }
     r.removeFromTop (16 + 14);
 
     auto rail = r.removeFromLeft (kRailW);
@@ -455,10 +481,20 @@ void ThemeSheet::resized()
     grid->layout (r.getWidth() - 12);
 }
 
+void ThemeSheet::applyTextSize (float scale)
+{
+    for (int i = 0; i < 3; ++i)
+        if (textSizes[size_t (i)] != nullptr)
+            textSizes[size_t (i)]->setToggleState (std::abs (ThemeStore::textSizes()[size_t (i)].scale - scale) < 0.001f,
+                                                   juce::dontSendNotification);
+    if (std::abs (scale - Dine::textScale()) > 0.001f && onTextSizeChanged) onTextSizeChanged (scale);
+}
+
 void ThemeSheet::paint (juce::Graphics& g)
 {
-    // A lighter scrim than the other sheets: the console behind it is the preview.
-    g.fillAll (Dine::desk.withAlpha (0.5f));
+    // A lighter scrim than the other sheets - the design's 25 % against 55 % - because the
+    // console behind it is the preview, and a theme cannot be judged through a curtain.
+    g.fillAll (Dine::scrim.withAlpha (0.25f));
     const auto card = cardBounds();
     Dine::drawSheet (g, card.toFloat(), 14.0f);
 
@@ -467,6 +503,16 @@ void ThemeSheet::paint (juce::Graphics& g)
     g.setColour (Dine::ink);
     g.setFont (Dine::text (19.0f, 600));
     g.drawText ("Appearance", head, juce::Justification::centredLeft);
+    if (! textSizeLabel.isEmpty())
+    {
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::Type::labelSection());
+        g.drawText ("TEXT SIZE", textSizeLabel, juce::Justification::centredRight);
+        if (textSizes[0] != nullptr && textSizes[2] != nullptr)
+            Dine::drawSegmentTrack (g, juce::Rectangle<int> (textSizes[0]->getX() - 2, textSizes[0]->getY() - 2,
+                                                             textSizes[2]->getRight() - textSizes[0]->getX() + 4,
+                                                             textSizes[0]->getHeight() + 4));
+    }
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (12.0f));
     g.drawText ("Pick a theme, or make one of your own. Every window follows; the mix is never touched.",

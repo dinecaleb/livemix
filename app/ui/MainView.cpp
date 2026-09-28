@@ -1558,6 +1558,7 @@ void MainView::showThemes()
     if (themeSheet != nullptr) { themeSheet->refresh(); return; }
     themeSheet = std::make_unique<ThemeSheet> (gUseStoredTheme);
     themeSheet->onToast = [this] (const juce::String& t) { showToast (t); };
+    themeSheet->onTextSizeChanged = [this] (float scale) { applyTextSize (scale); };
     themeSheet->onThemeChanged = [this]
     {
         updateChrome();
