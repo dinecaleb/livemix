@@ -1230,6 +1230,18 @@ int main (int argc, char** argv)
         view.closeSheets();
     }
     {
+        // THE GUIDE: the one sentence a workspace says the first time somebody lands on it.
+        // Forced on, because whether this Mac has seen it is not something a render may depend
+        // on. Back to the design's own theme first: the loop above left whichever it rendered last.
+        view.applyThemeNamed (ThemeStore::kDefaultName);
+        view.showPage (MainView::Page::Mixer);
+        rig.feed (0.2);
+        view.setForceGuideForSnapshot (true);
+        rig.feed (0.3);
+        rig.snap (dir, "33-guide");
+        view.setForceGuideForSnapshot (false);
+    }
+    {
         // EXPORT: what, how much of it, what format and how loud, asked once. Back to the
         // design's own theme first - the loop above left whichever one it rendered last.
         view.applyThemeNamed (ThemeStore::kDefaultName);

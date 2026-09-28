@@ -222,6 +222,12 @@ const SourceStrategy& strategyFor (RoleFamily family)
         case RoleFamily::Ambience:
         case RoleFamily::AmbienceBus: return ambienceStrategyFor (family);
         case RoleFamily::Saxophone:   return saxophoneStrategy();
+        // The decision logic these need already exists; what is new about them is their
+        // numbers, and numbers live in the profile data. A hand drum is decided the way a
+        // tom is, a shaker the way a hi-hat is, and a horn the way a saxophone is.
+        case RoleFamily::Percussion:  return tom;
+        case RoleFamily::Shaker:      return hihat;
+        case RoleFamily::Brass:       return saxophoneStrategy();
         case RoleFamily::Count:
         default:                   return bus;
     }

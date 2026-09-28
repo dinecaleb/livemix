@@ -187,6 +187,14 @@ const char* roleHint (ChannelRole r) noexcept
         case ChannelRole::SaxAlto:             return "Bright and singing · honk removed · sits beside the voice";
         case ChannelRole::SaxTenor:            return "Warm and reedy · honk removed · wails stay in control";
         case ChannelRole::SaxBari:             return "Weight and growl · honk removed · clear of the bass";
+        case ChannelRole::Congas:              return "Tuned and ringing · slap on top · under the kit";
+        case ChannelRole::Bongos:              return "Sharp and small · slap kept · clear of the snare";
+        case ChannelRole::Djembe:              return "Deep slap and body · ring left alone · under the kit";
+        case ChannelRole::Timbales:            return "Crack and shell · ring left alone · clear of the snare";
+        case ChannelRole::Shaker:              return "All top, no body · never gated · felt, not heard";
+        case ChannelRole::Trumpet:             return "Bright and pointed · edge taken off · clear of the voices";
+        case ChannelRole::Trombone:            return "Round and full · edge taken off · clear of the bass";
+        case ChannelRole::BrassSection:        return "The horn line as one · edge taken off · lifts the chorus";
         default: break;
     }
     switch (roleFamily (r))
@@ -218,6 +226,9 @@ const char* roleHint (ChannelRole r) noexcept
         case RoleFamily::Ambience:     return "The room and the people in it · never gated · felt, not loud";
         case RoleFamily::AmbienceBus:  return "The whole room as one · lifted between songs, down under the sermon";
         case RoleFamily::Saxophone:    return "Reedy and singing · honk removed · shares the voice's air";
+        case RoleFamily::Percussion:   return "Tuned hand drums · the ring kept · under the kit";
+        case RoleFamily::Shaker:       return "All top, no body · never gated · felt, not heard";
+        case RoleFamily::Brass:        return "Bright and brassy · edge taken off · clear of the voices";
         case RoleFamily::Count:
         default:                       return "";
     }

@@ -8,7 +8,7 @@ which engine phase owns it.
 The design file is **`2wv5QSnvrSSQXtDzfuShIn`** ("DLIVE Desktop v2", Sept 2026).
 The baseline this is all measured against is `docs/design/baseline/`.
 
-**Status: UI-0 to UI-6 done (UI-5 has two items left, §3e). UI-7 part done (§3g).**
+**Status: UI-0 to UI-6 done (UI-5 has two items left, §3e). UI-7 part done (§3g). New sources and the guides, §3h.**
 
 ---
 
@@ -433,6 +433,62 @@ exist yet, and a control that does nothing is worse than one that is missing.
 - **Recover session (01)** works today as an `AlertWindow` (Recover / Open last saved / Keep both) from Phase 1. The design wants it as a proper view; the behaviour is there, the sheet is not.
 - **Mix history drawer (08)**, **Mix Buddy as a drawer (15)**, and the restyles of ChannelTune (13), Check (14), Reference (16) and Tutorial (20). All four sheets already draw on v2 tokens and roles, so this is composition, not colour.
 - **Reset mix to raw (09)** and **Favourite mixes (21)** wait on their engine phases and must not be built before them.
+
+## 3h. Percussion, brass, and the first-time guides
+
+Two things asked for outside the design file.
+
+### New sources: percussion and brass
+
+`ChannelRole` is a **stored** enum - every session, preset and input map on disk holds these as
+integers - so the eight new roles are **appended**, and `dlive_app_tests` now pins the anchors
+(`KickIn` 0, `CrowdMic` 35, `AmbienceMic` 36, `SaxBari` 40) so a future edit cannot silently
+re-point somebody's console at a different instrument.
+
+| New role | Family | Bus | Why it is not an existing family |
+| --- | --- | --- | --- |
+| Congas, Bongos, Djembe, Timbales | **Percussion** | DRUMS | A conga is tuned an octave above a rack tom, its slap lives where a snare's crack does, and **the ring is the instrument** - so its gate may take off 12 dB where a tom's may take 30, and it is never sustain-cut. |
+| Shaker (and tambourine) | **Shaker** | DRUMS | No body at all, and it never stops. It is the one percussion source a gate must never be put on - gating something continuous is how it starts chattering. Never transient-shaped, never sampled. |
+| Trumpet, Trombone, Brass section | **Brass** | MUSIC | Louder than a reed and harder on top: a trumpet's edge is 1.8-4.5 kHz where a sax's honk is 0.9-2.5, and a trombone reaches an octave below either. Compressed harder and aimed further back, because it will take the mix if it is not. |
+
+**No new strategies were written**, and that is deliberate: `CLAUDE.md` says a strategy holds
+decision logic and never a target. A hand drum is *decided* the way a tom is, a shaker the way
+a hi-hat is, a horn the way a saxophone is - what is new about them is their numbers, and the
+numbers live in `ProfileData.cpp`. Every other profile is built from Modern Gospel, so all six
+inherit them with their own deltas.
+
+> **These targets have not been fitted against a real recording.** They are documented deltas on
+> the nearest family that *has* been - Tom, Hi-Hat and Saxophone - because the reference
+> multitrack has no percussion or brass in it. `CLAUDE.md` says never add a profile that cannot
+> be tuned by listening, and this is the honest version of that: it is a defensible starting
+> point, it is marked as one in the source, and **the first real conga or horn take should
+> re-fit it**.
+
+Name guessing covers what a desk actually writes: conga, bongo, djembe, cajon, timbale, timbs,
+shaker, tambourine, tamb, egg, perc, trumpet, tpt, trombone, tbone, brass, horns. The input
+picker gains a **Percussion** kit, and the **Horns** kit gains trumpet and trombone.
+
+### The first-time guides
+
+The Tutorial already taught the shape of the app once, skippably. This is the other half and it
+is smaller: **the first time somebody opens a workspace, one sentence says what that screen is
+for and what to do first.** It takes a band off the top rather than floating over the workspace -
+a sentence that covers the thing it describes is worse than no sentence - and it carries two
+buttons: *Got it* (this one, for good) and *Don't show these* (all of them, for good).
+**Help > Show the guides again** brings them back.
+
+It is a preference of this Mac, in the same `preferences.json` as the theme and the text size,
+so two people sharing a booth Mac share the fact that the app has been explained.
+
+**The headless tool never reads it**, for the same reason it never reads the stored theme: a
+render must not depend on whether the developer had pressed "Got it". `setForceGuideForSnapshot`
+shows one anyway, so `33-guide` photographs it deterministically.
+
+**A regression the guides work uncovered.** The Tutorial's own sentences had been made *false*
+by this design work and nothing caught it: step 1 said the sidebar is where you "set up the
+inputs" (they left it in UI-4) and step 5 said "R sets a track to record" while describing the
+mixer (R left the strip in UI-3). Both are corrected, and step 2 now rings the ROUTING tab
+itself rather than the whole row of six.
 
 ## 4. The screens
 

@@ -133,6 +133,7 @@ private:
     class Menu;
     class ToolbarToggle;
     static constexpr int kWordmarkW = 58;
+    static constexpr int kGuideH = 44;       // the first-time guide along the top of a workspace
     int wordmarkWidth() const;          // never less than the mark actually measures
     static constexpr int kCountsW = 190;     // "N inputs   N to record", at the right of the title row before the buttons
     static constexpr int kRequestsW = 380;   // the Mix Buddy panel down the right of the workspace   // "DLIVE" at the right end of the title row
@@ -144,6 +145,7 @@ private:
     class WorkspaceTab;
     class SessionButton;
     class SoloBar;
+    class GuideBar;
     class AutosaveLamp;
 
     void timerCallback() override;
@@ -220,6 +222,15 @@ private:
     // Whenever anything is soloed, on every workspace: what is soloed, where it is, and one
     // press to clear it. Solo never changes what the room hears, and neither does this.
     std::unique_ptr<SoloBar> soloBar;
+    // One sentence, the first time a workspace is opened. Blocks nothing, covers nothing.
+    std::unique_ptr<GuideBar> guideBar;
+    void updateGuide();
+    bool forceGuide = false;                 // the snapshot tool: show one whatever this Mac has seen
+public:
+    void setForceGuideForSnapshot (bool on) { forceGuide = on; updateGuide(); }
+private:
+    static const char* guideKeyFor (Page);
+    static const char* guideTextFor (Page);
     std::unique_ptr<AutosaveLamp> autosaveLamp;     // "Autosaved 8:42 PM", at the left of the toolbar
     std::unique_ptr<ToolbarToggle> historyButton;   // MIX HISTORY, beside it
     std::unique_ptr<MixerWindow> mixerWindow;

@@ -217,3 +217,40 @@ TEST_CASE ("Text size: the three sizes round-trip, the default is not written do
     CHECK (ThemeStore::textSizes().size() == 3);
     CHECK (juce::String (ThemeStore::textSizes().front().name) == "Standard");
 }
+
+// -------------------------------------------------------------------------- the guides
+TEST_CASE ("The guides: shown once per workspace, dismissed for good, and switched off in one press")
+{
+    const auto prefs = scratch ("guides").getChildFile ("preferences.json");
+
+    // On until somebody says otherwise, and nothing has been seen yet.
+    CHECK (Guides::enabled (prefs));
+    CHECK (! Guides::seen ("mixer", prefs));
+
+    // Dismissing one dismisses that one, and only that one.
+    Guides::markSeen ("mixer", prefs);
+    CHECK (Guides::seen ("mixer", prefs));
+    CHECK (! Guides::seen ("tune", prefs));
+    Guides::markSeen ("mixer", prefs);                 // twice is the same as once
+    CHECK (Guides::seen ("mixer", prefs));
+
+    // The master switch overrides what has and has not been seen.
+    Guides::setEnabled (false, prefs);
+    CHECK (! Guides::enabled (prefs));
+    CHECK (! Guides::seen ("tune", prefs) );           // still unseen; it is just never shown
+
+    // It shares the file with the theme and the text size and must not disturb either.
+    REQUIRE (ThemeStore::setChosenTheme ("Slate", prefs));
+    REQUIRE (ThemeStore::setChosenTextSize (1.2f, prefs));
+    Guides::markSeen ("live", prefs);
+    CHECK (ThemeStore::chosenTheme (prefs) == "Slate");
+    CHECK_NEAR (ThemeStore::chosenTextSize (prefs), 1.2f, 0.001);
+    CHECK (Guides::seen ("live", prefs));
+
+    // Starting again forgets every workspace and turns them back on.
+    Guides::reset (prefs);
+    CHECK (Guides::enabled (prefs));
+    CHECK (! Guides::seen ("mixer", prefs));
+    CHECK (! Guides::seen ("live", prefs));
+    CHECK (ThemeStore::chosenTheme (prefs) == "Slate");   // and leaves the rest of the file alone
+}

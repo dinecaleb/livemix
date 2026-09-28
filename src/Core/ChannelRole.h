@@ -66,6 +66,22 @@ enum class ChannelRole : int
     SaxAlto,
     SaxTenor,
     SaxBari,
+    // ---- Percussion (2026-09-28) ----
+    // A conga is not a tom and a shaker is not a hi-hat, however close they look on a
+    // stage plot. Hand drums are tuned, they ring, and their body sits an octave above a
+    // rack tom; a shaker or a tambourine has no body at all, never stops, and is the one
+    // percussion source a gate must never be put on.
+    Congas,
+    Bongos,
+    Djembe,
+    Timbales,
+    Shaker,              // shaker, tambourine, egg: continuous, all top, never gated
+    // ---- Brass (2026-09-28) ----
+    // Louder than a sax, harder at the top, and pointed: a trumpet's edge is 2-4 kHz where
+    // a sax's honk is 1-2, and a trombone reaches an octave lower than either.
+    Trumpet,
+    Trombone,
+    BrassSection,        // one microphone over a horn line
     Count
 };
 
@@ -98,6 +114,12 @@ enum class RoleFamily : int
     Ambience,
     AmbienceBus,
     Saxophone,
+    // Hand drums: tuned, transient, and they ring - a gate is right on them, a fast one is not.
+    Percussion,
+    // Shakers and tambourines: continuous, no body, and never gated.
+    Shaker,
+    // Trumpet, trombone, a horn line on one microphone.
+    Brass,
     Count
 };
 
@@ -113,7 +135,9 @@ inline constexpr std::array<const char*, int (ChannelRole::Count)> kChannelRoleN
     "Acoustic Guitar", "Electric Clean", "Electric Drive", "Guitar Bus",
     "Bass DI", "Bass Amp", "Synth Bass", "Bass Bus",
     "Crowd Mic", "Ambience Mic", "Ambience Bus",
-    "Alto Sax", "Tenor Sax", "Baritone Sax"
+    "Alto Sax", "Tenor Sax", "Baritone Sax",
+    "Congas", "Bongos", "Djembe", "Timbales", "Shaker",
+    "Trumpet", "Trombone", "Brass Section"
 };
 
 inline constexpr const char* channelRoleName (ChannelRole r) noexcept
@@ -167,6 +191,14 @@ inline constexpr RoleFamily roleFamily (ChannelRole r) noexcept
         case ChannelRole::SaxAlto:
         case ChannelRole::SaxTenor:
         case ChannelRole::SaxBari:             return RoleFamily::Saxophone;
+        case ChannelRole::Congas:
+        case ChannelRole::Bongos:
+        case ChannelRole::Djembe:
+        case ChannelRole::Timbales:            return RoleFamily::Percussion;
+        case ChannelRole::Shaker:              return RoleFamily::Shaker;
+        case ChannelRole::Trumpet:
+        case ChannelRole::Trombone:
+        case ChannelRole::BrassSection:        return RoleFamily::Brass;
         case ChannelRole::Count:
         default:                          return RoleFamily::Kick;
     }
@@ -197,6 +229,10 @@ inline constexpr Product productOf (RoleFamily f) noexcept
         // product's parameter set (the same stages, the same controls). Its *targets* and
         // its strategy are its own - that is where a horn stops being a keyboard.
         case RoleFamily::Saxophone:    return Product::Keys;
+        // Percussion is played with the kit and mixed with it, so it is a Drums source.
+        case RoleFamily::Percussion:
+        case RoleFamily::Shaker:       return Product::Drums;
+        case RoleFamily::Brass:        return Product::Keys;
         default:                       return Product::Drums;
     }
 }

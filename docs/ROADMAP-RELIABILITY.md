@@ -7,7 +7,7 @@ its tests pass. Each phase writes what it learned into `docs/`, so the next one 
 | Phase | What it is | Status |
 | --- | --- | --- |
 | 1 | Session state foundation | **Done** — 2026-09-27, four commits, `b15b902`..`d1d96ce` |
-| 2 | Mixing workflow | Next |
+| 2 | Mixing workflow | **5 of 6 done** by the v2 design work (2026-09-28); only device hot-plug is left |
 | 3 | Mix features | Not started |
 | 4 | Autopilot and the offline-model study | Not started; needs a CLAUDE.md decision first |
 
@@ -47,28 +47,34 @@ What landed, in four commits:
 
 ---
 
-## Phase 2 — Mixing workflow ⬅ next
+## Phase 2 — Mixing workflow — 5 of 6 done
+
+**Items 1-5 landed with the v2 design work** (2026-09-27/28, commits `058a6f8`..`c083581`), because
+they *are* the design: the scope picker, the solo bar, the group panel, the ROUTING workspace and
+Text size are all the same features seen from the design's side. Each is marked below with where it
+landed. `docs/DESIGN-IMPLEMENTATION.md` is the record of how, and what deliberately differs.
+
 
 Read `CLAUDE.md`, `docs/SESSION-STATE.md`, `docs/DLIVE-APP.md`, `docs/DLIVE-DESIGN.md`. Every UI change is
 verified with `dlive_ui_snapshots` PNGs. All new state goes through `SessionState` — if you find yourself
 writing save/load code, stop and say so.
 
-1. **Tune Bus.** `startTuneBus()` exists and is reachable from MixPage but is hard to find. Make TUNE open
+1. ✅ **Tune Bus** (UI-5, `9b685d5`). **Tune Bus.** `startTuneBus()` exists and is reachable from MixPage but is hard to find. Make TUNE open
    with a clear scope picker: WHOLE MIX / ONE GROUP / SELECTED CHANNELS, groups listed by name. The Tune card
    always says which scope it ran on.
-2. **Solo you cannot miss.** A persistent indicator in the top bar, visible from every workspace, whenever
+2. ✅ **Solo you cannot miss** (UI-2, `22f257a`). A persistent indicator in the top bar, visible from every workspace, whenever
    anything (strip, bus, FX return) is soloed: which items, click to jump to one, one button to clear all.
    Keep "solo never changes what the room hears".
-3. **Group strip on the main mixer.** A fixed strip, always visible on MIXER and LIVE, with meter, fader, mute
+3. ✅ **Group strip on the main mixer** (UI-3, `098c05b`). A fixed strip, always visible on MIXER and LIVE, with meter, fader, mute
    and solo for each group bus and the master. Must work on a 32+ channel session at the smallest supported
    window size.
-4. **Setup / Routing out of the everyday sidebar.** Move device choice, input assignment, output feeds,
+4. ✅ **Setup / Routing out of the everyday sidebar** (UI-4, `ebeb763`). Move device choice, input assignment, output feeds,
    monitoring and saved input maps into one ROUTING workspace, reached deliberately. Under LIVE SAFE, changes
    there ask for confirmation. Keep the first-run flow working.
-5. **Larger text.** A View option (Standard / Large / Larger) scaling names, values, labels, buttons, menus,
+5. ✅ **Larger text** (UI-1, `f0c4743`; moved into the Appearance sheet in `4059d53`). A View option (Standard / Large / Larger) scaling names, values, labels, buttons, menus,
    alerts and status text through `AppTheme` tokens — not the whole UI. Strip widths stay; names truncate with
    a tooltip. Snapshot a 32-channel session at every size.
-6. **Device hot-plug.** Listen to the device manager, rescan on change, reopen the session's device when it
+6. ⬅ **NOT DONE — this is what is left of Phase 2.** Listen to the device manager, rescan on change, reopen the session's device when it
    reappears, handle a mid-show disconnect with a sentence rather than silence or a crash. Mappings restored
    when the device returns.
 

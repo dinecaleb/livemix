@@ -2998,3 +2998,64 @@ TEST_CASE ("Devices: a session opens, edits and saves with no device at all")
     CHECK (! back.checkpoints.empty());
     file.deleteFile();
 }
+
+// ---------------------------------------------------------------- percussion and brass
+TEST_CASE ("Percussion and brass: the stored enum only grew, the names are guessed, and each lands on the right bus")
+{
+    // CHANNELROLE IS STORED. Every session, preset and input map on disk holds these as
+    // integers, so a value that moves silently re-points somebody's console at a different
+    // instrument. These are the anchors: the first, the two that were already pinned by hand,
+    // and the last one that existed before percussion and brass were added.
+    CHECK (int (ChannelRole::KickIn) == 0);
+    CHECK (int (ChannelRole::CrowdMic) == 35);
+    CHECK (int (ChannelRole::AmbienceMic) == 36);
+    CHECK (int (ChannelRole::SaxBari) == 40);
+    // ... and the new ones start after it, which is the only place they may start.
+    CHECK (int (ChannelRole::Congas) == 41);
+    CHECK (int (ChannelRole::BrassSection) == int (ChannelRole::Count) - 1);
+
+    // Every role has a name, and the table is the same length as the enum.
+    for (int r = 0; r < int (ChannelRole::Count); ++r)
+        CHECK_MESSAGE (juce::String (channelRoleName (ChannelRole (r))).isNotEmpty(),
+                       "role " + std::to_string (r) + " has no name");
+
+    auto guess = [] (const char* name)
+    {
+        ChannelRole r = ChannelRole::Count;
+        return StemNames::guessRole (name, r) ? r : ChannelRole::Count;
+    };
+
+    // The names a desk actually writes on these channels.
+    CHECK (guess ("Congas #12") == ChannelRole::Congas);
+    CHECK (guess ("BONGO L") == ChannelRole::Bongos);
+    CHECK (guess ("Djembe") == ChannelRole::Djembe);
+    CHECK (guess ("Timbales") == ChannelRole::Timbales);
+    CHECK (guess ("Shaker") == ChannelRole::Shaker);
+    CHECK (guess ("Tambourine") == ChannelRole::Shaker);
+    CHECK (guess ("Tamb 1") == ChannelRole::Shaker);
+    CHECK (guess ("Trumpet 2") == ChannelRole::Trumpet);
+    CHECK (guess ("TPT") == ChannelRole::Trumpet);
+    CHECK (guess ("Trombone") == ChannelRole::Trombone);
+    CHECK (guess ("Horns") == ChannelRole::BrassSection);
+
+    // Percussion is played with the kit and has to be balanced against it, so it is on DRUMS.
+    // A horn line is not, so it is on MUSIC with the rest of the band.
+    for (auto r : { ChannelRole::Congas, ChannelRole::Bongos, ChannelRole::Djembe,
+                    ChannelRole::Timbales, ChannelRole::Shaker })
+        CHECK_MESSAGE (mixBusForRole (r) == MixBus::Drums,
+                       juce::String (channelRoleName (r)).toStdString() + " should be on DRUMS");
+    for (auto r : { ChannelRole::Trumpet, ChannelRole::Trombone, ChannelRole::BrassSection })
+        CHECK_MESSAGE (mixBusForRole (r) == MixBus::Music,
+                       juce::String (channelRoleName (r)).toStdString() + " should be on MUSIC");
+
+    // A shaker never stops, so a gate on it chatters: the profile must say so, not the strategy.
+    const auto& profile = Profiles::definition (StyleProfileId::ModernGospel);
+    CHECK (! profile.targets[int (RoleFamily::Shaker)].gateAppropriate);
+    CHECK (! profile.targets[int (RoleFamily::Shaker)].transientAppropriate);
+    // Drum replacement is kick, snare and toms; a conga is none of them.
+    CHECK (! profile.targets[int (RoleFamily::Percussion)].sampleAppropriate);
+    // The ring is the instrument: a hand drum's gate may only ever take a little off.
+    CHECK (profile.targets[int (RoleFamily::Percussion)].gateMaxRangeDb
+               < profile.targets[int (RoleFamily::Tom)].gateMaxRangeDb);
+}
+

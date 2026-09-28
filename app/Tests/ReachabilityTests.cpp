@@ -176,7 +176,7 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
         { 620, "Customise Appearance" }, { 621, "Import a Theme" }, { 622, "Show Themes Folder" },
         { 605, "Zoom In" }, { 606, "Zoom Out" }, { 607, "Zoom to Fit" },
         // Help
-        { 701, "Getting started" }, { 700, "About DLIVE" },
+        { 701, "Getting started" }, { 702, "Show the guides" }, { 700, "About DLIVE" },
     };
 
     for (const auto& item : expected)

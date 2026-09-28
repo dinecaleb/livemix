@@ -168,6 +168,58 @@ private:
     bool busy = false;
 };
 
+// THE GUIDE: one sentence, the first time you open a workspace.
+//
+// The tutorial teaches the shape of the app once. This is the other half and it is smaller:
+// somebody who has landed on TUNE for the first time twenty minutes before a service wants
+// one line telling them what this screen is for, not a manual and not nothing. It sits along
+// the top of the workspace, it covers nothing, it is dismissed with one press, and it never
+// comes back - and "Don't show these" turns the lot off in one go.
+class MainView::GuideBar : public juce::Component
+{
+public:
+    GuideBar()
+    {
+        addAndMakeVisible (got);
+        addAndMakeVisible (never);
+        got.setTooltip ("Dismiss this one. It will not come back.");
+        never.setTooltip ("Turn off the first-time guide on every workspace.");
+        setOpaque (false);
+    }
+
+    DineButton got { "Got it", DineButton::Style::Standard };
+    DineButton never { "Don't show these", DineButton::Style::Ghost };
+
+    void setText (const juce::String& t) { if (t != text) { text = t; repaint(); } }
+    const juce::String& getText() const noexcept { return text; }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        Dine::fillRounded (g, r, Dine::card, Dine::Radius::card);
+        g.setColour (Dine::accent);
+        g.fillRect (r.getX(), r.getY() + 10.0f, 2.0f, r.getHeight() - 20.0f);
+
+        auto inner = getLocalBounds().reduced (16, 0).withTrimmedRight (got.getWidth() + never.getWidth() + 30);
+        g.setColour (Dine::ink2);
+        g.setFont (Dine::Type::body());
+        g.drawText (text, inner, juce::Justification::centredLeft, true);
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced (12, 0);
+        const int gw = juce::jmax (78, got.idealWidth());
+        got.setBounds (r.removeFromRight (gw).withSizeKeepingCentre (gw, Dine::Metric::control));
+        r.removeFromRight (8);
+        const int nw = juce::jmax (110, never.idealWidth());
+        never.setBounds (r.removeFromRight (nw).withSizeKeepingCentre (nw, Dine::Metric::control));
+    }
+
+private:
+    juce::String text;
+};
+
 // THE SOLO BAR.
 //
 // Solo is the one thing in DLIVE that is easy to leave on and impossible to hear: it goes to
@@ -849,6 +901,7 @@ public:
                 break;
             default:
                 m.addItem (701, "Getting started");
+                m.addItem (702, "Show the guides again");
                 m.addSeparator();
                 m.addItem (700, "About DLIVE");
                 break;
@@ -1233,6 +1286,7 @@ void MainView::showPage (Page p)
     if (p == Page::Live) livePage->rebuild();
     if (p == Page::Inspector) advancedPage->rebuild();
 
+    updateGuide();
     updateChrome();
     resized();
     repaint();
@@ -1450,6 +1504,10 @@ juce::Rectangle<int> MainView::spotlight (const juce::String& what) const
     if (what == "transport" && transportBar != nullptr && transportBar->isVisible()) return transportBar->getBounds();
     if (what == "livesafe" && liveSafeButton != nullptr && liveSafeButton->isVisible()) return liveSafeButton->getBounds();
     if (what == "rail" && sidebar != nullptr && sidebar->isVisible()) return sidebar->getBounds();
+    // ROUTING on its own: it is the tab the second step is about, and ringing all six says
+    // nothing about which one to press.
+    if (what == "routing" && tabs[kRoutingTab] != nullptr) return tabs[kRoutingTab]->getBounds().expanded (6, 4);
+    if (what == "solobar" && soloBar != nullptr && soloBar->isVisible()) return soloBar->getBounds().expanded (4, 4);
     if (what == "tabs" && tabs[0] != nullptr)
     {
         auto track = tabs[0]->getBounds();
@@ -1605,6 +1663,87 @@ juce::StringArray MainView::soloedNames() const
 }
 
 bool MainView::isSoloBarShown() const { return soloBar != nullptr && soloBar->isVisible(); }
+
+// WHAT EACH WORKSPACE IS FOR, in one sentence, in the words a volunteer uses. The key is
+// short and stable because it is written into the preferences file; the sentence is not.
+const char* MainView::guideKeyFor (Page p)
+{
+    switch (p)
+    {
+        case Page::Device: case Page::Assign: return "routing";
+        case Page::Tracks:    return "tracks";
+        case Page::Mixer:     return "mixer";
+        case Page::Tune:      return "tune";
+        case Page::Live:      return "live";
+        case Page::Inspector: return "inspector";
+        default:              return "";
+    }
+}
+
+const char* MainView::guideTextFor (Page p)
+{
+    switch (p)
+    {
+        case Page::Device: case Page::Assign:
+            return "Pick the device your inputs arrive on, then name each one and say what it is. "
+                   "That is all DLIVE needs before it can build a mix.";
+        case Page::Tracks:
+            return "Every input is recorded on its own track. Press the red button, let the band play, "
+                   "and you have something to mix - and something to mix again on Monday.";
+        case Page::Mixer:
+            return "The console. M is mute, S is solo, and solo only goes to your own headphones. "
+                   "Click a stage on a strip to open it in the Inspector.";
+        case Page::Tune:
+            return "TUNE listens to the band and sets the mix. Choose how much of it to tune at the top, "
+                   "then press TUNE MIX - nothing changes until you press KEEP.";
+        case Page::Live:
+            return "The service, while it is happening: scenes for each part of it, the five macros for a "
+                   "quick change, and the loudness going out. LIVE SAFE locks the rest.";
+        case Page::Inspector:
+            return "One channel in full: every stage, what it is set to, and whether DLIVE set it or you "
+                   "did. Change anything - the next TUNE works around you.";
+        default: return "";
+    }
+}
+
+void MainView::updateGuide()
+{
+    const juce::String key = guideKeyFor (page);
+    const juce::String text = guideTextFor (page);
+    // The guides are a preference of this Mac, so the headless tool must not read them or a
+    // render would depend on whether the developer had pressed "Got it" - the same reason it
+    // does not read the stored theme. `forceGuide` is how the tool photographs one anyway.
+    const bool consult = gUseStoredTheme;
+    const bool wanted = key.isNotEmpty() && text.isNotEmpty()
+                     && ! controller.getSession().inputs.empty()
+                     && (forceGuide || (consult && Guides::enabled() && ! Guides::seen (key)));
+
+    if (! wanted)
+    {
+        if (guideBar != nullptr && guideBar->isVisible()) { guideBar->setVisible (false); resized(); }
+        return;
+    }
+    if (guideBar == nullptr)
+    {
+        guideBar = std::make_unique<GuideBar>();
+        guideBar->got.onClick = [this]
+        {
+            if (gUseStoredTheme) Guides::markSeen (guideKeyFor (page));
+            forceGuide = false;
+            updateGuide();
+        };
+        guideBar->never.onClick = [this]
+        {
+            forceGuide = false;
+            if (gUseStoredTheme) Guides::setEnabled (false);
+            updateGuide();
+            showToast ("The first-time guides are off. Help > Show the guides again brings them back.");
+        };
+        addChildComponent (*guideBar);
+    }
+    guideBar->setText (text);
+    if (! guideBar->isVisible()) { guideBar->setVisible (true); resized(); }
+}
 
 // Take me to the first thing that is soloed. A strip is on the MIXER; a group or an FX return
 // is too, so the MIXER is where this always lands - and it picks the strip out on the way, so
@@ -2163,6 +2302,11 @@ void MainView::handleCommand (int id)
         case 609: showOutputs(); break;
         case 630: showCheck(); break;
         case 633: showHistory(); break;
+        case 702:
+            if (gUseStoredTheme) Guides::reset();
+            updateGuide();
+            showToast ("Every workspace will explain itself once more.");
+            break;
         case 110: showExport(); break;
         case 631: controller.setBroadcastDim (! controller.isBroadcastDimmed()); updateChrome(); break;
         case 632: controller.setBroadcastMute (! controller.isBroadcastMuted()); updateChrome(); break;
@@ -2574,6 +2718,9 @@ juce::Rectangle<int> MainView::contentBounds() const
 {
     auto r = columnBounds().withTrimmedBottom (Dine::Metric::status);
     if (chainFoot != nullptr && chainFoot->isVisible()) r.removeFromBottom (Dine::Metric::chainFoot);
+    // The guide takes a band off the top rather than floating over the workspace: a sentence
+    // that covers the thing it is describing is worse than no sentence.
+    if (guideBar != nullptr && guideBar->isVisible()) r.removeFromTop (kGuideH + 10);
     return r;
 }
 
@@ -2775,6 +2922,11 @@ void MainView::resized()
     if (chainFoot->isVisible()) chainFoot->setBounds (body.removeFromBottom (Dine::Metric::chainFoot));
 
     auto content = body;
+    if (guideBar != nullptr && guideBar->isVisible())
+    {
+        guideBar->setBounds (content.removeFromTop (kGuideH).reduced (Dine::Metric::padX, 0));
+        content.removeFromTop (10);
+    }
     for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) routingPage.get(),
                                 (juce::Component*) tracksPage.get(),
                                 (juce::Component*) mixerPage.get(), (juce::Component*) mixPage.get(),

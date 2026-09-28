@@ -45,6 +45,18 @@ namespace StemNames
             { "room",  ChannelRole::Room },
             // Horns. A saxophone is not a keyboard: it has its own family, its own honk to cut
             // and its own dynamics (see AmbienceStrategies.cpp).
+            // Percussion and brass. "conga" before "bongo" matters no more than any other
+            // order here, but "tamb" must come before nothing else claims it, and "horn"
+            // stays last so "french horn" and "horns" both land on the section.
+            { "conga", ChannelRole::Congas }, { "bongo", ChannelRole::Bongos },
+            { "djembe", ChannelRole::Djembe }, { "cajon", ChannelRole::Djembe },
+            { "timbale", ChannelRole::Timbales }, { "timbs", ChannelRole::Timbales },
+            { "shaker", ChannelRole::Shaker }, { "tambourine", ChannelRole::Shaker },
+            { "tamb", ChannelRole::Shaker }, { "egg", ChannelRole::Shaker },
+            { "perc", ChannelRole::Congas },
+            { "trumpet", ChannelRole::Trumpet }, { "tpt", ChannelRole::Trumpet },
+            { "trombone", ChannelRole::Trombone }, { "tbone", ChannelRole::Trombone },
+            { "brass", ChannelRole::BrassSection }, { "horns", ChannelRole::BrassSection },
             { "alto sax", ChannelRole::SaxAlto }, { "tenor sax", ChannelRole::SaxTenor },
             { "bari sax", ChannelRole::SaxBari }, { "baritone sax", ChannelRole::SaxBari },
             { "alto", ChannelRole::SaxAlto }, { "tenor", ChannelRole::SaxTenor }, { "bari", ChannelRole::SaxBari },

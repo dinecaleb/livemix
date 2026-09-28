@@ -1082,6 +1082,113 @@ namespace
         return p;
     }
 
+    // ------------------------------------------------------------------ percussion
+    // A conga is not a tom, however much the stage plot suggests it. It is tuned an octave
+    // higher, it is meant to ring, and its slap lives where a snare's crack does. These
+    // numbers are a documented delta on the Tom family - the closest thing that has been
+    // measured on a real recording - and they have NOT yet been fitted against a percussion
+    // multitrack, because there is not one in the reference set. See
+    // docs/DESIGN-IMPLEMENTATION.md: the first real conga take should re-fit them.
+    SourceTargets gospelPercussionTargets()
+    {
+        SourceTargets t = gospelTomTargets();
+        t.intent = "Hand drums with their tuning intact: the slap on top, the body an octave above a tom, and the "
+                   "ring left alone - the ring is the instrument, not a fault.";
+        // A conga's lowest note is around 100 Hz and a bongo's is well above 200.
+        t.fundamentalMinHz = 90.0f; t.fundamentalMaxHz = 400.0f;
+        t.bodyHz = 200.0f;
+        t.boxinessHz = 500.0f;
+        t.attackHz = 3500.0f;                     // the slap
+        t.harshnessMinHz = 2500.0f; t.harshnessMaxHz = 7000.0f;
+        t.hpfMinHz = 50.0f; t.hpfMaxHz = 140.0f;  // nothing a hand drum makes lives under this
+        t.bandTargetDb = { -26.0f, -14.0f, -7.0f, -9.0f, -12.0f, -15.0f, -21.0f, -30.0f };
+        // The ring is wanted, so the gate is far gentler than a tom's and the sustain is
+        // never cut: a gated conga sounds like a sample of a conga.
+        t.gateMaxRangeDb = 12.0f; t.gateDetectorHpfHz = 120.0f; t.bleedGateThreshold = 0.45f;
+        t.transientMaxSustainCut = 0.0f;
+        t.sampleAppropriate = false;              // drum replacement is kick, snare and toms
+        t.compTargetGrDb = 3.0f;
+        t.mixPeakTargetDb = -16.0f; t.kitBalanceRelDb = -6.0f;   // under the kit, not level with it
+        return t;
+    }
+
+    ChannelParameters gospelPercussionBaseline()
+    {
+        ChannelParameters p = gospelTomBaseline();
+        p.hpfEnabled = true; p.hpfHz = 90.0f;
+        p.gateEnabled = false;                    // decided by the listen, not assumed
+        p.transientEnabled = false;
+        return p;
+    }
+
+    // ------------------------------------------------------------------ shaker
+    // A shaker or a tambourine has no body, never stops, and is the one percussion source a
+    // gate must never be put on: gating something continuous is how it starts chattering.
+    // Derived from the Hi-Hat family, which is the measured source that behaves this way.
+    SourceTargets gospelShakerTargets()
+    {
+        SourceTargets t = gospelHiHatTargets();
+        t.intent = "All top and no body: the part of the groove you feel rather than hear, kept crisp and kept back.";
+        t.fundamentalMinHz = 0.0f; t.fundamentalMaxHz = 0.0f;   // there is no fundamental to find
+        t.hpfMinHz = 300.0f; t.hpfMaxHz = 800.0f;               // everything below is the stage
+        t.bodyHz = 0.0f;
+        t.attackHz = 8000.0f;
+        t.harshnessMinHz = 5000.0f; t.harshnessMaxHz = 12000.0f;
+        t.bandTargetDb = { -48.0f, -42.0f, -34.0f, -24.0f, -16.0f, -11.0f, -9.0f, -12.0f };
+        // Continuous: never gated, never transient-shaped, never sampled.
+        t.gateAppropriate = false;
+        t.transientAppropriate = false;
+        t.sampleAppropriate = false;
+        t.compTargetGrDb = 2.0f;
+        t.mixPeakTargetDb = -20.0f; t.kitBalanceRelDb = -10.0f;
+        return t;
+    }
+
+    ChannelParameters gospelShakerBaseline()
+    {
+        ChannelParameters p = gospelHiHatBaseline();
+        p.hpfEnabled = true; p.hpfHz = 400.0f;
+        p.gateEnabled = false;
+        p.transientEnabled = false;
+        return p;
+    }
+
+    // ------------------------------------------------------------------ brass
+    // Louder than a saxophone, harder at the top, and pointed: a trumpet's edge sits at
+    // 2-4 kHz where a sax's honk sits at 1-2, and a trombone reaches an octave below either.
+    // A documented delta on the Saxophone family, and not yet fitted against a real horn
+    // take for the same reason as the percussion above.
+    SourceTargets gospelBrassTargets()
+    {
+        SourceTargets t = gospelSaxTargets();
+        t.intent = "Bright and brassy with the edge taken off: a horn line that lifts the chorus without "
+                   "taking the top of the mix away from the voices.";
+        // A trombone's low E is about 82 Hz; a trumpet's lowest is about 165 Hz.
+        t.fundamentalMinHz = 80.0f; t.fundamentalMaxHz = 1000.0f;
+        t.bodyHz = 300.0f;
+        t.attackHz = 4000.0f;
+        // The edge, which is higher and harder than a reed's honk.
+        t.harshnessMinHz = 1800.0f; t.harshnessMaxHz = 4500.0f;
+        t.hpfMinHz = 50.0f; t.hpfMaxHz = 90.0f;
+        t.bandTargetDb = { -32.0f, -18.0f, -8.0f, -6.0f, -7.0f, -10.0f, -15.0f, -23.0f };
+        // Brass has more level and less patience than a reed: it is compressed a little
+        // harder and aimed a little further back, because it will take the mix if it is not.
+        t.compTargetGrDb = 5.0f; t.compRatioMax = 4.5f;
+        t.crestFactorMaxDb = 17.0f;
+        t.mixPeakTargetDb = -15.0f;
+        return t;
+    }
+
+    ChannelParameters gospelBrassBaseline()
+    {
+        ChannelParameters p = gospelSaxBaseline();
+        p.hpfHz = 70.0f;
+        p.correctiveBands[0] = band (true, FilterType::Peak, 2600.0f, -2.5f, 2.4f);   // the edge
+        p.toneBands[2] = band (true, FilterType::Peak, 4000.0f, 1.0f, 1.0f);
+        return p;
+    }
+
+
     ProfileDefinition buildModernGospel()
     {
         ProfileDefinition d;
@@ -1117,6 +1224,9 @@ namespace
         t[int (RoleFamily::Ambience)]       = gospelAmbienceTargets();       b[int (RoleFamily::Ambience)]       = gospelAmbienceBaseline();
         t[int (RoleFamily::AmbienceBus)]    = gospelAmbienceBusTargets();    b[int (RoleFamily::AmbienceBus)]    = gospelAmbienceBusBaseline();
         t[int (RoleFamily::Saxophone)]      = gospelSaxTargets();            b[int (RoleFamily::Saxophone)]      = gospelSaxBaseline();
+        t[int (RoleFamily::Percussion)]     = gospelPercussionTargets();     b[int (RoleFamily::Percussion)]     = gospelPercussionBaseline();
+        t[int (RoleFamily::Shaker)]         = gospelShakerTargets();         b[int (RoleFamily::Shaker)]         = gospelShakerBaseline();
+        t[int (RoleFamily::Brass)]          = gospelBrassTargets();          b[int (RoleFamily::Brass)]          = gospelBrassBaseline();
         return d;
     }
 

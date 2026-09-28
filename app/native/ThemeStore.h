@@ -116,4 +116,28 @@ namespace ThemeStore
     bool setChosenTextSize (float scale, const juce::File& preferences = preferencesFile());
 }
 
+// ---------------------------------------------------------------------------
+// THE GUIDES: one sentence, the first time you open a workspace.
+//
+// The tutorial teaches the whole shape of the app once, at the start. This is the other
+// half of the same idea and it is smaller: the first time somebody lands on a workspace
+// they have never seen, a line along the top says what this screen is for and what to do
+// first. It is dismissed with one press and it never comes back; it blocks nothing, it
+// covers nothing, and "Don't show these" turns the lot off in one go.
+//
+// A preference of this Mac, in the same file as the theme and the text size - not of the
+// session. Two people sharing a booth Mac share the fact that the app has been explained.
+// ---------------------------------------------------------------------------
+namespace Guides
+{
+    // Has this one been dismissed? `key` is a short stable name for a workspace.
+    bool seen (const juce::String& key, const juce::File& preferences = ThemeStore::preferencesFile());
+    void markSeen (const juce::String& key, const juce::File& preferences = ThemeStore::preferencesFile());
+    // The master switch. Off means no guide is ever shown, whatever has been seen.
+    bool enabled (const juce::File& preferences = ThemeStore::preferencesFile());
+    void setEnabled (bool, const juce::File& preferences = ThemeStore::preferencesFile());
+    // Start again: every workspace explains itself once more.
+    void reset (const juce::File& preferences = ThemeStore::preferencesFile());
+}
+
 } // namespace livemix

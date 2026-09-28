@@ -474,4 +474,76 @@ bool ThemeStore::setChosenTextSize (float scale, const juce::File& prefs)
     return prefs.replaceWithText (juce::JSON::toString (juce::var (o.get()), false));
 }
 
+// ---------------------------------------------------------------------------- the guides
+namespace
+{
+    juce::var readPrefs (const juce::File& prefs)
+    {
+        juce::var v;
+        if (prefs.existsAsFile()) juce::JSON::parse (prefs.loadFileAsString(), v);
+        return v;
+    }
+
+    bool writePrefs (const juce::File& prefs, juce::DynamicObject::Ptr o)
+    {
+        prefs.getParentDirectory().createDirectory();
+        return prefs.replaceWithText (juce::JSON::toString (juce::var (o.get()), false));
+    }
+
+    // The dismissed guides, as one comma-separated string: a handful of short keys, and a
+    // string keeps the preferences file readable by a person looking for what went wrong.
+    juce::StringArray seenList (const juce::File& prefs)
+    {
+        auto v = readPrefs (prefs);
+        if (auto* o = object (v))
+            return juce::StringArray::fromTokens (o->getProperty ("guidesSeen").toString(), ",", "");
+        return {};
+    }
+}
+
+bool Guides::seen (const juce::String& key, const juce::File& prefs)
+{
+    return seenList (prefs).contains (key);
+}
+
+void Guides::markSeen (const juce::String& key, const juce::File& prefs)
+{
+    auto list = seenList (prefs);
+    if (list.contains (key)) return;
+    list.add (key);
+    auto v = readPrefs (prefs);
+    juce::DynamicObject::Ptr o = object (v);
+    if (o == nullptr) o = new juce::DynamicObject();
+    o->setProperty ("guidesSeen", list.joinIntoString (","));
+    writePrefs (prefs, o);
+}
+
+bool Guides::enabled (const juce::File& prefs)
+{
+    auto v = readPrefs (prefs);
+    if (auto* o = object (v); o != nullptr && o->hasProperty ("guides"))
+        return bool (o->getProperty ("guides"));
+    return true;        // on until somebody turns them off
+}
+
+void Guides::setEnabled (bool on, const juce::File& prefs)
+{
+    auto v = readPrefs (prefs);
+    juce::DynamicObject::Ptr o = object (v);
+    if (o == nullptr) o = new juce::DynamicObject();
+    if (on) o->removeProperty ("guides");      // on is the default, so it is not written down
+    else    o->setProperty ("guides", false);
+    writePrefs (prefs, o);
+}
+
+void Guides::reset (const juce::File& prefs)
+{
+    auto v = readPrefs (prefs);
+    juce::DynamicObject::Ptr o = object (v);
+    if (o == nullptr) o = new juce::DynamicObject();
+    o->removeProperty ("guidesSeen");
+    o->removeProperty ("guides");
+    writePrefs (prefs, o);
+}
+
 } // namespace livemix

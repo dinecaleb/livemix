@@ -18,16 +18,17 @@ const std::vector<Tutorial::Step>& Tutorial::steps()
 {
     static const std::vector<Step> all {
         { "GETTING STARTED  1 / 7", "This is your session.",
-          "Everything you set up, record and mix lives in a session, and it saves itself. The "
-          "sidebar is where you open one, set up the inputs and pick a workspace; this button "
-          "shows or hides it.",
+          "Everything you set up, record and mix lives in a session, and it saves itself as you "
+          "work. The sidebar is where you open one and pick a workspace; this button shows or "
+          "hides it.",
           0 /* Sessions */, "session" },
 
         { "GETTING STARTED  2 / 7", "Tell DLIVE what is plugged in.",
-          "Pick your audio interface, then give each input a name and say what it is — a kick "
-          "drum, a lead vocal, the pastor's microphone. That is the only thing DLIVE needs to "
-          "know to build a mix; it works the rest out by listening.",
-          1 /* Device */, "tabs" },
+          "ROUTING is where the device, the inputs and the outputs live. Pick your audio "
+          "interface, then give each input a name and say what it is — a kick drum, a lead "
+          "vocal, the pastor's microphone. That is the only thing DLIVE needs to know to build a "
+          "mix; it works the rest out by listening.",
+          1 /* Device */, "routing" },
 
         { "GETTING STARTED  3 / 7", "Press record and play for thirty seconds.",
           "Press the red button, ask the band to play. Every input is recorded on its own, so you "
@@ -41,8 +42,9 @@ const std::vector<Tutorial::Step>& Tutorial::steps()
           6 /* Tune */, "tabs" },
 
         { "GETTING STARTED  5 / 7", "The console, if you want it.",
-          "Faders, mutes and the meters. M is mute, S is solo, R sets a track to record. Solo only "
-          "goes to your own headphones — the room and the stream never hear it.",
+          "Faders, mutes and the meters. M is mute and S is solo; setting a track to record is on "
+          "TRACKS. Solo only goes to your own headphones — the room and the stream never hear "
+          "it, and a bar along the top says so for as long as anything is soloed.",
           5 /* Mixer */, "rail" },
 
         { "GETTING STARTED  6 / 7", "One channel, in full detail.",
