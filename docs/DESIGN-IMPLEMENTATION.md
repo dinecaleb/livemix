@@ -8,7 +8,7 @@ which engine phase owns it.
 The design file is **`2wv5QSnvrSSQXtDzfuShIn`** ("DLIVE Desktop v2", Sept 2026).
 The baseline this is all measured against is `docs/design/baseline/`.
 
-**Status: UI-0 to UI-4 done. Next: UI-5, TUNE and LIVE.**
+**Status: UI-0 to UI-4 done. UI-5 part done (see §3e). Next: finish UI-5's LIVE, then UI-6 and UI-7.**
 
 ---
 
@@ -290,6 +290,53 @@ inputs, the purpose, the console, with the session intact at the other end.
 **Columns give way from the outside in** as the window narrows: the outputs first, then the
 device list, so the input map - the thing somebody came here for - is the last thing to go. At
 1180 x 760 it is device + input map.
+
+## 3e. UI-5: TUNE and LIVE
+
+### TUNE - done
+
+**The scope picker.** WHOLE MIX / ONE GROUP / SELECTED CHANNELS, in a page bar of its own, wired
+to `startTuneMix`, `startTuneBus` and `startTuneChannel`. It is one control because the three
+of them are one decision: the same listen and the same planner either way, narrowed by
+`MixPlanner::busOnly` or `channelOnly`. Somebody who has tuned the whole mix and now wants to
+fix only the pastor should not have to know that TUNE CHANNEL is a different verb.
+SELECTED CHANNELS uses the channel picked out on the rail, and says so when there is none.
+
+**Last tuned, per group.** Each group tile says "Tuned 8:27" or "Not tuned", read off the mix
+history rather than remembered separately: a checkpoint is taken at every tune and is named for
+what did it - "TUNE MIX", "RE-TUNE", "TUNE DRUMS" - so the answer is already written down. A
+whole-mix tune counts for every group, because it set every group.
+
+**The result card already existed.** `ResultSheet` shows WHAT then WHY per change, BEFORE /
+AFTER, KEEP / REVERT / TRY ANOTHER MIX and per-group KEEP chips - the design's content, driven
+by the existing decisions and sentences. It is a sheet over the workspace rather than the
+design's inline middle column, which is the one thing left to change here. Per-change UNDO
+*after* keeping is not built: the existing per-group KEEP chips are the same control at the
+moment before, and post-keep undo would need `putBack` wiring that is worth doing deliberately.
+
+**The macro pads keep their behaviour exactly** - BODY x VOICE, DRIVE x ROOM, ENERGY, the snaps
+and the LIVE SAFE fencing - as the phase asked.
+
+Speaking / Singing and the favourite-mix comparison are **left out**: both wait on engine
+phases (§6).
+
+### LIVE - part done
+
+**MACROS - WHOLE MIX is built**: the five real macros (VOCALS DRUMS BASS SPACE ENERGY) as the
+design's arc knobs, reading and writing the same `MixMacroValues` the TUNE pads move, so moving
+one here and moving it there are the same move. LIVE SAFE fences them the way it fences the
+pads. They render with live state. The tiles give up their spare height for them, and the
+macros are the first band to go when even the tiles' floor will not fit.
+
+**Not yet done, and honestly so:**
+
+- the page bar with **ON AIR** and "Now: <marker>" - the marker state exists (`Project::markers`), so this is layout, not engine;
+- the **BROADCAST** card (the big short-term LUFS, integrated / true peak / range, the target bar) - every number exists in `getMasterLoudness()`;
+- **scenes as cards** with their kept times and RECALL / KEEP - they are a row of pickers today;
+- **groups as flat horizontal faders** instead of vertical tiles.
+
+All four are restyling of state that already exists. The **Autopilot card** is not built and
+must not be: it waits on its engine phase.
 
 ## 4. The screens
 
