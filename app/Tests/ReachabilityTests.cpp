@@ -371,3 +371,33 @@ TEST_CASE ("The solo bar: it appears whenever anything is soloed, on every works
     CHECK (view.soloedNames().isEmpty());
     CHECK (! view.isSoloBarShown());
 }
+
+// -------------------------------------------------------------- the mixer's insert slots
+TEST_CASE ("The mixer's insert slots open that stage in the Inspector, and an unknown one just opens the channel")
+{
+    Window window;
+    auto& view = *window.view;
+
+    // The lead vocal has a chain with several stages in it; the mixer's slots name them with
+    // the same words the Inspector does, which is the whole reason a click can be routed.
+    view.showPage (MainView::Page::Mixer);
+    window.pump (40);
+
+    auto& inspector = view.getAdvancedPage();
+    view.showPage (MainView::Page::Inspector);
+    inspector.openStripAtStage (3, "COMP");
+    window.pump (40);
+    CHECK (inspector.selectedStrip() == 3);
+
+    // Whatever stage is picked out, asking for the same one again is stable.
+    const int was = inspector.selectedStageIndex();
+    inspector.openStripAtStage (3, "COMP");
+    window.pump (20);
+    CHECK (inspector.selectedStageIndex() == was);
+
+    // A stage this channel has not got leaves the channel open and the selection alone.
+    inspector.openStripAtStage (3, "NOT A STAGE");
+    window.pump (20);
+    CHECK (inspector.selectedStrip() == 3);
+    CHECK (inspector.selectedStageIndex() == was);
+}

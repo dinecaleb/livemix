@@ -1584,6 +1584,17 @@ void ChainEditor::build()
     if (onStageChanged) onStageChanged();
 }
 
+bool ChainEditor::selectStageNamed (const juce::String& label)
+{
+    for (int i = 0; i < int (views.size()); ++i)
+        if (views[size_t (i)].label.equalsIgnoreCase (label))
+        {
+            selectStage (i);
+            return true;
+        }
+    return false;
+}
+
 void ChainEditor::selectStage (int index)
 {
     index = juce::jlimit (0, juce::jmax (0, int (stages.size()) - 1), index);

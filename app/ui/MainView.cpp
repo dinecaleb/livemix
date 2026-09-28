@@ -1092,6 +1092,11 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     mixPage->onOpenHistory = [this] { showHistory(); };
     mixPage->onSelectStrip = [this] (int strip) { lastChannel = strip; updateChainFoot(); };
     mixerPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
+    mixerPage->onOpenStripStage = [this] (int strip, const juce::String& stage)
+    {
+        showPage (Page::Inspector);
+        advancedPage->openStripAtStage (strip, stage);
+    };
     mixerPage->onOpenBus = [this] (MixBus bus) { showPage (Page::Inspector); advancedPage->selectBus (bus); };
     mixerPage->onTuneStrip = [this] (int strip) { tuneChannel (strip); };
     mixerPage->onOpenWindow = [this] { openMixerWindow(); };

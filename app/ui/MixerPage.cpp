@@ -20,9 +20,23 @@ namespace
     constexpr int kMasterW   = 150;     // the pinned master column
     constexpr int kMaxStripH = 900;
 
+    // The design's channel strip is 48 wide. That is the console it draws - sixteen strips and
+    // the groups inside 1440 - so it is what Normal means now; the other two sizes are the same
+    // anatomy with more or less room, which is what they always were.
+    constexpr int kDesignStripW = 48;
+    constexpr int kDesignStripH = 680;
+
+    // The seven stops down the left of the throw, at the fractions the design's component puts
+    // them at (its fader track runs 216..610, so 0 dB sits 14 % down and -inf at the bottom).
+    struct FaderStop { const char* label; float at; };
+    constexpr FaderStop kFaderScale[] = {
+        { "6",  0.00f }, { "0",  0.14f }, { "6",  0.28f }, { "12", 0.42f },
+        { "24", 0.62f }, { "40", 0.80f }, { "\u221e", 1.00f },
+    };
+
     int columnWidthFor (MixerPage::Size s) noexcept
     {
-        return s == MixerPage::Size::Narrow ? 62 : s == MixerPage::Size::Wide ? 124 : 96;
+        return s == MixerPage::Size::Narrow ? 40 : s == MixerPage::Size::Wide ? 72 : kDesignStripW;
     }
 
     // Gain staging, as a chip on the strip: the colour says how bad it is, the word says what.
@@ -201,6 +215,11 @@ public:
         setTooltip (name + "  " + Glyph::dot() + "  " + source);
 
         numberText = kind == Kind::Channel ? juce::String (stripIndex + 1).paddedLeft ('0', 2) : kind == Kind::Bus ? "BUS" : juce::String();
+        // The design names the input the console calls it - "IN 1" - rather than the strip's
+        // place in the bank, because that is the number written on the socket.
+        if (kind == Kind::Channel && stripIndex >= 0 && stripIndex < controller.getGraph().numStrips())
+            inputText = "IN " + juce::String (controller.getGraph().strips[size_t (stripIndex)].inputA + 1);
+        else if (kind == Kind::Bus) inputText = "BUS";
         outText = kind == Kind::Channel ? juce::String (mixBusName (bus)).toUpperCase() : kind == Kind::Bus ? "MASTER" : juce::String();
         stereo = true;
         if (kind == Kind::Channel && stripIndex >= 0 && stripIndex < controller.getGraph().numStrips())
@@ -222,6 +241,7 @@ public:
     void setSelectHandler (std::function<void()> h) { select = std::move (h); }
     void setTuneHandler (std::function<void()> h) { tune = std::move (h); }
     void setAssignHandler (std::function<void()> h) { assign = std::move (h); }
+    void setOpenStageHandler (std::function<void (const juce::String&)> h) { openStage = std::move (h); }
     void setSelected (bool s) { if (s != selected) { selected = s; repaint(); } }
     bool isSelected() const noexcept { return selected; }
 
@@ -314,6 +334,17 @@ public:
             levels = true;
         }
         if (muted != mute || soloed != solo) { mute = muted; solo = soloed; body = true; }
+
+        // ---- how hard the compressor is working. The same running processor the meters are
+        // read from, so nothing new is published and nothing is allocated for it.
+        if (kind != Kind::Master)
+        {
+            const auto& comp = kind == Kind::Channel && strip >= 0 && strip < state.numStrips
+                                   ? controller.getEngine().getStrip (strip).getCompressor()
+                                   : controller.getEngine().getBus (bus).getCompressor();
+            grDb = juce::jmax (0.0f, -comp.getGainReductionDb());
+            if (std::fabs (grDb - shownGrDb) > 0.25f) { shownGrDb = grDb; grMoved = true; }
+        }
         if (linkNow != link)
         {
             link = linkNow;
@@ -360,8 +391,17 @@ public:
                 const bool sample = kind == Kind::Channel && strip >= 0 && strip < controller.getGraph().numStrips()
                                     && hasSampleStage (controller.getGraph().strips[size_t (strip)].role);
                 insertList = activeChainStages (*channel, kind == Kind::Master, stereo, sample);
+                // TRIM is the preamp the strip is actually running at, in the design's words.
+                const float trimDb = channel->inputTrimDb;
+                trimText = "TRIM " + juce::String (trimDb >= 0.0f ? "+" : "") + juce::String (juce::roundToInt (trimDb));
                 body = true;
             }
+        }
+        // ---- has DLIVE been through this channel? The lamp beside the input says so.
+        if (kind == Kind::Channel && strip >= 0)
+        {
+            const bool now = ! controller.getStripHistory (strip).empty();
+            if (now != tuned) { tuned = now; body = true; }
         }
         if (kind == Kind::Channel && strip >= 0 && strip < state.numStrips)
         {
@@ -401,6 +441,7 @@ public:
         {
             if (levels) repaint (col.level);
             if (balance && col.hasPan) repaint (col.panRead);
+            if (grMoved && col.hasGr) { repaint (col.gr); grMoved = false; }
         }
         else
         {
@@ -423,10 +464,12 @@ public:
         auto r = getLocalBounds();
         g.setColour (selected ? Dine::card : Dine::console);
         g.fillRect (r);
+
+        // ---- the bus colour along the top: which group this ends up in, before anything else
         if (kind != Kind::Master)
         {
             g.setColour (tint().withAlpha (mute ? 0.4f : 1.0f));
-            g.fillRect (r.removeFromTop (selected ? 5 : 3));
+            g.fillRect (col.busBar.withHeight (selected ? 4 : 3));
         }
         else
         {
@@ -435,55 +478,48 @@ public:
             g.fillRect (r.removeFromLeft (1));
         }
 
-        // ---- the number and the name
+        // ---- the name, then the input it arrives on and whether DLIVE has tuned it
         if (kind == Kind::Master)
         {
             g.setColour (Dine::ink2);
-            g.setFont (Dine::caps (12.0f, 0.08f, 500));
+            g.setFont (Dine::Type::labelStrip());
             g.drawText ("MASTER", col.name, juce::Justification::centred);
         }
         else
         {
-            const auto numFont = Dine::mono (10.0f, 500);
-            const auto nameFont = Dine::text (12.0f, selected ? 600 : 400);
-            // A linked strip carries its mark at the right end of the name row. The name is what
-            // the row is for: on a narrow strip, when the number and the mark would leave it
-            // less than a few letters, the number gives way (it is still on the tooltip and on
-            // the wider strips). `col` is the layout and is only ever read here - a paint that
-            // trimmed it took a slice off the name on every frame until nothing was left.
-            const int markW = link != 0 ? 16 : 0;
-            const int numFullW = Dine::textWidth (numFont, numberText);
-            const int nameFullW = Dine::textWidth (nameFont, name);
-            const int avail = col.name.getWidth() - markW;
-            const bool showNumber = avail - numFullW - 5 >= juce::jmin (nameFullW, 30);
-            const int numW = showNumber ? numFullW + 5 : 0;
-            const int nameW = juce::jmax (0, juce::jmin (avail - numW, nameFullW));
-            auto head = col.name.withTrimmedRight (markW).withSizeKeepingCentre (numW + nameW, col.name.getHeight());
-            if (showNumber)
-            {
-                g.setColour (Dine::ink4);
-                g.setFont (numFont);
-                g.drawText (numberText, head.removeFromLeft (numFullW), juce::Justification::centredLeft);
-                head.removeFromLeft (5);
-            }
+            const int markW = link != 0 ? 13 : 0;
             g.setColour (mute ? Dine::ink3 : Dine::ink);
-            g.setFont (nameFont);
+            g.setFont (Dine::text (12.0f, selected ? 600 : 500));
+            auto head = col.name.withTrimmedRight (markW);
             g.drawText (name, head, juce::Justification::centredLeft, true);
             if (mute)
             {
                 g.setColour (Dine::ink3);
-                g.fillRect (head.getX(), head.getCentreY(), head.getWidth(), 1);
+                g.fillRect (head.getX(), head.getCentreY(), juce::jmin (head.getWidth(), Dine::textWidth (Dine::text (12.0f, 500), name)), 1);
             }
             // Linked faders: the mark at the right end of the name row, in the accent.
-            if (link != 0) Dine::drawLinkGlyph (g, col.name.withTrimmedLeft (col.name.getWidth() - markW).toFloat().reduced (2.0f, 0.0f), Dine::accent);
+            if (link != 0) Dine::drawLinkGlyph (g, col.name.withTrimmedLeft (col.name.getWidth() - markW).toFloat().reduced (1.0f, 1.0f), Dine::accent);
+
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::Type::monoMeter());
+            g.drawText (inputText, col.input, juce::Justification::centredLeft, true);
+            // The tuned lamp: DLIVE has been through this channel. Teal, like everything it did.
+            if (tuned)
+            {
+                g.setColour (Dine::accent);
+                g.fillEllipse (col.tunedLamp.toFloat());
+            }
         }
 
-        // ---- gain staging: every strip that can have it, always in its slot
-        if (col.hasGain)
+        // ---- TRIM, and the one thing that outranks it: a level that is wrong at the preamp.
+        // Same slot, because a problem with the level matters more than the number does.
+        if (col.hasTrim)
         {
-            const juce::String label = advice.known ? gainAdviceChip (advice) : juce::String();
-            if (label.isNotEmpty())
-                Dine::drawStatusChip (g, col.gain.toFloat(), label, gainAdviceColour (advice.level));
+            const juce::String chip = advice.known ? gainAdviceChip (advice) : juce::String();
+            const bool bad = chip.isNotEmpty() && advice.level != MixController::InputAdvice::Level::Healthy;
+            g.setColour (bad ? gainAdviceColour (advice.level) : Dine::ink4);
+            g.setFont (Dine::Type::monoMeter());
+            g.drawText (bad ? chip : trimText, col.trim, juce::Justification::centredLeft, true);
         }
 
         // ---- the master's loudness
@@ -494,9 +530,10 @@ public:
             {
                 auto line = block.removeFromTop (18);
                 g.setColour (Dine::ink3);
-                g.setFont (Dine::mono (11.0f, 500));
+                g.setFont (Dine::Type::monoSmall());
                 g.drawText (k, line, juce::Justification::centredLeft);
                 g.setColour (c);
+                g.setFont (Dine::Type::monoValue());
                 g.drawText (v, line, juce::Justification::centredRight);
             };
             row ("LUFS-I", integratedText, Dine::ink);
@@ -506,42 +543,71 @@ public:
             row ("Target", targetText, Dine::ink);
         }
 
-        // ---- INSERTS: the stages that are on, in fixed slots
-        auto caption = [&] (juce::Rectangle<int> area, const char* text)
-        {
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::caps (9.0f, 0.10f));
-            g.drawText (text, area, juce::Justification::centredLeft);
-        };
-        auto slot = [&] (juce::Rectangle<int> area, const juce::String& text, bool used, bool left)
-        {
-            if (used) Dine::fillRounded (g, area.toFloat(), Dine::selected, Dine::Radius::chip);
-            g.setColour (used ? Dine::ink2 : Dine::ink4);
-            g.setFont (Dine::text (10.0f));
-            g.drawText (used ? text : Glyph::dash(), area.reduced (5, 0),
-                        used && left ? juce::Justification::centredLeft : juce::Justification::centred, true);
-        };
+        // ---- the four insert slots. A lamp down the left says the stage is on; the word says
+        // which stage it is. An empty slot is still drawn, so the eye finds GATE in the same
+        // place on every strip that has one.
         if (col.hasInserts)
         {
-            caption (col.insertsLabel, "INSERTS");
             for (size_t i = 0; i < col.insertRows.size(); ++i)
-                slot (col.insertRows[i], i < insertList.size() ? sentenceCase (insertList[i].label) : juce::String(),
-                      i < insertList.size(), true);
+            {
+                const auto area = col.insertRows[i];
+                const bool used = i < insertList.size();
+                Dine::fillRounded (g, area.toFloat(), used ? Dine::item : Dine::item.withAlpha (0.5f), Dine::Radius::chip);
+                if (used)
+                {
+                    g.setColour (Dine::accent);
+                    g.fillRoundedRectangle (float (area.getX() + 2), float (area.getY() + 3), 2.0f, float (area.getHeight() - 6), 1.0f);
+                }
+                g.setColour (used ? Dine::ink2 : Dine::ink4);
+                g.setFont (Dine::Type::labelMicro());
+                g.drawText (used ? insertList[i].label.toUpperCase() : juce::String (Glyph::dash()),
+                            area.withTrimmedLeft (7), juce::Justification::centredLeft, true);
+            }
         }
+
+        // ---- the sends, as bars: how much of this strip is going to each effect
         if (col.hasSends)
         {
-            caption (col.sendsLabel, "SENDS");
-            for (size_t i = 0; i < col.sendRows.size(); ++i)
-                slot (col.sendRows[i], i < sendList.size() ? sendList[i].label + " " + juce::String (sendPercent (sendList[i].db)) + "%" : juce::String(),
-                      i < sendList.size(), true);
+            for (size_t i = 0; i < 2; ++i)
+            {
+                const bool has = i < sendList.size();
+                g.setColour (Dine::ink4);
+                g.setFont (Dine::Type::labelMicro());
+                g.drawText (has ? sendList[i].label.substring (0, 1).toUpperCase() : juce::String (Glyph::dash()),
+                            col.sendLabels[i], juce::Justification::centredLeft);
+                const auto track = col.sendTracks[i].toFloat();
+                Dine::fillRounded (g, track, Dine::well, 2.0f);
+                if (has)
+                {
+                    const float amount = juce::jlimit (0.0f, 1.0f, float (sendPercent (sendList[i].db)) / 100.0f);
+                    if (amount > 0.001f)
+                        Dine::fillRounded (g, track.withWidth (juce::jmax (4.0f, track.getWidth() * amount)), Dine::monitor, 2.0f);
+                }
+            }
         }
+
+        // ---- the pan readout under its knob
         if (col.hasPan)
         {
-            caption (col.panLabel, "PAN");
-            const auto text = kind == Kind::Channel ? panText (pan.getValue()) : Glyph::dash();
+            const auto text = kind == Kind::Channel ? panText (pan.getValue()) : juce::String (Glyph::dash());
             g.setColour (text == "C" || kind != Kind::Channel ? Dine::ink4 : Dine::ink2);
-            g.setFont (Dine::mono (9.5f, 500));
+            g.setFont (Dine::Type::monoSmall());
             g.drawText (text, col.panRead, juce::Justification::centred);
+        }
+
+        // ---- the scale down the left of the throw, at the design's seven stops
+        if (col.hasScale)
+        {
+            g.setFont (Dine::Type::monoMeter());
+            for (const auto& stop : kFaderScale)
+            {
+                const int y = col.fader.getY() + juce::roundToInt (float (col.fader.getHeight()) * stop.at);
+                auto line = juce::Rectangle<int> (col.scale.getX(), y - 5, col.scale.getWidth(), 10);
+                g.setColour (Dine::ink4);
+                g.drawText (stop.label, line.withTrimmedRight (5), juce::Justification::centredRight);
+                g.setColour (Dine::hairStrong);
+                g.fillRect (float (col.scale.getRight() - 4), float (y), 3.0f, 1.0f);
+            }
         }
 
         // ---- the unity line across the fader and the meter
@@ -552,23 +618,38 @@ public:
             g.fillRect (float (col.body.getX()), y - 0.5f, float (col.body.getWidth()), 1.0f);
         }
 
-        // ---- the level and the peak
-        g.setColour (mute ? Dine::ink4 : Dine::ink2);
-        g.setFont (Dine::mono (11.0f, 500));
+        // ---- how hard the compressor is working, as a 2 px column beside the meter. It reads
+        // the same running processor the meters do; nothing new is published for it.
+        if (col.hasGr)
+        {
+            const auto well = col.gr.toFloat();
+            Dine::fillRounded (g, well, Dine::well, 1.0f);
+            if (grDb > 0.2f)
+            {
+                const float amount = juce::jlimit (0.0f, 1.0f, grDb / 20.0f);
+                Dine::fillRounded (g, well.withHeight (well.getHeight() * amount), Dine::warn, 1.0f);
+            }
+        }
+
+        // ---- the fader's number, and the loudest this strip has been
+        g.setColour (mute ? Dine::ink4 : Dine::ink);
+        g.setFont (Dine::Type::monoValue());
         g.drawText (levelText, col.level, juce::Justification::centred);
         if (col.hasPeak)
         {
             g.setColour (Dine::ink4);
-            g.setFont (Dine::mono (10.0f));
-            g.drawText ("pk " + peakText, col.peak, juce::Justification::centred);
+            g.setFont (Dine::Type::monoSmall());
+            g.drawText (peakText, col.peak, juce::Justification::centred);
         }
 
-        // ---- where this strip goes
-        if (col.hasOut)
+        // ---- the plate: where this strip ends up, on a tint of that group's own colour
+        if (col.hasPlate)
         {
-            g.setColour (tint().withAlpha (mute ? 0.5f : 1.0f));
-            g.setFont (Dine::caps (9.0f, 0.08f));
-            g.drawText (outText, col.out, juce::Justification::centredRight, true);
+            const auto c = tint();
+            Dine::fillRounded (g, col.plate.toFloat(), c.withAlpha (mute ? 0.10f : 0.18f), Dine::Radius::chip);
+            g.setColour (c.withAlpha (mute ? 0.5f : 1.0f));
+            g.setFont (Dine::Type::labelMicro());
+            g.drawText (outText, col.plate, juce::Justification::centred, true);
         }
     }
 
@@ -653,86 +734,127 @@ public:
     void buildColumn()
     {
         col = Col {};
-        const bool narrow = size == Size::Narrow;
-        const int padX = narrow ? 5 : 8;
-        auto r = getLocalBounds().withTrimmedTop (kind == Kind::Master ? 16 : 3 + 10).withTrimmedBottom (12).reduced (padX, 0);
-        col.body = r;
+        const int w = getWidth();
+        const bool tight = w < kDesignStripW;          // the compact width
+        const int padX = tight ? 3 : 4;
 
-        const int gap = 7;
-        const int nameH = 16;
-        const int gainH = kind == Kind::Master ? 0 : 17;
-        const int loudH = kind == Kind::Master ? 5 * 18 : 0;
-        const int inserts = kind == Kind::Master ? 0 : 3;
-        const int sends = kind == Kind::Channel && showSends ? 2 : (kind == Kind::Bus && showSends ? 2 : 0);
-        const int insertsH = inserts > 0 ? 11 + 2 + inserts * kSlotH + (inserts - 1) * 2 : 0;
-        const int sendsH = sends > 0 ? 11 + 2 + sends * kSlotH + (sends - 1) * 2 : 0;
-        const int panH = kind != Kind::Master ? 9 + 4 + 14 + 3 + 12 : 0;
-        const int levelH = 14, peakH = kind == Kind::Master ? 0 : 13;
-        const int keysH = kind == Kind::Master ? 0 : 2 * 22 + 4;
-        const int outH = kind == Kind::Master ? 0 : 12;
-        const int bodyMin = 70 + 12;
+        auto r = getLocalBounds();
+        col.busBar = r.removeFromTop (3);
+        auto body = r.withTrimmedBottom (8).reduced (padX, 0);
 
-        bool keepSends = sends > 0, keepInserts = inserts > 0, keepOut = outH > 0, keepPan = panH > 0, keepPeak = peakH > 0;
-        auto total = [&]
+        // ---- the head: what this strip is
+        body.removeFromTop (4);
+        col.name = body.removeFromTop (13);
+        body.removeFromTop (2);
         {
-            int t = nameH + gap + (gainH > 0 ? gainH + gap : 0) + (loudH > 0 ? loudH + gap : 0)
-                  + (keepInserts ? insertsH + gap : 0) + (keepSends ? sendsH + gap : 0) + (keepPan ? panH + gap : 0)
-                  + levelH + (keepPeak ? 2 + peakH : 0) + (keysH > 0 ? gap + keysH : 0) + (keepOut ? gap + outH : 0);
-            return t;
-        };
-        if (r.getHeight() - total() < bodyMin) keepSends = false;
-        if (r.getHeight() - total() < bodyMin) keepOut = false;
-        if (r.getHeight() - total() < bodyMin) keepPeak = false;
-        if (r.getHeight() - total() < bodyMin) keepInserts = false;
-        if (r.getHeight() - total() < bodyMin) keepPan = false;
+            auto line = body.removeFromTop (10);
+            col.tunedLamp = line.removeFromRight (5).withSizeKeepingCentre (5, 5);
+            line.removeFromRight (2);
+            col.input = line;
+        }
+        body.removeFromTop (3);
+        if (kind != Kind::Master) { col.trim = body.removeFromTop (10); col.hasTrim = true; body.removeFromTop (5); }
 
-        col.name = r.removeFromTop (nameH);
-        r.removeFromTop (gap);
-        if (gainH > 0) { col.gain = r.removeFromTop (gainH); col.hasGain = true; r.removeFromTop (gap); }
-        if (loudH > 0) { col.loudness = r.removeFromTop (loudH); col.hasLoudness = true; r.removeFromTop (gap); }
+        // ---- the master says what is leaving the mix instead of what is in its chain
+        if (kind == Kind::Master)
+        {
+            const int loudH = 5 * 18;
+            if (body.getHeight() > loudH + 120) { col.loudness = body.removeFromTop (loudH); col.hasLoudness = true; body.removeFromTop (6); }
+        }
+
+        // ---- four insert slots, always four, so the eye finds a stage in the same place on
+        // every strip whether or not that strip has it.
+        const int slots = kind == Kind::Master ? 0 : 4;
+        const int insertsH = slots > 0 ? slots * 15 + (slots - 1) * 2 : 0;
+        const int sendsH = kind != Kind::Master && showSends ? 2 * 12 : 0;
+        const int panH = kind != Kind::Master ? 24 + 2 + 10 : 0;
+        const int keysH = kind != Kind::Master ? 18 : 0;
+        const int levelH = 12, peakH = kind == Kind::Master ? 0 : 10;
+        const int plateH = kind == Kind::Master ? 0 : 20;
+        const int throwMin = 90;
+
+        // What gives way, and in what order, when the window is too short for all of it.
+        bool keepInserts = slots > 0, keepSends = sendsH > 0, keepPan = panH > 0,
+             keepPeak = peakH > 0, keepPlate = plateH > 0;
+        auto need = [&]
+        {
+            return (keepInserts ? insertsH + 5 : 0) + (keepSends ? sendsH + 6 : 0) + (keepPan ? panH + 6 : 0)
+                 + (keepPlate ? plateH + 8 : 0) + (keepPeak ? peakH + 2 : 0) + levelH + 4 + (keysH > 0 ? keysH + 4 : 0);
+        };
+        if (body.getHeight() - need() < throwMin) keepSends = false;
+        if (body.getHeight() - need() < throwMin) keepPeak = false;
+        if (body.getHeight() - need() < throwMin) keepPan = false;
+        if (body.getHeight() - need() < throwMin) keepPlate = false;
+        if (body.getHeight() - need() < throwMin) keepInserts = false;
+
         if (keepInserts)
         {
-            auto block = r.removeFromTop (insertsH);
-            col.insertsLabel = block.removeFromTop (11);
-            block.removeFromTop (2);
-            for (int i = 0; i < inserts; ++i) { col.insertRows.push_back (block.removeFromTop (kSlotH)); block.removeFromTop (2); }
+            for (int i = 0; i < slots; ++i)
+            {
+                col.insertRows.push_back (body.removeFromTop (15));
+                if (i + 1 < slots) body.removeFromTop (2);
+            }
             col.hasInserts = true;
-            r.removeFromTop (gap);
+            body.removeFromTop (5);
         }
         if (keepSends)
         {
-            auto block = r.removeFromTop (sendsH);
-            col.sendsLabel = block.removeFromTop (11);
-            block.removeFromTop (2);
-            for (int i = 0; i < sends; ++i) { col.sendRows.push_back (block.removeFromTop (kSlotH)); block.removeFromTop (2); }
+            for (int i = 0; i < 2; ++i)
+            {
+                auto row = body.removeFromTop (12);
+                col.sendLabels[size_t (i)] = row.removeFromLeft (8);
+                row.removeFromLeft (4);
+                col.sendTracks[size_t (i)] = row.withSizeKeepingCentre (row.getWidth(), 4);
+            }
             col.hasSends = true;
-            r.removeFromTop (gap);
+            body.removeFromTop (6);
         }
         if (keepPan)
         {
-            auto block = r.removeFromTop (panH);
-            col.panLabel = block.removeFromTop (9);
-            block.removeFromTop (4);
-            col.panBar = block.removeFromTop (14);
-            block.removeFromTop (3);
-            col.panRead = block;
+            col.panKnob = body.removeFromTop (24).withSizeKeepingCentre (24, 24);
+            body.removeFromTop (2);
+            col.panRead = body.removeFromTop (10);
             col.hasPan = true;
-            r.removeFromTop (gap);
+            body.removeFromTop (6);
         }
+        if (keysH > 0) { col.keys = body.removeFromTop (keysH); body.removeFromTop (4); }
 
-        if (keepOut) { col.out = r.removeFromBottom (outH); col.hasOut = true; r.removeFromBottom (gap); }
-        if (keysH > 0) { col.keys = r.removeFromBottom (keysH); r.removeFromBottom (gap); }
-        if (keepPeak) { col.peak = r.removeFromBottom (peakH); col.hasPeak = true; r.removeFromBottom (2); }
-        col.level = r.removeFromBottom (levelH);
+        // ---- the foot, from the bottom up
+        if (keepPlate) { col.plate = body.removeFromBottom (plateH).reduced (1, 0); col.hasPlate = true; body.removeFromBottom (8); }
+        if (keepPeak) { col.peak = body.removeFromBottom (peakH); col.hasPeak = true; body.removeFromBottom (2); }
+        col.level = body.removeFromBottom (levelH);
+        body.removeFromBottom (4);
 
-        // the throw: the fader 22 wide and the meter 7 (8 on the master), 6 apart, centred
-        auto body = r.withTrimmedTop (6).withTrimmedBottom (6);
-        const int faderW = 22, meterW = kind == Kind::Master ? 8 : 7;
-        auto pair = body.withSizeKeepingCentre (faderW + 6 + meterW, body.getHeight());
-        col.fader = pair.removeFromLeft (faderW);
-        pair.removeFromLeft (6);
-        col.meter = pair;
-        col.body = juce::Rectangle<int> (col.fader.getX(), col.fader.getY(), col.meter.getRight() - col.fader.getX(), col.fader.getHeight());
+        // ---- the throw: the scale down the left, then the fader, the meter and the
+        // gain-reduction meter. The design's proportions at 48 wide are 18 / 3 / 4 / 2 with the
+        // fader cap straddling its track; anything narrower drops the scale first.
+        // The design's 48 px strip puts the scale at x0..18, the fader's *track* at x24 (the cap
+        // is 22 wide and straddles it, overlapping the scale's right edge), the meter at x39
+        // and the gain reduction at x44. So the throw is laid out across the whole strip rather
+        // than inside the padding, and the scale and the fader share their space the way two
+        // things on a real console do.
+        const int meterW = kind == Kind::Master ? 6 : 4;
+        const int grW = kind == Kind::Channel || kind == Kind::Bus ? 2 : 0;
+        const int full = getWidth();
+        auto th = juce::Rectangle<int> (0, body.getY(), full, body.getHeight());
+
+        const int faderW = juce::jmin (22, juce::jmax (12, full - 14));
+        const int right = grW + (grW > 0 ? 1 : 0) + meterW + 2;
+        const int trackCentre = full - right - juce::jmax (4, (full - right) / 4);
+        const int scaleW = juce::jmax (0, trackCentre - faderW / 2 + 4);
+
+        if (grW > 0) { col.gr = th.removeFromRight (grW); col.hasGr = true; th.removeFromRight (1); }
+        col.meter = th.removeFromRight (meterW);
+        th.removeFromRight (2);
+        col.fader = juce::Rectangle<int> (trackCentre - faderW / 2, th.getY(), faderW, th.getHeight());
+        if (scaleW >= 12)
+        {
+            col.scale = juce::Rectangle<int> (0, th.getY(), scaleW, th.getHeight());
+            col.hasScale = true;
+        }
+        col.body = juce::Rectangle<int> (col.fader.getX(), col.fader.getY(),
+                                         (col.hasGr ? col.gr.getRight() : col.meter.getRight()) - col.fader.getX(),
+                                         col.fader.getHeight());
     }
 
     void layoutColumn()
@@ -741,7 +863,8 @@ public:
         meter.setBounds (col.meter);
         fader.setBounds (col.fader);
         pan.setVisible (col.hasPan && kind == Kind::Channel);
-        if (pan.isVisible()) pan.setBounds (col.panBar);
+        pan.setKnob (true);
+        if (pan.isVisible()) pan.setBounds (col.panKnob);
 
         if (col.keys.isEmpty())
         {
@@ -751,30 +874,20 @@ public:
             monitorButton.setVisible (false);
             return;
         }
+        // The design's strip carries two keys: mute and solo. Record-arm and monitoring left the
+        // console for the places that own them - the R and A keys on every TRACKS row, and the
+        // REC column on ROUTING - which is where a person setting a service up already is.
         muteButton.setVisible (kind != Kind::Master);
         soloButton.setVisible (kind != Kind::Master);
-        armButton.setVisible (kind == Kind::Channel);
-        monitorButton.setVisible (kind == Kind::Channel);
+        armButton.setVisible (false);
+        monitorButton.setVisible (false);
 
         auto keys = col.keys;
-        const int gap = 4;
+        const int gap = 2;
         const int w = (keys.getWidth() - gap) / 2;
-        if (kind == Kind::Channel)
-        {
-            auto top = keys.removeFromTop (22);
-            keys.removeFromTop (gap);
-            auto bottom = keys.removeFromTop (22);
-            armButton.setBounds (top.removeFromLeft (w));
-            monitorButton.setBounds (top.removeFromRight (w));
-            muteButton.setBounds (bottom.removeFromLeft (w));
-            soloButton.setBounds (bottom.removeFromRight (w));
-        }
-        else
-        {
-            auto row = keys.removeFromBottom (22);
-            muteButton.setBounds (row.removeFromLeft (w));
-            soloButton.setBounds (row.removeFromRight (w));
-        }
+        muteButton.setBounds (keys.removeFromLeft (w));
+        keys.removeFromLeft (gap);
+        soloButton.setBounds (keys.removeFromLeft (w));
     }
 
     void layoutRow()
@@ -817,6 +930,18 @@ public:
     {
         if (e.eventComponent != this || e.mouseWasDraggedSinceMouseDown()) return;
         if (e.mods.isPopupMenu()) { if (select) select(); showMenu(); return; }
+
+        // An insert slot is the stage it names: clicking it opens that stage in the Inspector,
+        // rather than making somebody open the channel and then find the stage again.
+        if (layout == Layout::Column && col.hasInserts && openStage != nullptr)
+            for (size_t i = 0; i < col.insertRows.size() && i < insertList.size(); ++i)
+                if (col.insertRows[i].contains (e.getPosition()))
+                {
+                    if (select) select();
+                    openStage (insertList[i].label);
+                    return;
+                }
+
         if (e.getNumberOfClicks() >= 2) { if (open) open(); }
         else if (select) select();
     }
@@ -897,13 +1022,20 @@ public:
                          });
     }
 
+    // The strip's anatomy, straight off the design's Channel Strip component (48 x 680): a bus
+    // colour bar, the name, the input and the tuned lamp, the trim, four insert slots, two
+    // sends, the pan, the two keys, then the scale, the fader, the meter and the gain-reduction
+    // meter, the two readouts and the bus plate. The fixed parts keep their heights at every
+    // window size and the throw takes whatever is left, so a short window loses travel rather
+    // than losing the console.
     struct Col
     {
-        juce::Rectangle<int> name, gain, loudness, insertsLabel, sendsLabel, panLabel, panBar, panRead,
-                             fader, meter, body, level, peak, keys, out;
-        std::vector<juce::Rectangle<int>> insertRows, sendRows;
+        juce::Rectangle<int> busBar, name, input, tunedLamp, trim, loudness, panKnob, panRead,
+                             scale, fader, meter, gr, body, level, peak, keys, plate;
+        std::vector<juce::Rectangle<int>> insertRows;
+        std::array<juce::Rectangle<int>, 2> sendLabels {}, sendTracks {};
         bool hasLoudness = false, hasInserts = false, hasSends = false, hasPan = false,
-             hasOut = false, hasGain = false, hasPeak = false;
+             hasPlate = false, hasTrim = false, hasPeak = false, hasScale = false, hasGr = false;
     };
     struct SendView { juce::String label; float db = kSilenceDb; };
 
@@ -919,6 +1051,12 @@ public:
     bool truePeakOver = false, limiterHot = false;
     int link = 0, linkNow = 0;            // StripParameters::linkGroup, as last drawn / as read this tick
     float peakDb = -120.0f, shownFaderDb = 1000.0f;
+    // What the design's strip says that the old one did not: whether DLIVE has been through
+    // this channel, what the preamp trim is set to, and how hard the compressor is working.
+    bool tuned = false;
+    juce::String inputText, trimText { "TRIM +0" };
+    float grDb = 0.0f, shownGrDb = -1.0f;
+    bool grMoved = false;
     juce::Rectangle<int> valueRect, panReadRect;
     Col col;
     std::vector<ChainStage> insertList;
@@ -936,6 +1074,7 @@ public:
     PanBar pan;
     DineKey muteButton, soloButton, armButton, monitorButton;
     std::function<void()> open, select, tune, assign;
+    std::function<void (const juce::String&)> openStage;   // an insert slot names its stage
 };
 
 // ------------------------------------------------------------------ Bank
@@ -1169,6 +1308,7 @@ void MixerPage::rebuild()
             s->setSelectHandler ([this, i] { selectStrip (i); });
             s->setTuneHandler ([this, i] { if (onTuneStrip) onTuneStrip (i); });
             s->setAssignHandler ([this] { if (onOpenAssign) onOpenAssign(); });
+            s->setOpenStageHandler ([this, i] (const juce::String& stage) { if (onOpenStripStage) onOpenStripStage (i, stage); });
             add (std::move (s));
         }
 
@@ -1355,30 +1495,51 @@ void MixerPage::layoutStrips()
     const int h = juce::jmax (180, area.getHeight());
     const int stripH = juce::jmin (h, kMaxStripH);
 
+    // THE GROUP PANEL. The design pins every group and the master down the right of the
+    // console, in MixBus order, and leaves the scrolling bank to the channels. It is always
+    // there: the groups are what a service is actually mixed on, and hunting for them at the
+    // far end of a forty-eight channel scroll is how a group gets left where it was.
     auto* master = masterStrip();
-    if (master != nullptr && visibleInFilter (*master))
-    {
-        if (master->getParentComponent() != this) addAndMakeVisible (*master);
-        master->setVisible (true);
-        master->setBounds (area.removeFromRight (kMasterW).withHeight (stripH));
-    }
-    else if (master != nullptr) master->setVisible (false);
+    int panelW = 0;
+    for (auto& s : strips)
+        if (s->getKind() != Strip::Kind::Channel && visibleInFilter (*s))
+            panelW += s->columnWidth() + kStripGap;
+    if (panelW > 0) panelW -= kStripGap;
+    // The panel never takes so much of a narrow window that the channels have nowhere to go.
+    panelW = juce::jmin (panelW, juce::jmax (0, area.getWidth() - 3 * columnWidthFor (stripSize)));
+
+    auto panel = panelW > 0 ? area.removeFromRight (panelW) : juce::Rectangle<int>();
     viewport.setBounds (area);
 
-    int x = 0;
-    for (int b = 0; b <= int (MixBus::Master); ++b)
     {
-        const auto bus = MixBus (b);
-        for (auto& s : strips)
+        int px = panel.getX();
+        for (int b = 0; b <= int (MixBus::Master); ++b)
         {
-            if (s->getBus() != bus || s.get() == master) continue;
-            const bool wanted = visibleInFilter (*s);
-            s->setVisible (wanted);
-            if (! wanted) continue;
-            s->setBounds (x, 0, s->columnWidth(), stripH);
-            x += s->columnWidth() + kStripGap;
+            for (auto& s : strips)
+            {
+                if (s->getKind() == Strip::Kind::Channel || int (s->getBus()) != b) continue;
+                const bool wanted = visibleInFilter (*s) && panelW > 0;
+                if (wanted && s->getParentComponent() != this) addAndMakeVisible (*s);
+                s->setVisible (wanted);
+                if (! wanted) continue;
+                s->setBounds (px, panel.getY(), s->columnWidth(), stripH);
+                px += s->columnWidth() + kStripGap;
+            }
         }
     }
+
+    int x = 0;
+    for (auto& s : strips)
+    {
+        if (s->getKind() != Strip::Kind::Channel) continue;
+        const bool wanted = visibleInFilter (*s);
+        if (wanted && s->getParentComponent() != bank.get()) bank->addAndMakeVisible (*s);
+        s->setVisible (wanted);
+        if (! wanted) continue;
+        s->setBounds (x, 0, s->columnWidth(), stripH);
+        x += s->columnWidth() + kStripGap;
+    }
+    juce::ignoreUnused (master);
     // No trailing gap: a bank that exactly fits must not grow a scrollbar for the gap after its last strip.
     bank->setSize (juce::jmax (x > 0 ? x - kStripGap : 0, viewport.getWidth()), juce::jmax (stripH, viewport.getMaximumVisibleHeight()));
 }

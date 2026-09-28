@@ -8,7 +8,7 @@ which engine phase owns it.
 The design file is **`2wv5QSnvrSSQXtDzfuShIn`** ("DLIVE Desktop v2", Sept 2026).
 The baseline this is all measured against is `docs/design/baseline/`.
 
-**Status: UI-0, UI-1 and UI-2 done. Next: UI-3, the mixer and the channel strip.**
+**Status: UI-0, UI-1, UI-2 and UI-3 done. Next: UI-4, the ROUTING workspace.**
 
 ---
 
@@ -185,6 +185,64 @@ cannot take JUCE's fast glyph path. It is not one expensive thing; it is eight o
 Full repaint is the price of a **page switch or a resize**, not of a frame. It was already over
 one frame on INSPECTOR at the baseline (33.75 ms). **This needs a decision**: accept it as the
 cost of the design's chrome, or pay down the kerned-text draw cost before UI-3.
+
+## 3c. UI-3: the mixer and the channel strip
+
+The Handoff page does not exist, but the **Channel Strip component does**, and
+`get_metadata` on it gives every y offset. So the strip is built to the design's own numbers
+rather than to an eye: 48 x 680, bus bar at 0, name at 7, input and tuned lamp at 22, trim at
+35, four insert slots at 50/67/84/101, sends at 121 and 133, the pan at 148, its readout at
+174, the keys at 190, the throw 216..610 with the fader track 3 px wide at x24 under a 22 px
+cap, the meter at x39, the gain reduction at x44, the readouts at 616 and 632 and the plate at
+652. The seven scale stops come out of the same metadata at 0 / 14 / 28 / 42 / 62 / 80 / 100 %,
+which is exactly what the phase prompt said they were.
+
+**What is new on the strip:** the trim readout, four *fixed* insert slots (always four, so the
+eye finds GATE in the same place on every strip that has one), the sends as bars rather than
+words, the design's 270 degree pan knob, the scale down the left of the throw, the
+gain-reduction meter, and the bus plate on a 18 % tint of its own group's colour.
+
+**Gain reduction needed no engine work.** `MixEngine::getStrip(i).getCompressor()` is the same
+running processor the meters are already read from, so the 2 px column reads
+`getGainReductionDb()` on the message thread exactly as the meters do. Nothing new is
+published, nothing is allocated, and the audio thread is untouched. It gets its own small
+repaint rectangle so it can move every frame without the strip being redrawn around it.
+
+**Insert slots open their stage.** Clicking GATE on a strip opens the Inspector with the gate
+already picked out - `ChainEditor::selectStageNamed` matches on the word the slot prints, which
+is the same word the chain foot and the Inspector use, so the three cannot disagree. An unknown
+stage opens the channel and changes nothing else. Asserted in `dlive_ui_tests`.
+
+**The group panel** is pinned down the right, always visible, one strip per `MixBus` in stored
+order with the master at the end; the scrolling bank holds the channels alone. Sixteen channel
+strips fit at 1440 with the panel beside them, which is what the prompt asked for. LEAD and BGV
+are not there because they are not `MixBus` values yet (§6).
+
+**Solo went from teal to `hot`.** The design's S key and its solo bar are the same colour, and
+it is not the accent. That is right: teal in DLIVE means *this is what DLIVE did, or what is
+chosen*, and solo is neither - it is the engineer's own listen, which the room never hears.
+`CLAUDE.md` said "solo teal" and now says otherwise.
+
+### One thing left the mixer strip
+
+**Record-arm (R) and monitoring (A).** The design's strip carries two keys, mute and solo, and
+that is what DLIVE's does now. Neither became impossible: every TRACKS row still has its own R
+and A, and ROUTING has a REC column - which is where somebody setting a service up already is.
+This is the change in this phase most worth arguing with.
+
+### The frame cost
+
+| | tick ms | full repaint ms |
+| --- | --- | --- |
+| MIXER, UI-2 | 1.51 | 10.4 |
+| MIXER, UI-3 | 1.51 | 14.0 |
+
+Per-tick is unchanged again. The cold full repaint is up because a strip now draws seven scale
+labels, four slots, two send bars, a knob, a plate and a reduction meter where it used to draw
+a short list - and the measurement rebuilds all 48 strips' image caches at once. In use they
+are cached (`setBufferedToImage`), so this is the price of a page switch, not of a frame. It
+compounds with UI-2's increase: MIXER's full repaint is 8.4 ms at the UI-0 baseline and 14.0 ms
+now. **Still awaiting the decision in §3b.**
 
 ## 4. The screens
 

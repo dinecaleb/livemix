@@ -55,6 +55,10 @@ public:
     const std::vector<StageView>& stageViews() const noexcept { return views; }
     int selectedStage() const noexcept { return selected; }
     void selectStage (int index);
+    // The same stage, by the word the mixer's insert slot and the chain foot print on it.
+    // True when this channel has one; false when it does not, so a caller can say nothing
+    // rather than silently pick the wrong stage.
+    bool selectStageNamed (const juce::String& label);
     void toggleStage (int index);                // the lamp: switch the stage in or out
 
     void refresh();                              // values, meters and the graph, at the page's rate

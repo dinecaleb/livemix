@@ -73,7 +73,17 @@ file under `docs/` — read the one for the area you are touching before changin
   move together. Colour literals belong in `AppTheme` only, and a new widget re-reads its tokens in
   `lookAndFeelChanged()`.
 - **LIVE SAFE is a policy in `MixController`**, not a menu guard; **BYPASS never touches the kept mix**;
-  **solo never changes what the room hears**.
+  **solo never changes what the room hears** - and because nothing else on the console can say so, a global
+  **solo bar** sits on the toolbar of every workspace whenever anything at all is soloed, names it, goes to it
+  and clears it. Solo is the same `hot` as that bar, never the accent: teal means "what DLIVE did, or what is
+  chosen", and solo is neither.
+- **The v2 design is the Figma file `2wv5QSnvrSSQXtDzfuShIn`, and `docs/DESIGN-IMPLEMENTATION.md` is the
+  running record of it** - what matches, what deliberately differs and what waits on an engine phase. The
+  chrome is one shell on every workspace (title row 52, toolbar 56, sidebar 184, status foot 50); ROUTING is a
+  **Deliberate** tab, outlined and divided off, because what happens there changes what the room hears;
+  the channel strip is the design's 48 x 680 anatomy and its numbers come from the component, not from an eye.
+  Colours are `Dine::` tokens only, every `Label/*` is Barlow Condensed, and **Text size** (View > Appearance)
+  scales the type roles and nothing else - a strip is 48 px wide at every size.
 
 ## Build and check (the short form; all of it in `docs/BUILD-AND-VERIFY.md`)
 

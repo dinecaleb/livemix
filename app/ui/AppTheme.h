@@ -22,7 +22,7 @@ namespace livemix
 // gradients, no glows and no outlines: the hierarchy is carried by value, by radius and by
 // type. The accent is a teal (#6db8a8) spent on the primary action, the active workspace,
 // what is selected or soloed, what DLIVE tuned, and the meters. The console keys keep their
-// own colours (record red, monitoring blue, mute amber, solo teal) so a key says which key
+// own colours (record red, monitoring blue, mute amber, solo the same hot as the solo bar) so a key says which key
 // it is before it says it is on.
 //
 // Type is Barlow for everything a person reads and IBM Plex Mono for every number - both
@@ -122,7 +122,11 @@ namespace Dine
 
     // The console keys keep their own colours.
     inline juce::Colour keyMute     { 0xffe0a85c };
-    inline juce::Colour keySolo     { 0xff6db8a8 };
+    // Solo is the colour of the solo bar, not of the accent. Teal in DLIVE means "this is
+    // what DLIVE did, or what is chosen"; solo is neither - it is the engineer's own listen,
+    // which the room never hears. The design gives both the same `hot`, so an S key and the
+    // bar that says an S key is down are obviously the same thing.
+    inline juce::Colour keySolo     { 0xffcbbf6a };
     inline juce::Colour keyRec      { 0xffe06a64 };
     inline juce::Colour keyMon      { 0xff6eafff };
     inline juce::Colour monitor     { 0xff6eafff };   // the engineer's own ears
@@ -457,9 +461,13 @@ public:
     void setValue (float v)       { if (std::fabs (v - value) > 0.0005f) { value = v; repaint(); } }
     float getValue() const noexcept { return value; }
     void setTint (juce::Colour c) { tint = c; }
+    // The console strip draws balance as the design's knob - a 270 degree arc with the
+    // pointer at the top at centre - rather than as a bar. Dragging it is vertical, the way a
+    // knob is turned, and double-click still puts it back to the middle.
+    void setKnob (bool k)         { if (k != knob) { knob = k; repaint(); } }
 
     void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent& e) override { drag (e); }
+    void mouseDown (const juce::MouseEvent& e) override { dragFrom = value; if (! knob) drag (e); }
     void mouseDrag (const juce::MouseEvent& e) override { drag (e); }
     void mouseDoubleClick (const juce::MouseEvent&) override;
 
@@ -467,6 +475,8 @@ private:
     void drag (const juce::MouseEvent&);
 
     float value = 0.0f;
+    float dragFrom = 0.0f;
+    bool knob = false;
     std::optional<juce::Colour> tint;    // unset = the accent, read when painted
 };
 

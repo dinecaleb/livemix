@@ -112,7 +112,7 @@ namespace
             { "accent", 0xff6db8a8 }, { "accentHover", 0xff8ed0c2 }, { "accentDeep", 0xff5aa393 }, { "onAccent", 0xff0b0d10 },
             { "focusRing", 0xff6db8a8 },
             { "ok", 0xff57b98d }, { "hot", 0xffcbbf6a }, { "onHot", 0xff17150a }, { "warn", 0xffe0a85c }, { "crit", 0xffe06a64 }, { "monitor", 0xff6eafff },
-            { "keyMute", 0xffe0a85c }, { "keySolo", 0xff6db8a8 }, { "keyRec", 0xffe06a64 }, { "keyMon", 0xff6eafff },
+            { "keyMute", 0xffe0a85c }, { "keySolo", 0xffcbbf6a }, { "keyRec", 0xffe06a64 }, { "keyMon", 0xff6eafff },
             { "busDrums", 0xffe09a4b }, { "busBass", 0xff8e80ff }, { "busMusic", 0xff6eafff }, { "busVocals", 0xff57b98d },
             { "busSpeech", 0xffc98fb0 }, { "busAmbience", 0xffa8b0bc }, { "busMaster", 0xffa8b0bc },
             { "busLead", 0xfff07f8f }, { "busFx", 0xff7fc4d8 },

@@ -696,6 +696,37 @@ void Dine::drawPill (juce::Graphics& g, juce::Rectangle<float> r, const juce::St
 // ============================================================================ PanBar
 void PanBar::paint (juce::Graphics& g)
 {
+    if (knob)
+    {
+        // A 270 degree arc, open at the bottom, with the pointer straight up at centre.
+        auto area = getLocalBounds().toFloat().reduced (1.0f);
+        const float radius = juce::jmin (area.getWidth(), area.getHeight()) * 0.5f;
+        const auto centre = area.getCentre();
+        constexpr float kSweep = 2.356194f;                 // 135 degrees each side of the top
+        const float angle = value * kSweep;
+
+        juce::Path track;
+        track.addCentredArc (centre.x, centre.y, radius - 1.5f, radius - 1.5f, 0.0f, -kSweep, kSweep, true);
+        g.setColour (Dine::control);
+        g.strokePath (track, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        if (std::fabs (value) > 0.02f)
+        {
+            juce::Path value_;
+            value_.addCentredArc (centre.x, centre.y, radius - 1.5f, radius - 1.5f, 0.0f,
+                                  juce::jmin (0.0f, angle), juce::jmax (0.0f, angle), true);
+            g.setColour (tint.value_or (Dine::accent));
+            g.strokePath (value_, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+        // the pointer
+        const float px = centre.x + std::sin (angle) * (radius - 2.0f);
+        const float py = centre.y - std::cos (angle) * (radius - 2.0f);
+        g.setColour (isEnabled() ? Dine::ink : Dine::ink3);
+        g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre ({ px, py }));
+        return;
+    }
+
     auto r = getLocalBounds().toFloat().withSizeKeepingCentre (float (getWidth()), 4.0f);
     Dine::fillRounded (g, r, Dine::control, 2.0f);
     const float centre = r.getCentreX();
@@ -725,6 +756,15 @@ void PanBar::mouseDoubleClick (const juce::MouseEvent&)
 void PanBar::drag (const juce::MouseEvent& e)
 {
     if (! isEnabled()) return;
+    if (knob)
+    {
+        // A knob is turned, not pointed at: the distance dragged upward is the move, so a
+        // 24 px control still has the whole range in it.
+        const float v = juce::jlimit (-1.0f, 1.0f, dragFrom - float (e.getDistanceFromDragStartY()) / 90.0f);
+        setValue (std::fabs (v) < 0.06f ? 0.0f : v);
+        if (onChange) onChange (value);
+        return;
+    }
     const float half = juce::jmax (1.0f, float (getWidth()) * 0.5f - 5.5f);
     const float v = juce::jlimit (-1.0f, 1.0f, (float (e.position.x) - float (getWidth()) * 0.5f) / half);
     setValue (std::fabs (v) < 0.06f ? 0.0f : v);
