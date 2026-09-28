@@ -119,6 +119,7 @@ tests/                      engine + integration tests, benchmark, reference ren
 | --- | --- |
 | Build, test, snapshot, stems and AU commands; the real recordings | `docs/BUILD-AND-VERIFY.md`, `BUILD-RUN-SHARE.md` |
 | What a session holds, who owns it, autosave, recovery and the mix history | `docs/SESSION-STATE.md` |
+| The four-phase plan and what phase the work is in | `docs/ROADMAP-RELIABILITY.md` |
 | The engine's rules: products, parameters, Tune, profiles, wording, FX | `docs/DINE-CORE-RULES.md`, `docs/ARCHITECTURE-DINE-CORE.md` |
 | DLIVE the application: DAW layer, every workspace, setup pages | `docs/DLIVE-APP.md`, `docs/ARCHITECTURE-DLIVE.md`, `docs/MILESTONE-7.md` |
 | The mix engineer: TUNE LIVE MIX, REFERENCE MIX, LIVE SAFE, MIX BUDDY, loudness, profiles, linked faders | `docs/DLIVE-MIX-ENGINEER.md`, `docs/ARCHITECTURE-DLIVE-AI.md` |
