@@ -94,6 +94,8 @@ public:
     // snapshot tool switches the stored choice off so every render starts from the design.
     void showThemes();
     void applyThemeNamed (const juce::String& name);
+    // Standard / Large / Larger. Scales the type roles and remembers the choice on this Mac.
+    void applyTextSize (float scale);
     static void setStoredThemeUsed (bool);
 
     void tuneChannel (int strip, const MixController::ListenSettings& listen = MixController::channelListen());
@@ -120,6 +122,7 @@ private:
     class Menu;
     class ToolbarToggle;
     static constexpr int kWordmarkW = 58;
+    int wordmarkWidth() const;          // never less than the mark actually measures
     static constexpr int kCountsW = 190;     // "N inputs   N to record", at the right of the title row before the buttons
     static constexpr int kRequestsW = 380;   // the Mix Buddy panel down the right of the workspace   // "DLIVE" at the right end of the title row
     class SidebarButton;

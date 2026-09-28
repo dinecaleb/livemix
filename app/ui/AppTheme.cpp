@@ -1,25 +1,85 @@
 #include "AppTheme.h"
+#include "BinaryData.h"
 
 namespace livemix
 {
 
 // ============================================================================ type
-// Barlow and IBM Plex Mono, embedded (LiveMixFonts): the same faces the design file loads,
-// so the booth Mac reads exactly like the mock whatever it has installed.
+// Barlow, Barlow Condensed and IBM Plex Mono, embedded (LiveMixFonts): the same faces the
+// design file loads, so the booth Mac reads exactly like the mock whatever it has installed.
+//
+// The condensed face is loaded here rather than through LiveMixLookAndFeel::condensed, which
+// maps its label family to plain Barlow on purpose - "tracking-heavy condensed caps don't
+// dominate" - and clamps tracking to 0.04 em with it. That is the right call for a plug-in
+// panel and the wrong one for DLIVE, whose every Label/* style really is Barlow Condensed at
+// up to 0.10 em. Doing it here leaves the six plug-ins looking exactly as they did.
+namespace
+{
+    // One face per weight, for the life of the process. It must NOT be a stack
+    // juce::SharedResourcePointer: that one is owned by whoever holds it, so a local would
+    // build the cache and destroy it again on every call - re-parsing 109 KB of TTF for every
+    // label on every frame, which cost 18 % of the frame budget before it was caught.
+    juce::Typeface::Ptr condensedFace (int weight)
+    {
+        static juce::Typeface::Ptr faces[3];
+        const int w = weight >= 700 ? 2 : weight >= 600 ? 1 : 0;
+        if (faces[w] != nullptr) return faces[w];
+
+        using namespace LiveMixFonts;
+        const char* data = w == 2 ? BarlowCondensedBold_ttf : w == 1 ? BarlowCondensedSemiBold_ttf : BarlowCondensedMedium_ttf;
+        const int size   = w == 2 ? BarlowCondensedBold_ttfSize : w == 1 ? BarlowCondensedSemiBold_ttfSize : BarlowCondensedMedium_ttfSize;
+        faces[w] = juce::Typeface::createSystemTypefaceFor (data, size_t (size));
+        return faces[w];
+    }
+
+    // juce::Font's kerning factor is a fraction of the font's width, not of the em; the shared
+    // look-and-feel uses the same conversion.
+    constexpr float kEmToKerning = 1.0f / 0.6f;
+
+    float gTextScale = 1.0f;
+}
+
+void Dine::setTextScale (float scale) { gTextScale = juce::jlimit (1.0f, 2.0f, scale); }
+float Dine::textScale() { return gTextScale; }
+
 juce::Font Dine::text (float px, int weight)
 {
-    return LiveMixLookAndFeel::body (px, weight, 0.0f);
+    return LiveMixLookAndFeel::body (px * gTextScale, weight, 0.0f);
 }
 
 juce::Font Dine::mono (float px, int weight)
 {
-    return LiveMixLookAndFeel::mono (px, weight, 0.0f);
+    return LiveMixLookAndFeel::mono (px * gTextScale, weight, 0.0f);
+}
+
+juce::Font Dine::condensed (float px, int weight, float tracking)
+{
+    return juce::Font (juce::FontOptions().withTypeface (condensedFace (weight))
+                                          .withPointHeight (px * gTextScale)
+                                          .withKerningFactor (tracking * kEmToKerning));
 }
 
 juce::Font Dine::caps (float px, float tracking, int weight)
 {
-    return LiveMixLookAndFeel::body (px, weight, 0.0f).withExtraKerningFactor (tracking);
+    return condensed (px, weight, tracking);
 }
+
+// ---------------------------------------------------------------- the design's text styles
+juce::Font Dine::Type::wordmark()     { return condensed (24.0f, 700, 0.10f); }
+juce::Font Dine::Type::headingPage()  { return text (17.0f, 600); }
+juce::Font Dine::Type::headingCard()  { return text (14.0f, 600); }
+juce::Font Dine::Type::body()         { return text (13.0f, 500); }
+juce::Font Dine::Type::bodySmall()    { return text (12.0f, 500); }
+juce::Font Dine::Type::caption()      { return text (11.0f, 500); }
+juce::Font Dine::Type::labelTab()     { return condensed (13.0f, 600, 0.08f); }
+juce::Font Dine::Type::labelControl() { return condensed (12.0f, 600, 0.05f); }
+juce::Font Dine::Type::labelStrip()   { return condensed (11.0f, 600, 0.02f); }
+juce::Font Dine::Type::labelSection() { return condensed (10.0f, 600, 0.08f); }
+juce::Font Dine::Type::labelMicro()   { return condensed (9.0f, 700, 0.06f); }
+juce::Font Dine::Type::monoClock()    { return mono (16.0f, 500); }
+juce::Font Dine::Type::monoValue()    { return mono (12.0f, 500); }
+juce::Font Dine::Type::monoSmall()    { return mono (10.0f, 400); }
+juce::Font Dine::Type::monoMeter()    { return mono (8.0f, 400); }
 
 int Dine::textWidth (const juce::Font& f, const juce::String& t)
 {
@@ -189,6 +249,7 @@ const std::vector<Dine::ThemeBinding>& Dine::themeBindings()
         { "card", &card }, { "raised", &raised }, { "item", &item }, { "selected", &selected }, { "control", &control },
         { "controlHot", &controlHot }, { "controlOn", &controlOn }, { "sheet", &sheet }, { "popover", &popover },
         { "refuse", &refuse }, { "recGround", &recGround }, { "soloGround", &soloGround }, { "editGround", &editGround },
+        { "scrim", &scrim }, { "autopilotGround", &autopilotGround },
         { "hairSoft", &hairSoft }, { "hair", &hair }, { "hairStrong", &hairStrong }, { "edge", &edge }, { "fill", &fill },
         { "fillHover", &fillHover }, { "fillSoft", &fillSoft }, { "well", &well },
         { "ink", &ink }, { "ink2", &ink2 }, { "ink3", &ink3 }, { "ink4", &ink4 }, { "glyph", &glyph }, { "panMark", &panMark },
@@ -198,6 +259,7 @@ const std::vector<Dine::ThemeBinding>& Dine::themeBindings()
         { "keyMute", &keyMute }, { "keySolo", &keySolo }, { "keyRec", &keyRec }, { "keyMon", &keyMon },
         { "busDrums", &busDrums }, { "busBass", &busBass }, { "busMusic", &busMusic }, { "busVocals", &busVocals },
         { "busSpeech", &busSpeech }, { "busAmbience", &busAmbience }, { "busMaster", &busMaster },
+        { "busLead", &busLead }, { "busFx", &busFx },
     };
     return table;
 }

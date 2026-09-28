@@ -105,6 +105,15 @@ namespace ThemeStore
     juce::File preferencesFile();
     juce::String chosenTheme (const juce::File& preferences = preferencesFile());
     bool setChosenTheme (const juce::String& name, const juce::File& preferences = preferencesFile());
+
+    // How large the words are on this Mac. A preference of the machine, like the theme, and
+    // never of the session: two people can read the same service at different sizes. It scales
+    // the type roles and nothing else - a strip is the same 48 px wide at every size, so a
+    // 32-channel console is still a 32-channel console.
+    struct TextSize { const char* name; float scale; };
+    const std::vector<TextSize>& textSizes();          // Standard 1.0, Large 1.2, Larger 1.35
+    float chosenTextSize (const juce::File& preferences = preferencesFile());   // 1.0 when unset or unreadable
+    bool setChosenTextSize (float scale, const juce::File& preferences = preferencesFile());
 }
 
 } // namespace livemix

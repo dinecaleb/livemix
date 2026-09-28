@@ -186,3 +186,34 @@ TEST_CASE ("Themes: the preference remembers the name, forgets the default, and 
     REQUIRE (ThemeStore::setChosenTheme ("Gone", prefs));
     CHECK (ThemeStore::find (ThemeStore::chosenTheme (prefs), scratch ("prefs-empty")).name == juce::String (ThemeStore::kDefaultName));
 }
+
+TEST_CASE ("Text size: the three sizes round-trip, the default is not written down, and a strange value reads as Standard")
+{
+    const auto prefs = scratch ("textsize").getChildFile ("preferences.json");
+    CHECK_NEAR (ThemeStore::chosenTextSize (prefs), 1.0f, 0.001);   // unset is Standard
+
+    // It shares the file with the theme and must not disturb it.
+    REQUIRE (ThemeStore::setChosenTheme ("Slate", prefs));
+    for (const auto& size : ThemeStore::textSizes())
+    {
+        REQUIRE (ThemeStore::setChosenTextSize (size.scale, prefs));
+        CHECK_NEAR (ThemeStore::chosenTextSize (prefs), size.scale, 0.001);
+        CHECK (ThemeStore::chosenTheme (prefs) == "Slate");
+    }
+
+    // Standard is the default, so it is removed rather than stored.
+    REQUIRE (ThemeStore::setChosenTextSize (1.0f, prefs));
+    CHECK (! prefs.loadFileAsString().contains ("textSize"));
+    CHECK (ThemeStore::chosenTheme (prefs) == "Slate");
+
+    // A size this build does not offer - a later version's, or a hand edit - reads back as
+    // Standard, so no file can leave somebody at a scale no menu gets them out of.
+    prefs.replaceWithText (R"({ "textSize": 4.0 })");
+    CHECK_NEAR (ThemeStore::chosenTextSize (prefs), 1.0f, 0.001);
+    prefs.replaceWithText (R"({ "textSize": "large" })");
+    CHECK_NEAR (ThemeStore::chosenTextSize (prefs), 1.0f, 0.001);
+
+    // Every size is offered under a plain name.
+    CHECK (ThemeStore::textSizes().size() == 3);
+    CHECK (juce::String (ThemeStore::textSizes().front().name) == "Standard");
+}

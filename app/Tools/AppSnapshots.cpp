@@ -615,6 +615,13 @@ int main (int argc, char** argv)
         if (juce::String (args[a]) == "--theme") { themeName = args[a + 1]; args.erase (args.begin() + long (a), args.begin() + long (a) + 2); break; }
     for (size_t a = 1; a + 1 < args.size(); ++a)
         if (juce::String (args[a]) == "--stems") { stemsFolder = juce::File (juce::String (args[a + 1])); args.erase (args.begin() + long (a), args.begin() + long (a) + 2); break; }
+    // --text <scale> renders everything at one of the Appearance text sizes (1.0 / 1.2 / 1.35).
+    float textScale = 1.0f;
+    for (size_t a = 1; a + 1 < args.size(); ++a)
+        if (juce::String (args[a]) == "--text") { textScale = juce::String (args[a + 1]).getFloatValue(); args.erase (args.begin() + long (a), args.begin() + long (a) + 2); break; }
+    if (const auto fromEnv = juce::SystemStats::getEnvironmentVariable ("DLIVE_TEXT_SIZE", {}); fromEnv.isNotEmpty())
+        textScale = fromEnv.getFloatValue();
+    Dine::setTextScale (textScale);
     if (stemsFolder == juce::File() )
     {
         // So --sizes and --frames pick the same recording up without repeating it.
@@ -956,6 +963,23 @@ int main (int argc, char** argv)
     view.setSidebarShown (true);
     rig.feed (0.3);
     rig.snap (dir, "15-mixer");
+
+    // Text size, on the console, which is where it has to survive: the words grow and the
+    // strips do not, so a name gets an ellipsis rather than the desk getting wider.
+    // The design's frame 10 is the last of these.
+    for (const auto& size : ThemeStore::textSizes())
+    {
+        if (std::abs (size.scale - Dine::textScale()) < 0.001f) continue;
+        Dine::setTextScale (size.scale);
+        Dine::refreshAllWindows();
+        view.resized();
+        rig.feed (0.3);
+        rig.snap (dir, "15t-mixer-text-" + juce::String (size.name).toLowerCase());
+    }
+    Dine::setTextScale (1.0f);
+    Dine::refreshAllWindows();
+    view.resized();
+    rig.feed (0.3);
 
     view.getMixerPage().setStripSize (MixerPage::Size::Narrow);
     rig.feed (0.3);

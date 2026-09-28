@@ -67,6 +67,13 @@ namespace Dine
     // tuned state is said by the teal lamp / hairline on a neutral ground, never by a green ground.
     inline juce::Colour soloGround  { 0xff222830 };
     inline juce::Colour editGround  { 0xff15202b };   // a hand-edited chip
+    // What a sheet is laid over. The alpha belongs to the thing being opened, not to the
+    // token: 55 % for a sheet, 35 % for a drawer, 25 % for Appearance - whose whole point is
+    // that the console behind it is the preview.
+    inline juce::Colour scrim       { 0xff000000 };
+    // The ground Autopilot's card sits on, so it reads as a thing that is running rather than
+    // a panel. Nothing uses it until Autopilot ships (docs/DESIGN-IMPLEMENTATION.md §6).
+    inline juce::Colour autopilotGround { 0xff121b27 };
 
     // Kept for the few callers that name them; the v2 surfaces are flat, so they are the
     // flat value the band used to ramp to.
@@ -106,7 +113,7 @@ namespace Dine
     inline juce::Colour accentDeep  { 0xff5aa393 };   // pressed
     inline juce::Colour accentTop   { 0xff6db8a8 };
     inline juce::Colour accentBottom{ 0xff6db8a8 };
-    inline juce::Colour onAccent    { 0xff070809 };   // an accent button carries near-black type
+    inline juce::Colour onAccent    { 0xff0b0d10 };   // an accent button carries near-black type
     inline juce::Colour ok          { 0xff57b98d };
     inline juce::Colour hot         { 0xffcbbf6a };   // the meter's middle band
     inline juce::Colour warn        { 0xffe0a85c };
@@ -122,11 +129,15 @@ namespace Dine
     // The group buses, in `MixBus` order; `busTint` reads them.
     inline juce::Colour busDrums    { 0xffe09a4b };
     inline juce::Colour busBass     { 0xff8e80ff };
-    inline juce::Colour busMusic    { 0xff6eafff };
-    inline juce::Colour busVocals   { 0xff57b98d };
+    inline juce::Colour busMusic    { 0xff6eafff };   // the design calls this group BAND
+    inline juce::Colour busVocals   { 0xff57b98d };   // ... and this one BGV
     inline juce::Colour busSpeech   { 0xffc98fb0 };
     inline juce::Colour busAmbience { 0xffa8b0bc };
     inline juce::Colour busMaster   { 0xffa8b0bc };
+    // LEAD is its own bus in the design and is not one in `MixBus` yet; the colour is here so
+    // the whole palette is one table, and the strip that uses it arrives with the bus.
+    inline juce::Colour busLead     { 0xfff07f8f };
+    inline juce::Colour busFx       { 0xff7fc4d8 };   // the FX returns, which do exist
 
     inline juce::Colour focusRing   { 0xff6db8a8 };
     inline constexpr float    disabled    = 0.38f;
@@ -165,11 +176,44 @@ namespace Dine
         inline constexpr int panelTab  = 15;    // the gutter a folded side panel leaves behind
     }
 
-    // Type: Barlow for words, IBM Plex Mono for numbers. Both embedded.
+    // ---------------------------------------------------------------- type
+    // Barlow for words, Barlow Condensed for labels, IBM Plex Mono for numbers. All three
+    // embedded, so a booth Mac with no fonts installed reads exactly like the design.
     juce::Font text (float px, int weight = 400);
     juce::Font mono (float px, int weight = 400);
-    // A letterspaced caption: 600, tracked. The design's section labels and key words.
+    // A letterspaced caption: Barlow Condensed, 600, tracked. The design's section labels and
+    // key words. The shared LiveMixLookAndFeel maps its "condensed" family to Barlow on
+    // purpose, for the plug-in surface; DLIVE's labels really are condensed, so this loads the
+    // face itself rather than changing what the plug-ins look like.
     juce::Font caps (float px, float tracking = 0.08f, int weight = 600);
+    juce::Font condensed (float px, int weight = 600, float tracking = 0.0f);
+
+    // Text size (View > Appearance). Scales every role below and every text/mono/caps call
+    // with them, and nothing else: strip widths, row heights and meters keep their pixels, so
+    // a name gets an ellipsis and a tooltip rather than a wider console. 1.0 / 1.2 / 1.35.
+    void setTextScale (float);
+    float textScale();
+
+    // The design's text styles, by name. A page asks for the role rather than for a size, so
+    // two pages cannot drift apart and a restyle happens in one place.
+    namespace Type
+    {
+        juce::Font wordmark();        // Display/Wordmark   Condensed 700  24 / 28   0.10 em
+        juce::Font headingPage();     // Heading/Page       Barlow    600  17 / 22
+        juce::Font headingCard();     // Heading/Card       Barlow    600  14 / 18
+        juce::Font body();            // Body/Default       Barlow    500  13 / 18
+        juce::Font bodySmall();       // Body/Small         Barlow    500  12 / 16
+        juce::Font caption();         // Body/Caption       Barlow    500  11 / 14
+        juce::Font labelTab();        // Label/Tab          Condensed 600  13 / 16   0.08 em
+        juce::Font labelControl();    // Label/Control      Condensed 600  12 / 14   0.05 em
+        juce::Font labelStrip();      // Label/Strip        Condensed 600  11 / 13   0.02 em
+        juce::Font labelSection();    // Label/Section      Condensed 600  10 / 12   0.08 em
+        juce::Font labelMicro();      // Label/Micro        Condensed 700   9 / 10   0.06 em
+        juce::Font monoClock();       // Mono/Clock         Plex Mono 500  16 / 20
+        juce::Font monoValue();       // Mono/Value         Plex Mono 500  12 / 16
+        juce::Font monoSmall();       // Mono/Small         Plex Mono 400  10 / 12
+        juce::Font monoMeter();       // Mono/Meter         Plex Mono 400   8 / 10
+    }
 
     int textWidth (const juce::Font&, const juce::String&);
 

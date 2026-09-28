@@ -8,7 +8,7 @@ which engine phase owns it.
 The design file is **`2wv5QSnvrSSQXtDzfuShIn`** ("DLIVE Desktop v2", Sept 2026).
 The baseline this is all measured against is `docs/design/baseline/`.
 
-**Status: UI-0 done. No UI has changed yet.**
+**Status: UI-0 done. UI-1 done (tokens, type roles, text size).**
 
 ---
 
@@ -35,17 +35,20 @@ Every frame is otherwise readable and every component is a real component with v
 `accent #6db8a8` and the rest match the design exactly. Four tokens the design uses are
 missing, and one differs.
 
-| Design variable | Value | In `AppTheme` today | Action (UI-1) |
+| Design variable | Value | Was | Now |
 | --- | --- | --- | --- |
-| `Dine::lead` | `#f07f8f` | **missing** | add as `busLead`. The LEAD bus itself is engine work - see §6. |
-| `Dine::fx` | `#7fc4d8` | **missing** | add as `busFx`. FX returns exist today, so the colour can be used at once. |
-| `Dine::autopilot` | `#121b27` | **missing** | add as `autopilotGround`. Nothing uses it until Autopilot ships. |
-| `Dine::scrim` | `#000000` | **missing as a token** | drawn today as `Colours::black.withAlpha(...)` in five places at 0.65 / 0.55 / 0.45 / 0.35. Make it a token; the alphas stay where they are except Appearance (see §6). |
-| `Dine::on-accent` | `#0b0d10` | `onAccent #070809` | a 4-value difference on near-black type over teal. Move to the design's value. |
+| `Dine::lead` | `#f07f8f` | missing | **added** as `busLead`. The LEAD bus itself is engine work - see §6 - so nothing draws with it yet. |
+| `Dine::fx` | `#7fc4d8` | missing | **added** as `busFx`. FX returns exist today, so UI-3 can use it at once. |
+| `Dine::autopilot` | `#121b27` | missing | **added** as `autopilotGround`. Unused until Autopilot ships. |
+| `Dine::scrim` | `#000000` | drawn as `Colours::black.withAlpha(...)` in five places | **added** as a token. The alphas belong to the thing being opened, not to the token, and are unchanged; Appearance moves 0.35 → 0.25 in UI-7. |
+| `Dine::on-accent` | `#0b0d10` | `onAccent #070809` | **changed** to the design's value. |
 | `Dine::hair` | `#20252e` | `hair 0x14ffffff` | **no change.** 8 % white over `window #0e1014` resolves to `#212329`; the design's opaque value is the same hairline, flattened. The translucent token is better - it reads the same over every material. |
 
-Every new token gets a default in every built-in theme and in `ThemeStore`'s read and write,
-so every existing theme file still loads unchanged. `ThemeStore` carries 128 token keys today.
+All four new tokens are in every built-in theme and in `ThemeStore`'s read and write, taking it
+from 128 token keys to 132. `busLead`, `busFx` and `autopilotGround` are given their own values
+in Lime Desk, Tape and Daylight rather than inherited, because a dark Autopilot ground would be
+a hole in a light desk. Every older theme file still loads unchanged: a key a file does not
+carry is resolved from the default.
 
 ## 3. Type: 15 styles found, and Barlow Condensed is embedded but unused
 
@@ -70,19 +73,43 @@ so every existing theme file still loads unchanged. `ThemeStore` carries 128 tok
 Figma writes `letterSpacing` as a percentage, so `Label/Section`'s 8 is 0.08 em - the same
 number `Dine::caps` already defaults to.
 
-Two problems, both in UI-1:
+Both problems found here are **fixed**:
 
-1. **Every `Label/*` style is Barlow Condensed, and no label in DLIVE uses it.**
-   `BarlowCondensed-{Bold,Medium,SemiBold}.ttf` are embedded and
-   `LiveMixLookAndFeel::condensed()` exists, but family 0 is deliberately mapped to Barlow:
+1. **Every `Label/*` style is Barlow Condensed, and no label in DLIVE used it.**
+   `BarlowCondensed-{Bold,Medium,SemiBold}.ttf` are embedded, but `typefaceFor` never loaded
+   them: `LiveMixLookAndFeel::condensed()` maps its label family to plain Barlow on purpose -
    *"Labels share Barlow with body so tracking-heavy condensed caps don't dominate"*
-   (`LiveMixLookAndFeel.cpp:23`). That was a decision for the plug-in surface; the design
-   overrules it for DLIVE. This changes the width of every caps label in the app, so it is
-   verified by looking at the PNGs at all four sizes, not by reasoning.
-2. **Tracking is being clamped away.** `Dine::caps (px, tracking)` routes to
-   `LiveMixLookAndFeel::body`, which does `jmin (spacingEm, 0.04f)`. So `caps(12, 0.08)` -
-   the section label - renders at 0.04 em, half the design's tracking. `condensed()` does not
-   clamp, so moving the label roles onto it fixes the tracking at the same time.
+   (`LiveMixLookAndFeel.cpp:23`). That is right for a plug-in panel and wrong for DLIVE. So
+   `Dine::condensed` loads the face in `AppTheme.cpp` instead, and **the six plug-ins look
+   exactly as they did.**
+2. **Tracking was being clamped away.** Both `body()` and `condensed()` do
+   `jmin (spacingEm, 0.04f)`, so `caps(10, 0.08)` - the section label - rendered at half the
+   design's tracking. `Dine::condensed` does not clamp.
+
+`Dine::caps` now routes to `Dine::condensed`, which moves all 61 existing call sites onto the
+design's family and tracking in one edit rather than by hand. The 15 roles in `Dine::Type` are
+the named API pages should ask for from here on.
+
+**It cost nothing.** Condensed labels lay out *less* than Barlow ones, so the full-repaint cost
+went down on every page: TRACKS 15.19 → 12.96 ms, MIXER 8.43 → 8.00, TUNE 17.96 → 15.52,
+LIVE 11.23 → 10.01, INSPECTOR 33.75 → 31.67. Per-tick cost is unchanged at 1.28 ms.
+
+### Text size
+
+`Standard 1.0 / Large 1.2 / Larger 1.35`, in **View > Appearance > Text Size**, stored in
+`~/Music/DLIVE/preferences.json` beside the theme - a preference of the Mac, never of the
+session. It scales the type roles and nothing else: strip widths, row heights and meters keep
+their pixels, so a 32-channel console is still a 32-channel console and a name that no longer
+fits gets an ellipsis. A size the build does not offer (a later version's, or a hand edit)
+reads back as Standard, so no file can leave somebody at a scale no menu gets them out of.
+
+The wordmark is a mark, not a name, so its box is measured from its type rather than fixed at
+58 px - at Larger it read `DLI...`. That measurement is cached per text size: measuring a
+string builds a glyph layout, and doing it on every title-row paint cost **15-18 % of the
+frame budget** on all five pages before it was caught.
+
+Not yet in the Appearance *sheet* - only in the menu. The sheet is restyled to frame 19 in
+UI-7 and the control lands there then, rather than being built twice.
 
 ## 4. The screens
 

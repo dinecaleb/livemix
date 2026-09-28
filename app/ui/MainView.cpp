@@ -591,6 +591,16 @@ public:
                         view.themeMenuNames.add (t.name);
                     }
                     appearance.addSeparator();
+                    // Text size. A preference of this Mac, like the theme: it scales the words
+                    // and leaves the console the same size, so a 32-channel desk stays one.
+                    juce::PopupMenu textSize;
+                    for (int i = 0; i < int (ThemeStore::textSizes().size()); ++i)
+                    {
+                        const auto& size = ThemeStore::textSizes()[size_t (i)];
+                        textSize.addItem (690 + i, size.name, true, std::abs (Dine::textScale() - size.scale) < 0.001f);
+                    }
+                    appearance.addSubMenu ("Text Size", textSize);
+                    appearance.addSeparator();
                     appearance.addItem (620, "Customise Appearance" + juce::String (Glyph::ellip()));
                     appearance.addItem (621, "Import a Theme" + juce::String (Glyph::ellip()));
                     appearance.addItem (622, "Show Themes Folder");
@@ -617,10 +627,35 @@ private:
 };
 
 // ---------------------------------------------------------------- MainView
+// The wordmark is a mark, not a name: it never truncates, so its box is measured from the
+// type rather than fixed. At Larger text that is the difference between DLIVE and "DLI...".
+namespace
+{
+    juce::Font wordmarkFont() { return Dine::caps (13.0f, 0.16f); }
+}
+
+int MainView::wordmarkWidth() const
+{
+    // Measured once per text size, not per paint: measuring a string builds a glyph layout,
+    // and the title row is painted on every tick.
+    static float measuredAt = -1.0f;
+    static int width = kWordmarkW;
+    if (std::abs (measuredAt - Dine::textScale()) > 0.001f)
+    {
+        measuredAt = Dine::textScale();
+        width = juce::jmax (kWordmarkW, Dine::textWidth (wordmarkFont(), "DLIVE"));
+    }
+    return width;
+}
+
 MainView::MainView (MixController& c, AppServices& s) : controller (c), services (s)
 {
-    // The theme first, before a single page reads a token.
-    if (gUseStoredTheme) Dine::applyTheme (ThemeStore::find (ThemeStore::chosenTheme()));
+    // The theme and the text size first, before a single page reads a token or a role.
+    if (gUseStoredTheme)
+    {
+        Dine::applyTheme (ThemeStore::find (ThemeStore::chosenTheme()));
+        Dine::setTextScale (ThemeStore::chosenTextSize());
+    }
     lookAndFeel.applyPalette();
     juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
     setLookAndFeel (&lookAndFeel);
@@ -1202,6 +1237,21 @@ void MainView::showThemes()
     themeSheet->toFront (true);
 }
 
+void MainView::applyTextSize (float scale)
+{
+    if (std::abs (Dine::textScale() - scale) < 0.001f) return;
+    Dine::setTextScale (scale);
+    if (gUseStoredTheme) ThemeStore::setChosenTextSize (scale);
+    // Every role is read at paint time, so the whole window only has to be told to lay itself
+    // out again - the same thing a theme change does, and for the same reason.
+    Dine::refreshAllWindows();
+    resized();
+    updateChrome();
+    if (menu != nullptr) menu->menuItemsChanged();
+    for (const auto& size : ThemeStore::textSizes())
+        if (std::abs (size.scale - scale) < 0.001f) showToast (juce::String ("Text size: ") + size.name);
+}
+
 void MainView::applyThemeNamed (const juce::String& name)
 {
     if (themeSheet != nullptr) { themeSheet->chooseTheme (name); return; }
@@ -1564,6 +1614,7 @@ void MainView::showToast (const juce::String& text)
 void MainView::handleCommand (int id)
 {
     if (id >= 640 && id < 640 + themeMenuNames.size()) { applyThemeNamed (themeMenuNames[id - 640]); return; }
+    if (id >= 690 && id < 690 + int (ThemeStore::textSizes().size())) { applyTextSize (ThemeStore::textSizes()[size_t (id - 690)].scale); return; }
     switch (id)
     {
         case 100: newSession(); break;
@@ -2109,9 +2160,9 @@ void MainView::paint (juce::Graphics& g)
         auto cell = titleRow.reduced (18, 0);
         // the wordmark, at the left end of the title row after the sidebar switch, on screen whatever the sidebar does
         g.setColour (Dine::accent);
-        g.setFont (Dine::caps (13.0f, 0.16f));
+        g.setFont (wordmarkFont());
         cell.removeFromLeft (26 + 14);
-        g.drawText ("DLIVE", cell.removeFromLeft (kWordmarkW), juce::Justification::centredLeft);
+        g.drawText ("DLIVE", cell.removeFromLeft (wordmarkWidth()), juce::Justification::centredLeft);
         // The counts end where the buttons begin - measured from where the buttons actually are,
         // so the two can never be drawn over each other whatever widened one of them.
         for (juce::Component* button : { static_cast<juce::Component*> (chatButton.get()), static_cast<juce::Component*> (tuneLiveButton.get()) })
@@ -2153,7 +2204,7 @@ void MainView::resized()
         for (int i = 0; i < kWorkspaceTabs; ++i) { widths[i] = tabs[size_t (i)]->idealWidth(); total += widths[i]; }
         const int gap = 18;
         total += gap * (kWorkspaceTabs - 1);
-        const int leftEdge = titleRow.getX() + 14 + kWordmarkW + 16;
+        const int leftEdge = titleRow.getX() + 14 + wordmarkWidth() + 16;
         const int rightEdge = titleRight.getRight() - kCountsW - 16;
         const int x = juce::jlimit (leftEdge, juce::jmax (leftEdge, rightEdge - total), getWidth() / 2 - total / 2);
         auto row = juce::Rectangle<int> (x, titleRow.getY(), total, titleRow.getHeight()).withSizeKeepingCentre (total, 30);
