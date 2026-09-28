@@ -59,6 +59,14 @@ file under `docs/` — read the one for the area you are touching before changin
 - **A take survives a crash** (`app/native/Recorder`): the writer thread keeps the WAV header current and a
   `<take>.wav.recording.json` sidecar beside it; a sidecar found on the next open is repaired and put back on its
   track. Nothing about recording moves to the audio thread.
+- **The session is a document, not a side effect of an open device.** `SessionState` (`app/native/SessionState.h`)
+  is the one owned model and the only thing `SessionStore` serialises; `captureSession` / `applySession` are the
+  only ways in and out, and both are compiled into `dlive_app_tests` - nothing assembles a session out of getters,
+  anywhere. `MixController::rebuild()` builds the graph and carries the mix across it with no device and no sample
+  rate; `prepare()` builds the audio graph and never decides whether the state exists. Saving follows
+  `MixController::touch()`'s revision, never a UI call site. A session survives a crash the way a take does
+  (`app/native/SessionAutosave`): an autosave and a clean-exit marker sit beside the document, and one found on the
+  next launch offers Recover / Open last saved / Keep both. `docs/SESSION-STATE.md` is the audit and the contract.
 - **UI changes are verified by looking at the PNGs** (`dlive_ui_snapshots`, the per-product
   `livemix_*_ui_snapshots`), never by reasoning about layout code; regression references change only when a
   baseline changes on purpose. No page repaints itself wholesale from its tick; a page's `paint` and its `Look`
@@ -96,9 +104,11 @@ src/Core, DSP, Analysis, Tune, Profiles, Recommendations, Intelligence, FX, Comm
   MixAI/                    the reasoning layer above MixPlanner (RelationshipEngine ... TuneLiveCoordinator)
 modules/Common              the one shared ChannelPluginProcessor/Editor; modules/<Product> names it; modules/FX
 app/native                  MixController (no JUCE), DawEngine, Transport, Recorder, TimelinePlayer, AudioHost,
-                            MonitorDevice, SessionStore (versioned), InputMapStore, ThemeStore, MixBounce
+                            MonitorDevice, SessionState (the one model) + SessionStore (versioned) +
+                            SessionAutosave (worker, atomic, recovery), InputMapStore, ThemeStore, MixBounce
 app/ui                      MainView + the workspaces (TracksPage, MixerPage, MixPage = TUNE, LivePage,
-                            AdvancedPage = Inspector), sheets, AppTheme (Dine:: tokens)
+                            AdvancedPage = Inspector), sheets (Outputs, Check, History, Chat, Theme, ChannelTune),
+                            AppTheme (Dine:: tokens)
 app/Tools, app/Tests        dlive_ui_snapshots / dlive_mix_stems / dlive_device_check; dlive_app_tests
 tests/                      engine + integration tests, benchmark, reference renders
 ```
@@ -108,6 +118,7 @@ tests/                      engine + integration tests, benchmark, reference ren
 | Topic | File |
 | --- | --- |
 | Build, test, snapshot, stems and AU commands; the real recordings | `docs/BUILD-AND-VERIFY.md`, `BUILD-RUN-SHARE.md` |
+| What a session holds, who owns it, autosave, recovery and the mix history | `docs/SESSION-STATE.md` |
 | The engine's rules: products, parameters, Tune, profiles, wording, FX | `docs/DINE-CORE-RULES.md`, `docs/ARCHITECTURE-DINE-CORE.md` |
 | DLIVE the application: DAW layer, every workspace, setup pages | `docs/DLIVE-APP.md`, `docs/ARCHITECTURE-DLIVE.md`, `docs/MILESTONE-7.md` |
 | The mix engineer: TUNE LIVE MIX, REFERENCE MIX, LIVE SAFE, MIX BUDDY, loudness, profiles, linked faders | `docs/DLIVE-MIX-ENGINEER.md`, `docs/ARCHITECTURE-DLIVE-AI.md` |

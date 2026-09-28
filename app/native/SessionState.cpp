@@ -34,6 +34,7 @@ SessionState captureSession (const MixController& controller, const DawEngine& d
     s.reference = controller.getReference();          // what the mix is aimed at, already measured
     s.scenes = controller.getScenes();
     s.history = controller.getAllStripHistory();
+    s.checkpoints = controller.getCheckpoints();
     s.trackPanelWidth = trackPanelWidth;
 
     // The TUNE LIVE MIX record, when there is one to keep. It is read-only: the mix itself is
@@ -81,6 +82,10 @@ void applySession (const SessionState& s, MixController& controller, DawEngine& 
         // The baselines rebuild() just built are what a genuinely new input starts from.
         controller.carryKept (s.mix, s.session, s.tuneCount);
         controller.carryStripHistory (s.history, s.session);
+        // The mix history comes back whole. A checkpoint made on a different set of inputs is
+        // not remapped - it is refused when somebody tries to go back to it, with a sentence -
+        // because a mix is a balance between the sources that were there, not a row of numbers.
+        controller.restoreCheckpoints (s.checkpoints);
         for (int i = 0; i < int (MixMacro::Count); ++i)
             controller.setMacro (MixMacro (i), s.macros.get (MixMacro (i)));
     }

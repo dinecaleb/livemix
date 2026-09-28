@@ -544,6 +544,33 @@ public:
     // UI has to remember for a change of its own (a timeline edit) to be written down.
     void touch() noexcept { ++revision; }
 
+    // A MOMENT WORTH NOT LOSING: a tune kept, a scene recalled, a new reference, the
+    // assignments rebuilt. It moves the revision like any other change, and it also moves
+    // `milestone` - which is how the host knows to write the session now rather than two
+    // seconds from now. A service does not get a second chance at the take it was in.
+    void mark (const std::string& what);
+    unsigned long long getMilestone() const noexcept { return milestone; }
+    const std::string& getLastMilestone() const noexcept { return lastMilestone; }
+
+    // ---- MIX HISTORY: the whole mix as it was, hours ago, by name ----
+    //
+    // Not UNDO. Undo is the last thing you did and it dies with the graph; this is the list an
+    // engineer opens on Monday to find the mix the service went out on. A checkpoint is taken
+    // at every milestone and on a slow beat while the mix is being worked on, and it is saved
+    // with the session. MixHistory.h has the shape and the pruning rule.
+    // How long a mix has to be worked on without a milestone before poll() marks one anyway.
+    static constexpr long long kCheckpointBeatMs = 5 * 60 * 1000;
+    const std::vector<MixCheckpoint>& getCheckpoints() const noexcept { return checkpoints; }
+    // Newest first, which is how the list is read.
+    std::vector<MixCheckpoint> getCheckpointsNewestFirst() const;
+    // Take one now, whatever is happening. `fromTune` ones outlive hand edits when pruning.
+    void checkpoint (const std::string& what, bool fromTune = false);
+    // Go back to one, by its index in getCheckpoints(). Refused, with a sentence, onto a
+    // different set of inputs - the same rule a scene follows. The mix as it is now becomes a
+    // checkpoint first, so going back is itself something you can come back from.
+    bool restoreCheckpoint (int index);
+    void restoreCheckpoints (const std::vector<MixCheckpoint>& list);     // session restore
+
     std::function<void (const std::string&)> onMessage;   // one-line notices for a toast
 
 private:
@@ -557,6 +584,8 @@ private:
     bool built = false;                 // rebuild() has run: there is a mix, device or no device
     bool stateStale = true;             // the session has moved ahead of `graph` and `kept`
     unsigned long long revision = 1;    // bumped by touch(): what the host's autosave follows
+    unsigned long long milestone = 0;   // bumped by mark(): write now, do not wait
+    std::string lastMilestone;          // what the last one was, in the words the menu uses
     MixEngine engine;
     MixCapture capture;
     // The last complete listen, kept so a reference (or a re-plan) can work from what DLIVE
@@ -614,6 +643,9 @@ private:
     bool liveKept = false;              // the plan on preview came from TUNE LIVE MIX (or the chat), so KEEP names it so
     bool broadcastDim = false, broadcastMute = false;   // the emergency keys: overlays on what is published, never kept
     std::array<MixScene, kMixScenes> scenes;
+    std::vector<MixCheckpoint> checkpoints;
+    long long lastCheckpointMs = 0;     // the slow beat: see poll()
+    MixParameters atLastCheckpoint;
     std::vector<std::string> inputNamesNow() const;
     void recordStripTune (int strip, const std::string& what, const StripParameters& before, const StripParameters& after);
     std::array<std::vector<StripTuneRecord>, kMaxStrips> carriedStripHistory (const MixSession& previous) const;

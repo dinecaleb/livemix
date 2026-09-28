@@ -41,7 +41,7 @@ void MixController::setSession (const MixSession& s)
     const bool wasListening = stage == Stage::Listening || stage == Stage::Planning || stage == Stage::Preview;
     if (wasListening) capture.abort();
     rebuild();
-    touch();
+    mark ("The inputs changed");
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +327,84 @@ MixController::MasterLoudness MixController::getMasterLoudness() const
 }
 void MixController::setProfile (StyleProfileId p) { session.profile = p; touch(); }
 
+void MixController::mark (const std::string& what)
+{
+    lastMilestone = what;
+    ++milestone;
+    // Every milestone is a place to come back to. Taking it here rather than at each call site
+    // is what stops the list and the "write it down now" signal ever disagreeing about what
+    // happened.
+    checkpoint (what, what.rfind ("TUNE", 0) == 0 || what.rfind ("RE-TUNE", 0) == 0);
+    touch();
+}
+
+void MixController::checkpoint (const std::string& what, bool fromTune)
+{
+    if (! built || graph.numStrips() == 0) return;
+    MixCheckpoint c;
+    c.whenMs = (long long) std::chrono::duration_cast<std::chrono::milliseconds> (
+                   std::chrono::system_clock::now().time_since_epoch()).count();
+    c.what = what;
+    c.fromTune = fromTune;
+    c.tuneCount = tuneCount;
+    c.mix = kept;
+    c.macros = macros;
+    c.inputs = inputNamesNow();
+    checkpoints.push_back (std::move (c));
+    pruneCheckpoints (checkpoints);
+    lastCheckpointMs = checkpoints.back().whenMs;
+    atLastCheckpoint = kept;
+}
+
+std::vector<MixCheckpoint> MixController::getCheckpointsNewestFirst() const
+{
+    std::vector<MixCheckpoint> out (checkpoints.rbegin(), checkpoints.rend());
+    return out;
+}
+
+void MixController::restoreCheckpoints (const std::vector<MixCheckpoint>& list)
+{
+    checkpoints = list;
+    pruneCheckpoints (checkpoints);
+    lastCheckpointMs = checkpoints.empty() ? 0 : checkpoints.back().whenMs;
+    atLastCheckpoint = kept;
+}
+
+bool MixController::restoreCheckpoint (int index)
+{
+    if (index < 0 || index >= int (checkpoints.size()) || ! built) return false;
+    const MixCheckpoint taking = checkpoints[size_t (index)];     // by value: the list is about to grow
+    if (taking.inputs != inputNamesNow() || taking.mix.numStrips != kept.numStrips)
+    {
+        if (onMessage)
+            onMessage ("\"" + taking.what + "\" was from a different set of inputs, so it cannot be put back onto this one.");
+        return false;
+    }
+    if (liveSafeRefuses (LiveAction::KeepPlan)) return false;
+
+    markMixChange ("going back to " + taking.what);
+    // Where the mix is now, before it goes: coming back from a way back is the same request.
+    checkpoint ("Before going back to " + taking.what);
+
+    const MixParameters was = kept;
+    kept = taking.mix;
+    kept.numStrips = std::min (kept.numStrips, graph.numStrips());
+    // Monitoring is the engineer's and not the history's: what solo goes to, and how loud,
+    // stays exactly where they left it.
+    kept.monitor = was.monitor;
+    for (int i = 0; i < kept.numStrips; ++i) kept.strips[size_t (i)].solo = was.strips[size_t (i)].solo;
+    for (int b = 0; b < int (MixBus::Count); ++b) kept.buses[size_t (b)].solo = was.buses[size_t (b)].solo;
+    for (int f = 0; f < int (FxSlot::Count); ++f) kept.fx[size_t (f)].solo = was.fx[size_t (f)].solo;
+    macros = taking.macros;
+    tuneCount = std::max (tuneCount, taking.tuneCount);
+    mixed = true;
+    if (stage == Stage::Ready) stage = Stage::Mixed;
+    publish();
+    if (onMessage) onMessage ("Back to \"" + taking.what + "\". UNDO takes it forward again.");
+    touch();
+    return true;
+}
+
 void MixController::prepare (double sr, int maxBlockSize)
 {
     capture.abort();
@@ -436,7 +514,7 @@ void MixController::keepScene (int slot)
     s.macros = macros;
     s.inputs = inputNamesNow();
     if (onMessage) onMessage ("Kept as " + s.name + ". One press on it brings this whole mix back.");
-    touch();
+    mark ("Scene kept: " + s.name);
 }
 
 bool MixController::recallScene (int slot)
@@ -471,7 +549,7 @@ bool MixController::recallScene (int slot)
         recordStripTune (i, "Scene: " + s.name, was.strips[size_t (i)], kept.strips[size_t (i)]);
     publish();
     if (onMessage) onMessage (s.name + " is back.");
-    touch();
+    mark ("Scene: " + s.name);
     return true;
 }
 
@@ -609,14 +687,14 @@ std::string MixController::getTuningName() const
 void MixController::setReference (const ReferenceProfile& p)
 {
     reference = p;
-    touch();      // the session remembers what it is aimed at
+    mark (p.valid ? "Aimed at " + p.name : std::string ("Reference"));   // the session remembers what it is aimed at
 }
 
 void MixController::clearReference()
 {
     if (! reference.valid) return;
     reference = ReferenceProfile {};
-    touch();
+    mark ("Reference cleared");
 }
 
 void MixController::startReferenceMatch()
@@ -894,6 +972,19 @@ void MixController::pollTuneLive()
 
 void MixController::poll()
 {
+    // The slow beat of the mix history. A morning of small moves - a fader here, a send there -
+    // is a mix that drifted a long way from the one TUNE MIX built, with no single moment in it
+    // worth marking. So one is marked: every few minutes, if anything actually changed.
+    if (built && graph.numStrips() > 0 && ! checkpoints.empty())
+    {
+        const long long now = (long long) std::chrono::duration_cast<std::chrono::milliseconds> (
+                                  std::chrono::system_clock::now().time_since_epoch()).count();
+        if (now - lastCheckpointMs >= kCheckpointBeatMs && stage != Stage::Listening && stage != Stage::Planning
+            && stage != Stage::Preview && ! liveRun
+            && MixPlanner::countParameterChanges (kept, atLastCheckpoint) > 0)
+            checkpoint ("While mixing");
+    }
+
     // A live run spends most of its time somewhere other than a listen - reasoning, resolving,
     // checking, applying - so its state machine is advanced whatever the stage says.
     if (liveRun && stage != Stage::Listening) { pollTuneLive(); return; }
@@ -1077,7 +1168,10 @@ void MixController::keepPlan()
     stage = Stage::Mixed;
     compare = Compare::After;
     publish();
-    touch();
+    mark (isTuningChannel() ? std::string ("TUNE CHANNEL")
+        : isTuningBus() ? "TUNE " + getTuningName()
+        : chatRun ? std::string ("Mix Buddy")
+        : tuneCount > 1 ? std::string ("RE-TUNE") : std::string ("TUNE MIX"));
 }
 
 // ---- KEEP SOME ----
@@ -1746,7 +1840,7 @@ bool MixController::restoreStripTune (int strip, int record)
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)] = s;
     recordStripTune (strip, "Put back: " + chosen.what, was, s);
     publish();
-    touch();
+    mark ("Put back on " + graph.strips[size_t (strip)].name);
     if (onMessage)
     {
         std::string m = name + " is back to what " + chosen.what + " set.";

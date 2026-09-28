@@ -23,6 +23,7 @@ public:
     std::function<void (const juce::String&)> onToast;
     std::function<void()> onLiveSafeChanged;
     std::function<void()> onToggleRecord;
+    std::function<void()> onOpenHistory;      // MIX HISTORY: the mix as it was, by name
 
     void refresh();                    // 30 Hz
     void rebuild();
@@ -42,6 +43,7 @@ private:
     // One tile per group bus, then the effects returns, then the master: DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE FX MASTER.
     std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 2> tiles;
     DineButton liveSafeButton { "LIVE SAFE OFF", DineButton::Style::Standard };
+    DineButton historyButton { "Mix history", DineButton::Style::Standard };
     std::array<std::unique_ptr<DineButton>, 6> chips;   // MONITOR SOLO / SOLO IN PLACE / AFL / PFL / Dim / Clear solo
     // SCENES: the whole mix kept for one part of the service, back in one press. A pad per
     // slot recalls it; the KEEP chip beside it writes the mix there. Names come from the controller.

@@ -578,6 +578,32 @@ Two things were found while building it that were not in the audit:
 - **`MixEngine::getStrip()` read past the end of its vector** as soon as the session's graph could be wider
   than the engine's - which is the normal state of a session opened with nothing plugged in.
 
+### Step 3, the same day: autosave, recovery, mix history
+
+| Asked for | Built | Where |
+| --- | --- | --- |
+| Autosave ~2 s after the last change, immediately after a tune / scene recall / reference | yes | `app/native/SessionAutosave.{h,cpp}`; `MixController::mark()` is the "immediately" signal and `MainView`'s tick is the only caller |
+| Background thread, immutable snapshot, atomic | yes | the snapshot is taken on the message thread, written by the autosave's own worker, and landed by renaming a temporary file |
+| Keep manual Save | yes | File > Save, Save As, and a clean quit all write the document |
+| A `.autosave.json` beside the document and a clean-exit marker | yes | `<name>.dlive.autosave.json` and `<name>.dlive.open`, the same trick the Recorder plays with its take sidecars |
+| Recover / Open last saved / Keep both | yes | offered once at launch, and only when DLIVE was killed *and* the autosave holds work the document does not. "Keep both" writes the recovered work as `<name> (recovered)` and leaves the saved session untouched |
+| Timestamped checkpoints that persist | yes | `MixCheckpoint` in `MixHistory.h`, taken at every milestone and every five minutes of unmarked mixing, saved with the session |
+| Existing sentence labels kept | yes | "TUNE MIX", "Scene: Sermon", "Aimed at Take Me To The King", "Put back on Lead Vocal" |
+| Bounded, oldest first, tunes kept longest | yes | `pruneCheckpoints`, bounded by *strip snapshots* (`kCheckpointStripBudget`) rather than entries, because a 64-channel checkpoint costs three times a 21-channel one |
+| Restoring is itself a checkpoint | yes | "Before going back to ..." is taken first, and UNDO still works on top |
+| A Mix history list from TUNE and LIVE | yes | `app/ui/HistorySheet.{h,cpp}`, snapshot `18c-mix-history` |
+
+One behaviour change worth knowing about: **the document is no longer written every second.** The autosave
+sidecar is, and the document is written by Save, Save As, a clean quit, and before the document is replaced.
+A crash therefore leaves the document as it was at the last of those, with the sidecar beside it holding
+everything since - which is what makes "Recover / Open last saved / Keep both" a real choice rather than
+three names for the same file.
+
+Two smaller decisions: the engineer's own listen is never part of going back (solo, the monitor level and
+the tap point stay where they were left, as they already do for a scene recall), and a checkpoint kept with
+a different set of inputs is refused with a sentence rather than applied by index - a mix is a balance
+between the sources that were there.
+
 Still open from this phase:
 
 - **The timeline has no choke point.** `DawEngine::getProject()` hands out a mutable reference and

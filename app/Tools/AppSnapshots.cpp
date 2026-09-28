@@ -904,6 +904,14 @@ int main (int argc, char** argv)
     view.closeSheetsForSnapshot();
     rig.feed (0.2);
 
+    // MIX HISTORY: every mix this session has had, newest first, with the time and what made
+    // it. The tuned ones carry the chip, because they are what people come back to.
+    view.showHistory();
+    rig.feed (0.3);
+    rig.snap (dir, "18c-mix-history");
+    view.closeSheetsForSnapshot();
+    rig.feed (0.2);
+
     // MIX CHAT: a change asked for in words. It works with no account and no network - with no
     // cloud model configured the sentence is read by DLIVE's own parser, which is deterministic
     // and offline - so these two shots are of the built-in reasoning, which is what a church

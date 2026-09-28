@@ -127,6 +127,55 @@ namespace
     juce::var mixToVar (const MixParameters& m);
     void mixFromVar (const juce::var& v, MixParameters& m);
 
+    // The mix history: the whole mix at each moment worth coming back to. Bounded before it is
+    // written (pruneCheckpoints), so this is a few hundred kilobytes of a session, not a log.
+    juce::var checkpointsToVar (const std::vector<MixCheckpoint>& list)
+    {
+        juce::Array<juce::var> out;
+        for (const auto& c : list)
+        {
+            auto* co = new juce::DynamicObject();
+            co->setProperty ("whenMs", juce::int64 (c.whenMs));
+            co->setProperty ("what", juce::String (c.what));
+            if (c.fromTune) co->setProperty ("fromTune", true);      // absent = a hand edit
+            co->setProperty ("tune", c.tuneCount);
+            co->setProperty ("mix", mixToVar (c.mix));
+            juce::Array<juce::var> macros;
+            for (float v : c.macros.v) macros.add (v);
+            co->setProperty ("macros", macros);
+            juce::Array<juce::var> inputs;
+            for (const auto& n : c.inputs) inputs.add (juce::String (n));
+            co->setProperty ("inputs", inputs);
+            out.add (juce::var (co));
+        }
+        return out;
+    }
+
+    void checkpointsFromVar (const juce::var& v, std::vector<MixCheckpoint>& list)
+    {
+        list.clear();
+        auto* arr = v.getArray();
+        if (arr == nullptr) return;
+        for (const auto& cv : *arr)
+        {
+            auto* co = cv.getDynamicObject();
+            if (co == nullptr) continue;
+            MixCheckpoint c;
+            c.whenMs = (long long) juce::int64 (co->getProperty ("whenMs"));
+            c.what = co->getProperty ("what").toString().toStdString();
+            c.fromTune = co->hasProperty ("fromTune") && bool (co->getProperty ("fromTune"));
+            c.tuneCount = int (co->getProperty ("tune"));
+            mixFromVar (co->getProperty ("mix"), c.mix);
+            if (auto* macros = co->getProperty ("macros").getArray())
+                for (int i = 0; i < std::min (int (MixMacro::Count), macros->size()); ++i)
+                    c.macros.set (MixMacro (i), float (double (macros->getReference (i))));
+            if (auto* inputs = co->getProperty ("inputs").getArray())
+                for (const auto& n : *inputs) c.inputs.push_back (n.toString().toStdString());
+            list.push_back (std::move (c));
+        }
+        pruneCheckpoints (list);
+    }
+
     juce::var scenesToVar (const std::vector<MixScene>& scenes)
     {
         juce::Array<juce::var> out;
@@ -484,6 +533,7 @@ juce::var toVar (const Document& d)
     if (d.hasMix) obj->setProperty ("mix", mixToVar (d.mix));
     if (! d.history.empty()) obj->setProperty ("history", historyToVar (d.history));   // the track history; absent = none yet
     if (! d.scenes.empty()) obj->setProperty ("scenes", scenesToVar (d.scenes));       // the scenes; absent = none kept
+    if (! d.checkpoints.empty()) obj->setProperty ("checkpoints", checkpointsToVar (d.checkpoints));   // the mix history
     obj->setProperty ("project", projectToVar (d.project));
     // Stored for REVIEW CHANGES and for the record. Nothing reads it back into the mix: the
     // parameters that actually run are in "mix", which is the only thing the engine is given.
@@ -594,6 +644,7 @@ bool fromVar (const juce::var& v, Document& d)
     if (d.hasMix) mixFromVar (obj->getProperty ("mix"), d.mix);
     historyFromVar (obj->getProperty ("history"), d.history);       // absent before the track history existed
     scenesFromVar (obj->getProperty ("scenes"), d.scenes);          // absent before scenes existed
+    checkpointsFromVar (obj->getProperty ("checkpoints"), d.checkpoints);   // absent before the mix history existed
     projectFromVar (obj->getProperty ("project"), d.project);      // absent in version 1: no timeline yet
     d.tuneLive = obj->getProperty ("tuneLive");                     // absent until a live run has been made
     referenceFromVar (obj->getProperty ("reference"), d.reference);  // absent unless the mix is aimed at a recording

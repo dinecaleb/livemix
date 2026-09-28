@@ -346,3 +346,40 @@ What changed, and why each one matters:
 `SessionStore::kVersion` is 5. Versions 1-4 open, and there is a test that downgrades the document this build
 writes to each of them and checks it comes back.
 
+### Autosave, recovery and the mix history (the same milestone)
+
+```
+a change                      a milestone (a tune kept, a scene recalled, a new reference)
+   │  touch()                        │  mark()
+   ▼                                 ▼
+MixController::revision      MixController::milestone  +  a MixCheckpoint
+   │                                 │
+   └──────── MainView's tick ────────┘
+                  │  captureSession()  (message thread: one coherent moment)
+                  ▼
+        SessionAutosave  ── worker thread ──▶  <name>.dlive.autosave.json   (temp file, then rename)
+                  │
+                  └── marker:  <name>.dlive.open       written while open, removed on a clean quit
+```
+
+Three files in a session's folder, and each answers a different question:
+
+| File | Written by | Answers |
+| --- | --- | --- |
+| `<name>.dlive.json` | Save, Save As, a clean quit, and before the document is replaced | what the engineer saved |
+| `<name>.dlive.autosave.json` | ~2 s after the last change, at once after a milestone | what they were doing |
+| `<name>.dlive.open` | while the session is open | whether DLIVE got to say goodbye |
+
+Recovery is offered only when the marker survived **and** the autosave is newer than the document - a crash
+that lost nothing is not worth a question. The three answers are Recover (apply it and save), Open last saved,
+and Keep both (the recovered work becomes `<name> (recovered)`, its clips made absolute so the takes stay
+where they are).
+
+The **mix history** is the other kind of going back. UNDO is the last thing you did and it dies with the
+graph; a `MixCheckpoint` is the whole mix at a moment worth coming back to, it is saved with the session, and
+it is written in the words of what happened. One is taken at every milestone and every five minutes of
+unmarked mixing. The list is bounded by what it costs - strip snapshots, not entries, because a 64-channel
+checkpoint is three times a 21-channel one - and a tune's checkpoint outlives the hand edits around it.
+Restoring one takes a checkpoint of where the mix is first, so going back is never a one-way door; the
+engineer's own listen is never part of it. `app/ui/HistorySheet` is the list, reached from TUNE and LIVE.
+

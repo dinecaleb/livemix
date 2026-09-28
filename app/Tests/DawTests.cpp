@@ -8,6 +8,7 @@
 #include "native/StemNames.h"
 #include "native/SessionStore.h"
 #include "native/SampleLibrary.h"
+#include "native/SessionAutosave.h"
 #include "native/InputMapStore.h"
 #include "native/MonitorDevice.h"
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -2548,4 +2549,345 @@ TEST_CASE ("SessionState: a drum strip's sound is remembered by name, and a soun
     CHECK (juce::String (notes[0]).contains ("A Kick That Was Deleted"));
     CHECK (juce::String (notes[0]).contains ("Kick"));
     CHECK (! reopened.getKept().strips[0].channel.replaceEnabled);
+}
+
+// ---------------------------------------------------------------------------
+// AUTOSAVE AND RECOVERY
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    juce::File autosaveScratch()
+    {
+        auto f = scratchFolder().getChildFile ("autosave");
+        f.deleteRecursively();
+        f.createDirectory();
+        return f;
+    }
+
+    bool waitForIdle (SessionAutosave& a, int ms = 4000)
+    {
+        const auto deadline = juce::Time::getMillisecondCounter() + (juce::uint32) ms;
+        while (! a.isIdle() && juce::Time::getMillisecondCounter() < deadline) juce::Thread::sleep (5);
+        return a.isIdle();
+    }
+}
+
+TEST_CASE ("Autosave: the session is written beside the document, whole, from a worker thread")
+{
+    const auto folder = autosaveScratch();
+    const auto document = folder.getChildFile ("Sunday.dlive.json");
+
+    FullSession live (true);
+    const auto state = captureSession (live.controller, live.daw, kDevices, 260);
+
+    SessionAutosave autosave;
+    autosave.open (document);
+    // Open means open: the marker is what tells the next launch DLIVE was killed rather than closed.
+    CHECK (SessionAutosave::markerFor (document).existsAsFile());
+    CHECK (SessionAutosave::autosaveFor (document).getFileName() == "Sunday.dlive.autosave.json");
+
+    autosave.note (state, true);
+    REQUIRE (waitForIdle (autosave));
+    const auto sidecar = SessionAutosave::autosaveFor (document);
+    REQUIRE (sidecar.existsAsFile());
+
+    SessionState back;
+    REQUIRE (SessionStore::load (sidecar, back));
+    checkSameSession (state, back);           // an autosave is a whole session, not a diff
+
+    // A clean goodbye takes both with it, so there is nothing to offer next time.
+    autosave.closeCleanly();
+    CHECK (! sidecar.existsAsFile());
+    CHECK (! SessionAutosave::markerFor (document).existsAsFile());
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("Autosave: a knob drag is one write, and a milestone does not wait")
+{
+    const auto folder = autosaveScratch();
+    const auto document = folder.getChildFile ("Quiet.dlive.json");
+    FullSession live (true);
+    live.daw.setLiveSafe (false);      // this is about the writing, not about the lock's step limits
+
+    SessionAutosave autosave;
+    autosave.open (document);
+    const auto sidecar = SessionAutosave::autosaveFor (document);
+
+    // Thirty changes in a row, none of them urgent: nothing has landed yet, because the write
+    // waits for the session to stop moving.
+    for (int i = 0; i < 30; ++i)
+    {
+        live.controller.setStripFader (0, -float (i) * 0.1f);
+        autosave.note (captureSession (live.controller, live.daw, kDevices, 0), false);
+    }
+    CHECK (! sidecar.existsAsFile());
+
+    // A milestone is a moment a service does not get a second chance at, so it goes now.
+    live.controller.setStripFader (0, -7.25f);
+    autosave.note (captureSession (live.controller, live.daw, kDevices, 0), true);
+    REQUIRE (waitForIdle (autosave));
+    REQUIRE (sidecar.existsAsFile());
+
+    SessionState back;
+    REQUIRE (SessionStore::load (sidecar, back));
+    CHECK_NEAR (back.mix.strips[0].faderDb, -7.25f, 1e-3f);   // the last value, not one from the drag
+    autosave.closeCleanly();
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("Autosave: a crash is offered back, a clean quit is not, and neither is a crash that lost nothing")
+{
+    const auto folder = autosaveScratch();
+    const auto document = folder.getChildFile ("Service.dlive.json");
+    FullSession live (true);
+    live.daw.setLiveSafe (false);
+
+    // A session saved, then mixed on, then killed.
+    auto saved = captureSession (live.controller, live.daw, kDevices, 260);
+    REQUIRE (SessionStore::save (saved, document));
+    juce::Thread::sleep (1100);                     // file times are seconds on some volumes
+
+    {
+        SessionAutosave autosave;
+        autosave.open (document);
+        live.controller.setStripFader (2, -12.5f);
+        live.controller.setBusMute (MixBus::Ambience, true);
+        autosave.note (captureSession (live.controller, live.daw, kDevices, 260), true);
+        REQUIRE (waitForIdle (autosave));
+        // ...and DLIVE never gets to closeCleanly(). The marker stays.
+    }
+
+    const auto found = SessionAutosave::check (document);
+    REQUIRE (found.offer);
+    CHECK (found.sentence.startsWith ("DLIVE found work from "));
+    CHECK (found.sentence.endsWith (" that was not saved."));
+    CHECK (found.when > found.documentWhen);
+
+    SessionState recovered;
+    REQUIRE (SessionStore::load (found.autosave, recovered));
+    CHECK_NEAR (recovered.mix.strips[2].faderDb, -12.5f, 1e-3f);
+    CHECK (recovered.mix.buses[size_t (MixBus::Ambience)].mute);
+
+    // The user chose. Stop offering it.
+    SessionAutosave::discard (document);
+    CHECK (! SessionAutosave::check (document).offer);
+
+    // A clean quit leaves nothing behind at all.
+    {
+        SessionAutosave autosave;
+        autosave.open (document);
+        autosave.note (captureSession (live.controller, live.daw, kDevices, 260), true);
+        REQUIRE (waitForIdle (autosave));
+        autosave.closeCleanly();
+    }
+    CHECK (! SessionAutosave::check (document).offer);
+
+    // And a crash *after* a save lost nothing, so it is not worth a question: an autosave
+    // older than the document is a session that was saved after it was written.
+    {
+        SessionAutosave autosave;
+        autosave.open (document);
+        autosave.note (captureSession (live.controller, live.daw, kDevices, 260), true);
+        REQUIRE (waitForIdle (autosave));
+    }
+    juce::Thread::sleep (1100);
+    REQUIRE (SessionStore::save (captureSession (live.controller, live.daw, kDevices, 260), document));
+    CHECK (SessionAutosave::markerFor (document).existsAsFile());     // it still crashed...
+    CHECK (! SessionAutosave::check (document).offer);                // ...and still lost nothing
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("Autosave: a half-written file never replaces a good one")
+{
+    // The write lands by renaming a temporary file, so a reader either sees the session that
+    // was there before or the whole of the new one - never the middle of a JSON document.
+    const auto folder = autosaveScratch();
+    const auto document = folder.getChildFile ("Atomic.dlive.json");
+    FullSession live (true);
+
+    SessionAutosave autosave;
+    autosave.open (document);
+    const auto sidecar = SessionAutosave::autosaveFor (document);
+
+    for (int i = 0; i < 12; ++i)
+    {
+        live.controller.setStripFader (1, -float (i));
+        autosave.note (captureSession (live.controller, live.daw, kDevices, 0), true);
+        // Read it while the worker is very probably mid-write. Whatever is there parses.
+        if (sidecar.existsAsFile())
+        {
+            SessionState back;
+            CHECK_MESSAGE (SessionStore::load (sidecar, back),
+                           std::string ("the autosave was unreadable on pass ") + std::to_string (i));
+        }
+    }
+    REQUIRE (waitForIdle (autosave));
+    SessionState back;
+    REQUIRE (SessionStore::load (sidecar, back));
+    CHECK_NEAR (back.mix.strips[1].faderDb, -11.0f, 1e-3f);
+    autosave.closeCleanly();
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("Autosave: the moments a service cannot lose are milestones")
+{
+    FullSession live (true);
+    auto at = [&] { return live.controller.getMilestone(); };
+
+    const auto start = at();
+    live.controller.setStripFader (0, -2.0f);
+    CHECK (at() == start);                       // an ordinary edit waits its two seconds
+
+    live.controller.keepScene (3);
+    CHECK (at() > start);
+    CHECK (juce::String (live.controller.getLastMilestone()).contains ("Scene kept"));
+
+    const auto afterScene = at();
+    CHECK (live.controller.recallScene (3));
+    CHECK (at() > afterScene);
+
+    const auto afterRecall = at();
+    ReferenceProfile ref;
+    ref.valid = true;
+    ref.name = "Another record";
+    ref.seconds = 200.0f;
+    live.controller.setReference (ref);
+    CHECK (at() > afterRecall);
+    CHECK (juce::String (live.controller.getLastMilestone()).contains ("Another record"));
+
+    const auto afterRef = at();
+    auto s = live.controller.getSession();
+    s.inputs.push_back ({ "Choir", ChannelRole::Choir, 12, -1 });
+    live.controller.setSession (s);
+    CHECK (at() > afterRef);                     // the assignments changed: the graph is new
+}
+
+// ---------------------------------------------------------------------------
+// MIX HISTORY
+// ---------------------------------------------------------------------------
+
+TEST_CASE ("Mix history: every milestone is a place to come back to, and going back is one too")
+{
+    FullSession live (true);
+    live.daw.setLiveSafe (false);
+    const auto start = live.controller.getCheckpoints().size();
+
+    live.controller.setStripFader (0, -9.0f);
+    const auto faderDb = live.controller.getKept().strips[0].faderDb;
+    live.controller.keepScene (0);                       // a milestone
+    REQUIRE (live.controller.getCheckpoints().size() == start + 1);
+    const int mark = int (live.controller.getCheckpoints().size()) - 1;
+    CHECK (juce::String (live.controller.getCheckpoints()[size_t (mark)].what).contains ("Scene kept"));
+
+    // Mix on, then go back.
+    live.controller.setStripFader (0, 1.0f);
+    live.controller.setBusMute (MixBus::Music, true);
+    CHECK_NEAR (live.controller.getKept().strips[0].faderDb, 1.0f, 1e-3f);
+
+    REQUIRE (live.controller.restoreCheckpoint (mark));
+    CHECK_NEAR (live.controller.getKept().strips[0].faderDb, faderDb, 1e-3f);
+    CHECK (! live.controller.getKept().buses[size_t (MixBus::Music)].mute);
+
+    // Going back is itself a checkpoint, and UNDO takes it forward again.
+    const auto& list = live.controller.getCheckpoints();
+    REQUIRE (list.size() >= size_t (mark) + 2);
+    CHECK (juce::String (list.back().what).startsWith ("Before going back to"));
+    CHECK_NEAR (list.back().mix.strips[0].faderDb, 1.0f, 1e-3f);
+    REQUIRE (live.controller.canUndoMix());
+    live.controller.undoMix();
+    CHECK_NEAR (live.controller.getKept().strips[0].faderDb, 1.0f, 1e-3f);
+
+    // The engineer's own listen is never part of going back: solo and the monitor stay put.
+    live.controller.setMonitorGain (-15.0f);
+    live.controller.setStripSolo (1, true);
+    REQUIRE (live.controller.restoreCheckpoint (mark));
+    CHECK_NEAR (live.controller.getMonitor().gainDb, -15.0f, 1e-3f);
+    CHECK (live.controller.getKept().strips[1].solo);
+}
+
+TEST_CASE ("Mix history: it survives the session, and it is refused onto a different console")
+{
+    FullSession live (true);
+    live.daw.setLiveSafe (false);
+    live.controller.setStripFader (3, -5.0f);
+    live.controller.keepScene (0);
+    live.controller.setStripFader (3, 2.0f);
+    live.controller.keepScene (1);
+    const auto before = live.controller.getCheckpoints();
+    REQUIRE (before.size() >= 2);
+
+    auto state = captureSession (live.controller, live.daw, kDevices, 0);
+    const auto file = scratchFolder().getChildFile ("history.dlive.json");
+    file.deleteFile();
+    REQUIRE (SessionStore::save (state, file));
+    SessionState back;
+    REQUIRE (SessionStore::load (file, back));
+    REQUIRE (back.checkpoints.size() == before.size());
+    for (size_t i = 0; i < before.size(); ++i)
+    {
+        CHECK (back.checkpoints[i].what == before[i].what);
+        CHECK (back.checkpoints[i].whenMs == before[i].whenMs);
+        CHECK (back.checkpoints[i].fromTune == before[i].fromTune);
+        CHECK (back.checkpoints[i].inputs == before[i].inputs);
+        CHECK (MixPlanner::countParameterChanges (back.checkpoints[i].mix, before[i].mix) == 0);
+    }
+
+    // Reopened, the list is there and a mix from it goes back on.
+    MixController fresh;
+    DawEngine freshDaw { fresh };
+    applySession (back, fresh, freshDaw);
+    fresh.prepare (kSr, kBlock);
+    REQUIRE (fresh.getCheckpoints().size() == before.size());
+    REQUIRE (fresh.restoreCheckpoint (0));
+
+    // A checkpoint is a balance between the sources that were there. Onto a console that is
+    // not that one, it is refused with a sentence rather than applied by index.
+    std::string said;
+    fresh.onMessage = [&said] (const std::string& m) { said = m; };
+    auto other = fresh.getSession();
+    other.inputs.push_back ({ "Choir", ChannelRole::Choir, 11, -1 });
+    fresh.setSession (other);
+    freshDaw.setSession (other);
+    fresh.prepare (kSr, kBlock);
+    CHECK (! fresh.restoreCheckpoint (0));
+    CHECK (juce::String (said).contains ("different set of inputs"));
+}
+
+TEST_CASE ("Mix history: it is bounded by what it costs, and a tune outlives the hand edits round it")
+{
+    std::vector<MixCheckpoint> list;
+    auto add = [&list] (const char* what, bool fromTune, int strips)
+    {
+        MixCheckpoint c;
+        c.what = what;
+        c.fromTune = fromTune;
+        c.mix.numStrips = strips;
+        list.push_back (c);
+    };
+
+    // Twenty-one inputs: the budget is reached at about thirty-eight checkpoints, and the one
+    // made by a tune is passed over while there is still a hand edit to drop instead.
+    add ("TUNE MIX", true, 21);
+    for (int i = 0; i < 200; ++i) add ("While mixing", false, 21);
+    pruneCheckpoints (list);
+    CHECK (int (list.size()) * 21 <= kCheckpointStripBudget);
+    CHECK (list.size() > 20);                                    // a real morning still fits
+    CHECK (list.front().what == "TUNE MIX");                     // ...and the tune is still there
+    CHECK (list.back().what == "While mixing");                  // newest kept
+
+    // A sixty-four channel console carries fewer, because each one costs three times as much.
+    std::vector<MixCheckpoint> big;
+    list.swap (big);
+    big.clear();
+    for (int i = 0; i < 200; ++i) { MixCheckpoint c; c.mix.numStrips = 64; c.what = "While mixing"; big.push_back (c); }
+    pruneCheckpoints (big);
+    CHECK (int (big.size()) * 64 <= kCheckpointStripBudget);
+    CHECK (big.size() >= 8);
+
+    // Every entry a tune: the oldest still goes, because a bounded list is bounded.
+    std::vector<MixCheckpoint> tunes;
+    for (int i = 0; i < 200; ++i) { MixCheckpoint c; c.mix.numStrips = 21; c.fromTune = true; c.what = "TUNE MIX"; tunes.push_back (c); }
+    pruneCheckpoints (tunes);
+    CHECK (int (tunes.size()) * 21 <= kCheckpointStripBudget);
 }

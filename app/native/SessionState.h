@@ -118,6 +118,9 @@ struct SessionState
     // ---- the track history: every tune and hand edit on each channel, before and after
     std::vector<StripTuneRecord> history;
 
+    // ---- the mix history: the whole mix as it was at each moment worth coming back to
+    std::vector<MixCheckpoint> checkpoints;
+
     // ---- the last TUNE LIVE MIX run, as a record. Reading only: the mix itself is in `mix`,
     // so opening yesterday's session sounds as it did without contacting any provider, ever.
     juce::var tuneLive;

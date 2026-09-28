@@ -31,6 +31,7 @@ public:
     std::function<void (int strip)> onTuneStrip;      // TUNE CHANNEL, from the input rail
     std::function<void (const juce::String&)> onToast;
     std::function<void()> onOpenChat;                 // Mix Buddy, from the action column
+    std::function<void()> onOpenHistory;              // MIX HISTORY: the whole mix as it was, by name
     std::function<void (int strip)> onSelectStrip;    // a row on the rail was picked out
     int selectedStrip() const noexcept { return selectedRow; }
 
@@ -106,6 +107,7 @@ private:
     DineButton chatButton { "Mix Buddy", DineButton::Style::Standard };
     DineButton undoButton { "Undo mix", DineButton::Style::Standard };
     DineButton redoButton { "Redo mix", DineButton::Style::Standard };
+    DineButton historyButton { "Mix history", DineButton::Style::Standard };
     DineButton advancedButton { "Open the Inspector", DineButton::Style::Ghost };
     DineButton resetMacrosButton { "Centre both pads", DineButton::Style::Ghost };
     // MASTER: how loud the finished mix should be, one press to get there, and who it is for.

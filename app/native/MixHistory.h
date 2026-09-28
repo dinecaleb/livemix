@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -56,6 +57,62 @@ inline constexpr int kMixScenes = 4;
 inline const char* defaultSceneName (int slot) noexcept
 {
     switch (slot) { case 0: return "Band"; case 1: return "Speech"; case 2: return "Worship"; default: return "Custom"; }
+}
+
+// ---------------------------------------------------------------------------
+// MIX HISTORY: the whole mix as it was at a moment worth coming back to.
+//
+// UNDO and REDO are for the last thing you did, they are fine-grained, and they live and die
+// with the graph. This is the other kind of going back: it survives quitting, it is a list
+// rather than a stack, and it is written in the words of what happened - "TUNE MIX",
+// "Scene: Sermon", "Put back on Lead Vocal" - so an engineer on Monday can find the mix the
+// service actually went out on.
+//
+// A checkpoint is taken at every milestone (MixController::mark), and on a slow beat while the
+// mix is being worked on, so a long morning of small moves is not one undo step wide. Going
+// back to one is itself a checkpoint, so it can be undone like anything else.
+//
+// It is bounded by what it costs rather than by how many there are: a 64-channel console's
+// checkpoint is three times a 21-channel one's, and the session document has to stay a file
+// that opens quickly. When the budget is passed the oldest goes - except that a checkpoint
+// made by a tune outlives the hand edits around it, because that is the one people ask for.
+// ---------------------------------------------------------------------------
+struct MixCheckpoint
+{
+    long long whenMs = 0;              // wall clock, milliseconds since the epoch
+    std::string what;                  // the sentence: "TUNE MIX", "Scene: Sermon", "Before reset"
+    bool fromTune = false;             // kept longest when the list is pruned
+    int tuneCount = 0;                 // which TUNE the mix was on
+    MixParameters mix;                 // the kept mix, without macros
+    MixMacroValues macros;
+    std::vector<std::string> inputs;   // the session's input names when it was taken
+};
+
+// How much history a session carries, measured in strip snapshots rather than in entries: one
+// checkpoint of a 21-input console costs 21, one of a 64-input console costs 64. Roughly two
+// and a half thousand strips of history is a few megabytes of document, which still opens
+// instantly and still autosaves inside its two seconds.
+inline constexpr int kCheckpointStripBudget = 800;
+inline constexpr int kMaxCheckpoints = 100;          // for a tiny session, where the budget never bites
+
+// Drops the oldest until the list fits. A tune's checkpoint is passed over while any hand edit
+// is still there to drop instead: "put it back to how TUNE MIX left it" is the request this
+// list exists to answer.
+inline void pruneCheckpoints (std::vector<MixCheckpoint>& list)
+{
+    auto cost = [&list]
+    {
+        int n = 0;
+        for (const auto& c : list) n += std::max (1, c.mix.numStrips);
+        return n;
+    };
+    while (list.size() > 1 && (int (list.size()) > kMaxCheckpoints || cost() > kCheckpointStripBudget))
+    {
+        auto oldest = list.end();
+        for (auto it = list.begin(); it + 1 != list.end(); ++it)
+            if (! it->fromTune) { oldest = it; break; }
+        list.erase (oldest != list.end() ? oldest : list.begin());
+    }
 }
 
 // The records carried onto a rebuilt session: each one follows its input by the identity

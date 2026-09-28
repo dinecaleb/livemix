@@ -10,6 +10,7 @@
 #include "native/MixBounce.h"
 #include "native/MixController.h"
 #include "native/MultitrackImport.h"
+#include "native/SessionAutosave.h"
 #include "native/SessionState.h"
 #include "native/SessionStore.h"
 #include "native/SampleLibrary.h"
@@ -175,13 +176,27 @@ namespace
 
         void touchSession() override { controller.touch(); }
         unsigned long long sessionRevision() override { return controller.getRevision(); }
+        unsigned long long sessionMilestone() override { return controller.getMilestone(); }
+
+        // The snapshot is taken here, on the message thread, and written by the autosave's own
+        // worker: a thirty-two channel document with a morning of history is a real serialise
+        // and has no business inside a 30 Hz tick.
+        void autosaveNow (bool immediately) override
+        {
+            if (controller.getSession().inputs.empty()) return;
+            autosave.open (documentFileOrDefault());     // cheap and idempotent once the file is the same
+            auto state = captureSession (controller, dawEngine, deviceChoice(), panelWidth);
+            if (samples != nullptr) readSampleChoices (controller, *samples, state.samples);
+            autosave.note (state, immediately);
+        }
 
         void saveSession() override
         {
             if (controller.getSession().inputs.empty()) return;
-            auto file = documentFile();
-            if (file == juce::File()) file = SessionStore::fileFor (juce::String (controller.getSession().name));
-            writeDocument (file);
+            // Anything the autosave still owes goes first, so the document is never written
+            // from behind an autosave that is about to land on top of it.
+            autosave.flush();
+            writeDocument (documentFileOrDefault());
         }
 
         juce::String saveSessionAs (const juce::String& name) override
@@ -217,6 +232,9 @@ namespace
         // opens at all with the console unplugged, and why saving it then cannot lose anything.
         void openState (const SessionState& state)
         {
+            // Whatever was open is closed cleanly first: its marker and its autosave go, so a
+            // session that was left properly is never offered back as unsaved work.
+            autosave.closeCleanly();
             applySession (state, controller, dawEngine);
             panelWidth = state.trackPanelWidth;
             forgetPairing();
@@ -232,6 +250,7 @@ namespace
             for (const auto& take : dawEngine.recoverUnfinishedTakes())
                 recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + take.note;
             dawEngine.locate (0);
+            autosave.open (documentFileOrDefault());
         }
 
         // Opens the devices a session asks for, or the nearest thing this Mac has (DevicePlan.h),
@@ -444,6 +463,18 @@ namespace
             return folder.getChildFile (folder.getFileName() + ".dlive.json");
         }
 
+    public:
+        // Where this session's document belongs, whether or not it has been saved there yet.
+        // The autosave and the marker hang off it, so an unsaved session still leaves enough
+        // behind to be recovered.
+        juce::File documentFileOrDefault() const
+        {
+            const auto file = documentFile();
+            return file != juce::File() ? file : SessionStore::fileFor (juce::String (controller.getSession().name));
+        }
+        SessionAutosave& autosaveWriter() { return autosave; }
+    private:
+
         // One line, and it is the tested one: SessionState.cpp reads the session out of the
         // controller and the engine. What was here was fourteen getters and a dead fallback
         // that meant a session opened without its console saved itself empty.
@@ -509,6 +540,7 @@ namespace
         // The drum sounds, for turning each strip's `replaceSound` index into a name on save and
         // back into an index on open. Null in a context that has no library (a tool, a test).
         SampleLibrary* samples = nullptr;
+        SessionAutosave autosave;
         int panelWidth = 0;             // TRACKS channel panel; 0 = the page's own default
         // The two devices the user chose. While a combined device is open, the *open* device is
         // DLIVE's own and these are what the user actually picked; consoleInputDevice is the
@@ -565,8 +597,8 @@ public:
 
         SessionState state;
         const auto pointer = lastSessionPointer();
-        const bool restored = pointer.existsAsFile()
-                              && SessionStore::load (juce::File (pointer.loadFileAsString().trim()), state);
+        const juce::File lastDocument = pointer.existsAsFile() ? juce::File (pointer.loadFileAsString().trim()) : juce::File();
+        const bool restored = lastDocument != juce::File() && SessionStore::load (lastDocument, state);
 
         window = std::make_unique<MainWindow> (getApplicationName(), *controller, *services);
 
@@ -580,12 +612,71 @@ public:
             const auto note = services->takeRecoveryNote();
             if (note.isNotEmpty()) window->view().showToast (note);
         }
+
+        // DLIVE did not get to say goodbye last time, and the autosave holds work the document
+        // does not. Asked once, after the window is up, in the words of what was lost rather
+        // than in the words of what went wrong.
+        if (const auto found = SessionAutosave::check (lastDocument); found.offer)
+            juce::MessageManager::callAsync ([this, found, lastDocument] { offerRecovery (found, lastDocument); });
+    }
+
+    // Recover / Open last saved / Keep both. Nothing is deleted by any of the three: "keep
+    // both" writes the recovered work as its own session, and the other two only remove the
+    // autosave once the choice has been carried out.
+    void offerRecovery (const SessionAutosave::Recovery& found, const juce::File& document)
+    {
+        if (window == nullptr || services == nullptr) return;
+        auto* alert = new juce::AlertWindow ("Recover session?",
+                                             found.sentence + "\n\nThe session on disk was last saved at "
+                                             + found.documentWhen.toString (true, true, false, true) + ".",
+                                             juce::MessageBoxIconType::NoIcon);
+        alert->addButton ("Recover", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        alert->addButton ("Open last saved", 2, juce::KeyPress (juce::KeyPress::escapeKey));
+        alert->addButton ("Keep both", 3);
+        alert->enterModalState (true, juce::ModalCallbackFunction::create ([this, alert, found, document] (int r)
+        {
+            std::unique_ptr<juce::AlertWindow> closer (alert);
+            if (r == 2) { SessionAutosave::discard (document); return; }
+
+            SessionState recovered;
+            if (! SessionStore::load (found.autosave, recovered))
+            {
+                window->view().showToast ("That autosave could not be read, so the session on disk is the one you have.");
+                SessionAutosave::discard (document);
+                return;
+            }
+            SessionAutosave::discard (document);      // the choice has been made; stop offering it
+
+            if (r == 3)
+            {
+                // Keep both: the recovered work becomes a session of its own, beside the one
+                // that was saved, and the takes stay where they are (saveSessionAs makes their
+                // clips absolute for exactly this).
+                const auto name = juce::String (recovered.session.name) + " (recovered)";
+                services->openState (recovered);
+                const auto err = services->saveSessionAs (name);
+                window->view().sessionReplaced();
+                window->view().showToast (err.isEmpty()
+                    ? "Both are here: the recovered work is now \"" + name + "\", and the session you saved is untouched."
+                    : err);
+                return;
+            }
+
+            services->openState (recovered);
+            services->saveSession();                  // the recovery is committed, not left in a sidecar
+            window->view().sessionReplaced();
+            window->view().showToast ("Recovered. The work from " + found.when.toString (false, true, false, true)
+                                      + " is back, and the session has been saved.");
+        }), true);
     }
 
     void shutdown() override
     {
         if (dawEngine != nullptr) dawEngine->stop();
+        // A clean goodbye: the document is written, and the marker and the autosave go with
+        // it. One that is still there on the next launch is how DLIVE knows it was killed.
         if (services != nullptr && controller != nullptr && ! controller->getSession().inputs.empty()) services->saveSession();
+        if (services != nullptr) services->autosaveWriter().closeCleanly();
         window.reset();
         host.reset();
         services.reset();

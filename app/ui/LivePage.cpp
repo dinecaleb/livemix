@@ -270,6 +270,13 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     liveSafeButton.setClickingTogglesState (false);
     liveSafeButton.setTooltip (juce::String ("Lock the sound for the service. ") + liveSafe::lockedSummary() + " "
                                + liveSafe::allowedSummary());
+    addAndMakeVisible (historyButton);
+    historyButton.setFontPx (12.5f);
+    historyButton.setQuiet (true);
+    historyButton.setTooltip ("Every mix this session has had, by time and by name. Going back to one keeps where "
+                              "you are now, so it is never a one-way door.");
+    historyButton.onClick = [this] { if (onOpenHistory) onOpenHistory(); };
+
     liveSafeButton.onClick = [this]
     {
         auto& daw = services.daw();
@@ -461,6 +468,7 @@ void LivePage::refresh()
                      : next.soloCount > 0 ? juce::String (next.soloCount) + (next.soloCount == 1 ? " channel soloed. Only you hear it." : " channels soloed. Only you hear it.")
                                           : "Press S on any channel to hear it. Only you hear it.";
     if (next.soloCount != look.soloCount || next.inPlace != look.inPlace) refreshMonitor();
+    historyButton.setEnabled (! controller.getCheckpoints().empty());
     liveSafeButton.setButtonText (next.safe ? "LIVE SAFE ON" : "LIVE SAFE OFF");
     liveSafeButton.setStyle (next.safe ? DineButton::Style::Filled : DineButton::Style::Standard);
     if (next != look) { look = next; repaint(); }
@@ -556,7 +564,7 @@ void LivePage::paint (juce::Graphics& g)
     {
         Dine::fillRounded (g, l.safe.toFloat(), Dine::tile, Dine::Radius::card);
         auto inner = l.safe.reduced (18, 18);
-        inner.removeFromTop (44 + 8);
+        inner.removeFromTop (44 + 10 + Dine::Metric::button + 10);   // the lock, then the way back
         struct Rule { juce::String what, why; bool amber; };
         std::vector<Rule> rules;
         if (look.safe)
@@ -575,7 +583,9 @@ void LivePage::paint (juce::Graphics& g)
         }
         for (const auto& rule : rules)
         {
-            if (inner.getHeight() < 30) break;
+            // A rule is drawn whole or not at all: half a sentence in a box is worse than one
+            // rule fewer, and the ones that matter most are first.
+            if (inner.getHeight() < 62) break;
             const int h = juce::jmin (inner.getHeight(), 13 + 16 + 5 + 34 + 13);
             auto box = inner.removeFromTop (h);
             Dine::fillRounded (g, box.toFloat(), Dine::item, Dine::Radius::control);
@@ -650,6 +660,10 @@ void LivePage::resized()
     {
         auto inner = l.safe.reduced (18, 18);
         liveSafeButton.setBounds (inner.removeFromTop (44));
+        // Under the lock, where an engineer already is when something has gone wrong: the
+        // list of every mix this session has had, with the time and the name of each.
+        inner.removeFromTop (10);
+        historyButton.setBounds (inner.removeFromTop (Dine::Metric::button));
     }
 }
 

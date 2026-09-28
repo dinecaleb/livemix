@@ -789,6 +789,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     mixPage->onToast = [this] (const juce::String& t) { showToast (t); };
     mixPage->onTuneStrip = [this] (int strip) { tuneChannel (strip); };
     mixPage->onOpenChat = [this] { showChat(); };
+    mixPage->onOpenHistory = [this] { showHistory(); };
     mixPage->onSelectStrip = [this] (int strip) { lastChannel = strip; updateChainFoot(); };
     mixerPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
     mixerPage->onOpenBus = [this] (MixBus bus) { showPage (Page::Inspector); advancedPage->selectBus (bus); };
@@ -797,6 +798,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     mixerPage->onToast = [this] (const juce::String& t) { showToast (t); };
     mixerPage->onOpenAssign = [this] { assignPage->refresh(); showPage (Page::Assign); };
     livePage->onToast = [this] (const juce::String& t) { showToast (t); };
+    livePage->onOpenHistory = [this] { showHistory(); };
     livePage->onLiveSafeChanged = [this] { updateChrome(); repaint(); };
     livePage->onToggleRecord = [this] { handleCommand (501); };
     advancedPage->onBack = [this] { showPage (Page::Tune); };
@@ -807,6 +809,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
 
     controller.onMessage = [this] (const std::string& m) { showToast (m); };
     seenRevision = services.sessionRevision();
+    seenMilestone = services.sessionMilestone();
 
     setWantsKeyboardFocus (true);
     showPage (! services.listSessions().isEmpty() ? Page::Sessions : Page::Device);
@@ -824,6 +827,7 @@ MainView::~MainView()
     mixerWindow.reset();
     outputsSheet.reset();
     checkSheet.reset();
+    historySheet.reset();
     themeSheet.reset();
     channelSheet.reset();
     chatSheet.reset();
@@ -1169,6 +1173,7 @@ void MainView::closeSheets()
 {
     outputsSheet.reset();
     checkSheet.reset();
+    historySheet.reset();
     themeSheet.reset();
     channelSheet.reset();
     chatSheet.reset();
@@ -1220,6 +1225,21 @@ void MainView::showCheck()
     addAndMakeVisible (*checkSheet);
     resized();
     checkSheet->toFront (true);
+}
+
+void MainView::showHistory()
+{
+    if (historySheet != nullptr) { historySheet->refresh(); return; }
+    historySheet = std::make_unique<HistorySheet> (controller, services);
+    historySheet->onToast = [this] (const juce::String& s) { showToast (s); };
+    historySheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->historySheet.reset(); safe->updateChrome(); } });
+    };
+    addAndMakeVisible (*historySheet);
+    resized();
+    historySheet->toFront (true);
 }
 
 void MainView::showOutputs()
@@ -1764,7 +1784,7 @@ bool MainView::keyPressed (const juce::KeyPress& key)
     if (code == 'M')                       { handleCommand (203); return true; }
     if (code == '[')                       { handleCommand (611); return true; }
     if (code == ']')                       { handleCommand (612); return true; }
-    if (code == juce::KeyPress::escapeKey) { if (chatSheet != nullptr || outputsSheet != nullptr || checkSheet != nullptr || themeSheet != nullptr) { closeSheets(); return true; } }
+    if (code == juce::KeyPress::escapeKey) { if (chatSheet != nullptr || outputsSheet != nullptr || checkSheet != nullptr || historySheet != nullptr || themeSheet != nullptr) { closeSheets(); return true; } }
     if (code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey)
     {
         if (page == Page::Tracks) { handleCommand (202); return true; }
@@ -1884,6 +1904,21 @@ void MainView::saveAs()
     }), true);
 }
 
+// A different document is open: every workspace was built for the last one. Called by opening
+// a session from the library and by recovering one after a crash, so the two cannot drift.
+void MainView::sessionReplaced()
+{
+    seenRevision = services.sessionRevision();
+    seenMilestone = services.sessionMilestone();
+    advancedPage->rebuild();
+    mixerPage->rebuild();
+    if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+    tracksPage->rebuild();
+    livePage->rebuild();
+    showPage (controller.getSession().inputs.empty() ? Page::Assign : Page::Tracks);
+    updateChrome();
+}
+
 void MainView::openSession()
 {
     juce::PopupMenu m;
@@ -1902,14 +1937,9 @@ void MainView::openSession()
                          if (result <= 0 || result > listed.size()) return;
                          const auto err = services.loadSession (listed[result - 1].file);
                          if (err.isNotEmpty()) { showToast (err); return; }
-                         advancedPage->rebuild();
-                         mixerPage->rebuild();
-                         if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
-                         tracksPage->rebuild();
-                         showPage (controller.getSession().inputs.empty() ? Page::Assign : Page::Tracks);
+                         sessionReplaced();
                          const auto recovered = services.takeRecoveryNote();
                          showToast ("Opened \"" + services.currentSessionName() + "\"." + (recovered.isEmpty() ? "" : " " + recovered));
-                         updateChrome();
                      });
 }
 
@@ -1957,6 +1987,7 @@ void MainView::timerCallback()
 
     if (channelSheet != nullptr) channelSheet->refresh();
     if (checkSheet != nullptr) checkSheet->refresh();
+    if (historySheet != nullptr) historySheet->refresh();
     if (chatSheet != nullptr) chatSheet->refresh();
 
     const bool slow = (++slowTicks % 30) == 0;
@@ -1965,15 +1996,21 @@ void MainView::timerCallback()
     if (chainFoot->isVisible() && slowTicks % 3 == 0) updateChainFoot();
 
     if (toastTicks > 0 && --toastTicks == 0) toast->setVisible (false);
-    // The session is saved because it changed, wherever the change came from - a fader, a clip,
-    // a scene, a device, the assignments - and a second after the last one, so a knob drag is
-    // one write rather than thirty.
+    // The session is written down because it changed, wherever the change came from - a fader,
+    // a clip, a scene, a device, the assignments. A knob drag is one write rather than thirty,
+    // and a milestone (a tune kept, a scene recalled, a new reference) does not wait at all.
     if (const auto revision = services.sessionRevision(); revision != seenRevision)
     {
         seenRevision = revision;
-        saveTicks = 30;
+        if (const auto milestone = services.sessionMilestone(); milestone != seenMilestone)
+        {
+            seenMilestone = milestone;
+            saveTicks = 0;
+            services.autosaveNow (true);
+        }
+        else saveTicks = 10;          // a third of a second of quiet, then hand it over
     }
-    if (saveTicks > 0 && --saveTicks == 0) services.saveSession();
+    if (saveTicks > 0 && --saveTicks == 0) services.autosaveNow (false);
 
     if (tuningLiveWasOn != controller.isTuningLive()) { tuningLiveWasOn = controller.isTuningLive(); updateChrome(); }
 
@@ -2170,7 +2207,8 @@ void MainView::resized()
     // A sheet covers the workspace column; the chat is a panel down the right of it.
     auto column = columnBounds();
     for (juce::Component* sheetComponent : { (juce::Component*) outputsSheet.get(), (juce::Component*) themeSheet.get(),
-                                             (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get() })
+                                             (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get(),
+                                             (juce::Component*) historySheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)
     {

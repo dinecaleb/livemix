@@ -75,6 +75,12 @@ public:
     // moments the *user* asked to save (File > Save, Save As, before replacing the document).
     virtual void touchSession() {}
     virtual unsigned long long sessionRevision() { return 0; }
+    // A moment the session must not lose - a tune kept, a scene recalled, a new reference -
+    // moves this as well, and the autosave writes at once instead of waiting.
+    virtual unsigned long long sessionMilestone() { return 0; }
+    // Hand the autosave a snapshot of the session as it is now. Called from one place, when
+    // the revision has moved and gone quiet (or straight away after a milestone).
+    virtual void autosaveNow (bool immediately) { juce::ignoreUnused (immediately); }
     virtual void saveSession() = 0;
     // Start over: clears the assignments, the timeline and the mix, keeping the device open.
     virtual void newSession() = 0;

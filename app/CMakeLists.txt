@@ -34,6 +34,7 @@ set(DLIVE_APP_SOURCES
     native/OpenAiMixProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/Intelligence/AISettings.cpp
     ${CMAKE_SOURCE_DIR}/src/Intelligence/HttpJson.cpp
+    native/SessionAutosave.cpp
     native/SessionState.cpp
     native/SessionStore.cpp
     native/InputMapStore.cpp
@@ -58,6 +59,7 @@ set(DLIVE_UI_SOURCES
     ui/MixerPage.cpp
     ui/OutputsSheet.cpp
     ui/CheckSheet.cpp
+    ui/HistorySheet.cpp
     ui/ChannelTuneSheet.cpp
     ui/ReferenceSheet.cpp
     ui/ChatSheet.cpp

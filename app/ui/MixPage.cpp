@@ -176,6 +176,8 @@ public:
             put (page.undoButton, { kPad, y, half, Dine::Metric::button });
             put (page.redoButton, { kPad + half + 9, y, inner - half - 9, Dine::Metric::button });
             y += Dine::Metric::button + 9;
+            put (page.historyButton, { kPad, y, inner, Dine::Metric::button });
+            y += Dine::Metric::button + 9;
         }
         stamp = { kPad, y, inner, 16 };                          y += 16 + 4;
         put (page.advancedButton, { kPad, y, juce::jmin (inner, juce::jmax (120, page.advancedButton.idealWidth())), Dine::Metric::control });
@@ -918,7 +920,7 @@ MixPage::MixPage (MixController& c) : controller (c)
     listenSheet = std::make_unique<ListenSheet> (controller);
     resultSheet = std::make_unique<ResultSheet> (controller, *this);
     referenceSheet = std::make_unique<ReferenceSheet> (controller);
-    for (auto* b : { &tuneButton, &liveTuneButton, &referenceButton, &chatButton, &undoButton, &redoButton, &advancedButton })
+    for (auto* b : { &tuneButton, &liveTuneButton, &referenceButton, &chatButton, &undoButton, &redoButton, &historyButton, &advancedButton })
         side->addAndMakeVisible (*b);
     addAndMakeVisible (resetMacrosButton);
     addChildComponent (*referenceSheet);
@@ -948,6 +950,11 @@ MixPage::MixPage (MixController& c) : controller (c)
     chatButton.setTooltip ("Ask for a change in plain words. DLIVE says what it intends to do before anything is yours.");
     undoButton.setQuiet (true);
     redoButton.setQuiet (true);
+    historyButton.setQuiet (true);
+    historyButton.setFontPx (12.5f);
+    historyButton.setTooltip ("Every mix this session has had, by time and by name: a tune, a scene, a morning of "
+                              "mixing. Going back to one keeps where you are now, so it is never a one-way door.");
+    historyButton.onClick = [this] { if (onOpenHistory) onOpenHistory(); };
     undoButton.setFontPx (12.5f);
     redoButton.setFontPx (12.5f);
     undoButton.setTooltip ("Step back a whole mix");
@@ -1264,6 +1271,7 @@ void MixPage::refresh()
         painted = now;
         undoButton.setEnabled (now.canUndo);
         redoButton.setEnabled (now.canRedo);
+        historyButton.setEnabled (! controller.getCheckpoints().empty());
         layoutSide();
         side->repaint();
         repaint();

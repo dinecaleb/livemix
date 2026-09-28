@@ -9,6 +9,7 @@
 #include "MixerPage.h"
 #include "OutputsSheet.h"
 #include "CheckSheet.h"
+#include "HistorySheet.h"
 #include "ChannelTuneSheet.h"
 #include "ChatSheet.h"
 #include "ThemeSheet.h"
@@ -53,9 +54,9 @@ public:
         return p == Page::Sessions || p == Page::Device || p == Page::Assign || p == Page::Purpose;
     }
     void showToast (const juce::String& text);
-    // Saving follows the document's revision, not a call site: the tick notices it has moved and
-    // writes a second after it stops moving. docs/SESSION-STATE.md, §5.3.
-    unsigned long long seenRevision = 0;
+    // A different session document is now open - from the library, or recovered after a crash:
+    // every workspace was built for the last one.
+    void sessionReplaced();
 
     // The macOS menu bar. The application attaches it; the headless snapshot tool does not.
     juce::MenuBarModel* getMenuModel();
@@ -70,7 +71,8 @@ public:
     void closeTutorial();
     static void setAutoTutorial (bool);
     void showOutputs();
-    void showCheck();                       // CHECK INPUTS: every assigned input, its level and one word about it
+    void showCheck();                         // CHECK INPUTS: every assigned input, its level and one word about it
+    void showHistory();                       // MIX HISTORY: the whole mix as it was, hours ago, by name
     void updateChromeForSnapshot() { updateChrome(); }   // the snapshot tool: the toolbar re-reads the controller now
     void closeSheetsForSnapshot() { closeSheets(); }
     void showChat();
@@ -154,6 +156,7 @@ private:
     std::unique_ptr<MixerPage> mixerPage;
     std::unique_ptr<OutputsSheet> outputsSheet;
     std::unique_ptr<CheckSheet> checkSheet;
+    std::unique_ptr<HistorySheet> historySheet;
     std::unique_ptr<ThemeSheet> themeSheet;
     juce::StringArray themeMenuNames;      // the View > Appearance list, as it was last built
     std::unique_ptr<ChannelTuneSheet> channelSheet;
@@ -189,6 +192,10 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
 
     int saveTicks = 0, toastTicks = 0, slowTicks = 0;
+    // What is written down follows the document's revision, not a call site: the tick notices
+    // it has moved, and hands a snapshot to the autosave once it stops. A milestone - a tune
+    // kept, a scene recalled, a new reference - does not wait. docs/SESSION-STATE.md §5.3.
+    unsigned long long seenRevision = 0, seenMilestone = 0;
     bool audioWasRunning = false;
     bool tuningLiveWasOn = false;
     bool usingCloudMixEngineer = false;
