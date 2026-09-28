@@ -181,6 +181,10 @@ namespace
             dawEngine.setSession (controller.getSession());
             dawEngine.prepare (kSr, kBlock);
         }
+        // The session writes itself down without being asked, and the toolbar says so. There is
+        // no document here to write, so the fake states a write that has just landed - which is
+        // the state every screen in the design is drawn in.
+        juce::Time lastAutosave() override { return autosaved; }
         void saveSession() override {}
         void newSession() override {}
         juce::String saveSessionAs (const juce::String& name) override { sessionName = name; return {}; }
@@ -205,6 +209,7 @@ namespace
         MixController& controller;
         DawEngine& dawEngine;
         bool running = false;
+        juce::Time autosaved { juce::Time::getCurrentTime() };
         juce::String input, output, sessionName { "Sunday" };
         juce::Array<SessionStore::Listing> sessions;
     };

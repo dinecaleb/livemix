@@ -88,6 +88,10 @@ public:
     // Hand the autosave a snapshot of the session as it is now. Called from one place, when
     // the revision has moved and gone quiet (or straight away after a milestone).
     virtual void autosaveNow (bool immediately) { juce::ignoreUnused (immediately); }
+    // What the toolbar and the status foot say about the autosave. A default Time means
+    // nothing has been written yet - a session with no inputs, or none since it was opened.
+    virtual juce::Time lastAutosave() { return {}; }
+    virtual bool autosavePending() { return false; }   // something is still owed to the disk
     virtual void saveSession() = 0;
     // Start over: clears the assignments, the timeline and the mix, keeping the device open.
     virtual void newSession() = 0;

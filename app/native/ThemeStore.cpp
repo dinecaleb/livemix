@@ -76,6 +76,7 @@ namespace
         { "busLead",     "Groups",   "The LEAD group - the one voice the mix is built around." },
         { "busFx",       "Groups",   "The FX returns." },
 
+        { "onHot",       "Status",   "Type on the solo bar." },
         { "scrim",       "Surfaces", "What a sheet is laid over." },
         { "autopilotGround", "Surfaces", "The ground under Autopilot while it is running." },
     };
@@ -110,7 +111,7 @@ namespace
             { "glyph", 0xff6b7380 }, { "panMark", 0xff556070 },
             { "accent", 0xff6db8a8 }, { "accentHover", 0xff8ed0c2 }, { "accentDeep", 0xff5aa393 }, { "onAccent", 0xff0b0d10 },
             { "focusRing", 0xff6db8a8 },
-            { "ok", 0xff57b98d }, { "hot", 0xffcbbf6a }, { "warn", 0xffe0a85c }, { "crit", 0xffe06a64 }, { "monitor", 0xff6eafff },
+            { "ok", 0xff57b98d }, { "hot", 0xffcbbf6a }, { "onHot", 0xff17150a }, { "warn", 0xffe0a85c }, { "crit", 0xffe06a64 }, { "monitor", 0xff6eafff },
             { "keyMute", 0xffe0a85c }, { "keySolo", 0xff6db8a8 }, { "keyRec", 0xffe06a64 }, { "keyMon", 0xff6eafff },
             { "busDrums", 0xffe09a4b }, { "busBass", 0xff8e80ff }, { "busMusic", 0xff6eafff }, { "busVocals", 0xff57b98d },
             { "busSpeech", 0xffc98fb0 }, { "busAmbience", 0xffa8b0bc }, { "busMaster", 0xffa8b0bc },
@@ -204,6 +205,7 @@ namespace
             { "keyMute", 0xffc47f1e }, { "keySolo", 0xff1f8f7a }, { "keyRec", 0xffcf3f38 }, { "keyMon", 0xff2b78d6 },
             { "busDrums", 0xffc47a1e }, { "busBass", 0xff6a5ce0 }, { "busMusic", 0xff2b78d6 }, { "busVocals", 0xff2f9a68 },
             { "busSpeech", 0xffb0508f }, { "busAmbience", 0xff6b7380 }, { "busMaster", 0xff4a5260 },
+            { "onHot", 0xfffdf8e6 },
             { "busLead", 0xffd1435b }, { "busFx", 0xff2f8fa8 },
             { "autopilotGround", 0xffe7edf4 },
         });

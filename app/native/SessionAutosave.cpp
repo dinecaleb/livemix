@@ -168,6 +168,12 @@ void SessionAutosave::writeNow (const SessionState& state, const juce::File& tar
 {
     if (target == juce::File()) return;
     writeAtomically (target, juce::JSON::toString (SessionStore::toVar (state), false));
+    wroteAt.store (juce::Time::getCurrentTime().toMilliseconds(), std::memory_order_release);
+}
+
+juce::Time SessionAutosave::lastWrite() const
+{
+    return juce::Time (wroteAt.load (std::memory_order_acquire));
 }
 
 SessionAutosave::Recovery SessionAutosave::check (const juce::File& document)

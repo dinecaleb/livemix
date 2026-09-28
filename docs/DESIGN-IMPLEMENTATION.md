@@ -8,7 +8,7 @@ which engine phase owns it.
 The design file is **`2wv5QSnvrSSQXtDzfuShIn`** ("DLIVE Desktop v2", Sept 2026).
 The baseline this is all measured against is `docs/design/baseline/`.
 
-**Status: UI-0 done. UI-1 done (tokens, type roles, text size).**
+**Status: UI-0, UI-1 and UI-2 done. Next: UI-3, the mixer and the channel strip.**
 
 ---
 
@@ -32,8 +32,8 @@ Every frame is otherwise readable and every component is a real component with v
 ## 2. Tokens: AppTheme against the design's variables
 
 `AppTheme.h` is already on the v2 values - `desk #070809`, `window #0e1014`, `card #1a1e26`,
-`accent #6db8a8` and the rest match the design exactly. Four tokens the design uses are
-missing, and one differs.
+`accent #6db8a8` and the rest match the design exactly. Five tokens the design uses were
+missing, and one differed.
 
 | Design variable | Value | Was | Now |
 | --- | --- | --- | --- |
@@ -41,11 +41,12 @@ missing, and one differs.
 | `Dine::fx` | `#7fc4d8` | missing | **added** as `busFx`. FX returns exist today, so UI-3 can use it at once. |
 | `Dine::autopilot` | `#121b27` | missing | **added** as `autopilotGround`. Unused until Autopilot ships. |
 | `Dine::scrim` | `#000000` | drawn as `Colours::black.withAlpha(...)` in five places | **added** as a token. The alphas belong to the thing being opened, not to the token, and are unchanged; Appearance moves 0.35 → 0.25 in UI-7. |
+| `Dine::on-hot` | `#17150a` | missing | **added** as `onHot` in UI-2 - the type on the solo bar. Daylight gets a light value instead: its `hot` is dark enough that near-black type would vanish on it. |
 | `Dine::on-accent` | `#0b0d10` | `onAccent #070809` | **changed** to the design's value. |
 | `Dine::hair` | `#20252e` | `hair 0x14ffffff` | **no change.** 8 % white over `window #0e1014` resolves to `#212329`; the design's opaque value is the same hairline, flattened. The translucent token is better - it reads the same over every material. |
 
-All four new tokens are in every built-in theme and in `ThemeStore`'s read and write, taking it
-from 128 token keys to 132. `busLead`, `busFx` and `autopilotGround` are given their own values
+All five new tokens are in every built-in theme and in `ThemeStore`'s read and write, taking it
+from 128 token keys to 133. `busLead`, `busFx` and `autopilotGround` are given their own values
 in Lime Desk, Tape and Daylight rather than inherited, because a dark Autopilot ground would be
 a hole in a light desk. Every older theme file still loads unchanged: a key a file does not
 carry is resolved from the default.
@@ -110,6 +111,80 @@ frame budget** on all five pages before it was caught.
 
 Not yet in the Appearance *sheet* - only in the menu. The sheet is restyled to frame 19 in
 UI-7 and the control lands there then, rather than being built twice.
+
+## 3b. UI-2: the application shell
+
+Every frame of the design shares one shell, and it is now the shell DLIVE has.
+
+**Title row (52).** The wordmark, then the **session's name**, then the six tabs, then the
+counts and MIX BUDDY. ROUTING comes first as the design's **Deliberate** variant - outlined,
+and set apart by a divider - because it is not a mixing workspace: what happens there changes
+what the room hears. The active tab is a filled accent pill carrying near-black type, which is
+the design's Active variant and replaces the underline DLIVE used.
+
+Putting the session's name back gave `setupPopover` a caller again. It had had **none** since
+the name left the row on 2026-09-18 - a whole menu (new, open, save, save as, import, reference
+mix, input mappings, recording destination, getting started) that no longer had a way in.
+
+**Toolbar (56).** The autosave state and MIX HISTORY on the left, the transport in the middle,
+then the solo bar, BYPASS, LIVE SAFE and the output on the right.
+
+- **The solo bar** needed no engine work and is built. Solo goes to the engineer's own device,
+  so the room and the stream carry on exactly as before and nothing else on the console says
+  why the engineer is listening to one microphone. It appears on **every** workspace whenever
+  a strip, a group or an FX return is soloed, names them, goes to the first of them on click,
+  and clears everything with one press. `dlive_ui_tests` asserts all of that, on all five
+  workspaces.
+- **The autosave state** is real: `SessionAutosave::lastWrite()` was added (an atomic the
+  worker sets after a write lands) and reaches the UI through `AppServices::lastAutosave()`.
+  Before this, nothing anywhere said the session had written itself down.
+- **MIX HISTORY** had no menu item at all - only two buttons inside MixPage and LivePage. It
+  is now **View > Mix History** (command 633), the toolbar button and a SAFETY row.
+- **AUTOPILOT** is not built: it waits on its engine phase (§6).
+
+**Sidebar (184).** LIBRARY (Sessions), WORKSPACE (the five), SAFETY (Mix history, Scenes), and
+the audio device along the foot under an AUDIO DEVICE caption with **CHANGE IN ROUTING**. The
+SET-UP rows left it, as the design asks. Nothing became unreachable: the ROUTING tab, ⌘6,
+**View > Setup** (613) and that foot button all go to the same place. Favourite mixes waits on
+its engine phase.
+
+**Status foot (50).** AUTOSAVE added at the end of the row.
+
+### Two deviations from the design, both deliberate
+
+1. **ROUTING is ⌘6, not ⌘0.** ⌘0 is Zoom to Fit on TRACKS and the reachability test pins it.
+   Taking a shortcut away from something that already has it is the one thing this work is not
+   allowed to do, and ⌘6 follows ⌘1-5 running left to right anyway.
+2. **DIM and MUTE stay on the toolbar**, though the design's toolbar does not show them. They
+   were put there on purpose (`f26eacb`, "before the service") as the emergency keys a hand
+   finds without reading. An emergency key in a menu is not an emergency key. **TUNE LIVE MIX**
+   did leave the row, as the design asks - it is on TUNE and in the Mix menu - except while it
+   is *running*, when it stays as the global stop, because a thing that is moving the mix by
+   itself has to be stoppable from wherever you are standing.
+
+### The frame cost, and a regression to accept or reject
+
+| | tick ms (baseline) | full repaint ms (baseline) |
+| --- | --- | --- |
+| TRACKS | 1.30 (1.26) | 14.52 (15.19) |
+| MIXER | 1.30 (1.29) | **10.37 (8.43)** |
+| TUNE | 1.27 (1.26) | 16.96 (17.96) |
+| LIVE | 1.27 (1.27) | 10.66 (11.23) |
+| INSPECTOR | 1.29 (1.28) | 36.71 (33.75) |
+
+**The per-tick cost is unchanged.** That is the number the 30 Hz budget depends on and the one
+the "no page repaints itself wholesale from its tick" rule is about.
+
+**The full-repaint cost is up by 1.5-2.5 ms on every page**, which is +21 % on MIXER - over the
+15 % line. It was measured with the two binaries run alternately, so it is not thermal drift.
+Per-child timing says where it goes: the chrome simply carries more labels than it did - the
+session name, MIX HISTORY, the autosave lamp, a sixth tab and an extra status field - and each
+small label costs about **0.1 ms** to draw, because a Barlow Condensed run with a kerning factor
+cannot take JUCE's fast glyph path. It is not one expensive thing; it is eight ordinary ones.
+
+Full repaint is the price of a **page switch or a resize**, not of a frame. It was already over
+one frame on INSPECTOR at the baseline (33.75 ms). **This needs a decision**: accept it as the
+cost of the design's chrome, or pay down the kerned-text draw cost before UI-3.
 
 ## 4. The screens
 

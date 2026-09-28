@@ -255,7 +255,7 @@ const std::vector<Dine::ThemeBinding>& Dine::themeBindings()
         { "ink", &ink }, { "ink2", &ink2 }, { "ink3", &ink3 }, { "ink4", &ink4 }, { "glyph", &glyph }, { "panMark", &panMark },
         { "accent", &accent }, { "accentHover", &accentHover }, { "accentDeep", &accentDeep }, { "onAccent", &onAccent },
         { "focusRing", &focusRing },
-        { "ok", &ok }, { "hot", &hot }, { "warn", &warn }, { "crit", &crit }, { "monitor", &monitor },
+        { "ok", &ok }, { "hot", &hot }, { "onHot", &onHot }, { "warn", &warn }, { "crit", &crit }, { "monitor", &monitor },
         { "keyMute", &keyMute }, { "keySolo", &keySolo }, { "keyRec", &keyRec }, { "keyMon", &keyMon },
         { "busDrums", &busDrums }, { "busBass", &busBass }, { "busMusic", &busMusic }, { "busVocals", &busVocals },
         { "busSpeech", &busSpeech }, { "busAmbience", &busAmbience }, { "busMaster", &busMaster },

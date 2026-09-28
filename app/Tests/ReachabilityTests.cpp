@@ -170,7 +170,7 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
         // View
         { 600, "Tracks" }, { 601, "Mixer" }, { 602, "Tune" }, { 603, "Live" }, { 604, "Inspector" },
         { 613, "Setup" }, { 608, "Mixer in a New Window" }, { 609, "Outputs" }, { 630, "Check Inputs" },
-        { 631, "Dim the Broadcast" }, { 632, "Mute the Broadcast" },
+        { 631, "Dim the Broadcast" }, { 632, "Mute the Broadcast" }, { 633, "Mix History" },
         { 610, "Sidebar" }, { 615, "side panels" },
         { 620, "Customise Appearance" }, { 621, "Import a Theme" }, { 622, "Show Themes Folder" },
         { 605, "Zoom In" }, { 606, "Zoom Out" }, { 607, "Zoom to Fit" },
@@ -232,6 +232,7 @@ TEST_CASE ("Reachability: every keyboard shortcut still asks for the same comman
         { { '3', cmd, 0 },                     Page::Tracks, 602, "TUNE" },
         { { '4', cmd, 0 },                     Page::Tracks, 603, "LIVE" },
         { { '5', cmd, 0 },                     Page::Tracks, 604, "INSPECTOR" },
+        { { '6', cmd, 0 },                     Page::Tracks, 613, "ROUTING" },
         { { juce::KeyPress::spaceKey, 0, 0 },  Page::Tracks, 500, "play / stop" },
         { { juce::KeyPress::returnKey, 0, 0 }, Page::Tracks, 502, "return to start" },
         { { 'R', 0, 0 },                       Page::Tracks, 501, "record" },
@@ -330,4 +331,43 @@ TEST_CASE ("Reachability: the sidebar folds, the side panels fold, and the tutor
     window.pump (10);
     view.closeTutorial();
     window.pump (10);
+}
+
+// ------------------------------------------------------------------------- solo bar
+TEST_CASE ("The solo bar: it appears whenever anything is soloed, on every workspace, and clears everything at once")
+{
+    Window window;
+    auto& view = *window.view;
+    auto& controller = window.controller;
+
+    view.showPage (MainView::Page::Mixer);
+    window.pump (40);
+    CHECK (! view.isSoloBarShown());
+
+    // A strip, by the name the console gave it.
+    controller.setStripSolo (0, true);
+    window.pump (80);
+    CHECK (view.isSoloBarShown());
+    CHECK (view.soloedNames() == juce::StringArray { "KICK" });
+
+    // It is on every workspace, not only the mixer - that is the whole point of it, because
+    // solo goes to the engineer's own device and nothing else says it is on.
+    for (auto page : { MainView::Page::Tracks, MainView::Page::Tune, MainView::Page::Live, MainView::Page::Inspector })
+    {
+        view.showPage (page);
+        window.pump (60);
+        CHECK_MESSAGE (view.isSoloBarShown(), "the solo bar is missing from a workspace");
+    }
+
+    // A group and an FX return count too.
+    controller.setBusSolo (MixBus::Drums, true);
+    window.pump (80);
+    CHECK (view.soloedNames().size() == 2);
+    CHECK (view.soloedNames().contains ("DRUMS"));
+
+    // One press clears everything, whatever kind of thing it was.
+    controller.clearSolos();
+    window.pump (80);
+    CHECK (view.soloedNames().isEmpty());
+    CHECK (! view.isSoloBarShown());
 }

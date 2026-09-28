@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_core/juce_core.h>
+#include <atomic>
 #include <memory>
 #include "SessionState.h"
 
@@ -54,6 +55,9 @@ public:
 
     // Whether anything is still owed to the disk (for a test, and for the status line).
     bool isIdle() const;
+    // When the last autosave actually landed on the disk, for the toolbar and the status foot
+    // to say so. A default-constructed Time means nothing has been written this session.
+    juce::Time lastWrite() const;
     // Blocks until everything owed has landed. Message thread, only on the way out.
     void flush (int timeoutMs = 4000);
 
@@ -86,6 +90,8 @@ private:
     std::unique_ptr<SessionState> pending;            // the snapshot still owed to the disk
     juce::uint32 dueAt = 0;                           // millisecond counter; 0 = nothing owed
     bool writing = false;
+    // Written by the worker, read by the message thread: when the last write landed.
+    std::atomic<juce::int64> wroteAt { 0 };
 };
 
 } // namespace livemix

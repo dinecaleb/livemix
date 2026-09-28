@@ -476,6 +476,9 @@ namespace
             return file != juce::File() ? file : SessionStore::fileFor (juce::String (controller.getSession().name));
         }
         SessionAutosave& autosaveWriter() { return autosave; }
+
+        juce::Time lastAutosave() override { return autosave.lastWrite(); }
+        bool autosavePending() override { return ! autosave.isIdle(); }
     private:
 
         // One line, and it is the tested one: SessionState.cpp reads the session out of the

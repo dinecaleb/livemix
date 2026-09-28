@@ -68,6 +68,11 @@ public:
     // command actually being run. Nothing here has a side effect.
     static int commandForKey (const juce::KeyPress&, Page);
 
+    // What is soloed right now, by name, and whether the solo bar is showing it. Solo goes to
+    // the engineer's own device, so nothing else on the console says it is on.
+    juce::StringArray soloedNames() const;
+    bool isSoloBarShown() const;
+
     // Which sheet is open, by the name the reachability test and the snapshot tool use:
     // "outputs", "check", "history", "appearance", "channel", "chat", or "" for none.
     juce::String openSheetName() const;
@@ -96,6 +101,7 @@ public:
     void applyThemeNamed (const juce::String& name);
     // Standard / Large / Larger. Scales the type roles and remembers the choice on this Mac.
     void applyTextSize (float scale);
+    void goToFirstSoloed();                  // where the solo bar goes
     static void setStoredThemeUsed (bool);
 
     void tuneChannel (int strip, const MixController::ListenSettings& listen = MixController::channelListen());
@@ -131,6 +137,9 @@ private:
     class Sidebar;
     class TextButtonV2;
     class WorkspaceTab;
+    class SessionButton;
+    class SoloBar;
+    class AutosaveLamp;
 
     void timerCallback() override;
     void closeMixerWindow();
@@ -193,14 +202,27 @@ private:
     std::unique_ptr<ToolbarToggle> chatButton;
     std::unique_ptr<ToolbarToggle> tuneLiveButton;   // TUNE LIVE MIX from any workspace, in the title row
     std::unique_ptr<SidebarButton> sidebarButton;
+    std::unique_ptr<SessionButton> sessionButton;   // the document's name, on the title row
+    // Whenever anything is soloed, on every workspace: what is soloed, where it is, and one
+    // press to clear it. Solo never changes what the room hears, and neither does this.
+    std::unique_ptr<SoloBar> soloBar;
+    std::unique_ptr<AutosaveLamp> autosaveLamp;     // "Autosaved 8:42 PM", at the left of the toolbar
+    std::unique_ptr<ToolbarToggle> historyButton;   // MIX HISTORY, beside it
     std::unique_ptr<MixerWindow> mixerWindow;
     std::unique_ptr<Sidebar> sidebar;
     std::unique_ptr<StatusBar> statusBar;
     std::unique_ptr<ChainStrip> chainFoot;
     std::unique_ptr<Tutorial> tutorial;
 
-    // One row of tabs: TRACKS MIXER TUNE LIVE INSPECTOR (Cmd-1..5, left to right).
-    static constexpr int kWorkspaceTabs = 5;
+    // One row of tabs. ROUTING comes first and is drawn as the design's "Deliberate" variant -
+    // outlined, and divided off from the rest - because it is not a mixing workspace: what
+    // happens there changes what the room hears. Then TRACKS MIXER TUNE LIVE INSPECTOR, which
+    // keep Cmd-1..5 left to right. ROUTING is Cmd-6: Cmd-0 is Zoom to Fit on TRACKS and taking
+    // it would be the one thing this work is not allowed to do.
+    static constexpr int kWorkspaceTabs = 6;
+    static constexpr int kRoutingTab = 0;
+    static constexpr const char* kTabLabels[kWorkspaceTabs] = { "ROUTING", "TRACKS", "MIXER", "TUNE", "LIVE", "INSPECTOR" };
+    static constexpr Page kTabPages[kWorkspaceTabs] = { Page::Device, Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
     std::array<std::unique_ptr<WorkspaceTab>, kWorkspaceTabs> tabs;
     DinePopup outputButton;
     std::unique_ptr<juce::FileChooser> chooser;
@@ -212,6 +234,8 @@ private:
     unsigned long long seenRevision = 0, seenMilestone = 0;
     bool audioWasRunning = false;
     bool tuningLiveWasOn = false;
+    int seenSoloed = 0;                 // what the solo bar was last built for
+    juce::int64 seenAutosave = 0;       // ... and the autosave lamp
     bool usingCloudMixEngineer = false;
     bool sidebarShown = true;
     int lastChannel = -1;               // the last channel picked out anywhere: what the chain foot reads

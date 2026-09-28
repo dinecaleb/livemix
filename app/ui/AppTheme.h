@@ -115,7 +115,8 @@ namespace Dine
     inline juce::Colour accentBottom{ 0xff6db8a8 };
     inline juce::Colour onAccent    { 0xff0b0d10 };   // an accent button carries near-black type
     inline juce::Colour ok          { 0xff57b98d };
-    inline juce::Colour hot         { 0xffcbbf6a };   // the meter's middle band
+    inline juce::Colour hot         { 0xffcbbf6a };   // the meter's middle band, and the solo bar
+    inline juce::Colour onHot       { 0xff17150a };   // ... what type on it is
     inline juce::Colour warn        { 0xffe0a85c };
     inline juce::Colour crit        { 0xffe06a64 };
 
