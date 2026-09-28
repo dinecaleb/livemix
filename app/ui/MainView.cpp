@@ -401,17 +401,22 @@ class MainView::Sidebar : public juce::Component
 public:
     Sidebar (AppServices& s, std::function<void (Page)> go) : services (s)
     {
+        // SET-UP is one row now. The device, the inputs, the purpose, the outputs and the
+        // saved patches all live inside ROUTING, which is reached on purpose rather than met
+        // by accident while looking for a fader.
         struct Def { const char* label; Page page; };
-        const Def defs[9] = { { "Sessions", Page::Sessions },
-                              { "Audio device", Page::Device }, { "Inputs", Page::Assign }, { "Purpose and sound", Page::Purpose },
-                              { "Tracks", Page::Tracks }, { "Mixer", Page::Mixer }, { "Tune", Page::Tune }, { "Live", Page::Live },
-                              { "Inspector", Page::Inspector } };
-        for (int i = 0; i < 9; ++i)
+        const Def defs[kRows] = { { "Sessions", Page::Sessions },
+                                  { "Set-up and routing", Page::Routing },
+                                  { "Tracks", Page::Tracks }, { "Mixer", Page::Mixer }, { "Tune", Page::Tune },
+                                  { "Live", Page::Live }, { "Inspector", Page::Inspector } };
+        for (int i = 0; i < kRows; ++i)
         {
             items[size_t (i)] = std::make_unique<DineNavItem> (defs[i].label);
             items[size_t (i)]->onClick = [go, p = defs[i].page] { go (p); };
             addAndMakeVisible (*items[size_t (i)]);
         }
+        items[1]->setTooltip ("The device, the inputs, what the mix is for, the outputs and the saved patches. "
+                              "Under LIVE SAFE nothing there can be changed until you say you mean it.");
         handle = std::make_unique<DinePanelTab> (DinePanelTab::Side::Left, "Sidebar");
         handle->setCollapsed (true);
         addChildComponent (*handle);
@@ -514,8 +519,8 @@ public:
             for (int i = from; i < to; ++i) { items[size_t (i)]->setBounds (list.removeFromTop (26)); list.removeFromTop (1); }
         };
         caption ("LIBRARY", true);   rows (0, 1);
-        caption ("SET-UP", false);   rows (1, 4);
-        caption ("WORKSPACE", false); rows (4, 9);
+        caption ("SET-UP", false);   rows (1, 2);
+        caption ("WORKSPACE", false); rows (2, kRows);
     }
 
 private:
@@ -524,15 +529,18 @@ private:
     {
         switch (p)
         {
-            case Page::Sessions: return 0; case Page::Device: return 1; case Page::Assign: return 2; case Page::Purpose: return 3;
-            case Page::Tracks: return 4; case Page::Mixer: return 5; case Page::Tune: return 6; case Page::Live: return 7;
-            case Page::Inspector: return 8;
+            case Page::Sessions: return 0;
+            case Page::Routing: case Page::Device: case Page::Assign:
+            case Page::Purpose: case Page::Outputs: case Page::Maps: return 1;
+            case Page::Tracks: return 2; case Page::Mixer: return 3; case Page::Tune: return 4;
+            case Page::Live: return 5; case Page::Inspector: return 6;
         }
         return 0;
     }
 
     AppServices& services;
-    std::array<std::unique_ptr<DineNavItem>, 9> items;
+    static constexpr int kRows = 7;
+    std::array<std::unique_ptr<DineNavItem>, size_t (kRows)> items;
     std::unique_ptr<DinePanelTab> handle;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> captions;
     juce::String footState, footName, footSpec;
@@ -706,7 +714,8 @@ public:
                 m.addItem (603, "Live");
                 m.addItem (604, "Inspector");
                 m.addSeparator();
-                m.addItem (613, "Setup");
+                m.addItem (613, "Set-up and Routing");
+                m.addItem (616, "Saved Input Patches");
                 m.addSeparator();
                 m.addItem (608, "Open Mixer in a New Window");
                 m.addItem (609, "Outputs" + juce::String (Glyph::ellip()));
@@ -786,6 +795,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     devicePage = std::make_unique<DevicePage> (controller, services);
     assignPage = std::make_unique<AssignPage> (controller, services);
     purposePage = std::make_unique<PurposePage> (controller);
+    routingPage = std::make_unique<RoutingPage> (controller, services);
     tracksPage = std::make_unique<TracksPage> (controller, services);
     mixerPage = std::make_unique<MixerPage> (controller, services);
     mixPage = std::make_unique<MixPage> (controller);
@@ -795,6 +805,9 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     toast = std::make_unique<Toast>();
     menu = std::make_unique<Menu> (*this);
 
+    // ROUTING is added before the three pages it hosts, so they sit over its section list and
+    // its LIVE SAFE cover rather than under them.
+    addChildComponent (*routingPage);
     for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) devicePage.get(),
                                 (juce::Component*) assignPage.get(),
                                 (juce::Component*) purposePage.get(), (juce::Component*) tracksPage.get(),
@@ -925,7 +938,36 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     assignPage->onBack = [this] { showPage (Page::Device); };
     assignPage->onContinue = [this] { showPage (Page::Purpose); };
     assignPage->onSaveMapping = [this] { saveInputMapping(); };
-    assignPage->onApplyMapping = [this] { openInputMappings(); };
+    assignPage->onApplyMapping = [this] { showPage (Page::Maps); };
+
+    // ---- ROUTING: the sections, and the two it owns
+    routingPage->onSection = [this] (RoutingPage::Section s) { showPage (pageForSection (s)); };
+    routingPage->onCoverChanged = [this] { if (isRoutingPage (page)) showPage (page); };
+    routingPage->onToast = [this] (const juce::String& t) { showToast (t); };
+    routingPage->onSaveMap = [this] { saveInputMapping(); };
+    routingPage->onApplyMap = [this] (const juce::File& file) { applyInputMapping (file); };
+    routingPage->onImportMap = [this]
+    {
+        mapChooser = std::make_unique<juce::FileChooser> ("Import an input patch", juce::File(), "*.dlivemap.json");
+        mapChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                 [this] (const juce::FileChooser& fc)
+                                 {
+                                     const auto file = fc.getResult();
+                                     if (file == juce::File()) return;
+                                     InputMap imported;
+                                     if (! InputMapStore::load (file, imported)) { showToast ("That is not a DLIVE input patch."); return; }
+                                     if (! InputMapStore::save (imported)) { showToast ("That patch could not be saved."); return; }
+                                     showToast ("Imported \"" + imported.name + "\".");
+                                     showPage (Page::Maps);
+                                 });
+    };
+    routingPage->onChooseOutputDevice = [this] (const juce::String& name)
+    {
+        if (name == services.currentOutputDevice()) return;
+        const auto err = services.isAudioRunning() ? services.changeOutput (name) : services.openOutputOnly (name);
+        if (err.isNotEmpty()) showToast (err);
+        else { showToast ("Output: " + name); updateChrome(); }
+    };
     purposePage->onBack = [this] { showPage (Page::Assign); };
     purposePage->onContinue = [this] { enterSession(); };
 
@@ -986,7 +1028,6 @@ MainView::~MainView()
 {
     stopTimer();
     mixerWindow.reset();
-    outputsSheet.reset();
     checkSheet.reset();
     historySheet.reset();
     themeSheet.reset();
@@ -1025,13 +1066,48 @@ bool MainView::liveSafeBlocks (const juce::String& what)
     return true;
 }
 
+RoutingPage::Section MainView::sectionForPage (Page p) noexcept
+{
+    switch (p)
+    {
+        case Page::Assign:  return RoutingPage::Section::Inputs;
+        case Page::Purpose: return RoutingPage::Section::Purpose;
+        case Page::Outputs: return RoutingPage::Section::Outputs;
+        case Page::Maps:    return RoutingPage::Section::Maps;
+        default:            return RoutingPage::Section::Device;
+    }
+}
+
+MainView::Page MainView::pageForSection (RoutingPage::Section s) noexcept
+{
+    switch (s)
+    {
+        case RoutingPage::Section::Inputs:  return Page::Assign;
+        case RoutingPage::Section::Purpose: return Page::Purpose;
+        case RoutingPage::Section::Outputs: return Page::Outputs;
+        case RoutingPage::Section::Maps:    return Page::Maps;
+        case RoutingPage::Section::Device:
+        case RoutingPage::Section::Count:
+        default:                            return Page::Device;
+    }
+}
+
 void MainView::showPage (Page p)
 {
+    // "Routing" means the workspace at whatever section it was left on, which is what the
+    // sidebar row and the View menu ask for.
+    if (p == Page::Routing) p = pageForSection (routingPage->getSection());
+    // Leaving the routing workspace locks it again: a confirmation is for one visit.
+    if (isRoutingPage (page) && ! isRoutingPage (p)) routingPage->resetConfirmation();
+
     page = p;
     sessionsPage->setVisible (p == Page::Sessions);
-    devicePage->setVisible (p == Page::Device);
-    assignPage->setVisible (p == Page::Assign);
-    purposePage->setVisible (p == Page::Purpose);
+    routingPage->setVisible (isRoutingPage (p));
+    if (isRoutingPage (p)) routingPage->setSection (sectionForPage (p));
+    const bool hosted = isRoutingPage (p) && ! routingPage->isCovered();
+    devicePage->setVisible (hosted && p == Page::Device);
+    assignPage->setVisible (hosted && p == Page::Assign);
+    purposePage->setVisible (hosted && p == Page::Purpose);
     tracksPage->setVisible (p == Page::Tracks);
     mixerPage->setVisible (p == Page::Mixer);
     mixPage->setVisible (p == Page::Tune);
@@ -1071,19 +1147,18 @@ void MainView::updateChrome()
     const auto& project = services.daw().getProject();
 
     // ---- the sidebar's rows
-    const Page all[9] = { Page::Sessions, Page::Device, Page::Assign, Page::Purpose,
+    const Page all[7] = { Page::Sessions, Page::Routing,
                           Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
     for (const Page p : all)
     {
         auto& row = sidebar->item (p);
-        row.setSelected (page == p);
-        const bool setup = isSetupPage (p);
-        row.setEnabled (setup ? (p == Page::Sessions || p == Page::Device || running || hasInputs) : mixable);
+        row.setSelected (p == Page::Routing ? isRoutingPage (page) : page == p);
+        row.setEnabled (isSetupPage (p) || mixable);
     }
     sidebar->item (Page::Sessions).setMeta (juce::String (services.listSessions().size()));
-    sidebar->item (Page::Assign).setMeta (hasInputs ? juce::String (int (session.inputs.size())) : juce::String());
-    sidebar->item (Page::Device).setDone (running && page != Page::Device);
-    sidebar->item (Page::Purpose).setDone (mixable && page != Page::Purpose);
+    sidebar->item (Page::Routing).setMeta (hasInputs ? juce::String (int (session.inputs.size())) + " in" : juce::String());
+    sidebar->item (Page::Routing).setDone (mixable && ! isRoutingPage (page));
+    routingPage->refresh();
 
     // ---- the tabs
     const Page tabPages[kWorkspaceTabs] = { Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
@@ -1336,7 +1411,6 @@ void MainView::setBypass (bool on)
 void MainView::closeSheets()
 {
     if (mixPage != nullptr && mixPage->isScopeSheetOpen()) mixPage->closeScopeSheet();
-    outputsSheet.reset();
     checkSheet.reset();
     historySheet.reset();
     themeSheet.reset();
@@ -1423,28 +1497,10 @@ void MainView::showHistory()
     historySheet->toFront (true);
 }
 
-void MainView::showOutputs()
-{
-    if (outputsSheet != nullptr) { outputsSheet->refresh(); return; }
-    outputsSheet = std::make_unique<OutputsSheet> (controller, services);
-    outputsSheet->onToast = [this] (const juce::String& t) { showToast (t); };
-    outputsSheet->onClose = [this]
-    {
-        juce::Component::SafePointer<MainView> safe (this);
-        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->outputsSheet.reset(); safe->updateChrome(); } });
-    };
-    outputsSheet->onChooseDevice = [this] (const juce::String& name)
-    {
-        if (name == services.currentOutputDevice()) return;
-        const auto err = services.isAudioRunning() ? services.changeOutput (name) : services.openOutputOnly (name);
-        if (err.isNotEmpty()) showToast (err);
-        else { showToast ("Output: " + name); updateChrome(); }
-        if (outputsSheet != nullptr) outputsSheet->refresh();
-    };
-    addAndMakeVisible (*outputsSheet);
-    resized();
-    outputsSheet->toFront (true);
-}
+// Outputs is a section of ROUTING now, not a sheet over the console: where the sound leaves
+// this Mac belongs with the device it leaves by and the inputs it came in on. Everything that
+// asked for the sheet - the toolbar, the View menu, the LIVE page - asks for the section.
+void MainView::showOutputs() { showPage (Page::Outputs); }
 
 int MainView::selectedChannel() const
 {
@@ -1810,7 +1866,7 @@ void MainView::handleCommand (int id)
             showToast ("Stepped forward a whole mix.");
             break;
         case 108: saveInputMapping(); break;
-        case 109: openInputMappings(); break;
+        case 109: showPage (Page::Maps); break;
 
         case 400:
             if (liveSafeBlocks ("TUNE MIX")) break;
@@ -1904,7 +1960,8 @@ void MainView::handleCommand (int id)
         case 610: setSidebarShown (! sidebarShown); break;
         case 611: togglePanel (true); break;
         case 612: togglePanel (false); break;
-        case 613: showPage (isSetupPage (page) ? page : Page::Device); break;
+        case 613: showPage (isRoutingPage (page) ? page : Page::Routing); break;
+        case 616: showPage (Page::Maps); break;
         case 615:
             if (page == Page::Inspector)
             {
@@ -1984,7 +2041,6 @@ juce::String MainView::openSheetName() const
     // The scope picker belongs to TUNE rather than to the window, but it is a sheet over the
     // workspace like any other and Escape has to mean the same thing over it.
     if (mixPage != nullptr && mixPage->isScopeSheetOpen()) return "tunescope";
-    if (outputsSheet != nullptr) return "outputs";
     if (checkSheet   != nullptr) return "check";
     if (historySheet != nullptr) return "history";
     if (themeSheet   != nullptr) return "appearance";
@@ -2437,16 +2493,29 @@ void MainView::resized()
     if (chainFoot->isVisible()) chainFoot->setBounds (body.removeFromBottom (Dine::Metric::chainFoot));
 
     auto content = body;
-    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) devicePage.get(),
-                                (juce::Component*) assignPage.get(),
-                                (juce::Component*) purposePage.get(), (juce::Component*) tracksPage.get(),
+    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) tracksPage.get(),
                                 (juce::Component*) mixerPage.get(), (juce::Component*) mixPage.get(),
                                 (juce::Component*) livePage.get(), (juce::Component*) advancedPage.get() })
         p->setBounds (content);
 
+    // ROUTING fills the workspace and the three set-up pages sit inside it, where its section
+    // list and its LIVE SAFE cover can be over them. Covered, `contentBounds` is empty, so the
+    // page underneath has no size and nothing on it can be reached.
+    if (routingPage != nullptr)
+    {
+        routingPage->setBounds (content);
+        const auto inner = routingPage->contentBounds().translated (content.getX(), content.getY());
+        for (juce::Component* p : { (juce::Component*) devicePage.get(), (juce::Component*) assignPage.get(),
+                                    (juce::Component*) purposePage.get() })
+        {
+            p->setBounds (inner);
+            if (p->isVisible()) p->toFront (false);
+        }
+    }
+
     // A sheet covers the workspace column; the chat is a panel down the right of it.
     auto column = columnBounds();
-    for (juce::Component* sheetComponent : { (juce::Component*) outputsSheet.get(), (juce::Component*) themeSheet.get(),
+    for (juce::Component* sheetComponent : { (juce::Component*) themeSheet.get(),
                                              (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)

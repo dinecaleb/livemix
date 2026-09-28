@@ -176,7 +176,12 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
         { 500, "Play" }, { 501, "Record" }, { 502, "Return to Start" }, { 503, "Loop" },
         // View
         { 600, "Tracks" }, { 601, "Mixer" }, { 602, "Tune" }, { 603, "Live" }, { 604, "Inspector" },
-        { 613, "Setup" }, { 608, "Mixer in a New Window" }, { 609, "Outputs" }, { 630, "Check Inputs" },
+        // MOVED, 2026-09-28 (Phase 2 item 4): the set-up rows left the everyday sidebar for one
+        // ROUTING workspace, and Outputs left its sheet for a section of it. Both commands are
+        // still here and still ask for the same thing; 616 is the saved patches, which were a
+        // submenu inside a submenu and are now a section of their own.
+        { 613, "Routing" }, { 608, "Mixer in a New Window" }, { 609, "Outputs" }, { 630, "Check Inputs" },
+        { 616, "Saved Input Patches" },
         { 631, "Dim the Broadcast" }, { 632, "Mute the Broadcast" },
         { 610, "Sidebar" }, { 615, "side panels" },
         { 620, "Customise Appearance" }, { 621, "Import a Theme" }, { 622, "Show Themes Folder" },
@@ -272,6 +277,9 @@ TEST_CASE ("Reachability: every workspace and every set-up page still opens")
     const Row pages[] = {
         { Page::Sessions,  "Sessions" },  { Page::Device, "Audio device" }, { Page::Assign, "Inputs" },
         { Page::Purpose,   "Purpose and sound" },
+        // The two sections ROUTING owns. Outputs was a sheet until 2026-09-28; the saved
+        // patches were a submenu inside a submenu.
+        { Page::Outputs,   "Outputs and monitoring" }, { Page::Maps, "Saved input patches" },
         { Page::Tracks,    "Tracks" },    { Page::Mixer,  "Mixer" },        { Page::Tune,   "Tune" },
         { Page::Live,      "Live" },      { Page::Inspector, "Inspector" },
     };
@@ -283,6 +291,17 @@ TEST_CASE ("Reachability: every workspace and every set-up page still opens")
         CHECK_MESSAGE (window.view->getPage() == row.page,
                        std::string ("the ") + row.name + " page does not open any more");
     }
+
+    // ...and the four of them are one workspace, reached deliberately. `Routing` is not a page
+    // a window is ever on: it means the workspace at whatever section it was left on.
+    window.view->showPage (Page::Live);
+    window.pump (10);
+    window.view->showPage (Page::Routing);
+    window.pump (10);
+    CHECK (window.view->getPage() == Page::Maps);          // where the loop above left it
+    CHECK (MainView::isRoutingPage (window.view->getPage()));
+    CHECK (! MainView::isRoutingPage (Page::Sessions));    // the library is not routing
+    CHECK (! MainView::isRoutingPage (Page::Mixer));
 }
 
 // ---------------------------------------------------------------------------- sheets
@@ -295,7 +314,8 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
 
     struct Sheet { const char* name; std::function<void()> open; };
     const Sheet sheets[] = {
-        { "outputs",    [&] { view.showOutputs(); } },
+        // "outputs" left this list on 2026-09-28: it is a section of the ROUTING workspace now,
+        // asserted in the pages test above, and view.showOutputs() goes there.
         { "check",      [&] { view.showCheck(); } },
         { "history",    [&] { view.showHistory(); } },
         { "appearance", [&] { view.showThemes(); } },
@@ -533,4 +553,68 @@ TEST_CASE ("Reachability: the group buses are pinned beside the master, on a con
     mixer.setView (MixerPage::View::Strips);
     window.pump (10);
     CHECK (mixer.pinnedGroupCount() == used);
+}
+
+// ---------------------------------------------------------------------- routing
+// SET-UP IS ONE WORKSPACE, REACHED ON PURPOSE. The device, the patch and the output feeds are
+// the three ways to silence a room in the middle of a service, and until now they sat in the
+// everyday sidebar beside TRACKS and MIXER. This asserts the two halves of the answer: the
+// sections are all there, and under LIVE SAFE nothing on them can be reached until somebody
+// says they mean it - once per visit, and not a moment longer.
+TEST_CASE ("Reachability: ROUTING gathers the set-up, and LIVE SAFE covers it until you say so")
+{
+    Window window;
+    auto& view = *window.view;
+    auto& routing = view.getRoutingPage();
+    using Page = MainView::Page;
+    using Section = RoutingPage::Section;
+
+    // Every section is reachable and names itself.
+    const Section sections[] = { Section::Device, Section::Inputs, Section::Purpose, Section::Outputs, Section::Maps };
+    for (const auto s : sections)
+    {
+        view.showPage (MainView::pageForSection (s));
+        window.pump (10);
+        CHECK (routing.getSection() == s);
+        CHECK (MainView::sectionForPage (view.getPage()) == s);
+        CHECK (juce::String (RoutingPage::sectionName (s)).isNotEmpty());
+    }
+
+    // LIVE SAFE off: the workspace is open and the page it hosts has room to be on.
+    CHECK (! window.services.daw().isLiveSafe());
+    view.showPage (Page::Device);
+    window.pump (10);
+    CHECK (! routing.isCovered());
+    CHECK (! routing.contentBounds().isEmpty());
+    CHECK (view.getDevicePage().isVisible());
+
+    // LIVE SAFE on: covered, and nothing underneath has a size to be clicked in.
+    window.services.daw().setLiveSafe (true);
+    view.showPage (Page::Device);
+    window.pump (10);
+    CHECK (routing.isCovered());
+    CHECK (routing.contentBounds().isEmpty());
+    CHECK (! view.getDevicePage().isVisible());
+
+    // Saying you mean it uncovers this visit, and LIVE SAFE itself is untouched: the lock is
+    // still on everywhere the mix can be changed.
+    routing.confirmForTest();
+    window.pump (10);
+    CHECK (! routing.isCovered());
+    CHECK (window.services.daw().isLiveSafe());
+    CHECK (! routing.contentBounds().isEmpty());
+    CHECK_MESSAGE (view.getDevicePage().isVisible(),
+                   "the page under the cover did not get its size back when the cover came down");
+
+    // Moving between sections keeps it; leaving the workspace locks it again.
+    view.showPage (Page::Outputs);
+    window.pump (10);
+    CHECK (! routing.isCovered());
+    view.showPage (Page::Mixer);
+    window.pump (10);
+    view.showPage (Page::Outputs);
+    window.pump (10);
+    CHECK_MESSAGE (routing.isCovered(), "a confirmation outlived the visit it was given for");
+
+    window.services.daw().setLiveSafe (false);
 }

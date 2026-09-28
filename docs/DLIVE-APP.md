@@ -3,6 +3,23 @@
 The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, the Inspector, the setup pages - and the rules each one follows. Moved verbatim from the old CLAUDE.md (2026-09-19); the architecture is `docs/ARCHITECTURE-DLIVE.md` and `docs/MILESTONE-7.md`.
 
 - DLIVE is **the live recording and broadcast DAW** (2026-09 DAW milestone; see `docs/MILESTONE-7.md`).
+  **ROUTING (2026-09-28, `app/ui/RoutingPage`).** Everything about where the sound comes from and where it goes
+  is one workspace now, reached deliberately from the sidebar's single SET-UP row or from View > Set-up and
+  Routing. Five sections down its left: the audio device, the inputs, what the mix is for, the outputs and the
+  engineer's listen, and the patches this church has saved. The first three are the pages that already existed
+  - this is where they are now, not a second copy: `MainView` still owns them and lays each one into
+  `RoutingPage::contentBounds()`, and the head is only drawn over the two sections ROUTING owns, because a
+  shell that repeats the title of the thing inside it does not trust it. Outputs stopped being a sheet
+  (`OutputsSheet::setEmbedded`) and the saved patches stopped being a submenu inside a submenu - they are a list
+  with the row's own Apply and a menu for the rest. The everyday sidebar lost its three set-up rows and gained
+  one, so a volunteer looking for the fader for the pastor's microphone is no longer one click from changing
+  what the console is.
+  **Under LIVE SAFE the workspace is covered.** The device, the patch and the output feeds are the three ways
+  to silence a room in the middle of a service, so nothing there can be reached until somebody presses "I know
+  what I am doing" - and `contentBounds()` is empty while it is covered, so the page underneath has no size
+  rather than being greyed and hoped about. The confirmation is for one visit: leaving the workspace locks it
+  again, and LIVE SAFE itself is never touched by it.
+
   Four workspaces over one session: TRACKS (timeline, clips, waveforms), MIXER, TUNE, LIVE. The DAW layer is
   `app/native`: `Transport` (the playhead, sample-exact loop), `Recorder` (raw WAV per armed track through
   `ThreadedWriter`), `ClipSource` (the one place clips become audio), `TimelinePlayer` (ring-buffered playback

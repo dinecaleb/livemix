@@ -5,9 +5,9 @@
 #include "AppServices.h"
 #include "AppTheme.h"
 #include "SetupPages.h"
+#include "RoutingPage.h"
 #include "TracksPage.h"
 #include "MixerPage.h"
-#include "OutputsSheet.h"
 #include "CheckSheet.h"
 #include "HistorySheet.h"
 #include "ChannelTuneSheet.h"
@@ -42,7 +42,13 @@ namespace livemix
 class MainView : public juce::Component, private juce::Timer
 {
 public:
-    enum class Page { Sessions = 0, Device, Assign, Purpose, Tracks, Mixer, Tune, Live, Inspector };
+    // The five workspaces, the library, and the four set-up sections that now live inside the
+    // ROUTING workspace. `Routing` is not a page a window is ever on: it means "the routing
+    // workspace, at whatever section it was left on", and showPage resolves it to one of the
+    // four. Appended rather than reordered, because Cmd-1..5 and the tab row count on the
+    // first nine.
+    enum class Page { Sessions = 0, Device, Assign, Purpose, Tracks, Mixer, Tune, Live, Inspector,
+                      Outputs, Maps, Routing };
 
     MainView (MixController&, AppServices&);
     ~MainView() override;
@@ -51,8 +57,17 @@ public:
     Page getPage() const noexcept { return page; }
     static bool isSetupPage (Page p) noexcept
     {
-        return p == Page::Sessions || p == Page::Device || p == Page::Assign || p == Page::Purpose;
+        return p == Page::Sessions || isRoutingPage (p);
     }
+    // The sections of the ROUTING workspace. The library is not one of them: a list of
+    // sessions is not routing.
+    static bool isRoutingPage (Page p) noexcept
+    {
+        return p == Page::Device || p == Page::Assign || p == Page::Purpose
+            || p == Page::Outputs || p == Page::Maps;
+    }
+    static RoutingPage::Section sectionForPage (Page) noexcept;
+    static Page pageForSection (RoutingPage::Section) noexcept;
     void showToast (const juce::String& text);
     // A different session document is now open - from the library, or recovered after a crash:
     // every workspace was built for the last one.
@@ -82,7 +97,7 @@ public:
     void showTutorial();
     void closeTutorial();
     static void setAutoTutorial (bool);
-    void showOutputs();
+    void showOutputs();                        // the ROUTING workspace, at its Outputs section
     void showHistory();                       // MIX HISTORY: the whole mix as it was, hours ago, by name
     void showCheck();                       // CHECK INPUTS: every assigned input, its level and one word about it
     void updateChromeForSnapshot() { updateChrome(); }   // the snapshot tool: the toolbar re-reads the controller now
@@ -108,6 +123,7 @@ public:
     DevicePage& getDevicePage() { return *devicePage; }
     AssignPage& getAssignPage() { return *assignPage; }
     PurposePage& getPurposePage() { return *purposePage; }
+    RoutingPage& getRoutingPage() { return *routingPage; }
     TracksPage& getTracksPage() { return *tracksPage; }
     MixPage& getMixPage() { return *mixPage; }
     MixerPage& getMixerPage() { return *mixerPage; }
@@ -168,9 +184,11 @@ private:
     std::unique_ptr<DevicePage> devicePage;
     std::unique_ptr<AssignPage> assignPage;
     std::unique_ptr<PurposePage> purposePage;
+    // The set-up sections are one workspace now, reached deliberately. It hosts the three
+    // pages above inside itself, and owns the outputs and the saved patches.
+    std::unique_ptr<RoutingPage> routingPage;
     std::unique_ptr<TracksPage> tracksPage;
     std::unique_ptr<MixerPage> mixerPage;
-    std::unique_ptr<OutputsSheet> outputsSheet;
     std::unique_ptr<CheckSheet> checkSheet;
     std::unique_ptr<HistorySheet> historySheet;
     std::unique_ptr<ThemeSheet> themeSheet;

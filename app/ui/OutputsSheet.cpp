@@ -424,21 +424,41 @@ juce::Rectangle<int> OutputsSheet::cardBounds() const
 {
     const int count = juce::jlimit (1, kMaxOutputFeeds, controller.getOutputFeeds().count);
     const int h = 26 + 24 + 12 + Dine::Metric::control + 8 + Dine::Metric::control + 16 + 36 + count * (kRowH + 4) + 14 + Dine::Metric::button + 14 + 40 + 26;
+    if (embedded)
+        return getLocalBounds().withWidth (juce::jmin (kCardW, getWidth())).withHeight (juce::jmin (h, getHeight()));
     return getLocalBounds().withSizeKeepingCentre (juce::jmin (kCardW, getWidth() - 60), juce::jmin (h, getHeight() - 40));
+}
+
+void OutputsSheet::setEmbedded (bool e)
+{
+    if (e == embedded) return;
+    embedded = e;
+    doneButton.setVisible (! e);
+    resized();
+    repaint();
 }
 
 void OutputsSheet::paint (juce::Graphics& g)
 {
-    g.fillAll (Dine::desk.withAlpha (0.84f));
-
     auto card = cardBounds();
-    Dine::drawSheet (g, card.toFloat(), 14.0f);
+    if (embedded) Dine::drawCard (g, card.toFloat());
+    else
+    {
+        g.fillAll (Dine::desk.withAlpha (0.84f));
+        Dine::drawSheet (g, card.toFloat(), 14.0f);
+    }
 
     auto r = card.reduced (26, 26);
-    g.setColour (Dine::ink);
-    g.setFont (Dine::text (19.0f, 600));
-    Dine::drawText (g, "Outputs", r.removeFromTop (24), juce::Justification::centredLeft);
-    r.removeFromTop (12);
+    // Embedded the workspace has already said what this is; a card that repeats its own
+    // heading under the page's is a card apologising for being there.
+    if (! embedded)
+    {
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (19.0f, 600));
+        Dine::drawText (g, "Outputs", r.removeFromTop (24), juce::Justification::centredLeft);
+        r.removeFromTop (12);
+    }
+    else r.removeFromTop (24 + 12);
 
     // The two choices this sheet exists for: where the broadcast goes, and where the engineer listens.
     const int labelW = 96;
@@ -515,7 +535,7 @@ void OutputsSheet::resized()
 
     auto foot = r.removeFromBottom (40 + Dine::Metric::button);
     auto actions = foot.removeFromTop (Dine::Metric::button);
-    doneButton.setBounds (actions.removeFromRight (juce::jmax (80, doneButton.idealWidth())));
+    if (doneButton.isVisible()) doneButton.setBounds (actions.removeFromRight (juce::jmax (80, doneButton.idealWidth())));
     addButton.setBounds (actions.removeFromLeft (juce::jmax (120, addButton.idealWidth())));
     r.removeFromBottom (14);
 
@@ -529,7 +549,9 @@ void OutputsSheet::resized()
 
 void OutputsSheet::mouseUp (const juce::MouseEvent& e)
 {
-    if (e.eventComponent == this && ! cardBounds().contains (e.getPosition()) && onClose) onClose();
+    // Clicking off the card closes a sheet. Embedded there is nothing to close: the click
+    // lands on the workspace, which is where it was aimed.
+    if (! embedded && e.eventComponent == this && ! cardBounds().contains (e.getPosition()) && onClose) onClose();
 }
 
 } // namespace livemix

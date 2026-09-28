@@ -8,9 +8,9 @@ its tests pass. Each phase writes what it learned into `docs/`, so the next one 
 | Phase | What it is                            | Status                                                                           |
 | ----- | ------------------------------------- | -------------------------------------------------------------------------------- |
 | 1     | Session state foundation              | **Done** — 2026-09-27, four commits, `b15b902`..`d1d96ce`                        |
-| 2     | Mixing workflow                       | **5 of 6 done** by the v2 design work (2026-09-28); only device hot-plug is left |
-| 3     | Mix features                          | Not started                                                                      |
-| 4     | Autopilot and the offline-model study | Not started; needs a CLAUDE.md decision first                                    |
+| 2     | Mixing workflow                       | **Done** — 2026-09-28, five commits                                              |
+| 3     | Mix features                          | In progress — 2026-09-28                                                         |
+| 4     | Autopilot and the offline-model study | In progress — the invariant was amended on 2026-09-28                            |
 
 
 ---
@@ -53,37 +53,37 @@ check.
 
 
 
-## Phase 2 — Mixing workflow — 0 of 6 done
+## Phase 2 — Mixing workflow ✅
 
-**Items 1-5 were built once and are gone again.** They landed on 2026-09-27/28 as part of a v2
-desktop redesign, because they *are* that design seen from the feature side - the scope picker,
-the solo bar, the group panel, the ROUTING workspace and Text size. That redesign was scrapped
-on 2026-09-28 and `app/ui` went back to where it stood on 2026-09-25; the features went with it.
-The engine work they were built on did **not** go back and is still here, so each of them is a
-UI job rather than an engine one when it is built again on the new design.
+Items 1-4 and Larger text were built once, as part of a v2 desktop redesign, and went with it when that
+redesign was scrapped on 2026-09-28 and `app/ui` went back to where it stood on 2026-09-25. The engine work
+they were built on did not go back, so each of them was a UI job when it was built again rather than an engine
+one. The code as it was is at the tag `v2-design-scrapped-2026-09-28`.
 
-The code as it was is at the tag `v2-design-scrapped-2026-09-28`, if any of it is worth reading
-rather than rewriting.
+All six landed on 2026-09-28, one commit each except the two that share MixController and MainView:
+
+| Item | What it is | Commit |
+| --- | --- | --- |
+| Larger text | Standard / Large / Larger through `Dine::setTextScale`; the words grow, no metric does | `DLIVE: the words get bigger, the console does not` |
+| 5 Device hot-plug | `AudioHost` listens; `deviceReturned()` is the rule; the session is untouched | `DLIVE: a console pulled out mid-service comes back by itself` |
+| 1 Tune Bus | `MixPage::ScopeSheet` — the whole mix / one group / some channels, and `startTuneStrips` | `DLIVE: TUNE asks what to tune, and a solo says so from everywhere` |
+| 2 Solo you cannot miss | `MainView::SoloBar`, on every workspace, from `MixController::getSoloed()` | (the same commit) |
+| 3 Group strip | the group buses pinned beside the master on MIXER; LIVE already had its tiles | `DLIVE MIXER: the groups are where you can reach them, not seven screens away` |
+| 4 ROUTING | `app/ui/RoutingPage` — five sections, reached deliberately, covered under LIVE SAFE | `DLIVE: set-up is one workspace now, and LIVE SAFE covers it` |
+
+**What it cost along the way**, all of it found by looking at the PNGs rather than by reading layout code, and
+all of it wrong before the change that exposed it: TUNE's pad card measured its body two pixels wider than it
+drew it; the Inspector drew a caption and a value into one row on fixed widths; LIVE left a monitoring chip
+lying where the last layout put it; the tooltip was measured in JUCE's face and drawn in DLIVE's; a pinned
+mixer strip was laid out in the page's coordinates in LIST view and drawn over the tool row. A button now
+gives up its padding and then its type size before it gives up a letter, because "M..." on a key says nothing.
+
+**Two things moved, and the reachability test says so rather than quietly agreeing with the window**: the
+three set-up rows left the everyday sidebar for one ROUTING row, and Outputs left its sheet for a section of
+ROUTING. Nothing was removed.
 
 Read `CLAUDE.md`, `docs/SESSION-STATE.md`, `docs/DLIVE-APP.md`, `docs/DLIVE-DESIGN.md`. Every UI change is
-verified with `dlive_ui_snapshots` PNGs. All new state goes through `SessionState` — if you find yourself
-writing save/load code, stop and say so.
-
-1. ⬅ **Tune Bus.** `startTuneBus()` exists and is reachable from MixPage but is hard to find. Make TUNE open
-  with a clear scope picker: WHOLE MIX / ONE GROUP / SELECTED CHANNELS, groups listed by name. The Tune card
-   always says which scope it ran on.
-2. ⬅ **Solo you cannot miss.** A persistent indicator in the top bar, visible from every workspace, whenever
-  anything (strip, bus, FX return) is soloed: which items, click to jump to one, one button to clear all.
-   Keep "solo never changes what the room hears".
-3. ⬅ **Group strip on the main mixer.** A fixed strip, always visible on MIXER and LIVE, with meter, fader, mute
-  and solo for each group bus and the master. Must work on a 32+ channel session at the smallest supported
-   window size.
-4. ⬅ **Setup / Routing out of the everyday sidebar.** Move device choice, input assignment, output feeds,
-  monitoring and saved input maps into one ROUTING workspace, reached deliberately. Under LIVE SAFE, changes
-   there ask for confirmation. Keep the first-run flow working.
-5. ⬅ **Device hot-plug.** Listen to the device manager, rescan on change, reopen the session's device when it
-  reappears, handle a mid-show disconnect with a sentence rather than silence or a crash. Mappings restored
-   when the device returns.
+verified with `dlive_ui_snapshots` PNGs. All new state goes through `SessionState`.
 
 ---
 

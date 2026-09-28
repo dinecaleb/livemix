@@ -58,6 +58,7 @@ set(DLIVE_UI_SOURCES
     ui/MacroPad.cpp
     ui/MixerPage.cpp
     ui/OutputsSheet.cpp
+    ui/RoutingPage.cpp
     ui/CheckSheet.cpp
     ui/HistorySheet.cpp
     ui/ChannelTuneSheet.cpp

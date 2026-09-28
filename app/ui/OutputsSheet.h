@@ -27,6 +27,13 @@ public:
     std::function<void (const juce::String&)> onToast;
     std::function<void (const juce::String& device)> onChooseDevice;   // the host reopens the device
 
+    // On the ROUTING workspace this is a panel rather than a sheet: no scrim over the console,
+    // no Close (the workspace is where you are), and the card sits at the top of what it is
+    // given instead of floating in the middle of it. The controls and the rules are the same
+    // ones - there is one Outputs, in two places.
+    void setEmbedded (bool);
+    bool isEmbedded() const noexcept { return embedded; }
+
     void refresh();                       // device, channel count and the feeds
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -63,6 +70,7 @@ private:
     DinePopup soloDeviceButton;
     DineButton doneButton { "Close", DineButton::Style::Standard };
     int channels = 0;
+    bool embedded = false;
 };
 
 } // namespace livemix

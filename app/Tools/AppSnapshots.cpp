@@ -918,6 +918,20 @@ int main (int argc, char** argv)
 
     view.showPage (MainView::Page::Device);
     rig.snap (dir, "01-device");
+    // ROUTING's other two sections: where the sound leaves, and the patches this church has
+    // saved. The first three sections are the pages above, photographed on their own already.
+    view.showPage (MainView::Page::Outputs);
+    rig.snap (dir, "01b-routing-outputs");
+    view.showPage (MainView::Page::Maps);
+    rig.snap (dir, "01c-routing-patches");
+    // ...and what ROUTING looks like in the middle of a service: covered, with the one press
+    // that uncovers it for this visit and nothing else.
+    rig.dawEngine.setLiveSafe (true);
+    view.showPage (MainView::Page::Device);
+    rig.pump (60);
+    rig.snap (dir, "01d-routing-live-safe");
+    rig.dawEngine.setLiveSafe (false);
+    view.showPage (MainView::Page::Device);
 
     rig.services.openDevices ("Dante Virtual Soundcard", "Dante Virtual Soundcard");
     view.showPage (MainView::Page::Assign);
