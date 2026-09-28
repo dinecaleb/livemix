@@ -201,3 +201,68 @@ TEST_CASE ("The text cache answers from memory the second time, and never grows 
     Dine::clearTextCache();
     CHECK (Dine::textCacheStats().size == 0);
 }
+
+// --------------------------------------------------------------------------- text size
+// View > Appearance > Text size scales the words and nothing else. The two halves of that
+// sentence are both worth asserting: a volunteer who cannot read a fader's name gets a bigger
+// name, and a 32-channel console still shows 32 channels.
+TEST_CASE ("Text size: every role grows with it, no metric does, and the layouts are thrown away")
+{
+    struct Restore { ~Restore() { Dine::setTextScale (1.0f); } } restore;
+
+    Dine::setTextScale (1.0f);
+    const auto standard = Dine::textWidth (Dine::text (13.0f), "Lead Vocal");
+    const auto standardMono = Dine::textWidth (Dine::mono (12.0f, 500), "-12.4 dB");
+    const auto standardCaps = Dine::textWidth (Dine::caps (11.0f, 0.08f), "DRUMS");
+
+    for (const auto scale : { 1.2f, 1.35f })
+    {
+        Dine::setTextScale (scale);
+        CHECK_NEAR (Dine::textScale(), scale, 0.0001);
+        // Every face a page can ask for is bigger, within a pixel of rounding either way.
+        CHECK (Dine::textWidth (Dine::text (13.0f), "Lead Vocal") > standard);
+        CHECK (Dine::textWidth (Dine::mono (12.0f, 500), "-12.4 dB") > standardMono);
+        CHECK (Dine::textWidth (Dine::caps (11.0f, 0.08f), "DRUMS") > standardCaps);
+        CHECK_NEAR (double (Dine::text (13.0f).getHeight()) / double (Dine::text (13.0f / scale).getHeight()),
+                    double (scale), 0.02);
+    }
+
+    // The console's geometry is constant, by construction: not one of these is a function of
+    // the scale, so a bigger word can never cost a channel.
+    CHECK (Dine::Metric::chanRail == 200);
+    CHECK (Dine::Metric::tuneRail == 198);
+    CHECK (Dine::Metric::titleRow == 52);
+    CHECK (Dine::Metric::toolbar == 56);
+    CHECK (Dine::Metric::status == 50);
+    CHECK (Dine::Metric::chainFoot == 48);
+
+    // Every layout held was for a face at the old size, so the cache is emptied rather than
+    // left holding what nothing will ask for again.
+    Dine::setTextScale (1.0f);
+    {
+        juce::Image image (juce::Image::ARGB, 200, 20, true);
+        juce::Graphics g (image);
+        g.setFont (Dine::text (13.0f));
+        Dine::drawText (g, "Lead Vocal", juce::Rectangle<int> (0, 0, 180, 18), juce::Justification::centredLeft);
+    }
+    CHECK (Dine::textCacheStats().size > 0);
+    Dine::setTextScale (1.2f);
+    CHECK (Dine::textCacheStats().size == 0);
+
+    // Asking for the size it already is costs nothing and keeps what is cached.
+    {
+        juce::Image image (juce::Image::ARGB, 200, 20, true);
+        juce::Graphics g (image);
+        g.setFont (Dine::text (13.0f));
+        Dine::drawText (g, "Lead Vocal", juce::Rectangle<int> (0, 0, 180, 18), juce::Justification::centredLeft);
+    }
+    const auto held = Dine::textCacheStats().size;
+    Dine::setTextScale (1.2f);
+    CHECK (Dine::textCacheStats().size == held);
+
+    // Out of range is clamped rather than obeyed: nothing can leave the window unreadable.
+    Dine::setTextScale (9.0f);
+    CHECK (Dine::textScale() <= 2.0f);
+    Dine::setTextScale (0.1f);
+    CHECK_NEAR (Dine::textScale(), 1.0f, 0.0001);
+}

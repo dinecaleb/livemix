@@ -192,6 +192,9 @@ public:
         inner.removeFromTop (10);
         auto keys = inner.removeFromTop (28);
         if (isMaster()) { mute.setBounds (keys); return; }     // nothing to solo against: MUTE has the row
+        // Eight groups across the smallest window is a narrow key. DineButton gives up its
+        // padding and then its type size before it gives up a letter, so both words are still
+        // words; the tile itself is widened by the group strip in Phase 2.
         mute.setBounds (keys.removeFromLeft ((keys.getWidth() - 6) / 2));
         keys.removeFromLeft (6);
         solo.setBounds (keys);
@@ -640,10 +643,15 @@ void LivePage::resized()
         auto inner = l.monitor.reduced (18, 18);
         inner.removeFromTop (kMonCaption + kMonCaptionGap);
         auto chipRow = inner.removeFromTop (Dine::Metric::control);
+        bool room = true;
         for (auto& c : chips)
         {
             const int w = juce::jmax (44, c->idealWidth());
-            if (w > chipRow.getWidth()) break;
+            // A chip with no room left is taken off the row, not left lying where the last
+            // layout put it - which is how DIM and CLEAR SOLO came to be drawn over each other.
+            room = room && w <= chipRow.getWidth();
+            c->setVisible (room);
+            if (! room) continue;
             c->setBounds (chipRow.removeFromLeft (w));
             chipRow.removeFromLeft (8);
         }

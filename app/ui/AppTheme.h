@@ -171,6 +171,20 @@ namespace Dine
     // A letterspaced caption: 600, tracked. The design's section labels and key words.
     juce::Font caps (float px, float tracking = 0.08f, int weight = 600);
 
+    // ---------------------------------------------------------------- text size
+    // View > Appearance > Text size. It scales the three calls above and nothing else: every
+    // px a page asks for goes through one of them, and no metric does. So a name, a value, a
+    // label, a button, a menu, an alert and the status foot all grow, while strip widths, row
+    // heights, meters and the console's geometry keep their pixels - a bigger console would be
+    // a different layout, and a volunteer who cannot read a fader's name wants the name bigger,
+    // not fewer channels on the screen. A name that no longer fits is ellipsised, and the
+    // tooltip a strip already carries is what says it in full.
+    //
+    // 1.0 Standard / 1.2 Large / 1.35 Larger (ThemeStore::textSizes()); the chosen one is
+    // remembered on this Mac beside the theme. Message thread only.
+    void setTextScale (float);
+    float textScale();
+
     int textWidth (const juce::Font&, const juce::String&);
 
     // ---------------------------------------------------------------- drawing text
@@ -295,6 +309,9 @@ namespace Dine
     // `lookAndFeelChanged()`, a full repaint, and the desk behind each document window.
     void refreshAllWindows();
     void refreshWindow (juce::Component& root);   // one window (the headless snapshot tool's view is on no desktop)
+    // Every component in a tree lays itself out again. What a Text size change needs and a
+    // theme change does not: bounds do not move, so JUCE would call nobody's `resized()`.
+    void relayoutTree (juce::Component& root);
     // A text editor's colours are set on it, not read at paint time, so the components that
     // own one call this from their constructor *and* from `lookAndFeelChanged()`.
     void styleTextEditor (juce::TextEditor&, juce::Colour ground, bool softFocusRing = false);
@@ -518,6 +535,9 @@ public:
                                     int& idealWidth, int& idealHeight) override;
     void drawScrollbar (juce::Graphics&, juce::ScrollBar&, int x, int y, int w, int h, bool vertical,
                         int thumbStart, int thumbSize, bool mouseOver, bool down) override;
+    // The tooltip is measured with the face it is drawn in. JUCE's own measurement uses a
+    // fixed 13 pt, which is right until Text size moves the drawing font out from under it.
+    juce::Rectangle<int> getTooltipBounds (const juce::String&, juce::Point<int>, juce::Rectangle<int>) override;
     void drawTooltip (juce::Graphics&, const juce::String& text, int w, int h) override;
     void fillTextEditorBackground (juce::Graphics&, int w, int h, juce::TextEditor&) override;
     void drawTextEditorOutline (juce::Graphics&, int w, int h, juce::TextEditor&) override;

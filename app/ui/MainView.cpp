@@ -591,6 +591,18 @@ public:
                         view.themeMenuNames.add (t.name);
                     }
                     appearance.addSeparator();
+                    // Text size sits with the themes because it is the same question - how
+                    // this Mac reads - and is remembered in the same place.
+                    juce::PopupMenu sizes;
+                    const auto scaleNow = Dine::textScale();
+                    for (size_t i = 0; i < ThemeStore::textSizes().size(); ++i)
+                    {
+                        const auto& size = ThemeStore::textSizes()[i];
+                        sizes.addItem (660 + int (i), juce::String (size.name), true,
+                                       std::abs (size.scale - scaleNow) < 0.0005f);
+                    }
+                    appearance.addSubMenu ("Text size", sizes);
+                    appearance.addSeparator();
                     appearance.addItem (620, "Customise Appearance" + juce::String (Glyph::ellip()));
                     appearance.addItem (621, "Import a Theme" + juce::String (Glyph::ellip()));
                     appearance.addItem (622, "Show Themes Folder");
@@ -619,8 +631,13 @@ private:
 // ---------------------------------------------------------------- MainView
 MainView::MainView (MixController& c, AppServices& s) : controller (c), services (s)
 {
-    // The theme first, before a single page reads a token.
-    if (gUseStoredTheme) Dine::applyTheme (ThemeStore::find (ThemeStore::chosenTheme()));
+    // The theme and the text size first, before a single page reads a token or measures a
+    // string. The headless snapshot tool renders from the design, so it takes neither.
+    if (gUseStoredTheme)
+    {
+        Dine::applyTheme (ThemeStore::find (ThemeStore::chosenTheme()));
+        Dine::setTextScale (ThemeStore::chosenTextSize());
+    }
     lookAndFeel.applyPalette();
     juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
     setLookAndFeel (&lookAndFeel);
@@ -1213,6 +1230,22 @@ void MainView::applyThemeNamed (const juce::String& name)
     showToast ("Appearance: " + theme.name);
 }
 
+// View > Appearance > Text size. Every string in the window is laid out again at the new
+// size (setTextScale throws the layout cache away), every component is told to re-read the
+// look, and every page lays itself out again - a page measures its own text, so a bigger
+// name changes where things sit even though no metric moved.
+void MainView::applyTextSize (float scale, const juce::String& name)
+{
+    Dine::setTextScale (scale);
+    if (gUseStoredTheme) ThemeStore::setChosenTextSize (scale);
+    Dine::refreshAllWindows();
+    Dine::relayoutTree (*this);
+    if (mixerWindow != nullptr) Dine::relayoutTree (*mixerWindow);
+    updateChrome();
+    if (menu != nullptr) menu->menuItemsChanged();
+    showToast ("Text size: " + name);
+}
+
 void MainView::showCheck()
 {
     if (checkSheet != nullptr) { checkSheet->refresh(); return; }
@@ -1710,6 +1743,13 @@ void MainView::handleCommand (int id)
         case 630: showCheck(); break;
         case 631: controller.setBroadcastDim (! controller.isBroadcastDimmed()); updateChrome(); break;
         case 632: controller.setBroadcastMute (! controller.isBroadcastMuted()); updateChrome(); break;
+        case 660: case 661: case 662:
+        {
+            const auto& sizes = ThemeStore::textSizes();
+            const size_t which = size_t (id - 660);
+            if (which < sizes.size()) applyTextSize (sizes[which].scale, juce::String (sizes[which].name));
+            break;
+        }
         case 620: showThemes(); break;
         case 621: showThemes(); if (themeSheet != nullptr) themeSheet->importTheme(); break;
         case 622: ThemeStore::folder().createDirectory(); ThemeStore::folder().revealToUser(); break;
@@ -2106,9 +2146,11 @@ void MainView::paint (juce::Graphics& g)
         if (! session.inputs.empty())
             counts = juce::String (int (session.inputs.size())) + " inputs      " + juce::String (armed) + " to record";
         auto cell = titleRow.reduced (18, 0);
-        // the wordmark, at the left end of the title row after the sidebar switch, on screen whatever the sidebar does
+        // the wordmark, at the left end of the title row after the sidebar switch, on screen whatever the sidebar does.
+        // It is a mark rather than a word, so Text size leaves it alone: its cell is a fixed
+        // 58 px and a bigger DLIVE would only be an ellipsised one.
         g.setColour (Dine::accent);
-        g.setFont (Dine::caps (13.0f, 0.16f));
+        g.setFont (Dine::caps (13.0f / Dine::textScale(), 0.16f));
         cell.removeFromLeft (26 + 14);
         Dine::drawText (g, "DLIVE", cell.removeFromLeft (kWordmarkW), juce::Justification::centredLeft);
         // The counts end where the buttons begin - measured from where the buttons actually are,

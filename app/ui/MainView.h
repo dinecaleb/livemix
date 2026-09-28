@@ -94,6 +94,9 @@ public:
     // snapshot tool switches the stored choice off so every render starts from the design.
     void showThemes();
     void applyThemeNamed (const juce::String& name);
+    // Text size: Standard / Large / Larger. The words grow, the console's geometry does not
+    // (Dine::setTextScale); remembered on this Mac beside the theme.
+    void applyTextSize (float scale, const juce::String& name);
     static void setStoredThemeUsed (bool);
 
     void tuneChannel (int strip, const MixController::ListenSettings& listen = MixController::channelListen());

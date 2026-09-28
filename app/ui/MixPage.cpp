@@ -183,11 +183,15 @@ public:
         put (page.advancedButton, { kPad, y, juce::jmin (inner, juce::jmax (120, page.advancedButton.idealWidth())), Dine::Metric::control });
         y += Dine::Metric::control + kPad;
 
-        // the pad card
+        // the pad card. The body is measured at exactly the width it is drawn at - the card
+        // reduced by 16 either side - because a measure two pixels wider than the draw wraps
+        // to one line fewer than it paints, and the paint then runs out of the card and over
+        // MIX HEALTH. Text size is what made that visible; it was always wrong.
         {
-            const int textW = inner - 16 - 14;
+            const int textW = inner - 16 * 2;
+            headingH = juce::jmax (14, int (std::ceil (Dine::caps (10.5f, 0.10f).getHeight())));
             const int bodyH = juce::jmax (16, textHeight (Dine::text (12.5f), body, textW));
-            card = { kPad, y, inner, 14 + 14 + 8 + bodyH + 14 };
+            card = { kPad, y, inner, 14 + headingH + 8 + bodyH + 14 };
             y += card.getHeight() + kPad;
         }
 
@@ -245,7 +249,7 @@ public:
             auto in = card.reduced (16, 14).withTrimmedLeft (0);
             g.setColour (Dine::accent);
             g.setFont (Dine::caps (10.5f, 0.10f));
-            Dine::drawText (g, heading, in.removeFromTop (14), juce::Justification::centredLeft, true);
+            Dine::drawText (g, heading, in.removeFromTop (headingH), juce::Justification::centredLeft, true);
             in.removeFromTop (8);
             drawWrapped (g, body, Dine::text (12.5f), Dine::ink2, in);
         }
@@ -276,6 +280,7 @@ private:
     MixPage& page;
     juce::String heading, body;
     juce::Rectangle<int> stamp, card, healthCap, statusBox;
+    int headingH = 14;                 // the card's heading, measured rather than assumed (Text size)
     std::vector<Note> notes;
 };
 

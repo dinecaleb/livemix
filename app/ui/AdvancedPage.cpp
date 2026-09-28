@@ -315,11 +315,17 @@ public:
         {
             auto col = lay.level;
             auto top = col.removeFromTop (16);
+            // The number is the thing being read, so it takes the width it needs and the
+            // caption beside it takes what is left. A caption ellipsised is a caption; a level
+            // that reads "+0..." is not a level.
             const juce::String levelLabel = sel.isBus ? "BUS LEVEL" : "LEVEL";
-            drawCaps (g, levelLabel, top.removeFromLeft (Dine::textWidth (capsFont (9.5f), levelLabel)), Dine::ink4);
+            const juce::String levelValue = db1 (float (fader.getValue())) + " dB";
+            const auto valueFont = Dine::mono (16.0f, 500);
+            auto valueCell = top.removeFromRight (juce::jmin (top.getWidth(), Dine::textWidth (valueFont, levelValue) + 4));
+            drawCaps (g, levelLabel, top.withTrimmedRight (6), Dine::ink4);
             g.setColour (Dine::ink);
-            g.setFont (Dine::mono (16.0f, 500));
-            Dine::drawText (g, db1 (float (fader.getValue())) + " dB", top, juce::Justification::centredRight);
+            g.setFont (valueFont);
+            Dine::drawText (g, levelValue, valueCell, juce::Justification::centredRight);
             col.removeFromTop (24);
             auto scale = col.removeFromTop (12);
             g.setColour (Dine::ink4);
@@ -547,11 +553,17 @@ public:
     {
         auto area = getLocalBounds();
         auto head = area.removeFromTop (34).reduced (18, 0).withTrimmedTop (14);
-        Dine::drawSection (g, head.withTrimmedRight (40), "WHAT DLIVE DID");
+        // The caption and the tune count share one row, so the count takes what it actually
+        // measures and the caption gets the rest. A fixed 40 px for the count was enough until
+        // Text size made the caption wider than what was left.
+        const juce::String tunes = controller.getTuneCount() > 0 ? "TUNE " + juce::String (controller.getTuneCount())
+                                                                 : juce::String ("no tune yet");
+        const auto tunesFont = Dine::mono (10.0f);
+        auto countCell = head.removeFromRight (juce::jmin (head.getWidth() / 2, Dine::textWidth (tunesFont, tunes) + 26));
+        Dine::drawSection (g, head.withTrimmedRight (10), "WHAT DLIVE DID");
         g.setColour (Dine::ink4);
-        g.setFont (Dine::mono (10.0f));
-        Dine::drawText (g, controller.getTuneCount() > 0 ? "TUNE " + juce::String (controller.getTuneCount()) : juce::String ("no tune yet"),
-                    head.withTrimmedRight (26), juce::Justification::centredRight);
+        g.setFont (tunesFont);
+        Dine::drawText (g, tunes, countCell.withTrimmedRight (26), juce::Justification::centredRight);
 
         auto top = area.removeFromTop (sentenceHeight()).reduced (18, 0);
         top.removeFromTop (8);

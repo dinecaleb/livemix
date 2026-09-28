@@ -718,6 +718,70 @@ static int renderSizes (const juce::File& dir)
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// TEXT SIZE
+//
+// View > Appearance > Text size scales every word and every number and no metric, so the
+// thing to look at is a full console: does a 32-channel MIXER still show 32 channels at
+// Larger, and does every name that no longer fits end in an ellipsis rather than running
+// into its neighbour? Rendered at the smallest window the application allows, because that
+// is where a bigger word runs out of room first.
+//
+//   dlive_ui_snapshots --text-sizes <dir>
+// ---------------------------------------------------------------------------
+static int renderTextSizes (const juce::File& dir)
+{
+    dir.createDirectory();
+    Rig rig;
+    auto& view = *rig.view;
+    rig.services.openDevices ("Dante Virtual Soundcard", "Dante Virtual Soundcard");
+
+    // Thirty-two sources with the long names a real console writes: the case the words have
+    // to be ellipsised in.
+    MixSession session;
+    session.name = "Text size";
+    const ChannelRole roles[] = {
+        ChannelRole::KickIn, ChannelRole::SnareTop, ChannelRole::HiHat, ChannelRole::RackTom,
+        ChannelRole::FloorTom, ChannelRole::Overhead, ChannelRole::Room, ChannelRole::BassDI,
+        ChannelRole::Piano, ChannelRole::Organ, ChannelRole::SynthPad, ChannelRole::AcousticGuitar,
+        ChannelRole::ElectricGuitarClean, ChannelRole::SaxTenor, ChannelRole::LeadVocal,
+        ChannelRole::BackingVocal, ChannelRole::Choir, ChannelRole::Speech, ChannelRole::CrowdMic
+    };
+    for (int i = 0; i < 32; ++i)
+    {
+        InputAssignment a;
+        a.role = roles[size_t (i) % (sizeof (roles) / sizeof (roles[0]))];
+        a.name = (juce::String (channelRoleName (a.role)) + " - stage right " + juce::String (i + 1)).toStdString();
+        a.inputA = i;
+        session.inputs.push_back (a);
+    }
+    rig.controller.setSession (session);
+    rig.services.reconfigure();
+    rig.pump (120);
+
+    view.setSize (1180, 760);            // app/Main.cpp's smallest allowed window
+    for (const auto& size : ThemeStore::textSizes())
+    {
+        Dine::setTextScale (size.scale);
+        Dine::refreshWindow (view);
+        Dine::relayoutTree (view);
+        const juce::String tag = juce::String (size.name).toLowerCase();
+        for (const auto& page : { std::pair<MainView::Page, const char*> { MainView::Page::Tracks, "tracks" },
+                                  { MainView::Page::Mixer,     "mixer" },
+                                  { MainView::Page::Tune,      "tune" },
+                                  { MainView::Page::Live,      "live" },
+                                  { MainView::Page::Inspector, "inspector" } })
+        {
+            view.showPage (page.first);
+            rig.pump (60);
+            rig.snap (dir, tag + "-" + page.second);
+        }
+    }
+    Dine::setTextScale (1.0f);
+    rig.view.reset();
+    return 0;
+}
+
 int main (int argc, char** argv)
 {
     // The theme table and the token table must agree, and the design in AppTheme.h must be
@@ -781,6 +845,9 @@ int main (int argc, char** argv)
                          channelRoleName (stem.role), stem.peakDb,
                          stem.peakDb < -60.0f ? "   (silent: this source is not in the recording)" : "");
     }
+    if (argc > 1 && juce::String (argv[1]) == "--text-sizes")
+        return renderTextSizes (juce::File (argc > 2 ? juce::String (argv[2])
+                                                     : juce::File::getCurrentWorkingDirectory().getChildFile ("app-text-sizes").getFullPathName()));
     if (argc > 1 && juce::String (argv[1]) == "--sizes")
         return renderSizes (juce::File (argc > 2 ? juce::String (argv[2])
                                                  : juce::File::getCurrentWorkingDirectory().getChildFile ("app-sizes").getFullPathName()));

@@ -1,6 +1,7 @@
 #include "AppTheme.h"
 #include <map>
 #include <tuple>
+#include <cmath>
 
 namespace livemix
 {
@@ -54,19 +55,39 @@ namespace
     }
 }
 
+// ---------------------------------------------------------------- text size
+// One number, multiplied into every px on its way to a face. It is deliberately not a
+// component transform: scaling the window would scale the meters, the fader travel and the
+// strip widths along with the words, and the whole point is that a 32-channel console still
+// shows 32 channels. The memo above is keyed on the *scaled* size, so the three sizes coexist
+// in it and switching back to Standard costs nothing.
+namespace { float gTextScale = 1.0f; }
+
+void Dine::setTextScale (float scale)
+{
+    const auto wanted = juce::jlimit (1.0f, 2.0f, scale);
+    if (std::abs (wanted - gTextScale) < 0.0005f) return;
+    gTextScale = wanted;
+    // Every role is a different size now, so every layout held is for a face nothing will ask
+    // for again. (A theme change needs no such thing: a colour is not baked into a layout.)
+    clearTextCache();
+}
+
+float Dine::textScale() { return gTextScale; }
+
 juce::Font Dine::text (float px, int weight)
 {
-    return memoisedFont (0, px, weight, 0.0f);
+    return memoisedFont (0, px * gTextScale, weight, 0.0f);
 }
 
 juce::Font Dine::mono (float px, int weight)
 {
-    return memoisedFont (1, px, weight, 0.0f);
+    return memoisedFont (1, px * gTextScale, weight, 0.0f);
 }
 
 juce::Font Dine::caps (float px, float tracking, int weight)
 {
-    return memoisedFont (0, px, weight, tracking);
+    return memoisedFont (0, px * gTextScale, weight, tracking);
 }
 
 int Dine::textWidth (const juce::Font& f, const juce::String& t)
@@ -506,6 +527,17 @@ void Dine::refreshWindow (juce::Component& root)
     if (auto* laf = dynamic_cast<DineLookAndFeel*> (&root.getLookAndFeel())) laf->applyPalette();
     if (auto* doc = dynamic_cast<juce::DocumentWindow*> (&root)) doc->setBackgroundColour (desk);
     root.sendLookAndFeelChange();     // every child: lookAndFeelChanged() and a repaint, which also drops a cached image
+}
+
+// A theme change moves no size, so a repaint is all it needs. A TEXT SIZE change does move
+// sizes - every page measures its own labels - and JUCE only calls `resized()` when a
+// component's bounds actually change, which they do not here. So the tree is told to lay
+// itself out again, deepest last, the way a window resize would.
+void Dine::relayoutTree (juce::Component& root)
+{
+    root.resized();
+    for (auto* child : root.getChildren())
+        if (child != nullptr) relayoutTree (*child);
 }
 
 void Dine::refreshAllWindows()
@@ -1037,13 +1069,40 @@ void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
     else                              fg = over ? Dine::ink : Dine::ink2;
     if (! isEnabled() && ! filled) fg = fg.withAlpha (Dine::disabled);
 
-    auto content = getLocalBounds().reduced (padX, 0);
     const juce::String label = caps ? getButtonText().toUpperCase() : getButtonText();
     const int weight = filled || caps ? 600 : 500;
-    auto font = Dine::text (fontPx, weight);
-    if (caps) font = font.withExtraKerningFactor (0.04f);
-    const int textW = Dine::textWidth (font, label);
     const int iconW = icon != Dine::Icon::None ? 21 : 0;
+    const auto faceAt = [&] (float px)
+    {
+        auto f = Dine::text (px, weight);
+        return caps ? f.withExtraKerningFactor (0.04f) : f;
+    };
+
+    // A LABEL IS NOT A NAME. A channel called "Overhead - stage right 12" is data and is
+    // ellipsised when it will not fit; MUTE is a fixed word on a control, and "M..." on a key
+    // says nothing at all. So a button squeezed into a narrow cell gives up its side padding
+    // first, then its type size - down to 9 px on the screen, whatever Text size is set to -
+    // and only then a letter. At Standard with room to spare none of this does anything.
+    auto font = faceAt (fontPx);
+    int textW = Dine::textWidth (font, label);
+    int pad = padX;
+    if (textW + iconW > getWidth() - padX * 2)
+    {
+        pad = juce::jlimit (2, padX, (getWidth() - textW - iconW) / 2);
+        const int room = getWidth() - pad * 2 - iconW;
+        if (textW > room && room > 0)
+        {
+            const float floorPx = 9.0f / juce::jmax (0.001f, Dine::textScale());
+            const float wanted = fontPx * float (room) / float (textW);
+            if (wanted < fontPx)
+            {
+                font = faceAt (juce::jmax (floorPx, wanted));
+                textW = Dine::textWidth (font, label);
+                pad = juce::jlimit (2, padX, (getWidth() - textW - iconW) / 2);
+            }
+        }
+    }
+    auto content = getLocalBounds().reduced (pad, 0);
     auto block = content.withSizeKeepingCentre (juce::jmin (content.getWidth(), textW + iconW), content.getHeight());
     if (icon != Dine::Icon::None)
         Dine::drawIcon (g, icon, block.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f), fg);
@@ -1405,7 +1464,9 @@ void DineLookAndFeel::drawPopupMenuSectionHeader (juce::Graphics& g, const juce:
 void DineLookAndFeel::getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int, int& idealWidth, int& idealHeight)
 {
     if (isSeparator) { idealWidth = 60; idealHeight = 9; return; }
-    idealHeight = 28;
+    // A menu is not a console: when the words grow the row grows with them, because there is
+    // no layout here whose geometry means anything.
+    idealHeight = juce::roundToInt (28.0f * Dine::textScale());
     idealWidth = Dine::textWidth (Dine::text (12.5f), text) + 62;
 }
 
@@ -1417,6 +1478,23 @@ void DineLookAndFeel::drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x,
                           : juce::Rectangle<float> (float (thumbStart) + 2.0f, float (y) + float (h) * 0.5f - 2.0f, float (thumbSize) - 4.0f, 4.0f);
     g.setColour (juce::Colours::white.withAlpha (down ? 0.26f : mouseOver ? 0.18f : 0.09f));
     g.fillRoundedRectangle (thumb, 2.0f);
+}
+
+juce::Rectangle<int> DineLookAndFeel::getTooltipBounds (const juce::String& tip, juce::Point<int> screenPos,
+                                                        juce::Rectangle<int> parentArea)
+{
+    juce::AttributedString a;
+    a.setJustification (juce::Justification::centredLeft);
+    a.append (tip, Dine::text (12.0f), juce::Colours::black);
+    juce::TextLayout layout;
+    layout.createLayout (a, 400.0f);
+
+    const int w = int (layout.getWidth()) + 22;      // the 10 px the text is reduced by, both sides
+    const int h = int (layout.getHeight()) + 14;     // ... and the 6 px
+    return juce::Rectangle<int> (screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 12) : screenPos.x + 24,
+                                 screenPos.y > parentArea.getCentreY() ? screenPos.y - (h + 6) : screenPos.y + 6,
+                                 w, h)
+             .constrainedWithin (parentArea);
 }
 
 void DineLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text, int w, int h)

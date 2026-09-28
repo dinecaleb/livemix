@@ -180,6 +180,7 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
         { 631, "Dim the Broadcast" }, { 632, "Mute the Broadcast" },
         { 610, "Sidebar" }, { 615, "side panels" },
         { 620, "Customise Appearance" }, { 621, "Import a Theme" }, { 622, "Show Themes Folder" },
+        { 660, "Standard" }, { 661, "Large" }, { 662, "Larger" },     // View > Appearance > Text size
         { 605, "Zoom In" }, { 606, "Zoom Out" }, { 607, "Zoom to Fit" },
         // Help
         { 701, "Getting started" }, { 700, "About DLIVE" },
