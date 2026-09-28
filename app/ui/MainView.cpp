@@ -773,7 +773,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     tracksPage->onPanelWidthChanged = [this]
     {
         services.setTrackPanelWidth (tracksPage->panelWidth());
-        services.saveSession();
+        services.touchSession();
     };
     tracksPage->onTimelineChanged = [this] { updateChrome(); };
     tracksPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
@@ -842,7 +842,7 @@ juce::MenuBarModel* MainView::getMenuModel() { return menu.get(); }
 void MainView::enterSession()
 {
     services.reconfigure();
-    services.saveSession();
+    services.touchSession();
     advancedPage->rebuild();
     mixerPage->rebuild();
     if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
@@ -853,7 +853,7 @@ void MainView::enterSession()
 void MainView::timelineChanged()
 {
     tracksPage->rebuild();
-    services.saveSession();
+    services.touchSession();
     updateChrome();
 }
 
@@ -1511,7 +1511,7 @@ void MainView::applyInputMapping (const juce::File& file)
             if (r != 1) return;
             controller.setSession (session);
             services.reconfigure();
-            services.saveSession();
+            services.touchSession();
             assignPage->refresh();
             updateChrome();
             resized();
@@ -1523,7 +1523,7 @@ void MainView::applyInputMapping (const juce::File& file)
 
     controller.setSession (result.session);
     services.reconfigure();
-    services.saveSession();
+    services.touchSession();
     assignPage->refresh();
     updateChrome();
     resized();
@@ -1593,7 +1593,6 @@ void MainView::handleCommand (int id)
             auto& project = services.daw().getProject();
             for (auto& t : project.tracks) t.armed = (id == 300);
             services.daw().refresh();
-            services.saveSession();
             tracksPage->repaint();
             showToast (id == 300 ? "Every track is set to record." : "No tracks are set to record.");
             break;
@@ -1606,7 +1605,6 @@ void MainView::handleCommand (int id)
             auto& project = services.daw().getProject();
             for (auto& t : project.tracks) t.monitor = mode;
             services.daw().refresh();
-            services.saveSession();
             tracksPage->repaint();
             showToast (juce::String ("Monitoring: ") + monitorModeName (mode) + " on every track.");
             break;
@@ -1736,7 +1734,6 @@ void MainView::handleCommand (int id)
             daw.setLiveSafe (! daw.isLiveSafe());
             livePage->rebuild();
             updateChrome();
-            services.saveSession();
             showToast (daw.isLiveSafe()
                            ? juce::String ("LIVE SAFE on. The sound is locked: re-routes and re-tunes are blocked. ") + liveSafe::allowedSummary()
                            : juce::String ("LIVE SAFE off. Re-routes and re-tunes are allowed again."));

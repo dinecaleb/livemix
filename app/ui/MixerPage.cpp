@@ -174,7 +174,7 @@ public:
             if (strip < 0 || strip >= int (project.tracks.size())) return;
             project.tracks[size_t (strip)].armed = ! project.tracks[size_t (strip)].armed;
             services.daw().refresh();
-            services.saveSession();
+            services.touchSession();
             refresh (true);
         };
         monitorButton.onClick = [this]
@@ -184,7 +184,7 @@ public:
             auto& mode = project.tracks[size_t (strip)].monitor;
             mode = MonitorMode ((int (mode) + 1) % int (MonitorMode::Count));
             services.daw().refresh();
-            services.saveSession();
+            services.touchSession();
             refresh (true);
         };
         muteButton.onClick = [this]
@@ -886,7 +886,7 @@ public:
                                      if (s.strip < 0 || s.strip >= int (project.tracks.size())) break;
                                      project.tracks[size_t (s.strip)].monitor = chosen == 4 ? MonitorMode::Input : chosen == 5 ? MonitorMode::Auto : MonitorMode::Off;
                                      s.services.daw().refresh();
-                                     s.services.saveSession();
+                                     s.services.touchSession();
                                      s.refresh (true);
                                      break;
                                  }

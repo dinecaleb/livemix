@@ -60,6 +60,8 @@ namespace
             case ChannelRole::SaxAlto:              return "Alto sax";
             case ChannelRole::SaxTenor:             return "Tenor sax";
             case ChannelRole::SaxBari:              return "Bari sax";
+            case ChannelRole::BrassSection:         return "Horns";
+            case ChannelRole::Timbales:             return "Timbs";
             default:                                return channelRoleName (r);
         }
     }
@@ -83,7 +85,10 @@ namespace
             // The building. Two of these across the room is what makes a stream sound like a
             // service rather than a studio recording of a band.
             { "Crowd and room", MixBus::Ambience, { ChannelRole::CrowdMic, ChannelRole::CrowdMic, ChannelRole::AmbienceMic } },
-            { "Horns", MixBus::Music, { ChannelRole::SaxAlto, ChannelRole::SaxTenor, ChannelRole::SaxBari } }
+            { "Horns", MixBus::Music, { ChannelRole::SaxAlto, ChannelRole::SaxTenor, ChannelRole::SaxBari,
+                                        ChannelRole::Trumpet, ChannelRole::Trombone } },
+            // Percussion sits with the kit, so it is laid down beside it and balanced with it.
+            { "Percussion", MixBus::Drums, { ChannelRole::Congas, ChannelRole::Bongos, ChannelRole::Shaker } }
         };
         return k;
     }

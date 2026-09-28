@@ -20,6 +20,7 @@
 #include "native/SampleLibrary.h"
 #include "ui/MainView.h"
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <functional>
 #include <map>
 #include <set>
 
@@ -56,7 +57,13 @@ namespace
             dawEngine.setSession (controller.getSession());
             dawEngine.prepare (kSr, kBlock);
         }
-        void saveSession() override {}
+        // The two halves of how a session is written down, counted rather than done. A UI edit
+        // must move the document's revision (touchSession); writing the file itself belongs to
+        // File > Save and to replacing the document, and to nothing else.
+        void touchSession() override { ++touches; }
+        unsigned long long sessionRevision() override { return touches; }
+        void saveSession() override { ++saves; }
+        unsigned long long touches = 0, saves = 0;
         void newSession() override {}
         juce::String saveSessionAs (const juce::String& name) override { sessionName = name; return {}; }
         juce::String loadSession (const juce::File&) override { return {}; }
@@ -308,6 +315,70 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         CHECK_MESSAGE (view.openSheetName().isEmpty(),
                        std::string ("Escape did not close the ") + sheet.name + " sheet");
     }
+}
+
+// ------------------------------------------------------------------- the document
+// EVERY EDIT REACHES THE DOCUMENT.
+//
+// This is the guard for the bug class that keeps coming back: a page changes something the
+// session holds - a track's name, a marker, a row height, what is set to record - and nothing
+// tells the document, so the work is there on screen and gone after a crash or a reopen.
+//
+// It is asserted here rather than in the engine tests because the engine cannot see it. The
+// revision is moved by the *call site* in the page, so a test that drives MixController
+// directly passes whatever the pages happen to do. Restoring app/ui to an older state on
+// 2026-09-28 put twenty of these call sites back to calling saveSession() - which still wrote
+// the file, so nothing looked broken on screen, but never moved the revision the autosave
+// watches, and a crash would have taken every timeline edit with it.
+//
+// The second half matters as much as the first: an edit must NOT write the document itself. A
+// 32-channel session with a morning of history behind it is a real serialise, and doing that
+// inside a 30 Hz tick is what made dragging a clip stutter.
+TEST_CASE ("Every edit a page makes reaches the document, and none of them writes the file")
+{
+    Window window;
+    auto& view = *window.view;
+    view.showPage (MainView::Page::Tracks);
+    window.pump (30);
+
+    auto& tracks = view.getTracksPage();
+
+    // The loop key refuses when nothing is marked to loop ("drag along the top of the ruler
+    // first"), so the range is marked on the project directly - a refusal is not an edit, and
+    // this test is about edits.
+    {
+        auto& project = window.services.daw().getProject();
+        project.loopStart = 0;
+        project.loopEnd = juce::int64 (kSr * 4);
+    }
+
+    const auto savesBefore = window.services.saves;
+
+    struct Edit { const char* what; std::function<void()> go; };
+    // The edit paths TracksPage offers publicly. The rest - renaming a track, its icon, its
+    // source, arming, monitoring - are reached through the row rather than through the class,
+    // and they all sit in the same file beside these; widening TracksPage's API so a test can
+    // call them would be testing the test. These four are enough to catch the regression,
+    // because a phase that breaks one call site has broken all of them the same way.
+    const Edit edits[] = {
+        { "adding a marker",         [&] { tracks.addMarkerAtPlayhead(); } },
+        { "changing the row height", [&] { tracks.setRowHeight (TracksPage::RowHeight::Large); } },
+        { "moving a track",          [&] { tracks.moveTrack (0, 2); } },
+        { "setting the loop",        [&] { tracks.toggleLoop(); } },
+    };
+
+    for (const auto& edit : edits)
+    {
+        const auto before = window.services.touches;
+        edit.go();
+        window.pump (4);
+        CHECK_MESSAGE (window.services.touches > before,
+                       std::string (edit.what) + " did not tell the document anything had changed");
+    }
+
+    CHECK_MESSAGE (window.services.saves == savesBefore,
+                   "editing wrote the session file " + std::to_string (window.services.saves - savesBefore)
+                   + " times; the document is written by File > Save, not by an edit");
 }
 
 TEST_CASE ("Reachability: the sidebar folds, the side panels fold, and the tutorial still opens")
