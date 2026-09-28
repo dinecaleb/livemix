@@ -1229,6 +1229,18 @@ int main (int argc, char** argv)
         rig.snap (dir, "31-appearance");
         view.closeSheets();
     }
+    {
+        // EXPORT: what, how much of it, what format and how loud, asked once. Back to the
+        // design's own theme first - the loop above left whichever one it rendered last.
+        view.applyThemeNamed (ThemeStore::kDefaultName);
+        // EXPORT: what, how much of it, what format and how loud, asked once.
+        view.showPage (MainView::Page::Tracks);
+        rig.feed (0.2);
+        view.showExport();
+        rig.feed (0.3);
+        rig.snap (dir, "32-export");
+        view.closeSheets();
+    }
 
 
     std::printf ("stage %d, health %d%%\n", int (rig.controller.getStage()), rig.controller.getMixHealthPercent());

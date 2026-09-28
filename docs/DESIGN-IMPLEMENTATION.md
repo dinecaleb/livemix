@@ -8,7 +8,7 @@ which engine phase owns it.
 The design file is **`2wv5QSnvrSSQXtDzfuShIn`** ("DLIVE Desktop v2", Sept 2026).
 The baseline this is all measured against is `docs/design/baseline/`.
 
-**Status: UI-0 to UI-4 done. UI-5 mostly done (§3e). UI-6 done (§3f). Next: UI-7, the sheets.**
+**Status: UI-0 to UI-6 done (UI-5 has two items left, §3e). UI-7 part done (§3g).**
 
 ---
 
@@ -398,6 +398,42 @@ both binaries and running them **alternately**: INSPECTOR per tick was 1.46-1.53
 1.46-1.51 ms after - identical. That is the method that found the real UI-2 regression too, and
 it is the only one worth quoting.
 
+## 3g. UI-7: the sheets
+
+### Done
+
+**Text size moved into the Appearance sheet**, beside the themes - "can I read it" and "does it
+suit the room" are the same moment's question, and having the answer to one in a menu and the
+other in a sheet is how a preference gets lost. The menu item stays, so both ways in work.
+The Appearance scrim goes 50 % → the design's **25 %**: that sheet is the one place where the
+console behind it *is* the preview, and a theme cannot be judged through a curtain.
+
+**EXPORT (frame 18) is built.** Bouncing a service out is four questions - what, how much of
+it, what format, how loud - and it was two menu items that asked none of them and always
+rendered the whole recording. The sheet asks the four and then says in one sentence exactly
+what is about to be written, before anybody waits ten minutes for it:
+
+- **How much of it**: the whole recording, or the stretch after any marker on the timeline -
+  so "the sermon" is whatever somebody called it while the service was running.
+  `MixBounce::renderProject` already took a range; `ExportJob` now carries one.
+- **Format**: WAV or MP3, as before.
+- **Delivery loudness**: the session's target, whether the mix is on it, and what to do if it
+  is not. **Read-only on purpose** - it is a property of the session's purpose, and changing it
+  inside an export dialog would change a mix somebody had already approved.
+
+The two straight-to-a-file menu items stay under the new one: somebody who exports the same
+thing every Sunday should not have to answer four questions to do it again.
+
+**Group stems and the raw multitrack are not offered.** They are in the design and they are
+honest work - an offline render per group and per input, never real-time - but they do not
+exist yet, and a control that does nothing is worse than one that is missing.
+
+### Still owed
+
+- **Recover session (01)** works today as an `AlertWindow` (Recover / Open last saved / Keep both) from Phase 1. The design wants it as a proper view; the behaviour is there, the sheet is not.
+- **Mix history drawer (08)**, **Mix Buddy as a drawer (15)**, and the restyles of ChannelTune (13), Check (14), Reference (16) and Tutorial (20). All four sheets already draw on v2 tokens and roles, so this is composition, not colour.
+- **Reset mix to raw (09)** and **Favourite mixes (21)** wait on their engine phases and must not be built before them.
+
 ## 4. The screens
 
 Read in full against the code: **00 INDEX, 02 ROUTING, 04 MIXER, 05 TUNE**. The rest are
@@ -426,8 +462,8 @@ each phase reads its own frames properly before building, and corrects its rows 
 | 16 | REFERENCE MIX | `ReferenceSheet.cpp` | all of it | restyle | UI-5/7 |
 | 17 | INSPECTOR · EQ & DYNAMICS | `ChainEditor.cpp`, `EqCurveComponent` | the bands, the curve | bands drawn over the post spectrum | UI-6 |
 | 17a–17k | INSPECTOR, stage by stage | `ChainEditor.cpp` | every control is an existing `ChannelParameters` field | one panel per stage, and the visualisations - see §5 | UI-6 |
-| 18 | EXPORT | `MixBounce.cpp`, menu 105/106 | stereo WAV and MP3 | group stems, raw multitrack, range by markers, delivery loudness | UI-7 |
-| 19 | APPEARANCE | `ThemeSheet.cpp` | themes, import, folder | text size added; scrim 25 % | UI-1/7 |
+| 18 | EXPORT | **`ExportSheet`** over `MixBounce` | **done** - range by markers, format, delivery loudness | group stems and raw multitrack need offline renders that do not exist | UI-7 |
+| 19 | APPEARANCE | `ThemeSheet.cpp` | **done** - themes, import, folder, text size, 25 % scrim | — | UI-7 |
 | 20 | FIRST SUNDAY (coach) | `Tutorial.cpp` | all of it | restyle | UI-7 |
 | 21 | FAVOURITE MIXES | — | — | the whole library | UI-7 (+ §6) |
 

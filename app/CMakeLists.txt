@@ -55,6 +55,7 @@ set(DLIVE_UI_SOURCES
     ui/SetupPages.cpp
     ui/RoutingPage.cpp
     ui/PurposeSheet.cpp
+    ui/ExportSheet.cpp
     ui/TracksPage.cpp
     ui/MixPage.cpp
     ui/MacroPad.cpp

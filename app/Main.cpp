@@ -161,6 +161,8 @@ namespace
         {
             if (job == nullptr) return "There is nothing to export.";
             MixBounce::Options options;
+            options.from = job->from;
+            options.to = job->to;
             options.onProgress = std::move (progress);
             return MixBounce::renderProject (job->session, job->params, job->project, dest,
                                              format == ExportFormat::Mp3 ? MixBounce::Format::Mp3 : MixBounce::Format::Wav,

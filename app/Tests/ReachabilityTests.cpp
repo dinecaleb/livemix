@@ -152,6 +152,7 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
         { 100, "New Session" }, { 101, "Open Session" }, { 102, "Save" }, { 103, "Save As" },
         { 104, "Import Multitrack" }, { 107, "Reference Mix" }, { 108, "Save Input Mapping" },
         { 109, "Input Mappings" }, { 105, "Export Stereo Mix (WAV)" }, { 106, "Export Stereo Mix (MP3)" },
+        { 110, "Export" },
         // Edit
         { 200, "Undo" }, { 201, "Split at Playhead" }, { 202, "Delete Clip" }, { 203, "Marker" },
         // Track
@@ -320,6 +321,7 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         { "chat",       [&] { view.showChat(); } },
         { "channel",    [&] { view.tuneChannel (0); } },
         { "purpose",    [&] { view.showPurpose(); } },
+        { "export",     [&] { view.showExport(); } },
     };
 
     for (const auto& sheet : sheets)

@@ -701,6 +701,11 @@ public:
                            ! view.controller.getSession().inputs.empty());
                 m.addItem (109, "Input Mappings" + juce::String (Glyph::ellip()));
                 m.addSeparator();
+                // One way out, which asks what, how much, what format and how loud. The two
+                // straight-to-a-file items stay under it: somebody who exports the same thing
+                // every Sunday should not have to answer four questions to do it again.
+                m.addItem (110, "Export" + juce::String (Glyph::ellip()));
+                m.addSeparator();
                 m.addItem (105, "Export Stereo Mix (WAV)...");
                 m.addItem (106, "Export Stereo Mix (MP3)...");
                 break;
@@ -1549,6 +1554,7 @@ void MainView::closeSheets()
     channelSheet.reset();
     chatSheet.reset();
     purposeSheet.reset();
+    exportSheet.reset();
     updateChrome();
     resized();
 }
@@ -2152,6 +2158,7 @@ void MainView::handleCommand (int id)
         case 609: showOutputs(); break;
         case 630: showCheck(); break;
         case 633: showHistory(); break;
+        case 110: showExport(); break;
         case 631: controller.setBroadcastDim (! controller.isBroadcastDimmed()); updateChrome(); break;
         case 632: controller.setBroadcastMute (! controller.isBroadcastMuted()); updateChrome(); break;
         case 620: showThemes(); break;
@@ -2248,6 +2255,7 @@ juce::String MainView::openSheetName() const
     if (channelSheet != nullptr) return "channel";
     if (chatSheet    != nullptr) return "chat";
     if (purposeSheet != nullptr) return "purpose";
+    if (exportSheet  != nullptr) return "export";
     return {};
 }
 
@@ -2310,7 +2318,28 @@ void MainView::importMultitrack()
                           });
 }
 
-void MainView::exportMix (AppServices::ExportFormat format)
+void MainView::showExport()
+{
+    if (exportSheet != nullptr) { exportSheet->refresh(); return; }
+    closeSheets();
+    exportSheet = std::make_unique<ExportSheet> (controller, services);
+    exportSheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->exportSheet.reset(); safe->updateChrome(); safe->resized(); } });
+    };
+    exportSheet->onExport = [this] (AppServices::ExportFormat format, juce::int64 from, juce::int64 to)
+    {
+        closeSheets();
+        exportMix (format, from, to);
+    };
+    addAndMakeVisible (*exportSheet);
+    exportSheet->setBounds (getLocalBounds());
+    updateChrome();
+    resized();
+}
+
+void MainView::exportMix (AppServices::ExportFormat format, juce::int64 from, juce::int64 to)
 {
     if (! controller.isPrepared() || controller.getSession().inputs.empty())
     {
@@ -2332,12 +2361,20 @@ void MainView::exportMix (AppServices::ExportFormat format)
     chooser = std::make_unique<juce::FileChooser> ("Export the stereo mix", suggest, mp3 ? "*.mp3" : "*.wav");
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                               | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [this, format] (const juce::FileChooser& fc)
+                          [this, format, from, to] (const juce::FileChooser& fc)
                           {
                               const auto dest = fc.getResult();
                               if (dest == juce::File()) return;
                               if (exporting) return;
-                              auto job = services.snapshotExport();
+                              auto snapshot = services.snapshotExport();
+                              std::shared_ptr<const AppServices::ExportJob> job;
+                              if (snapshot != nullptr)
+                              {
+                                  auto ranged = std::make_shared<AppServices::ExportJob> (*snapshot);
+                                  ranged->from = from;
+                                  ranged->to = to;
+                                  job = ranged;
+                              }
                               exporting = true;
                               showToast ("Exporting " + dest.getFileName() + Glyph::ellip());
                               juce::Component::SafePointer<MainView> safe (this);
@@ -2743,7 +2780,8 @@ void MainView::resized()
     auto column = columnBounds();
     for (juce::Component* sheetComponent : { (juce::Component*) outputsSheet.get(), (juce::Component*) themeSheet.get(),
                                              (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get(),
-                                             (juce::Component*) historySheet.get(), (juce::Component*) purposeSheet.get() })
+                                             (juce::Component*) historySheet.get(), (juce::Component*) purposeSheet.get(),
+                                             (juce::Component*) exportSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)
     {

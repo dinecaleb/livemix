@@ -7,6 +7,7 @@
 #include "SetupPages.h"
 #include "RoutingPage.h"
 #include "PurposeSheet.h"
+#include "ExportSheet.h"
 #include "TracksPage.h"
 #include "MixerPage.h"
 #include "OutputsSheet.h"
@@ -101,6 +102,7 @@ public:
     // snapshot tool switches the stored choice off so every render starts from the design.
     void showThemes();
     void showPurpose();                       // the sheet: first run, and the session's name
+    void showExport();                        // the sheet: File > Export
     void applyThemeNamed (const juce::String& name);
     // Standard / Large / Larger. Scales the type roles and remembers the choice on this Mac.
     void applyTextSize (float scale);
@@ -159,7 +161,7 @@ private:
     void sessionMenu();
     void chooseOutput();
     void importMultitrack();
-    void exportMix (AppServices::ExportFormat format);
+    void exportMix (AppServices::ExportFormat format, juce::int64 from = 0, juce::int64 to = 0);
     bool exporting = false;
     void timelineChanged();
     bool liveSafeBlocks (const juce::String& what);
@@ -192,6 +194,9 @@ private:
     // PURPOSE AND SOUND is a sheet now, not a page: two questions answered once and revisited
     // when the service changes. showPage(Page::Purpose) still opens it, so every way in works.
     std::unique_ptr<PurposeSheet> purposeSheet;
+    // EXPORT: what, how much of it, what format, and how loud - asked once, before anybody
+    // waits ten minutes for a render.
+    std::unique_ptr<ExportSheet> exportSheet;
     std::unique_ptr<ChatSheet> chatSheet;
     void openChat();
     void saveInputMapping();

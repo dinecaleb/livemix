@@ -127,6 +127,9 @@ public:
         MixSession session;
         MixParameters params;
         Project project;
+        // Which part of the recording to render. `to` of 0 means "to the end of it", which is
+        // what every export did before there was a way to ask for anything else.
+        juce::int64 from = 0, to = 0;
     };
     virtual std::shared_ptr<const ExportJob> snapshotExport() = 0;   // message thread
     virtual juce::String exportMix (std::shared_ptr<const ExportJob>, const juce::File& dest,
