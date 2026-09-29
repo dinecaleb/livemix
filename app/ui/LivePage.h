@@ -36,10 +36,11 @@ public:
 
 private:
     class GroupTile;
+    class SceneCard;
     class RecordKey;
     class Chip;
 
-    struct Layout { juce::Rectangle<int> status, tiles, scenes, monitor, safe; };
+    struct Layout { juce::Rectangle<int> status, groupsCaption, tiles, scenesCaption, scenes, monitor, safe, autopilot; };
     Layout layout() const;
     int sceneFlash = 0;                // frames left of the mark the sidebar's SCENES row leaves
 
@@ -47,12 +48,18 @@ private:
     AppServices& services;
     // One tile per group bus, then the effects returns, then the master: DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE FX MASTER.
     std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 2> tiles;
-    DineButton liveSafeButton { "LIVE SAFE OFF", DineButton::Style::Standard };
+    DineButton liveSafeButton { "LIVE SAFE", DineButton::Style::Standard };
     DineButton historyButton { "Mix history", DineButton::Style::Standard };
+    // AUTOPILOT, where the service is run from: engaged and stopped in one press, with what it
+    // has had to do printed beside it.
+    DineButton autopilotButton { "AUTOPILOT", DineButton::Style::Standard };
+    juce::String autopilotSince;
+    bool autopilotWasOn = false;
     std::array<std::unique_ptr<DineButton>, 6> chips;   // MONITOR SOLO / SOLO IN PLACE / AFL / PFL / Dim / Clear solo
     // SCENES: the whole mix kept for one part of the service, back in one press. A pad per
     // slot recalls it; the KEEP chip beside it writes the mix there. Names come from the controller.
-    std::array<std::unique_ptr<DineButton>, 4> scenePads, sceneKeeps;
+    std::array<std::unique_ptr<SceneCard>, 4> scenePads;
+    std::array<std::unique_ptr<DineButton>, 4> sceneKeeps;
     void refreshScenes();
     juce::Slider monitorLevel { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     DinePopup soloDevice;                                // where solo goes: the device only the engineer hears

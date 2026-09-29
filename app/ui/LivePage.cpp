@@ -14,8 +14,10 @@ namespace
     constexpr int kTiles = kGroupBuses + 2;
     constexpr int kPadX = 24, kPadY = 22, kGap = 20;
     constexpr int kStatusH = 100;
-    constexpr int kSafeW = 330;
-    constexpr int kScenesH = 78;
+    constexpr int kSafeW = 470;
+    constexpr int kScenesH = 100;
+    constexpr int kMonitorH = 150;
+    constexpr int kMonitorW = 560;
     // The monitor card's rows, measured once: the caption, a gap, the chips, a gap, the level, a gap, the sentence.
     constexpr int kMonCaption = 14, kMonCaptionGap = 12, kMonRowGap = 20, kMonNoteGap = 16, kMonNote = 18;
 
@@ -42,7 +44,7 @@ public:
     {
         addAndMakeVisible (meter);
         addAndMakeVisible (fader);
-        fader.setSliderStyle (juce::Slider::LinearHorizontal);
+        fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
         Dine::dragOnly (fader);
         fader.setRange (-60.0, 12.0, 0.1);
@@ -80,7 +82,7 @@ public:
             if (isFx()) controller.setFxSoloAll (! controller.anyFxSolo());
             else if (! isMaster()) controller.setBusSolo (bus(), ! controller.getBase().buses[size_t (bus())].solo);
         };
-        for (auto* b : { &mute, &solo }) { b->setFontPx (10.0f); b->setPadX (4); b->setCaps (true); }
+        for (auto* b : { &mute, &solo }) { b->setFontPx (11.0f); b->setPadX (4); b->setCaps (true); }
     }
 
     void refresh()
@@ -139,65 +141,69 @@ public:
         }
     }
 
+    // The design's LIVE tile (`06 - Live`, 71:12363): the group's colour across the top, the
+    // name and what its fader is set to, a standing fader with its meter beside it, and M and
+    // S along the foot. A muted tile says NOT HEARD in words, and its meter keeps moving in
+    // grey - "nothing is there" and "it is there but not heard" are different problems.
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds();
         Dine::fillRounded (g, r.toFloat(), muted ? Dine::refuse : soloed ? Dine::soloGround : Dine::card, Dine::Radius::card);
-        auto inner = r.reduced (16, 16);
-        auto head = inner.removeFromTop (18);
-        const juce::String state = ! used ? "OFF" : muted ? "NOT HEARD" : soloed ? "SOLO" : "ON";
-        const auto chipFont = Dine::caps (10.0f, 0.08f, 500);
-        const int chipW = Dine::textWidth (chipFont, state) + 14;
-        // "ON" is the resting state and says little; on a narrow tile it gives its room to the name.
-        // OFF, NOT HEARD and SOLO are news and always show.
-        if ((state != "ON" || head.getWidth() >= 150) && ! (isMaster() && state == "ON"))
         {
-            auto chip = head.removeFromRight (chipW).withSizeKeepingCentre (chipW, 18).toFloat();
-            Dine::fillRounded (g, chip, muted ? Dine::keyMute : soloed ? Dine::accent : Dine::control, Dine::Radius::chip);
-            g.setColour (muted || soloed ? Dine::onAccent : Dine::ink3);
-            g.setFont (chipFont);
-            Dine::drawText (g, state, chip, juce::Justification::centred);
-            head.removeFromRight (6);
+            juce::Graphics::ScopedSaveState clip (g);
+            juce::Path round; round.addRoundedRectangle (r.toFloat(), Dine::Radius::card);
+            g.reduceClipRegion (round);
+            g.setColour (used ? tint() : Dine::ink4);
+            g.fillRect (r.removeFromTop (3));
         }
-        g.setColour (used ? tint() : Dine::ink4);
-        g.setFont (Dine::caps (13.0f, 0.06f));
+
+        auto inner = getLocalBounds().reduced (14, 14);
+        auto head = inner.removeFromTop (20);
+        g.setColour (! used ? Dine::ink4 : muted ? Dine::ink3 : Dine::ink);
+        g.setFont (Dine::text (13.0f, 600));
         Dine::drawText (g, name(), head, juce::Justification::centredLeft, true);
 
-        if (isMaster())
+        auto sub = inner.removeFromTop (16);
+        const juce::String state = ! used ? "Off" : muted ? "NOT HEARD" : soloed ? "SOLO" : juce::String();
+        if (state.isNotEmpty())
         {
-            // The master's level is its loudness: the integrated LUFS where the groups show their fader.
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::caps (9.0f, 0.08f, 500));
-            Dine::drawText (g, "LUFS", readout.translated (0, -13), juce::Justification::centredRight);
-            g.setColour (Dine::ink2);
-            g.setFont (Dine::mono (12.0f, 500));
-            Dine::drawText (g, loudness, readout, juce::Justification::centredRight);
-            return;
+            g.setColour (muted ? Dine::keyMute : soloed ? Dine::accent : Dine::ink4);
+            g.setFont (Dine::caps (10.0f, 0.04f, 600));
+            Dine::drawText (g, state, sub, juce::Justification::centredLeft, true);
         }
-        g.setColour (! used ? Dine::ink4 : Dine::ink2);
-        g.setFont (Dine::mono (12.0f, 500));
-        Dine::drawText (g, used ? dbText (float (fader.getValue())) : Glyph::dash(), readout, juce::Justification::centredRight);
+        else if (isMaster())
+        {
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::mono (11.0f, 500));
+            Dine::drawText (g, loudness + " LUFS", sub, juce::Justification::centredLeft, true);
+        }
+        else
+        {
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::mono (11.0f, 500));
+            Dine::drawText (g, dbText (float (fader.getValue())), sub, juce::Justification::centredLeft, true);
+        }
     }
 
     void resized() override
     {
-        auto inner = getLocalBounds().reduced (16, 16);
-        inner.removeFromTop (18 + 14);
-        auto meterRow = inner.removeFromTop (juce::jmin (64, juce::jmax (30, inner.getHeight() - 14 - 14 - 10 - 30)));
-        readout = meterRow.removeFromRight (44).withTrimmedTop (meterRow.getHeight() - 16);
-        meterRow.removeFromRight (5);
-        meter.setBounds (meterRow);
-        inner.removeFromTop (10);
-        fader.setBounds (inner.removeFromTop (14));
-        inner.removeFromTop (10);
-        auto keys = inner.removeFromTop (28);
-        if (isMaster()) { mute.setBounds (keys); return; }     // nothing to solo against: MUTE has the row
-        // Eight groups across the smallest window is a narrow key. DineButton gives up its
-        // padding and then its type size before it gives up a letter, so both words are still
-        // words; the tile itself is widened by the group strip in Phase 2.
-        mute.setBounds (keys.removeFromLeft ((keys.getWidth() - 6) / 2));
-        keys.removeFromLeft (6);
-        solo.setBounds (keys);
+        auto inner = getLocalBounds().reduced (14, 14);
+        inner.removeFromTop (20 + 16 + 10);
+        auto keys = inner.removeFromBottom (20);
+        inner.removeFromBottom (12);
+
+        // the throw: the fader on the left, the meter beside it, both standing
+        auto throwArea = inner;
+        const int faderW = 22, meterW = 6;
+        auto pair = throwArea.withSizeKeepingCentre (faderW + 10 + meterW, throwArea.getHeight());
+        fader.setBounds (pair.removeFromLeft (faderW));
+        pair.removeFromLeft (10);
+        meter.setBounds (pair);
+
+        if (isMaster()) { mute.setBounds (keys.removeFromRight (30)); solo.setBounds (0, 0, 0, 0); return; }
+        solo.setBounds (keys.removeFromRight (30));
+        keys.removeFromRight (4);
+        mute.setBounds (keys.removeFromRight (30));
     }
 
 private:
@@ -206,7 +212,13 @@ private:
     // A tile's position is the console's order, not the enum's: LEAD sits with the voices.
     MixBus bus() const noexcept { return isMaster() ? MixBus::Master : mixBusInDisplayOrder (group); }
     juce::Colour tint() const { return isFx() ? Dine::ink2 : isMaster() ? Dine::ink : Dine::busTint (bus()); }
-    juce::String name() const { return isFx() ? "FX RETURNS" : isMaster() ? "MASTER" : juce::String (mixBusName (bus())).toUpperCase(); }
+    juce::String name() const
+    {
+        if (isFx()) return "FX returns";
+        if (isMaster()) return "Master";
+        const juce::String raw (mixBusName (bus()));
+        return raw.length() <= 3 ? raw.toUpperCase() : raw.substring (0, 1).toUpperCase() + raw.substring (1).toLowerCase();
+    }
 
     MixController& controller;
     int group;
@@ -215,8 +227,44 @@ private:
     juce::Rectangle<int> readout;
     DineMeter meter { DineMeter::Style::Bar };
     juce::Slider fader;
-    DineButton mute { "MUTE", DineButton::Style::Standard };
-    DineButton solo { "SOLO", DineButton::Style::Standard };
+    DineButton mute { "M", DineButton::Style::Standard };
+    DineButton solo { "S", DineButton::Style::Standard };
+};
+
+// A scene, as a card (design `06 - Live`, 71:12363): its name, when it was kept, and KEEP
+// along its foot. Pressing the card brings that whole mix back in one press; pressing KEEP
+// puts the mix that is running now under that name. LIVE SAFE never locks either.
+class LivePage::SceneCard : public juce::Button
+{
+public:
+    explicit SceneCard (const juce::String& n) : juce::Button (n), name (n) { setClickingTogglesState (false); }
+
+    void setScene (const juce::String& n, bool isKept, const juce::String& whenText)
+    {
+        if (n == name && isKept == kept && whenText == when) return;
+        name = n; kept = isKept; when = whenText;
+        repaint();
+    }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto r = getLocalBounds().toFloat();
+        Dine::fillRounded (g, r, down ? Dine::selected : over ? Dine::raised : Dine::card, Dine::Radius::card);
+        if (kept) Dine::hairlineRounded (g, r.reduced (0.5f), Dine::hair, Dine::Radius::card);
+        auto inner = getLocalBounds().reduced (14, 12);
+        g.setColour (kept ? Dine::ink : Dine::ink3);
+        g.setFont (Dine::text (13.0f, 600));
+        Dine::drawText (g, name, inner.removeFromTop (18), juce::Justification::centredLeft, true);
+        inner.removeFromTop (2);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.0f, 500));
+        Dine::drawText (g, kept ? (when.isEmpty() ? juce::String ("Kept") : "Kept " + when) : juce::String ("Empty"),
+                        inner.removeFromTop (16), juce::Justification::centredLeft, true);
+    }
+
+private:
+    juce::String name, when;
+    bool kept = false;
 };
 
 // The transport's Record, on the Recording card: the one button that has to be found from
@@ -281,6 +329,20 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
                               "you are now, so it is never a one-way door.");
     historyButton.onClick = [this] { if (onOpenHistory) onOpenHistory(); };
 
+    addAndMakeVisible (autopilotButton);
+    autopilotButton.setCaps (true);
+    autopilotButton.setFontPx (11.0f);
+    autopilotButton.setClickingTogglesState (false);
+    autopilotButton.setTooltip ("Hold the mix you set. Autopilot moves group faders only, slowly, inside a few dB of the mix "
+                                "it was engaged on, and says why every time. Touch a fader and that group is yours again.");
+    autopilotButton.onClick = [this]
+    {
+        const bool wanted = ! controller.isAutopilotOn();
+        if (! controller.setAutopilot (wanted)) return;      // the controller has already said why
+        refresh();
+        repaint();
+    };
+
     liveSafeButton.onClick = [this]
     {
         auto& daw = services.daw();
@@ -295,9 +357,7 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     // ---- scenes: one press brings a whole mix back
     for (int i = 0; i < 4; ++i)
     {
-        scenePads[size_t (i)] = std::make_unique<DineButton> (juce::String (defaultSceneName (i)), DineButton::Style::Toggle);
-        scenePads[size_t (i)]->setFontPx (13.0f);
-        scenePads[size_t (i)]->setClickingTogglesState (false);
+        scenePads[size_t (i)] = std::make_unique<SceneCard> (juce::String (defaultSceneName (i)));
         scenePads[size_t (i)]->setTooltip ("Bring this whole mix back - every fader, chain and macro - in one press. UNDO takes it back. LIVE SAFE never locks it.");
         scenePads[size_t (i)]->onClick = [this, i] { controller.recallScene (i); refreshScenes(); };
         addAndMakeVisible (*scenePads[size_t (i)]);
@@ -480,8 +540,19 @@ void LivePage::refresh()
                                           : "Press S on any channel to hear it. Only you hear it.";
     if (next.soloCount != look.soloCount || next.inPlace != look.inPlace) refreshMonitor();
     historyButton.setEnabled (! controller.getCheckpoints().empty());
-    liveSafeButton.setButtonText (next.safe ? "LIVE SAFE ON" : "LIVE SAFE OFF");
+    liveSafeButton.setButtonText ("LIVE SAFE");
+    liveSafeButton.setIcon (Dine::Icon::Lock);
     liveSafeButton.setStyle (next.safe ? DineButton::Style::Filled : DineButton::Style::Standard);
+    liveSafeButton.setTint (Dine::warn);
+
+    {
+        const auto& ap = controller.getAutopilot();
+        autopilotButton.setStyle (ap.on ? DineButton::Style::Filled : DineButton::Style::Standard);
+        autopilotButton.setTint (Dine::monitor);
+        if (ap.on && autopilotSince.isEmpty()) autopilotSince = juce::Time::getCurrentTime().toString (false, true, false, true);
+        if (! ap.on) autopilotSince = {};
+        if (ap.on != autopilotWasOn) { autopilotWasOn = ap.on; repaint(); }
+    }
     if (next != look) { look = next; repaint(); }
 }
 
@@ -490,17 +561,28 @@ LivePage::Layout LivePage::layout() const
     Layout l;
     auto r = getLocalBounds().reduced (kPadX, kPadY);
     l.status = r.removeFromTop (kStatusH);
-    r.removeFromTop (kGap);
-    l.tiles = r.removeFromTop (juce::jmin (200, juce::jmax (160, r.getHeight() - kGap - kScenesH - kGap - 190)));
-    r.removeFromTop (kGap);
-    l.scenes = r.removeFromTop (kScenesH);
-    r.removeFromTop (kGap);
-    auto lower = r.withHeight (juce::jlimit (190, 260, r.getHeight()));
-    l.safe = lower.removeFromRight (kSafeW);
+    r.removeFromTop (kGap + 8);
+    l.groupsCaption = r.removeFromTop (20);
+    r.removeFromTop (10);
+    l.tiles = r.removeFromTop (juce::jmin (260, juce::jmax (170, r.getHeight() - kGap - 20 - 10 - kScenesH - kGap - 190)));
+    r.removeFromTop (kGap + 8);
+    l.scenesCaption = r.removeFromTop (20);
+    r.removeFromTop (10);
+    {
+        // The scenes and what the engineer hears share a band: the scenes take the left, the
+        // monitor card the right, the way the design sets them. The card is the taller of the
+        // two, so the band is its height and the scene cards sit at the top of it.
+        auto band = r.removeFromTop (kMonitorH);
+        l.monitor = band.removeFromRight (juce::jmin (kMonitorW, band.getWidth() / 2));
+        band.removeFromRight (kGap);
+        l.scenes = band.withHeight (kScenesH);
+        r.removeFromTop (0);
+    }
+    r.removeFromTop (kGap + 8);
+    auto lower = r.withHeight (juce::jlimit (170, 230, r.getHeight()));
+    l.autopilot = lower.removeFromRight (juce::jmin (kSafeW, lower.getWidth() / 2));
     lower.removeFromRight (kGap);
-    // The monitor card is as tall as what it holds (caption, chips, level, sentence); LIVE SAFE keeps the band's height for its rules.
-    l.monitor = lower.withHeight (juce::jmin (lower.getHeight(), 18 + kMonCaption + kMonCaptionGap + Dine::Metric::control + kMonRowGap
-                                                                + Dine::Metric::control + kMonNoteGap + kMonNote + 18));
+    l.safe = lower;
     return l;
 }
 
@@ -528,14 +610,18 @@ void LivePage::paint (juce::Graphics& g)
             Dine::fillRounded (g, area.toFloat(), ground, Dine::Radius::card);
             auto inner = area.reduced (16, 14);
             inner.removeFromRight (trimRight);
+            auto cap = inner.removeFromTop (14);
+            g.setColour (valueInk);
+            g.fillEllipse (cap.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat());
+            cap.removeFromLeft (8);
             g.setColour (Dine::ink3);
-            g.setFont (Dine::text (12.0f));
-            Dine::drawText (g, label, inner.removeFromTop (14), juce::Justification::topLeft);
+            g.setFont (Dine::text (11.0f, 500));
+            Dine::drawText (g, label, cap, juce::Justification::centredLeft, true);
             inner.removeFromTop (6);
             g.setColour (valueInk);
-            g.setFont (monoValue ? Dine::mono (19.0f, 500) : Dine::text (19.0f, 600));
-            Dine::drawText (g, value, inner.removeFromTop (24), juce::Justification::topLeft, true);
-            inner.removeFromTop (4);
+            g.setFont (monoValue ? Dine::mono (21.0f, 500) : Dine::text (22.0f, 600));
+            Dine::drawText (g, value, inner.removeFromTop (28), juce::Justification::topLeft, true);
+            inner.removeFromTop (2);
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (12.0f));
             Dine::drawFittedText (g, note, inner, juce::Justification::topLeft, 2, 1.0f);
@@ -553,71 +639,127 @@ void LivePage::paint (juce::Graphics& g)
               headroomDb < 0.5f ? Dine::crit : headroomDb < 3.0f ? Dine::warn : Dine::ink, true);
     }
 
-    // ---- scenes
+    auto heading = [&g] (juce::Rectangle<int> r, const juce::String& text)
     {
-        Dine::fillRounded (g, l.scenes.toFloat(), Dine::tile, Dine::Radius::card);
-        auto inner = l.scenes.reduced (18, 14);
-        Dine::drawSection (g, inner.removeFromTop (kMonCaption), "SCENES  " + juce::String (Glyph::dot()) + "  KEEP THE MIX FOR EACH PART OF THE SERVICE, BRING IT BACK IN ONE PRESS");
-    }
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (17.0f, 600));
+        Dine::drawText (g, text, r, juce::Justification::centredLeft, true);
+    };
+    heading (l.groupsCaption, "Groups");
+    heading (l.scenesCaption, "Scenes");
 
-    // ---- the engineer's listen
+    // ---- the engineer's listen: a card of its own, because none of it reaches the room
     {
-        Dine::fillRounded (g, l.monitor.toFloat(), Dine::tile, Dine::Radius::card);
-        auto inner = l.monitor.reduced (18, 18);
-        Dine::drawSection (g, inner.removeFromTop (kMonCaption), "ENGINEER MONITORING  " + juce::String (Glyph::dot()) + "  THE ROOM AND THE STREAM DO NOT HEAR THIS");
-        // The same rows resized() gives the chips and the slider: the caption is already taken off `inner`.
+        Dine::fillRounded (g, l.monitor.toFloat(), Dine::control, Dine::Radius::card);
+        auto inner = l.monitor.reduced (18, 16);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (17.0f, 600));
+        Dine::drawText (g, "What I hear", inner.removeFromTop (22), juce::Justification::centredLeft, true);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (12.0f));
+        Dine::drawText (g, "Press S on any channel to hear it. Only you hear it.", inner.removeFromTop (16),
+                        juce::Justification::centredLeft, true);
         inner.removeFromTop (kMonCaptionGap);
         auto levelRow = inner.withTrimmedTop (Dine::Metric::control + kMonRowGap).withHeight (Dine::Metric::control);
         g.setColour (Dine::ink3);
-        g.setFont (Dine::text (13.0f));
-        Dine::drawText (g, "Monitor level", levelRow.removeFromLeft (110), juce::Justification::centredLeft);
+        g.setFont (Dine::text (12.0f));
+        Dine::drawText (g, "Monitor level", levelRow.removeFromLeft (94), juce::Justification::centredLeft);
         g.setColour (Dine::ink2);
-        g.setFont (Dine::mono (12.0f, 500));
-        Dine::drawText (g, dbText (look.monitorDb), levelRow.removeFromRight (58), juce::Justification::centredRight);
+        g.setFont (Dine::mono (11.0f, 500));
+        Dine::drawText (g, dbText (look.monitorDb), levelRow.removeFromRight (52), juce::Justification::centredRight);
         auto note = inner.withTrimmedTop (Dine::Metric::control + kMonRowGap + Dine::Metric::control + kMonNoteGap).withHeight (kMonNote);
         g.setColour (look.inPlace || ! look.routed ? Dine::warn : look.soloCount > 0 ? Dine::accent : Dine::ink3);
-        g.setFont (Dine::text (12.5f));
+        g.setFont (Dine::text (12.0f));
         Dine::drawText (g, look.monitorNote, note, juce::Justification::centredLeft, true);
     }
 
-    // ---- LIVE SAFE: what it locks, blocks and allows, printed
+    // ---- LIVE SAFE: what it locks, blocks and allows, in three columns and in words
     {
-        Dine::fillRounded (g, l.safe.toFloat(), Dine::tile, Dine::Radius::card);
-        auto inner = l.safe.reduced (18, 18);
-        inner.removeFromTop (44 + 10 + Dine::Metric::button + 10);   // the lock, then the way back
-        struct Rule { juce::String what, why; bool amber; };
+        Dine::fillRounded (g, l.safe.toFloat(), look.safe ? Dine::refuse : Dine::card, Dine::Radius::card);
+        if (look.safe) Dine::hairlineRounded (g, l.safe.toFloat().reduced (0.5f), Dine::warn, Dine::Radius::card);
+        auto inner = l.safe.reduced (18, 16);
+        auto head = inner.removeFromTop (Dine::Metric::button);
+        head.removeFromLeft (liveSafeButton.getWidth() + 14);
+        g.setColour (look.safe ? Dine::ink : Dine::ink2);
+        g.setFont (Dine::text (15.0f, 600));
+        Dine::drawText (g, look.safe ? "On. Lock the sound for the service."
+                                     : "Off. Every setting is editable, including the ones that restart the engine.",
+                        head, juce::Justification::centredLeft, true);
+        inner.removeFromTop (14);
+        inner.removeFromBottom (Dine::Metric::button + 10);
+
+        struct Rule { juce::String what, why; juce::Colour tint; };
         std::vector<Rule> rules;
         if (look.safe)
         {
             const auto& policy = controller.getLiveSafePolicy();
-            rules = { { "Locked", "The audio device, the routing, the input patch and opening a session. Changing any of them interrupts the audio mid-service.", true },
-                      { "Blocked", "TUNE MIX, TUNE LIVE MIX, TUNE CHANNEL and MATCH TO REFERENCE. They re-tune channels that are on air.", true },
-                      { "Allowed", "Faders (" + juce::String (int (policy.maxFaderStepDb)) + " dB at a time, the master " + juce::String (int (policy.maxMasterStepDb))
-                                       + "), mutes, solos, the monitor, markers and recording. Everything you touch during the service.", false } };
+            rules = { { "Locked", "The audio device, the routing, the input patch and opening a session. Changing any of "
+                                  "them interrupts the audio mid-service.", Dine::warn },
+                      { "Blocked", "TUNE MIX, TUNE LIVE MIX, TUNE CHANNEL and MATCH TO REFERENCE. They re-tune channels "
+                                   "that are on air.", Dine::warn },
+                      { "Allowed", "Faders (" + juce::String (int (policy.maxFaderStepDb)) + " dB at a time, the master "
+                                       + juce::String (int (policy.maxMasterStepDb)) + "), mutes, solos, the monitor, "
+                                       "markers and recording. Everything you touch during the service.", Dine::ok } };
         }
         else
         {
-            rules = { { "LIVE SAFE is off", "Every setting is editable, including the ones that restart the audio engine.", false },
-                      { "Recording is unaffected", "Takes keep running while you change things.", false },
-                      { "Turn it on before the doors open", "One click, here or in the toolbar.", false } };
+            rules = { { "Nothing is locked", "Every setting is editable, including the ones that restart the audio engine.", Dine::ink3 },
+                      { "Recording is unaffected", "Takes keep running while you change things.", Dine::ink3 },
+                      { "Turn it on before the doors open", "One press, here or in the toolbar.", Dine::ink3 } };
         }
-        for (const auto& rule : rules)
+        const int colW = (inner.getWidth() - 2 * 16) / 3;
+        for (size_t i = 0; i < rules.size(); ++i)
         {
-            // A rule is drawn whole or not at all: half a sentence in a box is worse than one
-            // rule fewer, and the ones that matter most are first.
-            if (inner.getHeight() < 62) break;
-            const int h = juce::jmin (inner.getHeight(), 13 + 16 + 5 + 34 + 13);
-            auto box = inner.removeFromTop (h);
-            Dine::fillRounded (g, box.toFloat(), Dine::item, Dine::Radius::control);
-            auto t = box.reduced (12, 12);
-            g.setColour (rule.amber ? Dine::warn : Dine::ink);
-            g.setFont (Dine::text (13.0f));
-            Dine::drawText (g, rule.what, t.removeFromTop (16), juce::Justification::topLeft);
-            t.removeFromTop (4);
-            g.setColour (Dine::ink3);
+            auto colArea = juce::Rectangle<int> (inner.getX() + int (i) * (colW + 16), inner.getY(), colW, inner.getHeight());
+            g.setColour (rules[i].tint);
+            g.setFont (Dine::text (12.0f, 600));
+            Dine::drawText (g, rules[i].what, colArea.removeFromTop (16), juce::Justification::topLeft, true);
+            colArea.removeFromTop (5);
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::text (11.5f));
+            Dine::drawFittedText (g, rules[i].why, colArea, juce::Justification::topLeft, 6, 1.0f);
+        }
+    }
+
+    // ---- AUTOPILOT: the second thing in DLIVE allowed to move a level by itself, so while it
+    // is on the page says so, says what it has had to move, and carries the press that stops it.
+    {
+        const auto& ap = controller.getAutopilot();
+        Dine::fillRounded (g, l.autopilot.toFloat(), ap.on ? Dine::editGround : Dine::card, Dine::Radius::card);
+        if (ap.on) Dine::hairlineRounded (g, l.autopilot.toFloat().reduced (0.5f), Dine::monitor.withAlpha (0.5f), Dine::Radius::card);
+        auto inner = l.autopilot.reduced (18, 16);
+        auto head = inner.removeFromTop (Dine::Metric::button);
+        head.removeFromLeft (autopilotButton.getWidth() + 14);
+        g.setColour (ap.on ? Dine::ink : Dine::ink2);
+        g.setFont (Dine::text (15.0f, 600));
+        Dine::drawText (g, ap.on ? (autopilotSince.isNotEmpty() ? "Watching since " + autopilotSince + "  " + Glyph::dot() + "  "
+                                                                  + (ap.groupsCorrected > 0 ? "holding the mix" : "the mix is healthy")
+                                                                : juce::String ("Watching the mix"))
+                                 : juce::String ("Off. The mix is yours alone."),
+                        head, juce::Justification::centredLeft, true);
+        inner.removeFromTop (12);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (12.0f));
+        const int noteH = juce::jmin (inner.getHeight(), 52);
+        Dine::drawFittedText (g, ap.on ? "If the mix stays healthy it does nothing. It moves group faders only, slowly, "
+                                         "within a few dB of the mix it was engaged on. Touch a fader and it is yours again."
+                                       : "Engage it and DLIVE holds the mix you set: group faders only, inside a few dB of "
+                                         "where you engaged it, and every move says why.",
+                              inner.removeFromTop (noteH), juce::Justification::topLeft, 3, 1.0f);
+        inner.removeFromTop (8);
+        if (ap.on && ! ap.lastWhat.empty())
+        {
+            auto line = inner.removeFromTop (18);
+            g.setColour (Dine::accent);
+            g.setFont (Dine::mono (10.5f, 500));
+            const int timeW = Dine::textWidth (Dine::mono (10.5f, 500), autopilotSince);
+            Dine::drawText (g, autopilotSince, line.removeFromLeft (timeW), juce::Justification::centredLeft);
+            line.removeFromLeft (10);
+            g.setColour (Dine::ink2);
             g.setFont (Dine::text (12.0f));
-            Dine::drawFittedText (g, rule.why, t, juce::Justification::topLeft, 3, 1.0f);
-            inner.removeFromTop (3);
+            Dine::drawText (g, juce::String (ap.lastWhat) + (ap.lastWhy.empty() ? juce::String()
+                                                                                : " " + juce::String (Glyph::dash()) + " " + juce::String (ap.lastWhy)),
+                            line, juce::Justification::centredLeft, true);
         }
     }
 }
@@ -641,24 +783,24 @@ void LivePage::resized()
         }
     }
     {
-        auto inner = l.scenes.reduced (18, 14);
-        inner.removeFromTop (kMonCaption + 8);
-        auto row = inner.removeFromTop (Dine::Metric::control);
-        const int gap = 10;
+        // Four scene cards, side by side: the name and when it was kept on the card, KEEP along
+        // its foot (design `06 - Live`, 71:12363).
+        auto row = l.scenes;
+        const int gap = 12;
         const int cell = (row.getWidth() - gap * 3) / 4;
         for (int i = 0; i < 4; ++i)
         {
             auto c = row.removeFromLeft (cell);
             row.removeFromLeft (gap);
-            const int keepW = juce::jmax (52, sceneKeeps[size_t (i)]->idealWidth());
-            sceneKeeps[size_t (i)]->setBounds (c.removeFromRight (keepW));
-            c.removeFromRight (6);
             scenePads[size_t (i)]->setBounds (c);
+            auto foot = c.reduced (14, 12).removeFromBottom (Dine::Metric::control);
+            const int keepW = juce::jmax (52, sceneKeeps[size_t (i)]->idealWidth());
+            sceneKeeps[size_t (i)]->setBounds (foot.removeFromLeft (keepW));
         }
     }
     {
-        auto inner = l.monitor.reduced (18, 18);
-        inner.removeFromTop (kMonCaption + kMonCaptionGap);
+        auto inner = l.monitor.reduced (18, 16);
+        inner.removeFromTop (22 + 16 + kMonCaptionGap);
         auto chipRow = inner.removeFromTop (Dine::Metric::control);
         bool room = true;
         for (auto& c : chips)
@@ -678,17 +820,23 @@ void LivePage::resized()
         soloDevice.setBounds (chipRow.removeFromRight (juce::jmin (pickW, chipRow.getWidth())));
         inner.removeFromTop (kMonRowGap);
         auto levelRow = inner.removeFromTop (Dine::Metric::control);
-        levelRow.removeFromLeft (110);
-        levelRow.removeFromRight (58 + 14);
+        levelRow.removeFromLeft (94);
+        levelRow.removeFromRight (52 + 12);
         monitorLevel.setBounds (levelRow);
     }
     {
-        auto inner = l.safe.reduced (18, 18);
-        liveSafeButton.setBounds (inner.removeFromTop (44));
-        // Under the lock, where an engineer already is when something has gone wrong: the
+        auto inner = l.safe.reduced (18, 16);
+        const int w = juce::jmax (110, liveSafeButton.idealWidth());
+        liveSafeButton.setBounds (inner.removeFromTop (Dine::Metric::button).removeFromLeft (w));
+        // Under the rules, where an engineer already is when something has gone wrong: the
         // list of every mix this session has had, with the time and the name of each.
-        inner.removeFromTop (10);
-        historyButton.setBounds (inner.removeFromTop (Dine::Metric::button));
+        const int hw = juce::jmax (110, historyButton.idealWidth());
+        historyButton.setBounds (inner.removeFromBottom (Dine::Metric::button).removeFromLeft (hw));
+    }
+    {
+        auto inner = l.autopilot.reduced (18, 16);
+        const int w = juce::jmax (110, autopilotButton.idealWidth());
+        autopilotButton.setBounds (inner.removeFromTop (Dine::Metric::button).removeFromLeft (w));
     }
 }
 
@@ -704,9 +852,9 @@ void LivePage::refreshScenes()
     {
         const auto& scene = controller.getScene (i);
         auto& pad = *scenePads[size_t (i)];
-        const juce::String text = juce::String (scene.name.empty() ? defaultSceneName (i) : scene.name.c_str()) + (scene.kept ? "" : "  " + juce::String (Glyph::dash()));
-        if (pad.getButtonText() != text) pad.setButtonText (text);
-        pad.setToggleState (scene.kept, juce::dontSendNotification);
+        juce::String when;
+        if (scene.kept && scene.whenMs > 0) when = juce::Time (scene.whenMs).toString (false, true, false, true);
+        pad.setScene (juce::String (scene.name.empty() ? defaultSceneName (i) : scene.name.c_str()), scene.kept, when);
         pad.setTooltip (scene.kept ? "Bring the " + juce::String (scene.name) + " mix back - every fader, chain and macro - in one press. UNDO takes it back."
                                    : "Nothing is kept here yet. Set the mix, then KEEP.");
     }
