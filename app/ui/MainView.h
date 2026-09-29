@@ -22,6 +22,7 @@
 #include "TransportBar.h"
 #include "ChainStrip.h"
 #include "Tutorial.h"
+#include "WorkspaceGuide.h"
 
 namespace livemix
 {
@@ -100,6 +101,10 @@ public:
     void openMixerWindow();
     void showTutorial();
     void closeTutorial();
+    // The one-card guide a workspace shows the first time it is opened. `maybeShowGuide` is
+    // what `showPage` calls; it does nothing when that workspace has been dismissed or when
+    // the guides are switched off.
+    void maybeShowGuide();
     static void setAutoTutorial (bool);
     void showOutputs();                        // the ROUTING workspace, at its Outputs section
     void showHistory();                       // MIX HISTORY: the whole mix as it was, hours ago, by name
@@ -132,6 +137,11 @@ public:
     // (Dine::setTextScale); remembered on this Mac beside the theme.
     void applyTextSize (float scale, const juce::String& name);
     static void setStoredThemeUsed (bool);
+    // The workspace guides, off in the headless tool so a render is not a walk through what
+    // this Mac has already dismissed. On by default. `preferences` points the memory at a
+    // file of its own - the tool renders the card from an empty one, so the same PNG comes
+    // out on a machine where every guide has already been dismissed.
+    static void setGuidesUsed (bool on, juce::File preferences = {});
 
     void tuneChannel (int strip, const MixController::ListenSettings& listen = MixController::channelListen());
     int selectedChannel() const;          // the channel the current workspace has picked out, or -1
@@ -249,6 +259,7 @@ private:
     void jumpToSoloed (const MixController::SoloedItem&);
     std::unique_ptr<ChainStrip> chainFoot;
     std::unique_ptr<Tutorial> tutorial;
+    std::unique_ptr<WorkspaceGuide> guide;
 
     DinePopup outputButton;
     std::unique_ptr<juce::FileChooser> chooser;

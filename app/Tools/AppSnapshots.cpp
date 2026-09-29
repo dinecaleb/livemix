@@ -235,6 +235,7 @@ namespace
             // asked for, and a first-run coach over the console would be in all of them.
             MainView::setAutoTutorial (false);
             MainView::setStoredThemeUsed (false);   // every render starts from the design, whatever this Mac chose
+            MainView::setGuidesUsed (false);        // ... and not through whatever has been dismissed on it
             samples.load();
             controller.setSampleBanks (samples.table());
             view = std::make_unique<MainView> (controller, services);
@@ -1137,6 +1138,24 @@ int main (int argc, char** argv)
         rig.snap (dir, "09b-tune-live-result");
         rig.controller.revertPlan();
         rig.feed (0.3);
+    }
+
+    // WHAT THIS WORKSPACE IS FOR, once: the card a workspace shows the first time it is
+    // opened, with GOT IT and the chip that switches every one of them off.
+    {
+        // From a preferences file of its own: the same PNG comes out on a machine where every
+        // guide has already been dismissed as on one where none has.
+        const auto prefs = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                               .getChildFile ("dlive-guide-snapshot.json");
+        prefs.deleteFile();
+        MainView::setGuidesUsed (true, prefs);
+        view.showPage (MainView::Page::Mixer);
+        rig.feed (0.3);
+        rig.snap (dir, "20b-workspace-guide");
+        prefs.deleteFile();
+        MainView::setGuidesUsed (false);
+        view.showPage (MainView::Page::Mixer);
+        rig.feed (0.2);
     }
 
     view.showPage (MainView::Page::Inspector);

@@ -8,7 +8,21 @@ namespace livemix
 
 // Nothing opens by itself in the headless snapshot tool (MainView::setAutoTutorial), and it
 // renders from the design rather than from this Mac's chosen theme (setStoredThemeUsed).
-namespace { bool gAutoTutorial = true; bool gUseStoredTheme = true; }
+// Nothing opens by itself in the headless tool, and it renders from the design rather than
+// from this Mac: `gGuides` is the workspace guides' own switch, so a snapshot walk is not a
+// walk through whatever the person at this desk has already dismissed.
+namespace
+{
+    bool gAutoTutorial = true, gUseStoredTheme = true, gGuides = true;
+    juce::File gGuidePrefs;
+
+    // Where the guides remember what has been dismissed: this Mac's preferences, or the file
+    // the headless tool hands in so a render does not depend on what anybody dismissed here.
+    juce::File guidePreferences()
+    {
+        return gGuidePrefs == juce::File() ? ThemeStore::preferencesFile() : gGuidePrefs;
+    }
+}
 
 // ---------------------------------------------------------------- toast
 // A sentence at the foot of the workspace, never a banner: nothing in the layout moves. A
@@ -845,6 +859,7 @@ public:
                 break;
             default:
                 m.addItem (701, "Getting started");
+                m.addItem (702, "Show the guides again");
                 m.addSeparator();
                 m.addItem (700, "About DLIVE");
                 break;
@@ -1244,10 +1259,42 @@ void MainView::showPage (Page p)
     if (p == Page::Live) livePage->rebuild();
     if (p == Page::Inspector) advancedPage->rebuild();
 
+    maybeShowGuide();
     updateChrome();
     resized();
     repaint();
     grabKeyboardFocus();
+}
+
+// WHAT THIS WORKSPACE IS FOR, once. The first time a workspace is opened, a card in its
+// corner says in two sentences what it is for; GOT IT dismisses that one for good and the
+// chip beside it switches every one of them off. Nothing is blocked behind it, and Help >
+// Show the guides again brings them all back.
+void MainView::maybeShowGuide()
+{
+    guide.reset();
+    // Never over a tour, and never while a sheet is asking something: two things explaining
+    // themselves at once is worse than neither.
+    if (! gGuides || tutorial != nullptr || openSheetName().isNotEmpty()) return;
+    const auto prefs = guidePreferences();
+    if (! Guides::enabled (prefs)) return;
+
+    const auto* entry = WorkspaceGuide::entryFor (int (page));
+    if (entry == nullptr || Guides::seen (entry->key, prefs)) return;
+
+    const juce::String key (entry->key);
+    guide = std::make_unique<WorkspaceGuide> (*entry);
+    guide->onDismiss = [this, key, prefs] { Guides::markSeen (key, prefs); guide.reset(); resized(); repaint(); };
+    guide->onTurnOff = [this, prefs]
+    {
+        Guides::setEnabled (false, prefs);
+        guide.reset();
+        resized();
+        repaint();
+        showToast ("The workspace guides are off. Help > Show the guides again brings them back.");
+    };
+    addAndMakeVisible (*guide);
+    guide->toFront (false);
 }
 
 void MainView::updateChrome()
@@ -1431,6 +1478,7 @@ juce::Rectangle<int> MainView::spotlight (const juce::String& what) const
 
 void MainView::setAutoTutorial (bool on) { gAutoTutorial = on; }
 void MainView::setStoredThemeUsed (bool on) { gUseStoredTheme = on; }
+void MainView::setGuidesUsed (bool on, juce::File preferences) { gGuides = on; gGuidePrefs = preferences; }
 
 void MainView::closeTutorial() { tutorial.reset(); }
 
@@ -2160,6 +2208,13 @@ void MainView::handleCommand (int id)
         }
 
         case 701: showTutorial(); break;
+        case 702:
+            Guides::reset (guidePreferences());
+            maybeShowGuide();
+            resized();
+            repaint();
+            showToast ("Every workspace will explain itself once more.");
+            break;
         case 700:
             showToast ("DLIVE - the live recording and broadcast DAW. Connect. Record. Mix. Tune. Broadcast.");
             break;
@@ -2680,6 +2735,26 @@ void MainView::resized()
         chatSheet->toFront (false);
     }
 
+    // The guide sits in the bottom-left of the workspace, clear of the chain foot and of the
+    // side panel a workspace may have there - out of the way of the thing it is describing.
+    if (guide != nullptr)
+    {
+        // Never over a sheet or a tour. The sheets are brought to the front just above, so a
+        // card raised after them would float over a scrim that is asking a question.
+        const bool clear = openSheetName().isEmpty() && tutorial == nullptr;
+        guide->setVisible (clear);
+        if (clear)
+        {
+            auto area = getLocalBounds().withTrimmedTop (Dine::Metric::toolbar)
+                                        .withTrimmedLeft (sidebar != nullptr && sidebar->isVisible() ? sidebar->width() : 0)
+                                        .withTrimmedBottom (Dine::Metric::status + ChainStrip::height);
+            const int w = juce::jmin (WorkspaceGuide::width, juce::jmax (220, area.getWidth() - 2 * WorkspaceGuide::gap));
+            const int h = juce::jmin (guide->wantedHeight(), juce::jmax (80, area.getHeight() - 2 * WorkspaceGuide::gap));
+            guide->setBounds (area.removeFromBottom (h + WorkspaceGuide::gap).withTrimmedBottom (WorkspaceGuide::gap)
+                                  .removeFromLeft (w + WorkspaceGuide::gap).withTrimmedLeft (WorkspaceGuide::gap));
+            guide->toFront (false);
+        }
+    }
     if (tutorial != nullptr) { tutorial->setBounds (getLocalBounds()); tutorial->toFront (false); }
 
     if (toast->isVisible())

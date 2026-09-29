@@ -126,3 +126,10 @@ The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizab
   It opens by itself only on a genuine first run (no library **and** no assigned inputs) and is remembered in
   `~/Music/DLIVE/.getting-started-seen`; after that it is Help > Getting started and the session popover.
   `MainView::setAutoTutorial (false)` is how the snapshot tool keeps it out of every other state.
+- **THE WORKSPACE GUIDES** (`app/ui/WorkspaceGuide`) are the other half of the same idea, one workspace at a
+  time: the first time TRACKS, MIXER, TUNE, LIVE or the Inspector is opened, a card in its bottom-left corner
+  says in two sentences what the workspace is for and what the one thing to press is. GOT IT dismisses that one
+  for good; the chip beside it switches every one of them off, and Help > Show the guides again brings them all
+  back. It is a card, not a modal - nothing is blocked behind it and it never takes the keyboard. What has been
+  dismissed lives beside the theme (`Guides`, `app/native/ThemeStore`), and `MainView::setGuidesUsed (false)` is
+  how the snapshot tool keeps a render from being a walk through whatever this Mac has already dismissed.

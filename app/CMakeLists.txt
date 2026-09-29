@@ -74,6 +74,7 @@ set(DLIVE_UI_SOURCES
     ui/ChainStrip.cpp
     ui/TransportBar.cpp
     ui/Tutorial.cpp
+    ui/WorkspaceGuide.cpp
     ui/MainView.cpp
     ${CMAKE_SOURCE_DIR}/src/UI/LiveMixLookAndFeel.cpp
     ${CMAKE_SOURCE_DIR}/src/UI/Widgets.cpp
