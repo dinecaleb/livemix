@@ -594,15 +594,18 @@ public:
         const float a0 = juce::degreesToRadians (-135.0f), sweep = juce::degreesToRadians (270.0f);
         const float t = float (toProportion (value, field.min, field.max, field.mid));
 
+        // A proportion of the knob rather than a fixed 3 pt, so every dial in the product
+        // reads as the same family whatever size it is drawn at.
+        const float ring = juce::jmax (3.5f, rad * 0.17f);
         juce::Path track, arc;
         track.addCentredArc (cx, cy, rad, rad, 0.0f, a0, a0 + sweep, true);
         g.setColour (juce::Colours::white.withAlpha (live ? 0.10f : 0.05f));
-        g.strokePath (track, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath (track, juce::PathStrokeType (ring, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         if (t > 0.004f)
         {
             arc.addCentredArc (cx, cy, rad, rad, 0.0f, a0, a0 + sweep * t, true);
             g.setColour (live ? colour : Dine::ink4);
-            g.strokePath (arc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath (arc, juce::PathStrokeType (ring, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
 
         const float bodyR = kBody * 0.5f;
@@ -903,7 +906,7 @@ public:
         {
             case GraphKind::Eq:        paintEq (g); break;
             case GraphKind::Threshold: paintThreshold (g, r); break;
-            case GraphKind::Reduction: paintReduction (g, r); break;
+            case GraphKind::Reduction: spec->id == StageId::Comp ? paintCompressor (g, r) : paintReduction (g, r); break;
             case GraphKind::Curve:     paintCurve (g, r); break;
             case GraphKind::Ceiling:   paintCeiling (g, r); break;
             case GraphKind::Envelope:  paintEnvelope (g, r); break;
@@ -1119,7 +1122,20 @@ private:
         r.removeFromTop (4);
         Dine::drawRule (g, r.removeFromTop (1), Dine::hairSoft);
 
+        // A scale, so the well below the trace reads as the room the stage has left rather
+        // than as an empty box: 18 dB of reduction, marked every six.
         auto p = r.toFloat();
+        for (int db = 6; db <= 12; db += 6)
+        {
+            const float y = p.getY() + p.getHeight() * float (db) / 18.0f;
+            g.setColour (Dine::hairSoft);
+            g.drawLine (p.getX(), y, p.getRight(), y, 1.0f);
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::mono (9.5f, 500));
+            Dine::drawText (g, "-" + juce::String (db), juce::Rectangle<float> (p.getX() + 2.0f, y + 1.0f, 26.0f, 11.0f).toNearestInt(),
+                            juce::Justification::centredLeft);
+        }
+
         juce::Path line;
         for (size_t i = 0; i < grHistory.size(); ++i)
         {
@@ -1129,6 +1145,84 @@ private:
         }
         g.setColour (isEnabled() ? tone.withAlpha (0.9f) : Dine::ink4);
         g.strokePath (line, juce::PathStrokeType (1.6f));
+    }
+
+    // THE COMPRESSOR, AS A COMPRESSOR.
+    //
+    // A gain-reduction trace on its own is a flat line at nought whenever nothing is playing,
+    // which is most of the time somebody is setting one up - and it never says anything about
+    // what the knobs are set to. So the well carries the transfer the stage is putting the
+    // signal through, drawn from the engine's own gain computer (`Compressor::computeGain`,
+    // so the picture and the audio cannot disagree) with the makeup and the blend on top of
+    // it: threshold, ratio, knee, makeup and blend are all visible in the shape, and turning
+    // any of them moves it. The live trace keeps its place beside it.
+    void paintCompressor (juce::Graphics& g, juce::Rectangle<int> r)
+    {
+        const auto tone = gr > 9.0f ? Dine::crit : Dine::warn;
+        const auto ink = isEnabled() ? Dine::accent : Dine::ink4;
+
+        // -60 .. +6 dB on both axes, the range the saturation curve uses, so the two stages
+        // read as the same kind of picture.
+        constexpr float kLo = -60.0f, kSpan = 66.0f;
+        const auto out = [this] (float inDb)
+        {
+            const float wet = Compressor::computeGain (inDb, params.compThresholdDb, juce::jmax (1.0f, params.compRatio),
+                                                       juce::jmax (0.0f, params.compKneeDb)) + params.compMakeupDb;
+            const float blend = juce::jlimit (0.0f, 1.0f, params.compMix);
+            return inDb * (1.0f - blend) + wet * blend;
+        };
+
+        auto square = r.removeFromLeft (juce::jlimit (110, 240, juce::jmin (r.getHeight(), r.getWidth() / 2)));
+        r.removeFromLeft (18);
+        {
+            auto head = square.removeFromTop (18);
+            caption (g, head, "In / out", Dine::ink3);
+            square.removeFromTop (4);
+            const float side = float (juce::jmin (square.getWidth(), square.getHeight()));
+            auto box = square.toFloat().withSizeKeepingCentre (side, side);
+            const auto xFor = [&] (float db) { return box.getX() + box.getWidth() * juce::jlimit (0.0f, 1.0f, (db - kLo) / kSpan); };
+            const auto yFor = [&] (float db) { return box.getBottom() - box.getHeight() * juce::jlimit (0.0f, 1.0f, (db - kLo) / kSpan); };
+
+            Dine::fillRounded (g, box, Dine::deep, 4.0f);
+            // The line the signal would be on with the stage off, and the threshold it leaves it at.
+            g.setColour (Dine::hairSoft);
+            g.drawLine (box.getX(), box.getBottom(), box.getRight(), box.getY(), 1.0f);
+            const float tx = xFor (params.compThresholdDb);
+            g.setColour (Dine::hair);
+            g.drawLine (tx, box.getY(), tx, box.getBottom(), 1.0f);
+
+            juce::Path curve;
+            constexpr int kPoints = 120;
+            for (int i = 0; i < kPoints; ++i)
+            {
+                const float din = kLo + kSpan * float (i) / float (kPoints - 1);
+                const float x = xFor (din), y = yFor (out (din));
+                if (i == 0) curve.startNewSubPath (x, y); else curve.lineTo (x, y);
+            }
+            g.setColour (ink);
+            g.strokePath (curve, juce::PathStrokeType (2.2f));
+
+            // Where the signal is on that curve right now, and how far the curve has pulled it down.
+            if (running && inputDb > -100.0f)
+            {
+                const float x = xFor (inputDb), y = yFor (out (inputDb));
+                if (gr > 0.05f)
+                {
+                    g.setColour (tone.withAlpha (0.55f));
+                    g.drawLine (x, yFor (inputDb), x, y, 1.0f);
+                }
+                g.setColour (Dine::ink);
+                g.fillEllipse (x - 3.5f, y - 3.5f, 7.0f, 7.0f);
+            }
+
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::mono (9.5f, 500));
+            Dine::drawText (g, juce::String (int (params.compThresholdDb)),
+                            juce::Rectangle<float> (tx - 18.0f, box.getBottom() - 13.0f, 36.0f, 12.0f).toNearestInt(),
+                            juce::Justification::centred);
+        }
+
+        paintReduction (g, r);
     }
 
     // The transfer the stage puts the signal through, against the line it would be without it.

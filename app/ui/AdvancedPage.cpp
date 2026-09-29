@@ -377,18 +377,24 @@ private:
             const float end   = juce::MathConstants<float>::pi * 2.75f;
             const float angle = start + juce::jlimit (0.0f, 1.0f, value / 100.0f) * (end - start);
 
+            // THE RING IS DRAWN FROM THE KNOB, NOT FROM A NUMBER. A 3 pt stroke reads as a
+            // weight on the 48 pt knob it was written for and as a hairline on this one, which
+            // is twice the size - so a Simple view, the one a volunteer uses, had the thinnest
+            // ribbons in the product. It is a proportion of the radius, and the pointer keeps
+            // clear of its inner edge.
+            const float ring = juce::jmax (4.0f, radius * 0.17f);
             juce::Path track;
             track.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, start, end, true);
             g.setColour (Dine::control);
-            g.strokePath (track, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath (track, juce::PathStrokeType (ring, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             juce::Path arc;
             arc.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, start, angle, true);
             g.setColour (isEnabled() ? Dine::accent : Dine::ink4);
-            g.strokePath (arc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath (arc, juce::PathStrokeType (ring, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-            const auto dot = centre.getPointOnCircumference (radius - 6.0f, angle);
+            const auto dot = centre.getPointOnCircumference (radius - ring - 3.5f, angle);
             g.setColour (isEnabled() ? Dine::ink : Dine::ink4);
-            g.fillEllipse (juce::Rectangle<float> (4.5f, 4.5f).withCentre (dot));
+            g.fillEllipse (juce::Rectangle<float> (5.5f, 5.5f).withCentre (dot));
 
             r.removeFromTop (6);
             g.setColour (Dine::ink);
