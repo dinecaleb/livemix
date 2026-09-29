@@ -14,6 +14,8 @@
 #include "ChannelTuneSheet.h"
 #include "ChatSheet.h"
 #include "ThemeSheet.h"
+#include "ExportSheet.h"
+#include "ChoiceSheet.h"
 #include "MixPage.h"
 #include "LivePage.h"
 #include "AdvancedPage.h"
@@ -106,8 +108,20 @@ public:
     void resetMixToRaw();
     void updateChromeForSnapshot() { updateChrome(); }   // the snapshot tool: the toolbar re-reads the controller now
     void closeSheetsForSnapshot() { closeSheets(); }
+    void exportMixForSnapshot() { exportMix (AppServices::ExportFormat::Wav); }
     void showChat();
     void closeSheets();
+    // RECOVER SESSION? DLIVE did not close cleanly and there is unsaved work beside the
+    // document. The two are compared side by side and nothing is deleted by any of the three
+    // answers; the application hands the facts in, because it is the thing that found them.
+    struct RecoveryOffer
+    {
+        juce::String sentence;
+        juce::String autosaveWhen, documentWhen;
+        juce::StringArray autosaveFacts, documentFacts;
+        std::function<void()> onRecover, onOpenSaved, onKeepBoth;
+    };
+    void offerRecovery (RecoveryOffer);
 
     // Appearance: View > Appearance lists the themes and opens the sheet. The chosen theme is
     // applied before the pages are built and remembered on this Mac (ThemeStore); the headless
@@ -198,6 +212,9 @@ private:
     std::unique_ptr<CheckSheet> checkSheet;
     std::unique_ptr<HistorySheet> historySheet;
     std::unique_ptr<ThemeSheet> themeSheet;
+    std::unique_ptr<ExportSheet> exportSheet;
+    // RESET THE MIX TO RAW and RECOVER SESSION?: the two questions DLIVE asks out loud.
+    std::unique_ptr<ChoiceSheet> choiceSheet;
     juce::StringArray themeMenuNames;      // the View > Appearance list, as it was last built
     std::unique_ptr<ChannelTuneSheet> channelSheet;
     std::unique_ptr<ChatSheet> chatSheet;

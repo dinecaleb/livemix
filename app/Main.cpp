@@ -698,48 +698,76 @@ public:
     void offerRecovery (const SessionAutosave::Recovery& found, const juce::File& document)
     {
         if (window == nullptr || services == nullptr) return;
-        auto* alert = new juce::AlertWindow ("Recover session?",
-                                             found.sentence + "\n\nThe session on disk was last saved at "
-                                             + found.documentWhen.toString (true, true, false, true) + ".",
-                                             juce::MessageBoxIconType::NoIcon);
-        alert->addButton ("Recover", 1, juce::KeyPress (juce::KeyPress::returnKey));
-        alert->addButton ("Open last saved", 2, juce::KeyPress (juce::KeyPress::escapeKey));
-        alert->addButton ("Keep both", 3);
-        alert->enterModalState (true, juce::ModalCallbackFunction::create ([this, alert, found, document] (int r)
-        {
-            std::unique_ptr<juce::AlertWindow> closer (alert);
-            if (r == 2) { SessionAutosave::discard (document); return; }
 
+        // What each one holds, so the choice is between two mixes rather than two clocks.
+        const auto facts = [] (const juce::File& file)
+        {
+            juce::StringArray out;
+            const auto sum = SessionStore::summarise (file);
+            if (! sum.valid) return out;
+            int groups = 0;
+            for (int b = 0; b < int (MixBus::Master); ++b) if (sum.perBus[size_t (b)] > 0) ++groups;
+            out.add ("Mix: " + juce::String (sum.inputs) + " channels, " + juce::String (groups)
+                         + (groups == 1 ? " group" : " groups"));
+            out.add (sum.tuneCount > 0 ? "Tuned " + juce::String (sum.tuneCount) + (sum.tuneCount == 1 ? " time" : " times")
+                                       : juce::String ("Not tuned yet"));
+            out.add (sum.tracks > 0 ? juce::String (sum.tracks) + (sum.tracks == 1 ? " track recorded" : " tracks recorded")
+                                    : juce::String ("Nothing recorded"));
+            if (sum.inputDevice.isNotEmpty()) out.add (sum.inputDevice);
+            return out;
+        };
+
+        MainView::RecoveryOffer offer;
+        offer.sentence = found.sentence;
+        offer.autosaveWhen = found.when.toString (false, true, false, true);
+        offer.documentWhen = found.documentWhen.toString (false, true, false, true);
+        offer.autosaveFacts = facts (found.autosave);
+        offer.documentFacts = facts (document);
+
+        const auto autosave = found.autosave;
+        const auto when = found.when;
+        auto* view = &window->view();
+        auto* srv = services.get();
+
+        offer.onOpenSaved = [document] { SessionAutosave::discard (document); };
+        offer.onRecover = [this, view, srv, autosave, document, when]
+        {
             SessionState recovered;
-            if (! SessionStore::load (found.autosave, recovered))
+            if (! SessionStore::load (autosave, recovered))
             {
-                window->view().showToast ("That autosave could not be read, so the session on disk is the one you have.");
+                view->showToast ("That autosave could not be read, so the session on disk is the one you have.");
                 SessionAutosave::discard (document);
                 return;
             }
-            SessionAutosave::discard (document);      // the choice has been made; stop offering it
-
-            if (r == 3)
+            SessionAutosave::discard (document);
+            srv->openState (recovered);
+            srv->saveSession();                  // the recovery is committed, not left in a sidecar
+            view->sessionReplaced();
+            view->showToast ("Recovered. The work from " + when.toString (false, true, false, true)
+                             + " is back, and the session has been saved.");
+        };
+        offer.onKeepBoth = [this, view, srv, autosave, document]
+        {
+            SessionState recovered;
+            if (! SessionStore::load (autosave, recovered))
             {
-                // Keep both: the recovered work becomes a session of its own, beside the one
-                // that was saved, and the takes stay where they are (saveSessionAs makes their
-                // clips absolute for exactly this).
-                const auto name = juce::String (recovered.session.name) + " (recovered)";
-                services->openState (recovered);
-                const auto err = services->saveSessionAs (name);
-                window->view().sessionReplaced();
-                window->view().showToast (err.isEmpty()
-                    ? "Both are here: the recovered work is now \"" + name + "\", and the session you saved is untouched."
-                    : err);
+                view->showToast ("That autosave could not be read, so the session on disk is the one you have.");
+                SessionAutosave::discard (document);
                 return;
             }
-
-            services->openState (recovered);
-            services->saveSession();                  // the recovery is committed, not left in a sidecar
-            window->view().sessionReplaced();
-            window->view().showToast ("Recovered. The work from " + found.when.toString (false, true, false, true)
-                                      + " is back, and the session has been saved.");
-        }), true);
+            SessionAutosave::discard (document);
+            // Keep both: the recovered work becomes a session of its own, beside the one that
+            // was saved, and the takes stay where they are (saveSessionAs makes their clips
+            // absolute for exactly this).
+            const auto name = juce::String (recovered.session.name) + " (recovered)";
+            srv->openState (recovered);
+            const auto err = srv->saveSessionAs (name);
+            view->sessionReplaced();
+            view->showToast (err.isEmpty()
+                ? "Both are here: the recovered work is now \"" + name + "\", and the session you saved is untouched."
+                : err);
+        };
+        window->view().offerRecovery (std::move (offer));
     }
 
     void shutdown() override

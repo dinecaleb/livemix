@@ -1526,6 +1526,8 @@ void MainView::closeSheets()
     themeSheet.reset();
     channelSheet.reset();
     chatSheet.reset();
+    exportSheet.reset();
+    choiceSheet.reset();
     updateChrome();
     resized();
 }
@@ -1584,27 +1586,52 @@ void MainView::applyTextSize (float scale, const juce::String& name)
 void MainView::resetMixToRaw()
 {
     if (liveSafeBlocks ("resetting the mix")) return;
-    auto* alert = new juce::AlertWindow ("Reset the mix to raw?",
-                                         "Every channel, group, effect return and the master goes back to where this "
-                                         "session started, before DLIVE had listened to anything. Sample replacement "
-                                         "goes with it.\n\n"
-                                         "Your recordings, your clips, the names, the routing, the scenes, the reference "
-                                         "and the whole mix history are untouched, and a \"Before reset to raw\" point is "
-                                         "kept first - so UNDO, or Mix history, brings this mix straight back.",
-                                         juce::MessageBoxIconType::NoIcon);
-    alert->addButton ("Reset to raw", 1);
-    alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-    alert->enterModalState (true, juce::ModalCallbackFunction::create ([this, alert] (int result)
+    closeSheets();
+    choiceSheet = std::make_unique<ChoiceSheet> (
+        "Reset the mix to raw?",
+        "Every channel goes back to how it sounded before DLIVE touched it, ready to show raw, then "
+        "TUNE MIX, then the finished mix again.");
+    choiceSheet->setColumns (
+        { "Resets", Dine::warn, { "Faders, pans and sends", "EQ, dynamics and effects", "TUNE MIX results",
+                                  "Sample replacement", "Group and master processing" }, false },
+        { "Keeps", Dine::ok, { "Recordings and clips", "Track names and order", "Input map and routing",
+                               "Scenes, favourites and history", "The reference mix" }, true });
+    choiceSheet->setNote ("A checkpoint \"Before reset to raw\" is saved first. Undo brings everything back.",
+                          "Not the same as BYPASS, which only lets you listen to the raw inputs.");
+    choiceSheet->addAction ("Cancel", false, false, {});
+    choiceSheet->addAction ("Reset to raw", true, false, [this]
     {
-        std::unique_ptr<juce::AlertWindow> closer (alert);
-        if (result != 1) return;
         if (! controller.resetMixToRaw()) return;
         mixerPage->rebuild();
         if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
         advancedPage->rebuild();
         livePage->rebuild();
         updateChrome();
-    }), false);
+    });
+    choiceSheet->onClose = [this] { choiceSheet.reset(); resized(); repaint(); grabKeyboardFocus(); };
+    addAndMakeVisible (*choiceSheet);
+    resized();
+    choiceSheet->grabKeyboardFocus();
+}
+
+// RECOVER SESSION? The autosave and the last save, side by side, with what each one holds:
+// a volunteer choosing between two mixes needs to be told what is in them, not asked to guess
+// from two timestamps. Nothing is deleted by any of the three answers.
+void MainView::offerRecovery (RecoveryOffer offer)
+{
+    closeSheets();
+    choiceSheet = std::make_unique<ChoiceSheet> ("Recover session?", offer.sentence);
+    choiceSheet->setColumns ({ "Autosave  " + offer.autosaveWhen, Dine::accent, offer.autosaveFacts, false },
+                             { "Last saved  " + offer.documentWhen, Dine::ink2, offer.documentFacts, false });
+    choiceSheet->setNote ("Recorded takes are safe either way: unfinished takes were repaired and put back on their tracks.",
+                          {});
+    choiceSheet->addAction ("Keep both", false, false, offer.onKeepBoth);
+    choiceSheet->addAction ("Open last saved", false, false, offer.onOpenSaved);
+    choiceSheet->addAction ("Recover " + offer.autosaveWhen, false, true, offer.onRecover);
+    choiceSheet->onClose = [this] { choiceSheet.reset(); resized(); repaint(); grabKeyboardFocus(); };
+    addAndMakeVisible (*choiceSheet);
+    resized();
+    choiceSheet->grabKeyboardFocus();
 }
 
 void MainView::showCheck()
@@ -2191,6 +2218,8 @@ juce::String MainView::openSheetName() const
     if (themeSheet   != nullptr) return "appearance";
     if (channelSheet != nullptr) return "channel";
     if (chatSheet    != nullptr) return "chat";
+    if (exportSheet  != nullptr) return "export";
+    if (choiceSheet  != nullptr) return "choice";
     return {};
 }
 
@@ -2253,6 +2282,9 @@ void MainView::importMultitrack()
                           });
 }
 
+// EXPORT: the sheet asks what, how much and where, then the render happens on a worker while
+// the console keeps playing. The menu's two items open the same sheet with their format already
+// picked, so File > Export Stereo Mix (MP3) still means what it says.
 void MainView::exportMix (AppServices::ExportFormat format)
 {
     if (! controller.isPrepared() || controller.getSession().inputs.empty())
@@ -2265,37 +2297,43 @@ void MainView::exportMix (AppServices::ExportFormat format)
         showToast ("There is nothing recorded yet. Record a take, or import a multitrack folder.");
         return;
     }
-
     if (exporting) { showToast ("An export is already running. It will say when it is done."); return; }
 
-    const bool mp3 = format == AppServices::ExportFormat::Mp3;
-    const auto suggest = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
-                             .getChildFile (services.currentSessionName().isNotEmpty() ? services.currentSessionName() : "DLIVE mix")
-                             .withFileExtension (mp3 ? "mp3" : "wav");
-    chooser = std::make_unique<juce::FileChooser> ("Export the stereo mix", suggest, mp3 ? "*.mp3" : "*.wav");
-    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
-                              | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [this, format] (const juce::FileChooser& fc)
-                          {
-                              const auto dest = fc.getResult();
-                              if (dest == juce::File()) return;
-                              if (exporting) return;
-                              auto job = services.snapshotExport();
-                              exporting = true;
-                              showToast ("Exporting " + dest.getFileName() + Glyph::ellip());
-                              juce::Component::SafePointer<MainView> safe (this);
-                              auto& srv = services;
-                              juce::Thread::launch ([safe, &srv, job, dest, format]
-                              {
-                                  const auto err = srv.exportMix (job, dest, format, {});
-                                  juce::MessageManager::callAsync ([safe, err, dest]
-                                  {
-                                      if (safe == nullptr) return;
-                                      safe->exporting = false;
-                                      safe->showToast (err.isNotEmpty() ? err : "Exported " + dest.getFileName() + ".");
-                                  });
-                              });
-                          });
+    closeSheets();
+    exportSheet = std::make_unique<ExportSheet> (controller, services);
+    exportSheet->onClose = [this] { exportSheet.reset(); resized(); repaint(); grabKeyboardFocus(); };
+    exportSheet->onToast = [this] (const juce::String& t) { showToast (t); };
+    exportSheet->onExport = [this] (const juce::File& dest, AppServices::ExportFormat fmt, juce::int64 from, juce::int64 to)
+    {
+        if (exporting) { showToast ("An export is already running. It will say when it is done."); return; }
+        dest.getParentDirectory().createDirectory();
+        auto job = services.snapshotExport();
+        if (job != nullptr)
+        {
+            auto ranged = std::make_shared<AppServices::ExportJob> (*job);
+            ranged->from = from;
+            ranged->to = to;
+            job = ranged;
+        }
+        exporting = true;
+        showToast ("Exporting " + dest.getFileName() + Glyph::ellip());
+        juce::Component::SafePointer<MainView> safe (this);
+        auto& srv = services;
+        juce::Thread::launch ([safe, &srv, job, dest, fmt]
+        {
+            const auto err = srv.exportMix (job, dest, fmt, {});
+            juce::MessageManager::callAsync ([safe, err, dest]
+            {
+                if (safe == nullptr) return;
+                safe->exporting = false;
+                safe->showToast (err.isNotEmpty() ? err : "Exported " + dest.getFileName() + ".");
+            });
+        });
+    };
+    addAndMakeVisible (*exportSheet);
+    juce::ignoreUnused (format);
+    resized();
+    exportSheet->grabKeyboardFocus();
 }
 
 void MainView::saveNow()
@@ -2603,7 +2641,8 @@ void MainView::resized()
     // A sheet covers the workspace column; the chat is a panel down the right of it.
     auto column = columnBounds();
     for (juce::Component* sheetComponent : { (juce::Component*) themeSheet.get(), (juce::Component*) historySheet.get(),
-                                             (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get() })
+                                             (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get(),
+                                             (juce::Component*) exportSheet.get(), (juce::Component*) choiceSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)
     {

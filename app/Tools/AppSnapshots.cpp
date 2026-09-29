@@ -1395,6 +1395,21 @@ int main (int argc, char** argv)
     rig.feed (3.5);                         // three seconds decide "silent"
     rig.snap (dir, "18b-check-inputs");
     view.closeSheetsForSnapshot();
+
+    // EXPORT: what to write, how much of it, in which format, and where.
+    view.exportMixForSnapshot();
+    rig.feed (0.2);
+    rig.snap (dir, "27-export");
+    view.closeSheetsForSnapshot();
+    rig.feed (0.2);
+
+    // RESET THE MIX TO RAW: what it resets and what it keeps, side by side.
+    view.resetMixToRaw();
+    rig.feed (0.2);
+    rig.snap (dir, "25-reset-to-raw");
+    view.closeSheetsForSnapshot();
+    rig.feed (0.2);
+    view.closeSheetsForSnapshot();
     rig.feed (0.2);
 
 
