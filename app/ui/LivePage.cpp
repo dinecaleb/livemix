@@ -399,6 +399,13 @@ void LivePage::updateDiskNote()
     }
 }
 
+// The sidebar's SCENES row: come to LIVE and say where they are, for a moment.
+void LivePage::focusScenes()
+{
+    sceneFlash = 45;
+    repaint();
+}
+
 void LivePage::refresh()
 {
     refreshScenes();                 // the pads follow the controller: a scene kept from anywhere shows here
@@ -501,6 +508,15 @@ void LivePage::paint (juce::Graphics& g)
 {
     g.fillAll (Dine::window);
     const auto l = layout();
+
+    // The mark the sidebar's SCENES row leaves: a ring round the scenes for a second, so an
+    // eye that came looking for them finds them without anything changing.
+    if (sceneFlash > 0)
+    {
+        Dine::hairlineRounded (g, l.scenes.expanded (6, 6).toFloat(),
+                               Dine::accent.withAlpha (juce::jmin (1.0f, float (sceneFlash) / 30.0f)), Dine::Radius::card);
+        --sceneFlash;
+    }
 
     // ---- the four things that matter during a service
     {

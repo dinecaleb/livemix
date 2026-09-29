@@ -22,6 +22,11 @@
 
 using namespace livemix;
 
+#if JUCE_MAC
+// app/native/WindowChrome.mm: the three macOS window buttons, put inside DLIVE's own toolbar.
+namespace livemix { void putWindowButtonsInTheToolbar (juce::Component&); }
+#endif
+
 namespace
 {
     juce::File lastSessionPointer()
@@ -596,6 +601,11 @@ namespace
             setResizeLimits (1180, 760, 6000, 4000);
             centreWithSize (1520, 960);
             setVisible (true);
+           #if JUCE_MAC
+            // The three window buttons belong inside the toolbar (app/native/WindowChrome.mm);
+            // the peer exists only once the window is on screen, so this is asked for here.
+            putWindowButtonsInTheToolbar (*this);
+           #endif
            #if JUCE_MAC
             juce::MenuBarModel::setMacMainMenu (view().getMenuModel());
            #endif

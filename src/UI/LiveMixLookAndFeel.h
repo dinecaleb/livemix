@@ -74,6 +74,8 @@ public:
     // (soft-capped — heavy tracking is intentionally avoided). Weights: 400/500/600/700.
     static juce::Font condensed (float px, int weight = 600, float spacingEm = 0.0f);
     static juce::Font body (float px, int weight = 400, float spacingEm = 0.0f);
+    // Inter: the face DLIVE's v3 design is set in. The plug-ins stay on Barlow (`body`).
+    static juce::Font inter (float px, int weight = 400, float spacingEm = 0.0f);
     static juce::Font mono (float px, int weight = 400, float spacingEm = 0.0f);
 
     // Shared surface drawing (fill + optional 1px stroke) with continuous corners.
@@ -156,7 +158,7 @@ private:
     // Embedded typefaces, shared by every LookAndFeel instance and released with
     // the last one (i.e. before JUCE shuts down). A function-local static would
     // outlive JUCE's own globals and crash on host quit / plugin unload.
-    struct TypefaceCache { juce::Typeface::Ptr faces[3][3]; };
+    struct TypefaceCache { juce::Typeface::Ptr faces[4][3]; };
     juce::SharedResourcePointer<TypefaceCache> typefaces;
     static juce::Typeface::Ptr typefaceFor (int family, int weight);
 };

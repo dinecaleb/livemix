@@ -5,6 +5,7 @@
 #include "AppServices.h"
 #include "AppTheme.h"
 #include "SetupPages.h"
+#include "FavouritesPage.h"
 #include "RoutingPage.h"
 #include "TracksPage.h"
 #include "MixerPage.h"
@@ -23,19 +24,21 @@
 namespace livemix
 {
 
-// The window, after the v2 design (DLIVE Desktop v2, 2026-09-17).
+// The window, after the v3 design ("DLIVE - Full UX Mockup", `Toolbar v3.4` 117:32462 and
+// `Sidebar` 64:9437). docs/DESIGN-V3.md is the map.
 //
-// Top to bottom: a 52 px title row (the sidebar switch, the wordmark, the five workspace tabs
-// in the middle, how many inputs and how many are set to record, TUNE LIVE MIX, MIX BUDDY),
-// the 56 px toolbar (the transport in its pill with the clock in the middle, BYPASS / LIVE
-// SAFE / the output on the right), then the body. The session's name and its popover left the
-// title row on 2026-09-18: everything the popover offered is in the File and Help menus and
-// in the sidebar, and the row is better spent on the tabs. A hairline separates every plane
-// (title / toolbar / body, the sidebar, the rails, the chain foot, the status foot). Down the left of the body is the
-// sidebar - LIBRARY, SET-UP and WORKSPACE, with the device along its foot - which folds to a
-// 17 px handle; beside it the workspace, then the picked-out channel's chain along a 48 px
-// strip, then a 50 px status foot that always says what the engine, the disk, the recording,
-// the broadcast and the engineer's own ears are doing.
+// ONE 52 px toolbar across the whole width. The window's own buttons sit inside it, then the
+// sidebar switch; the transport well is at the left of the workspace column with the clock in
+// it, and the solo pill beside it while anything is soloed. At the right, in order: TUNE LIVE
+// MIX, a divider, the four broadcast keys (DIM, MUTE, BYPASS, AUTOPILOT), LIVE SAFE, the
+// output picker and Mix Buddy. There are no workspace tabs: the sidebar is the navigation.
+//
+// Under it, down the left, the sidebar - Library, Workspace, Safety, Setup, with the audio
+// device along its foot - which folds to a 52 px rail of the same icons rather than to a
+// handle, so every workspace stays one click away. Beside it the workspace, then the
+// picked-out channel's chain along a 44 px strip, then a 28 px status foot that always says
+// what the engine, the disk, the recording and the broadcast are doing, and how many inputs
+// are set to record.
 //
 // A workspace's own side panels (TUNE's inputs, the Inspector's channels and its WHAT DLIVE
 // DID column) belong to the workspace, not to the window, and fold with `[` and `]`.
@@ -48,7 +51,7 @@ public:
     // four. Appended rather than reordered, because Cmd-1..5 and the tab row count on the
     // first nine.
     enum class Page { Sessions = 0, Device, Assign, Purpose, Tracks, Mixer, Tune, Live, Inspector,
-                      Outputs, Maps, Routing };
+                      Outputs, Maps, Routing, Favourites };
 
     MainView (MixController&, AppServices&);
     ~MainView() override;
@@ -57,14 +60,13 @@ public:
     Page getPage() const noexcept { return page; }
     static bool isSetupPage (Page p) noexcept
     {
-        return p == Page::Sessions || isRoutingPage (p);
+        return p == Page::Sessions || p == Page::Favourites || p == Page::Purpose || isRoutingPage (p);
     }
     // The sections of the ROUTING workspace. The library is not one of them: a list of
     // sessions is not routing.
     static bool isRoutingPage (Page p) noexcept
     {
-        return p == Page::Device || p == Page::Assign || p == Page::Purpose
-            || p == Page::Outputs || p == Page::Maps;
+        return p == Page::Device || p == Page::Assign || p == Page::Outputs || p == Page::Maps;
     }
     static RoutingPage::Section sectionForPage (Page) noexcept;
     static Page pageForSection (RoutingPage::Section) noexcept;
@@ -122,6 +124,7 @@ public:
     void setBypass (bool on);
 
     SessionsPage& getSessionsPage() { return *sessionsPage; }
+    FavouritesPage& getFavouritesPage() { return *favouritesPage; }
     DevicePage& getDevicePage() { return *devicePage; }
     AssignPage& getAssignPage() { return *assignPage; }
     PurposePage& getPurposePage() { return *purposePage; }
@@ -141,16 +144,16 @@ private:
     class Toast;
     class Menu;
     class ToolbarToggle;
-    static constexpr int kWordmarkW = 58;
-    static constexpr int kCountsW = 190;     // "N inputs   N to record", at the right of the title row before the buttons
-    static constexpr int kRequestsW = 380;   // the Mix Buddy panel down the right of the workspace   // "DLIVE" at the right end of the title row
+    class SoloPill;
+    static constexpr int kRequestsW = 380;   // the Mix Buddy panel down the right of the workspace
+    // What macOS draws at the left of the toolbar: three 12 pt buttons at 16 / 36 / 56, so the
+    // first thing this window may put there starts at 86 (design: `Toolbar v3.4`).
+    static constexpr int kTrafficLights = 86;
     class SidebarButton;
     class MixerWindow;
     class StatusBar;
-    class StateBar;
     class Sidebar;
     class TextButtonV2;
-    class WorkspaceTab;
 
     void timerCallback() override;
     void closeMixerWindow();
@@ -183,6 +186,7 @@ private:
     Page page = Page::Sessions;
 
     std::unique_ptr<SessionsPage> sessionsPage;
+    std::unique_ptr<FavouritesPage> favouritesPage;
     std::unique_ptr<DevicePage> devicePage;
     std::unique_ptr<AssignPage> assignPage;
     std::unique_ptr<PurposePage> purposePage;
@@ -218,16 +222,14 @@ private:
     std::unique_ptr<MixerWindow> mixerWindow;
     std::unique_ptr<Sidebar> sidebar;
     std::unique_ptr<StatusBar> statusBar;
-    // Under the toolbar whenever anything is soloed or Autopilot is on, on every workspace,
-    // and nowhere at all when neither is. See the class for why those two get a band.
-    std::unique_ptr<StateBar> stateBar;
+    // Beside the clock whenever anything is soloed, on every workspace, and nowhere at all
+    // when nothing is. See the class for why solo gets a permanent place in the chrome.
+    std::unique_ptr<SoloPill> soloPill;
+    std::unique_ptr<ToolbarToggle> autopilotButton;
     void jumpToSoloed (const MixController::SoloedItem&);
     std::unique_ptr<ChainStrip> chainFoot;
     std::unique_ptr<Tutorial> tutorial;
 
-    // One row of tabs: TRACKS MIXER TUNE LIVE INSPECTOR (Cmd-1..5, left to right).
-    static constexpr int kWorkspaceTabs = 5;
-    std::array<std::unique_ptr<WorkspaceTab>, kWorkspaceTabs> tabs;
     DinePopup outputButton;
     std::unique_ptr<juce::FileChooser> chooser;
 
@@ -241,6 +243,7 @@ private:
     bool usingCloudMixEngineer = false;
     bool sidebarShown = true;
     int lastChannel = -1;               // the last channel picked out anywhere: what the chain foot reads
+    int dividerX = 0;                   // where the toolbar's one divider was last laid out
     float onAir = 0.0f;
 };
 

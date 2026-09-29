@@ -21,12 +21,13 @@ namespace livemix
 // sheet in a menu, the saved patches were a menu inside a menu, and nobody could have told
 // you where "set-up" ended.
 //
-// So there is one workspace, reached deliberately from the sidebar's SET-UP row or the View
-// menu, with five sections down its left: the device, the inputs, what the mix is for, the
-// outputs and the engineer's listen, and the patches this church has saved. The first four
-// are the pages that already existed - this is where they are now, not a second copy of them
-// (the window lays each one into `contentBounds()`); the fifth is here because a list of
-// patches deserves a list rather than a submenu.
+// So there is one workspace, reached deliberately from the sidebar's Setup group or the View
+// menu, with its sections as a segmented control at the top right (design: `02 - Audio
+// device`, 70:9274): the device, the inputs, the outputs and the engineer's listen, and the
+// patches this church has saved. The first two are the pages that already existed - this is
+// where they are now, not a second copy of them (the window lays each one into
+// `contentBounds()`); the last is here because a list of patches deserves a list rather than
+// a submenu. What the mix is *for* is not routing, so Purpose and sound is a row of its own.
 //
 // LIVE SAFE. Nothing on this workspace is small: the device, the patch and the output feeds
 // are the three ways to silence a room in the middle of a service. So while LIVE SAFE is on,
@@ -34,7 +35,7 @@ namespace livemix
 class RoutingPage : public juce::Component
 {
 public:
-    enum class Section { Device = 0, Inputs, Purpose, Outputs, Maps, Count };
+    enum class Section { Device = 0, Inputs, Outputs, Maps, Count };
 
     RoutingPage (MixController&, AppServices&);
     ~RoutingPage() override;
@@ -53,12 +54,12 @@ public:
     Section getSection() const noexcept { return section; }
     static const char* sectionName (Section) noexcept;
 
-    // Where the hosted page goes. The window puts DevicePage, AssignPage or PurposePage here;
-    // the last two sections are this page's own.
+    // Where the hosted page goes. The window puts DevicePage or AssignPage here; the last two
+    // sections are this page's own.
     juce::Rectangle<int> contentBounds() const;
     int headHeight() const noexcept;
     // Does the window have a page of its own to put there, or does ROUTING fill it?
-    bool hostsAPage() const noexcept { return section <= Section::Purpose; }
+    bool hostsAPage() const noexcept { return section <= Section::Inputs; }
 
     // LIVE SAFE: the cover is up until somebody says they mean it, and it goes back up every
     // time the workspace is left. Nothing underneath can be reached while it is.

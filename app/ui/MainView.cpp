@@ -54,11 +54,25 @@ private:
 // ---------------------------------------------------------------- toolbar toggle
 // BYPASS, LIVE SAFE ON / OFF and MIX BUDDY: the accent when on, the control plane when
 // not, tracked caps either way.
+// ---------------------------------------------------------------- toolbar keys
+// One class for the four shapes the toolbar's right cluster is made of, because they sit in
+// one row and have to line up (design: `Broadcast Key` 61:9119, `Toolbar v3.4` 117:32462):
+//
+//   Verb     TUNE LIVE MIX - an icon and the word in the accent, on no plane at all.
+//   Key      DIM / MUTE / BYPASS / AUTOPILOT - a 4 pt plane, and a lamp that is always visible
+//            in its own colour so the key says which key it is before it says it is on. Flat
+//            until it is on; on, the whole key fills with that colour and the type goes dark,
+//            because these four are the ones that change what the broadcast hears.
+//   Primary  LIVE SAFE - the one amber fill in the product, with the lock.
+//   Glyph    Mix Buddy - an icon on its own.
 class MainView::ToolbarToggle : public juce::Button
 {
 public:
-    ToolbarToggle (const juce::String& text, float px = 12.0f, float tracking = 0.04f)
-        : juce::Button (text), fontPx (px), track (tracking)
+    enum class Kind { Verb, Key, Primary, Glyph };
+
+    ToolbarToggle (const juce::String& text, Kind k = Kind::Key, Dine::Icon ic = Dine::Icon::None,
+                   juce::Colour lampTint = Dine::accent)
+        : juce::Button (text), kind (k), icon (ic), tint (lampTint)
     {
         setClickingTogglesState (false);
         setWantsKeyboardFocus (false);
@@ -66,40 +80,109 @@ public:
 
     void setOn (bool o) { if (o != on) { on = o; repaint(); } }
     bool isOn() const noexcept { return on; }
-    // A suffix changes the label's width ("TUNE LIVE MIX" grows a "STOP" while a live tune runs), so
-    // the row it sits in is laid out again; a repaint alone left the button at its widest after the
-    // tune ended, sitting over the counts beside it.
-    void setSuffix (const juce::String& s)
+    void setTint (juce::Colour c) { if (c != tint) { tint = c; repaint(); } }
+
+    // A suffix changes the label's width ("TUNE LIVE MIX" grows a "STOP" while a live tune runs),
+    // so the row it sits in is laid out again; a repaint alone left the button at its widest.
+    void setSuffix (const juce::String& sfx)
     {
-        if (s == suffix) return;
+        if (sfx == suffix) return;
         const int was = idealWidth();
-        suffix = s;
+        suffix = sfx;
         repaint();
         if (idealWidth() != was)
             if (auto* parent = getParentComponent()) parent->resized();
     }
     juce::String label() const { return suffix.isEmpty() ? getButtonText() : getButtonText() + " " + suffix; }
 
-    int idealWidth() const { return Dine::textWidth (Dine::caps (fontPx, track), label()) + 24; }
+    static juce::Font verbFont() { return Dine::caps (11.0f, 0.04f, 600); }
+
+    int idealWidth() const
+    {
+        switch (kind)
+        {
+            case Kind::Glyph:   return 32;
+            case Kind::Key:     return 16 + 6 + 6 + Dine::textWidth (verbFont(), label());
+            case Kind::Primary: return 24 + 16 + 6 + Dine::textWidth (verbFont(), label());
+            case Kind::Verb:
+            default:            return 16 + (icon != Dine::Icon::None ? 16 + 6 : 0) + Dine::textWidth (verbFont(), label());
+        }
+    }
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
         auto r = getLocalBounds().toFloat();
-        if (on) Dine::fillRounded (g, r, down ? Dine::accentDeep : over ? Dine::accentHover : Dine::accent, Dine::Radius::control);
-        else    Dine::fillRounded (g, r, down ? Dine::controlOn : over ? Dine::controlHot : Dine::control, Dine::Radius::control);
-        g.setColour (on ? Dine::onAccent : over ? Dine::ink : Dine::ink2);
-        g.setFont (Dine::caps (fontPx, track));
-        Dine::drawText (g, label(), getLocalBounds(), juce::Justification::centred);
+        const float alpha = isEnabled() ? 1.0f : Dine::disabled;
+        g.setOpacity (alpha);
+
+        if (kind == Kind::Primary)
+        {
+            // The one amber control in the product - and amber only while it is *on*, because
+            // "is the sound locked" is a state a volunteer has to be able to read at a glance,
+            // and a control that looks the same either way does not say it.
+            if (on) Dine::fillRounded (g, r, down ? Dine::warn.darker (0.15f) : over ? Dine::warn.brighter (0.10f) : Dine::warn,
+                                       Dine::Radius::control);
+            else
+            {
+                if (over || down) Dine::fillRounded (g, r, down ? Dine::selected : Dine::control, Dine::Radius::control);
+                Dine::hairlineRounded (g, r.reduced (0.5f), Dine::hair, Dine::Radius::control);
+            }
+            const auto fg = on ? Dine::onAccent : Dine::warn;
+            auto inner = r.reduced (12.0f, 0.0f);
+            Dine::drawIcon (g, Dine::Icon::Lock, inner.removeFromLeft (16.0f).withSizeKeepingCentre (16.0f, 16.0f), fg);
+            inner.removeFromLeft (6.0f);
+            g.setColour (fg);
+            g.setFont (verbFont());
+            Dine::drawText (g, label(), inner.toNearestInt(), juce::Justification::centredLeft);
+            return;
+        }
+
+        if (kind == Kind::Glyph)
+        {
+            if (on || over) Dine::fillRounded (g, r, on ? Dine::selected : Dine::control, Dine::Radius::control);
+            Dine::drawIcon (g, icon, r.withSizeKeepingCentre (16.0f, 16.0f), on ? Dine::ink : over ? Dine::ink : Dine::ink2);
+            return;
+        }
+
+        if (kind == Kind::Key)
+        {
+            if (on)            Dine::fillRounded (g, r, down ? tint.darker (0.15f) : over ? tint.brighter (0.10f) : tint, Dine::Radius::key);
+            else if (over)     Dine::fillRounded (g, r, Dine::control, Dine::Radius::key);
+            auto inner = r.reduced (8.0f, 0.0f);
+            auto lamp = inner.removeFromLeft (6.0f).withSizeKeepingCentre (6.0f, 6.0f);
+            g.setColour (on ? Dine::onAccent : tint);
+            g.fillEllipse (lamp);
+            inner.removeFromLeft (6.0f);
+            g.setColour (on ? Dine::onAccent : over ? Dine::ink : Dine::ink2);
+            g.setFont (verbFont());
+            Dine::drawText (g, label(), inner.toNearestInt(), juce::Justification::centredLeft);
+            return;
+        }
+
+        // Verb: no plane until the pointer is on it.
+        if (over || down) Dine::fillRounded (g, r, down ? Dine::selected : Dine::control, Dine::Radius::control);
+        auto inner = r.reduced (8.0f, 0.0f);
+        const auto colour = on ? Dine::accentHover : Dine::accent;
+        if (icon != Dine::Icon::None)
+        {
+            Dine::drawIcon (g, icon, inner.removeFromLeft (16.0f).withSizeKeepingCentre (16.0f, 16.0f), colour);
+            inner.removeFromLeft (6.0f);
+        }
+        g.setColour (colour);
+        g.setFont (verbFont());
+        Dine::drawText (g, label(), inner.toNearestInt(), juce::Justification::centredLeft);
     }
 
 private:
-    float fontPx;
-    float track;
+    Kind kind;
+    Dine::Icon icon;
+    juce::Colour tint;
     juce::String suffix;
     bool on = false;
 };
 
-// The sidebar switch: 26 x 22, on the control plane, with the two-pane glyph.
+// The sidebar switch: the design's two-pane glyph at 16 pt, on no plane, at the left of the
+// toolbar beside the window's own buttons.
 class MainView::SidebarButton : public juce::Button
 {
 public:
@@ -108,37 +191,102 @@ public:
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
         auto r = getLocalBounds().toFloat();
-        Dine::fillRounded (g, r, down ? Dine::controlOn : over ? Dine::controlHot : Dine::control, Dine::Radius::chip);
-        auto glyph = r.withSizeKeepingCentre (11.0f, 9.0f);
-        g.setColour (on ? Dine::ink2 : Dine::ink3);
-        g.fillRoundedRectangle (glyph.removeFromLeft (3.0f), 1.0f);
-        glyph.removeFromLeft (2.0f);
-        g.setColour (Dine::controlOn);
-        g.fillRoundedRectangle (glyph, 1.0f);
+        if (over || down) Dine::fillRounded (g, r, down ? Dine::selected : Dine::control, Dine::Radius::control);
+        Dine::drawIcon (g, Dine::Icon::Sidebar, r.withSizeKeepingCentre (16.0f, 16.0f), on ? Dine::ink2 : Dine::ink3);
     }
 private:
     bool on = true;
 };
 
-// A workspace tab: tracked caps with a 2 px accent underline when it is the one on screen.
-class MainView::WorkspaceTab : public juce::Button
+// ---------------------------------------------------------------- the solo pill
+// SOLO YOU CANNOT MISS.
+//
+// Solo is the one state that changes what the engineer hears and nothing at all about what the
+// room and the stream hear - which is exactly what makes it the state most easily left on by
+// accident. An S pressed on MIXER at ten past ten is invisible from TRACKS, from TUNE and from
+// LIVE, and the first anyone knows about it is a service mixed through one microphone's worth
+// of headphones.
+//
+// So while anything is soloed - a channel, a group, an effects return - this pill sits in the
+// toolbar beside the clock, on every workspace, and names what. The name is a way to the thing
+// it names; the cross clears every solo in one press; and it takes no room at all when nothing
+// is soloed.
+class MainView::SoloPill : public juce::SettableTooltipClient, public juce::Component
 {
 public:
-    explicit WorkspaceTab (const juce::String& text) : juce::Button (text) { setWantsKeyboardFocus (false); setClickingTogglesState (false); }
-    int idealWidth() const { return Dine::textWidth (Dine::caps (12.5f, 0.08f), getButtonText()) + 4; }
-    void paintButton (juce::Graphics& g, bool over, bool) override
+    SoloPill() { setInterceptsMouseClicks (true, false); setWantsKeyboardFocus (false); }
+
+    std::function<void()> onClear;
+    std::function<void (const MixController::SoloedItem&)> onJump;
+
+    // What is soloed now, in the order the window found it. Compared before a repaint.
+    void setItems (std::vector<MixController::SoloedItem> next)
     {
-        const bool on = getToggleState();
-        auto r = getLocalBounds();
-        g.setColour (! isEnabled() ? Dine::ink4 : on || over ? Dine::ink : Dine::ink3);
-        g.setFont (Dine::caps (12.5f, 0.08f));
-        Dine::drawText (g, getButtonText(), r.withTrimmedBottom (2), juce::Justification::centred);
-        if (on)
+        if (next.size() == items.size())
         {
-            g.setColour (Dine::accent);
-            g.fillRect (r.removeFromBottom (2));
+            bool same = true;
+            for (size_t i = 0; i < next.size(); ++i)
+                if (next[i].kind != items[i].kind || next[i].index != items[i].index) { same = false; break; }
+            if (same) return;
         }
+        items = std::move (next);
+        juce::StringArray each;
+        for (const auto& it : items) each.add (juce::String (juce::CharPointer_UTF8 (it.name.c_str())));
+        names = each.joinIntoString (", ");
+        if (auto* parent = getParentComponent()) parent->resized();
+        repaint();
     }
+
+    bool hasAny() const noexcept { return ! items.empty(); }
+
+    int idealWidth() const
+    {
+        return 10 + 6 + 6 + Dine::textWidth (ToolbarToggle::verbFont(), "SOLO") + 10
+             + juce::jmin (220, Dine::textWidth (Dine::text (12.0f, 500), names)) + 10 + 18 + 10;
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        Dine::fillRounded (g, r, Dine::menubar, Dine::Radius::control);
+        Dine::hairlineRounded (g, r.reduced (0.5f), Dine::hair, Dine::Radius::control);
+        auto inner = r.reduced (10.0f, 0.0f);
+        g.setColour (Dine::accent);
+        g.fillEllipse (inner.removeFromLeft (6.0f).withSizeKeepingCentre (6.0f, 6.0f));
+        inner.removeFromLeft (6.0f);
+        g.setFont (ToolbarToggle::verbFont());
+        const int verbW = Dine::textWidth (ToolbarToggle::verbFont(), "SOLO");
+        Dine::drawText (g, "SOLO", inner.removeFromLeft (float (verbW)).toNearestInt(), juce::Justification::centredLeft);
+        inner.removeFromLeft (10.0f);
+        auto cross = inner.removeFromRight (18.0f).withSizeKeepingCentre (18.0f, 18.0f);
+        inner.removeFromRight (10.0f);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (12.0f, 500));
+        Dine::drawText (g, names, inner.toNearestInt(), juce::Justification::centredLeft, true);
+        Dine::fillRounded (g, cross, crossOver ? Dine::accentHover : Dine::accent, Dine::Radius::key);
+        Dine::drawIcon (g, Dine::Icon::Close, cross.reduced (4.0f), Dine::onAccent);
+        crossBox = cross.toNearestInt();
+    }
+
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        const bool over = crossBox.contains (e.getPosition());
+        if (over != crossOver) { crossOver = over; repaint(); }
+    }
+    void mouseExit (const juce::MouseEvent&) override { if (crossOver) { crossOver = false; repaint(); } }
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (! getLocalBounds().contains (e.getPosition())) return;
+        if (crossBox.contains (e.getPosition())) { if (onClear) onClear(); return; }
+        if (! items.empty() && onJump) onJump (items.front());
+    }
+
+private:
+    std::vector<MixController::SoloedItem> items;
+    juce::String names;
+    juce::Rectangle<int> crossBox;
+    bool crossOver = false;
 };
 
 // ---------------------------------------------------------------- status foot
@@ -154,7 +302,7 @@ public:
         Look next;
         const bool running = services.isAudioRunning();
         const bool lost = ! running && services.deviceStopped();
-        next.engine = lost ? "Device lost" : ! running ? "Not running" : controller.isBypassed() ? "Bypassed" : "Stable";
+        next.engine = lost ? "Device lost" : ! running ? "Not running" : controller.isBypassed() ? "Bypassed" : "running";
         next.engineTint = lost ? Dine::crit : ! running ? Dine::ink3 : controller.isBypassed() ? Dine::warn : Dine::ink;
         const double cpu = services.cpuLoad();
         next.cpu = cpu < 0.0 ? juce::String (Glyph::dash()) : juce::String (juce::roundToInt (cpu * 100.0)) + "%";
@@ -166,7 +314,13 @@ public:
         int armed = 0;
         for (const auto& t : project.tracks) if (t.armed) ++armed;
         next.recording = daw.isRecording();
-        next.rec = next.recording ? juce::String (armed) + " to record" : juce::String ("stopped");
+        next.rec = next.recording ? juce::String (armed) + " tracks" : juce::String ("stopped");
+        {
+            const auto& session = controller.getSession();
+            next.counts = session.inputs.empty() ? juce::String()
+                        : juce::String (int (session.inputs.size())) + " inputs " + Glyph::dot() + " "
+                              + juce::String (armed) + " to record";
+        }
         next.recTint = next.recording ? Dine::crit : Dine::ink3;
 
         if (slow || diskText.isEmpty())
@@ -190,7 +344,7 @@ public:
         next.loudTint = ! loud.known || loud.integratedLufs <= -100.0f ? Dine::ink3 : loud.onTarget() ? Dine::ink : Dine::warn;
 
         const auto& mon = controller.getMonitor();
-        next.monitor = juce::String (mon.mode == SoloMode::InPlace ? "IN PLACE" : "SOLO") + " " + Glyph::dot() + " "
+        next.monitor = juce::String (mon.mode == SoloMode::InPlace ? "in place" : "solo") + " " + Glyph::dot() + " "
                      + (mon.point == SoloPoint::PFL ? "PFL" : "AFL");
         next.monitorTint = controller.hasMonitorOutput() ? Dine::ink : Dine::ink3;
         next.safe = project.liveSafe;
@@ -203,7 +357,19 @@ public:
         Dine::drawStatusBand (g, getLocalBounds());
         g.setColour (Dine::hair);
         g.fillRect (getLocalBounds().removeFromTop (1));   // the seam over the status foot
-        auto r = getLocalBounds().reduced (10, 0);
+
+        // The counts the title row used to carry, at the right end where they stay put.
+        auto r = getLocalBounds().withTrimmedTop (1).reduced (16, 0);
+        if (look.counts.isNotEmpty())
+        {
+            const auto font = Dine::text (11.0f, 500);
+            const int w = Dine::textWidth (font, look.counts);
+            g.setColour (Dine::ink3);
+            g.setFont (font);
+            Dine::drawText (g, look.counts, r.removeFromRight (w), juce::Justification::centredRight);
+            r.removeFromRight (24);
+        }
+
         cell (g, r, "Engine", look.engine, look.engineTint);
         cell (g, r, "CPU", look.cpu, look.cpuTint);
         cell (g, r, "Disk", look.disk, look.diskTint);
@@ -211,22 +377,27 @@ public:
         cell (g, r, "Broadcast", look.loudness, look.loudTint);
         cell (g, r, "Monitor", look.monitor, look.monitorTint);
         cell (g, r, "Dropped", juce::String (look.drops), look.drops > 0 ? Dine::warn : Dine::ink3);
-        if (look.safe) cell (g, r, "Live safe", "ON", Dine::accent);
+        cell (g, r, "Live safe", look.safe ? "on" : "off", look.safe ? Dine::warn : Dine::ink3);
     }
 
 private:
+    // Sentence case, the label quiet and the value beside it: "Engine running", "Disk 2.1 GB/h".
+    // Nothing on this row is a heading, so nothing on it is in capitals.
     static void cell (juce::Graphics& g, juce::Rectangle<int>& r, const juce::String& label,
                       const juce::String& value, juce::Colour ink)
     {
-        const auto labelFont = Dine::caps (11.0f, 0.08f);
-        const auto valueFont = Dine::mono (12.0f, 500);
-        const int w = 14 + Dine::textWidth (labelFont, label.toUpperCase()) + 8 + Dine::textWidth (valueFont, value) + 14;
-        if (w > r.getWidth()) return;
-        auto area = r.removeFromLeft (w).reduced (14, 0);
+        const auto labelFont = Dine::text (11.0f, 500);
+        const auto valueFont = Dine::mono (11.0f, 500);
+        const int labelW = Dine::textWidth (labelFont, label);
+        const int valueW = Dine::textWidth (valueFont, value);
+        const int w = labelW + 6 + valueW;
+        if (w + 24 > r.getWidth()) return;
+        auto area = r.removeFromLeft (w);
+        r.removeFromLeft (24);
         g.setColour (Dine::ink3);
         g.setFont (labelFont);
-        Dine::drawText (g, label.toUpperCase(), area.removeFromLeft (Dine::textWidth (labelFont, label.toUpperCase())), juce::Justification::centredLeft);
-        area.removeFromLeft (8);
+        Dine::drawText (g, label, area.removeFromLeft (labelW), juce::Justification::centredLeft);
+        area.removeFromLeft (6);
         g.setColour (ink);
         g.setFont (valueFont);
         Dine::drawText (g, value, area, juce::Justification::centredLeft);
@@ -234,14 +405,14 @@ private:
 
     struct Look
     {
-        juce::String engine, cpu, disk, rec, loudness, monitor;
+        juce::String engine, cpu, disk, rec, loudness, monitor, counts;
         juce::Colour engineTint, cpuTint, diskTint, recTint, loudTint, monitorTint;
         int drops = 0;
         bool recording = false, safe = false;
         bool operator== (const Look& o) const
         {
             return engine == o.engine && cpu == o.cpu && disk == o.disk && rec == o.rec && loudness == o.loudness
-                && monitor == o.monitor && engineTint == o.engineTint && cpuTint == o.cpuTint && diskTint == o.diskTint
+                && monitor == o.monitor && counts == o.counts && engineTint == o.engineTint && cpuTint == o.cpuTint && diskTint == o.diskTint
                 && recTint == o.recTint && loudTint == o.loudTint && monitorTint == o.monitorTint
                 && drops == o.drops && recording == o.recording && safe == o.safe;
         }
@@ -255,269 +426,94 @@ private:
     bool diskLow = false;
 };
 
-// ---------------------------------------------------------------- the state band
-// THE TWO THINGS THE WINDOW HAS TO SAY WHATEVER WORKSPACE YOU ARE ON.
-//
-// SOLO YOU CANNOT MISS.
-//
-// Solo is the one state that changes what the engineer hears and nothing at all about what the
-// room and the stream hear - which is exactly what makes it the state most easily left on by
-// accident. An S pressed on MIXER at ten past ten is invisible from TRACKS, from TUNE and from
-// LIVE, and the first anyone knows about it is a service mixed through one microphone's worth
-// of headphones.
-//
-// So whenever anything is soloed - a channel, a group, an effects return - this band appears
-// under the toolbar, on every workspace, and says which. Each name is a way to that item;
-// CLEAR SOLO is one press; and the sentence says the thing a volunteer needs to hear, which is
-// that the room is fine. It takes no space at all when nothing is soloed.
-// AND AUTOPILOT, for the same reason and a stronger one: it is the second thing in DLIVE
-// allowed to move a level by itself, so while it is on the window says so on every workspace,
-// says what it has had to move, and carries the one press that stops it.
-class MainView::StateBar : public juce::Component
-{
-public:
-    static constexpr int height = 34;
-
-    StateBar (MixController& c, std::function<void (const MixController::SoloedItem&)> jump)
-        : controller (c), onJump (std::move (jump))
-    {
-        setOpaque (true);
-        clear.setFontPx (11.5f);
-        clear.setCaps (true);
-        clear.setPadX (12);
-        clear.setTooltip ("Every solo off. The room and the stream never heard any of it.");
-        clear.onClick = [this] { controller.clearSolos(); refresh(); };
-        addAndMakeVisible (clear);
-        stop.setFontPx (11.5f);
-        stop.setCaps (true);
-        stop.setPadX (12);
-        stop.setTooltip ("Autopilot off. Every fader stays where it is; nothing goes back.");
-        stop.onClick = [this] { controller.setAutopilot (false); refresh(); };
-        addChildComponent (stop);
-    }
-
-    // Returns true when the bar's visibility changed, so the window knows to lay itself out.
-    bool refresh()
-    {
-        auto now = controller.getSoloed();
-        const bool wasShown = isVisible();
-        const bool autopilotNow = controller.isAutopilotOn();
-        const juce::String held = autopilotNow ? juce::String (controller.getAutopilot().lastWhat) : juce::String();
-        const bool show = ! now.empty() || autopilotNow;
-
-        bool same = now.size() == items.size() && autopilotNow == autopilot && held == autopilotLine;
-        if (same)
-            for (size_t i = 0; i < now.size(); ++i)
-                same = same && now[i].kind == items[i].kind && now[i].index == items[i].index && now[i].name == items[i].name;
-        if (! same)
-        {
-            items = std::move (now);
-            autopilot = autopilotNow;
-            autopilotLine = held;
-            clear.setVisible (! items.empty());
-            stop.setVisible (autopilot);
-            layoutChips();
-            resized();
-            repaint();
-        }
-        if (show != wasShown) { setVisible (show); return true; }
-        return false;
-    }
-
-    void paint (juce::Graphics& g) override
-    {
-        // A tinted band rather than a coloured one: the console keys own solo's colour, and the
-        // band is the same thing said louder, not a second idea. Autopilot takes the accent,
-        // because what it means is "DLIVE is doing something", which is what the accent means
-        // everywhere else in the application.
-        const auto tint = autopilot ? Dine::accent : Dine::keySolo;
-        g.fillAll (Dine::mix (tint, 0.16f, Dine::toolbar));
-        g.setColour (tint);
-        g.fillRect (getLocalBounds().removeFromLeft (3));
-        g.setColour (Dine::hair);
-        g.fillRect (getLocalBounds().removeFromBottom (1));
-
-        auto r = getLocalBounds().withTrimmedLeft (3).reduced (15, 0);
-        if (autopilot)
-        {
-            const auto caps = Dine::caps (11.0f, 0.10f);
-            g.setColour (Dine::accent);
-            g.setFont (caps);
-            Dine::drawText (g, "AUTOPILOT", r.removeFromLeft (Dine::textWidth (caps, "AUTOPILOT")),
-                            juce::Justification::centredLeft);
-            r.removeFromLeft (14);
-            auto words = r;
-            if (! items.empty()) words = words.withWidth (juce::jmax (0, chipsLeft - r.getX() - 14));
-            g.setColour (Dine::ink2);
-            g.setFont (Dine::text (12.0f));
-            Dine::drawText (g, autopilotLine.isNotEmpty()
-                                   ? autopilotLine + "  " + Glyph::dot() + "  " + juce::String (controller.getAutopilot().lastWhy)
-                                   : juce::String ("Holding the mix you set. Group faders only, and nothing at all while it is where you left it."),
-                            words, juce::Justification::centredLeft, true);
-            if (items.empty()) return;
-            r = getLocalBounds().withTrimmedLeft (chipsLeft).withTrimmedRight (15);
-        }
-
-        g.setColour (Dine::keySolo);
-        g.setFont (Dine::caps (11.0f, 0.10f));
-        Dine::drawText (g, "SOLO", r.removeFromLeft (Dine::textWidth (Dine::caps (11.0f, 0.10f), "SOLO")),
-                        juce::Justification::centredLeft);
-
-        for (const auto& chip : chips)
-        {
-            const bool over = chip.box.contains (getMouseXYRelative());
-            Dine::fillRounded (g, chip.box.toFloat(), over ? Dine::controlHot : Dine::control, Dine::Radius::chip);
-            g.setColour (over ? Dine::ink : Dine::ink2);
-            g.setFont (Dine::text (12.0f, 500));
-            Dine::drawText (g, chip.label, chip.box.reduced (9, 0), juce::Justification::centred);
-        }
-
-        if (! note.isEmpty())
-        {
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::text (12.0f));
-            Dine::drawText (g, note, noteBox, juce::Justification::centredLeft, true);
-        }
-    }
-
-    void resized() override
-    {
-        auto r = getLocalBounds().withTrimmedLeft (3).reduced (15, 0);
-        if (stop.isVisible())
-        {
-            const int w = juce::jmax (110, stop.idealWidth());
-            stop.setBounds (r.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control - 4));
-            r.removeFromRight (10);
-        }
-        if (clear.isVisible())
-        {
-            const int w = juce::jmax (96, clear.idealWidth());
-            clear.setBounds (r.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control - 4));
-        }
-        layoutChips();
-    }
-
-    void mouseMove (const juce::MouseEvent&) override { repaint(); }
-    void mouseExit (const juce::MouseEvent&) override { repaint(); }
-
-    void mouseUp (const juce::MouseEvent& e) override
-    {
-        for (const auto& chip : chips)
-            if (chip.box.contains (e.getPosition())) { if (onJump) onJump (chip.item); return; }
-    }
-
-private:
-    struct Chip { juce::Rectangle<int> box; juce::String label; MixController::SoloedItem item; };
-
-    void layoutChips()
-    {
-        chips.clear();
-        noteBox = {};
-        chipsLeft = getWidth();
-        if (items.empty()) return;
-        auto r = getLocalBounds().withTrimmedLeft (3).reduced (15, 0);
-        if (stop.isVisible()) r.removeFromRight (stop.getWidth() + 10);
-        r.removeFromRight (clear.getWidth() + 14);
-        // Autopilot takes the left of the band when it is on, so solo starts after it.
-        if (autopilot) r.removeFromLeft (r.getWidth() / 2);
-        chipsLeft = r.getX();
-        r.removeFromLeft (Dine::textWidth (Dine::caps (11.0f, 0.10f), "SOLO") + 14);
-
-        const auto font = Dine::text (12.0f, 500);
-        const int chipH = Dine::Metric::control - 6;
-        int hidden = 0;
-        for (const auto& item : items)
-        {
-            const juce::String label = item.kind == MixController::SoloedItem::Kind::Bus
-                                           ? juce::String (item.name).toUpperCase()
-                                       : item.kind == MixController::SoloedItem::Kind::Fx
-                                           ? juce::String (item.name) + " return"
-                                           : juce::String (item.name);
-            const int w = Dine::textWidth (font, label) + 18;
-            // A console with twenty things soloed is a console with a problem, and the bar's
-            // job is to say so rather than to list them all: what does not fit becomes a count.
-            if (w + 8 > r.getWidth() - 90) { ++hidden; continue; }
-            chips.push_back ({ r.removeFromLeft (w).withSizeKeepingCentre (w, chipH), label, item });
-            r.removeFromLeft (8);
-        }
-
-        note = hidden > 0 ? "and " + juce::String (hidden) + " more  " + Glyph::dot() + "  only you hear it"
-                          : juce::String ("Only you hear it. The room and the stream are unchanged.");
-        if (r.getWidth() > 40) { r.removeFromLeft (6); noteBox = r; }
-    }
-
-    MixController& controller;
-    std::function<void (const MixController::SoloedItem&)> onJump;
-    std::vector<MixController::SoloedItem> items;
-    std::vector<Chip> chips;
-    juce::Rectangle<int> noteBox;
-    juce::String note;
-    bool autopilot = false;
-    juce::String autopilotLine;
-    int chipsLeft = 0;
-    DineButton clear { "Clear solo", DineButton::Style::Standard };
-    DineButton stop { "Autopilot off", DineButton::Style::Standard };
-};
-
-// ---------------------------------------------------------------- sidebar
-// LIBRARY / SET-UP / WORKSPACE, each a caption over its rows, the wordmark at the top and
-// the device along the foot. It is 184 px and folds to a 17 px handle with its name down it.
+// The source list down the left (design: `Sidebar` 64:9437). 208 pt, four sections in sentence
+// case - Library, Workspace, Safety, Setup - and the audio device along its foot. Folded, it
+// does not become a handle: it becomes a 52 pt rail of the same icons (`Sidebar Rail`
+// 112:10026), so every workspace is still one click away with the width given to the console.
 class MainView::Sidebar : public juce::Component
 {
 public:
-    Sidebar (AppServices& s, std::function<void (Page)> go) : services (s)
+    // What a row does: go to a page, or ask the window for something (a sheet).
+    enum class Action { None = 0, MixHistory, Scenes };
+
+    struct Def { const char* label; Page page; Dine::Icon icon; Action action; const char* shortcut; };
+
+    static const Def* rowDefs() noexcept
     {
-        // SET-UP is one row now. The device, the inputs, the purpose, the outputs and the
-        // saved patches all live inside ROUTING, which is reached on purpose rather than met
-        // by accident while looking for a fader.
-        struct Def { const char* label; Page page; };
-        const Def defs[kRows] = { { "Sessions", Page::Sessions },
-                                  { "Set-up and routing", Page::Routing },
-                                  { "Tracks", Page::Tracks }, { "Mixer", Page::Mixer }, { "Tune", Page::Tune },
-                                  { "Live", Page::Live }, { "Inspector", Page::Inspector } };
+        static const Def defs[kRows] = {
+            { "Sessions",          Page::Sessions,   Dine::Icon::Sessions,      Action::None,       "" },
+            { "Favourite mixes",   Page::Favourites, Dine::Icon::Purpose,       Action::None,       "" },
+            { "Tracks",            Page::Tracks,     Dine::Icon::TracksNav,     Action::None,       "\u23181" },
+            { "Mixer",             Page::Mixer,      Dine::Icon::MixerNav,      Action::None,       "\u23182" },
+            { "Tune",              Page::Tune,       Dine::Icon::TuneNav,       Action::None,       "\u23183" },
+            { "Live",              Page::Live,       Dine::Icon::LiveNav,       Action::None,       "\u23184" },
+            { "Inspector",         Page::Inspector,  Dine::Icon::InspectorNav,  Action::None,       "\u23185" },
+            { "Mix history",       Page::Tracks,     Dine::Icon::WindowNav,     Action::MixHistory, "" },
+            { "Scenes",            Page::Live,       Dine::Icon::LiveNav,       Action::Scenes,     "" },
+            { "Routing",           Page::Routing,    Dine::Icon::DeviceNav,     Action::None,       "" },
+            { "Purpose and sound", Page::Purpose,    Dine::Icon::Purpose,       Action::None,       "" },
+        };
+        return defs;
+    }
+
+    Sidebar (AppServices& s, std::function<void (Page)> go, std::function<void (Action)> act) : services (s)
+    {
+        const auto* defs = rowDefs();
         for (int i = 0; i < kRows; ++i)
         {
-            items[size_t (i)] = std::make_unique<DineNavItem> (defs[i].label);
-            items[size_t (i)]->onClick = [go, p = defs[i].page] { go (p); };
+            const auto& d = defs[i];
+            items[size_t (i)] = std::make_unique<DineNavItem> (d.label, d.icon);
+            items[size_t (i)]->onClick = [go, act, d] { if (d.action != Action::None) act (d.action); else go (d.page); };
             addAndMakeVisible (*items[size_t (i)]);
+
+            rail[size_t (i)] = std::make_unique<DineNavItem> ("", d.icon);
+            rail[size_t (i)]->onClick = items[size_t (i)]->onClick;
+            rail[size_t (i)]->setTooltip (juce::String (d.label)
+                                          + (juce::String (d.shortcut).isNotEmpty() ? "  " + juce::String (d.shortcut) : juce::String()));
+            addChildComponent (*rail[size_t (i)]);
         }
-        items[1]->setTooltip ("The device, the inputs, what the mix is for, the outputs and the saved patches. "
-                              "Under LIVE SAFE nothing there can be changed until you say you mean it.");
-        handle = std::make_unique<DinePanelTab> (DinePanelTab::Side::Left, "Sidebar");
-        handle->setCollapsed (true);
-        addChildComponent (*handle);
+        items[9]->setTooltip ("The device, the inputs and the output feeds. Under LIVE SAFE nothing there can be "
+                              "changed until you say you mean it.");
         setOpaque (true);
     }
 
     DineNavItem& item (Page p) { return *items[size_t (indexOf (p))]; }
-    DinePanelTab& getHandle() { return *handle; }
+    void setSelected (Page p)
+    {
+        const int sel = indexOf (p);
+        for (int i = 0; i < kRows; ++i)
+        {
+            const bool on = i == sel && rowDefs()[i].action == Action::None;
+            items[size_t (i)]->setSelected (on);
+            rail[size_t (i)]->setSelected (on);
+        }
+    }
 
     void setCollapsed (bool c)
     {
         if (c == collapsed) return;
         collapsed = c;
         for (auto& i : items) i->setVisible (! c);
-        handle->setVisible (c);
+        for (auto& i : rail)  i->setVisible (c);
         resized();
         repaint();
     }
     bool isCollapsed() const noexcept { return collapsed; }
-    int width() const noexcept { return collapsed ? Dine::Metric::railHandle : Dine::Metric::sidebar; }
+    int width() const noexcept { return collapsed ? Dine::Metric::sidebarRail : Dine::Metric::sidebar; }
 
     // The device along the foot. Compared before a repaint.
     void refresh (bool recording)
     {
         const bool running = services.isAudioRunning();
         juce::String state = recording ? "Recording" : running ? "Running" : "Not running";
-        // The input device, or the output one when the engine is running on outputs alone (playback into a monitor).
+        // The input device, or the output one when the engine is running on outputs alone.
         juce::String name = ! running ? juce::String ("No audio device")
                           : services.currentInputDevice().isNotEmpty() ? services.currentInputDevice()
                           : services.currentOutputDevice().isNotEmpty() ? services.currentOutputDevice() : juce::String ("No audio device");
-        juce::String spec = running ? juce::String (services.sampleRate() / 1000.0, 0) + " kHz " + Glyph::dot() + " "
-                                          + juce::String (services.bufferSize()) + " " + Glyph::dot() + " "
-                                          + juce::String (1000.0 * services.bufferSize() / juce::jmax (1.0, services.sampleRate()), 1) + " ms"
-                                    : juce::String();
         const int xruns = services.xrunCount();
+        juce::String spec = running ? juce::String (services.sampleRate() / 1000.0, 0) + " kHz " + Glyph::dot() + " "
+                                          + juce::String (xruns) + (xruns == 1 ? " dropped buffer" : " dropped buffers")
+                                    : juce::String ("Nothing is open");
         if (state == footState && name == footName && spec == footSpec && xruns == footXruns && recording == footRecording) return;
         footState = state; footName = name; footSpec = spec; footXruns = xruns; footRecording = recording;
         repaint (getLocalBounds().removeFromBottom (kFootH));
@@ -530,84 +526,97 @@ public:
         g.fillRect (r);
         g.setColour (Dine::hair);
         g.fillRect (r.removeFromRight (1));   // the seam against the workspace
-        if (collapsed) return;
-        r.removeFromTop (kHeadH);   // the wordmark lives in the title row now, where it is always on screen
 
-        // the captions over each group of rows
+        if (collapsed)
+        {
+            // The rail says what the device is doing with one lamp; the name has no room.
+            auto lamp = getLocalBounds().removeFromBottom (kFootH).withSizeKeepingCentre (8, 8);
+            g.setColour (footRecording ? Dine::crit : services.isAudioRunning() ? Dine::ok : Dine::ink4);
+            g.fillEllipse (lamp.toFloat());
+            return;
+        }
+
+        // the caption over each group of rows: 11 pt, quiet, sentence case
         for (const auto& c : captions)
         {
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::caps (9.5f, 0.12f));
-            Dine::drawText (g, c.second, c.first, juce::Justification::bottomLeft);
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (11.0f, 500));
+            Dine::drawText (g, c.second, c.first, juce::Justification::centredLeft);
         }
 
-        // the device
-        auto foot = getLocalBounds().removeFromBottom (kFootH).reduced (14, 0).withTrimmedTop (12);
-        const bool running = services.isAudioRunning();
-        auto line = foot.removeFromTop (16);
-        g.setColour (footRecording ? Dine::crit : running ? Dine::ok : Dine::ink4);
-        g.fillEllipse (line.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat());
-        line.removeFromLeft (7);
-        g.setFont (Dine::text (11.5f, 500));
-        Dine::drawText (g, footState, line, juce::Justification::centredLeft, true);
-        foot.removeFromTop (3);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (11.5f));
-        Dine::drawText (g, footName, foot.removeFromTop (16), juce::Justification::centredLeft, true);
+        // the device, under a seam that stops short of both edges
+        auto foot = getLocalBounds().removeFromBottom (kFootH);
+        g.setColour (Dine::hair);
+        g.fillRect (foot.removeFromTop (1).reduced (16, 0));
+        foot = foot.reduced (16, 0).withTrimmedTop (13);
+        g.setColour (footRecording ? Dine::crit : services.isAudioRunning() ? Dine::ink : Dine::ink3);
+        g.setFont (Dine::text (13.0f, 600));
+        Dine::drawText (g, footName, foot.removeFromTop (18), juce::Justification::centredLeft, true);
         foot.removeFromTop (2);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::mono (10.0f));
+        g.setColour (footXruns > 0 ? Dine::warn : Dine::ink3);
+        g.setFont (Dine::text (11.0f, 500));
         Dine::drawText (g, footSpec, foot.removeFromTop (14), juce::Justification::centredLeft, true);
-        if (footXruns > 0)
-        {
-            foot.removeFromTop (3);
-            g.setColour (Dine::warn);
-            g.setFont (Dine::text (11.0f));
-            Dine::drawText (g, juce::String (footXruns) + " dropped buffers", foot.removeFromTop (14), juce::Justification::centredLeft, true);
-        }
     }
 
     void resized() override
     {
         auto r = getLocalBounds();
-        if (collapsed) { handle->setBounds (r); return; }
-        r.removeFromTop (kHeadH);
-        r.removeFromBottom (kFootH);
-        auto list = r.reduced (10, 0);
-        captions.clear();
-        auto caption = [&] (const char* text, bool first)
+        if (collapsed)
         {
-            auto c = list.removeFromTop (first ? 22 : 30).withTrimmedBottom (5);
-            captions.push_back ({ c.withTrimmedLeft (0).translated (0, 0).withX (c.getX() + 10).withWidth (c.getWidth() - 10), text });
+            r.removeFromTop (12);
+            r.removeFromBottom (kFootH);
+            for (int i = 0; i < kRows; ++i)
+            {
+                rail[size_t (i)]->setBounds (r.removeFromTop (32).withSizeKeepingCentre (36, 32));
+                r.removeFromTop (4);
+            }
+            return;
+        }
+        r.removeFromBottom (kFootH);
+        captions.clear();
+        // The design's rhythm: a caption 12 pt under the row above it, its first row 22 pt under
+        // the caption, and 30 pt from one row to the next.
+        int y = 14;
+        auto caption = [&] (const char* text)
+        {
+            captions.push_back ({ juce::Rectangle<int> (16, y, getWidth() - 32, 14), text });
+            y += 22;
         };
         auto rows = [&] (int from, int to)
         {
-            for (int i = from; i < to; ++i) { items[size_t (i)]->setBounds (list.removeFromTop (26)); list.removeFromTop (1); }
+            for (int i = from; i < to; ++i)
+            {
+                items[size_t (i)]->setBounds (8, y, getWidth() - 17, Dine::Metric::row);
+                y += 30;
+            }
+            y += 12 - 2;
         };
-        caption ("LIBRARY", true);   rows (0, 1);
-        caption ("SET-UP", false);   rows (1, 2);
-        caption ("WORKSPACE", false); rows (2, kRows);
+        caption ("Library");   rows (0, 2);
+        caption ("Workspace"); rows (2, 7);
+        caption ("Safety");    rows (7, 9);
+        caption ("Setup");     rows (9, kRows);
     }
 
 private:
-    static constexpr int kHeadH = 14, kFootH = 96;
+    static constexpr int kRows = 11;
+    static constexpr int kFootH = 72;
     static int indexOf (Page p) noexcept
     {
         switch (p)
         {
             case Page::Sessions: return 0;
-            case Page::Routing: case Page::Device: case Page::Assign:
-            case Page::Purpose: case Page::Outputs: case Page::Maps: return 1;
+            case Page::Favourites: return 1;
             case Page::Tracks: return 2; case Page::Mixer: return 3; case Page::Tune: return 4;
             case Page::Live: return 5; case Page::Inspector: return 6;
+            case Page::Routing: case Page::Device: case Page::Assign:
+            case Page::Outputs: case Page::Maps: return 9;
+            case Page::Purpose: return 10;
         }
         return 0;
     }
 
     AppServices& services;
-    static constexpr int kRows = 7;
-    std::array<std::unique_ptr<DineNavItem>, size_t (kRows)> items;
-    std::unique_ptr<DinePanelTab> handle;
+    std::array<std::unique_ptr<DineNavItem>, size_t (kRows)> items, rail;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> captions;
     juce::String footState, footName, footSpec;
     int footXruns = 0;
@@ -864,6 +873,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     setLookAndFeel (&lookAndFeel);
 
     sessionsPage = std::make_unique<SessionsPage> (controller, services);
+    favouritesPage = std::make_unique<FavouritesPage> (controller, services);
     devicePage = std::make_unique<DevicePage> (controller, services);
     assignPage = std::make_unique<AssignPage> (controller, services);
     purposePage = std::make_unique<PurposePage> (controller);
@@ -880,8 +890,8 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     // ROUTING is added before the three pages it hosts, so they sit over its section list and
     // its LIVE SAFE cover rather than under them.
     addChildComponent (*routingPage);
-    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) devicePage.get(),
-                                (juce::Component*) assignPage.get(),
+    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) favouritesPage.get(),
+                                (juce::Component*) devicePage.get(), (juce::Component*) assignPage.get(),
                                 (juce::Component*) purposePage.get(), (juce::Component*) tracksPage.get(),
                                 (juce::Component*) mixerPage.get(), (juce::Component*) mixPage.get(),
                                 (juce::Component*) livePage.get(), (juce::Component*) advancedPage.get() })
@@ -902,51 +912,52 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     addChildComponent (*chainFoot);
 
     // ---- the sidebar
-    sidebar = std::make_unique<Sidebar> (services, [this] (Page p)
-    {
-        if (p == Page::Assign) assignPage->refresh();
-        showPage (p);
-    });
-    sidebar->getHandle().onClick = [this] { setSidebarShown (true); };
+    sidebar = std::make_unique<Sidebar> (services,
+        [this] (Page p)
+        {
+            if (p == Page::Assign) assignPage->refresh();
+            showPage (p);
+        },
+        [this] (Sidebar::Action a)
+        {
+            // Safety: two rows that are not pages. MIX HISTORY is the sheet it has always been
+            // (the design's own note says so); SCENES is the sheet beside it.
+            if (a == Sidebar::Action::MixHistory) showHistory();
+            else if (a == Sidebar::Action::Scenes) { showPage (Page::Live); livePage->focusScenes(); }
+        });
     sidebar->item (Page::Sessions).setTooltip ("The library: every saved session, and what each one was for.");
+    sidebar->item (Page::Favourites).setTooltip ("The mixes that worked, with what they measured. A later tune can be aimed at one.");
     addAndMakeVisible (*sidebar);
 
     statusBar = std::make_unique<StatusBar> (controller, services);
     addAndMakeVisible (*statusBar);
 
-    stateBar = std::make_unique<StateBar> (controller, [this] (const MixController::SoloedItem& item) { jumpToSoloed (item); });
-    addChildComponent (*stateBar);
+    soloPill = std::make_unique<SoloPill>();
+    soloPill->onJump = [this] (const MixController::SoloedItem& item) { jumpToSoloed (item); };
+    soloPill->onClear = [this] { controller.clearSolos(); updateChrome(); };
+    soloPill->setTooltip ("Something is soloed, so you are hearing it on its own. The room and the stream are "
+                          "unchanged. Click the name to go to it, or the cross to clear every solo.");
+    addChildComponent (*soloPill);
 
-    // ---- title row
+    // ---- the toolbar
     sidebarButton = std::make_unique<SidebarButton>();
     sidebarButton->setTooltip ("Show or hide the sidebar (Ctrl-Cmd-S)");
     sidebarButton->onClick = [this] { setSidebarShown (! sidebarShown); };
     addAndMakeVisible (*sidebarButton);
 
-    tuneLiveButton = std::make_unique<ToolbarToggle> ("TUNE LIVE MIX", 11.0f, 0.06f);
+    tuneLiveButton = std::make_unique<ToolbarToggle> ("TUNE LIVE MIX", ToolbarToggle::Kind::Verb, Dine::Icon::TuneNav);
     tuneLiveButton->setTooltip ("Start TUNE LIVE MIX from any workspace: DLIVE listens to the band, builds its mix and reasons "
                                 "about what this band still needs. The listen and the result open on TUNE. Press again to stop.");
     tuneLiveButton->onClick = [this] { handleCommand (405); };
     addChildComponent (*tuneLiveButton);
 
-    chatButton = std::make_unique<ToolbarToggle> ("MIX BUDDY", 11.0f, 0.06f);
+    chatButton = std::make_unique<ToolbarToggle> ("MIX BUDDY", ToolbarToggle::Kind::Glyph, Dine::Icon::Chat);
     chatButton->setTooltip ("Open or close Mix Buddy, DLIVE's mix engineer in plain words: ask for a change to the mix - "
                             "a source, a level, a tone. It proposes; you keep.");
     chatButton->onClick = [this] { if (chatSheet != nullptr) closeSheets(); else showChat(); };
     addChildComponent (*chatButton);
 
-    // ---- toolbar
-    const char* tabLabels[kWorkspaceTabs] = { "TRACKS", "MIXER", "TUNE", "LIVE", "INSPECTOR" };
-    const Page tabPages[kWorkspaceTabs] = { Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
-    for (int i = 0; i < kWorkspaceTabs; ++i)
-    {
-        tabs[size_t (i)] = std::make_unique<WorkspaceTab> (tabLabels[i]);
-        tabs[size_t (i)]->setTooltip ("Switching workspaces never changes the sound");
-        tabs[size_t (i)]->onClick = [this, p = tabPages[i]] { showPage (p); };
-        addAndMakeVisible (*tabs[size_t (i)]);
-    }
-
-    bypassButton = std::make_unique<ToolbarToggle> ("BYPASS");
+    bypassButton = std::make_unique<ToolbarToggle> ("BYPASS", ToolbarToggle::Kind::Key, Dine::Icon::None, Dine::hot);
     bypassButton->setTooltip ("Hear the raw console feed: no processing, no fader moves, no effects. Press it again "
                               "for your mix. Nothing is changed either way (B).");
     bypassButton->onClick = [this] { setBypass (! controller.isBypassed()); };
@@ -954,27 +965,37 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
 
     // The emergency keys. One press each way; lit while on; never a mix change, so nothing to
     // save or undo, and LIVE SAFE never locks them. Only the engineer's own listen is spared.
-    dimButton = std::make_unique<ToolbarToggle> ("DIM");
+    dimButton = std::make_unique<ToolbarToggle> ("DIM", ToolbarToggle::Kind::Key, Dine::Icon::None, Dine::hot);
     dimButton->setTooltip ("Pull the broadcast and the room down 20 dB, now. Your own listen is unchanged. Press again to bring it back.");
     dimButton->onClick = [this] { controller.setBroadcastDim (! controller.isBroadcastDimmed()); updateChrome(); };
     addChildComponent (*dimButton);
-    muteButton = std::make_unique<ToolbarToggle> ("MUTE");
+    muteButton = std::make_unique<ToolbarToggle> ("MUTE", ToolbarToggle::Kind::Key, Dine::Icon::None, Dine::crit);
     muteButton->setTooltip ("Silence the broadcast and the room, now. Your own listen is unchanged. Press again to bring it back.");
     muteButton->onClick = [this] { controller.setBroadcastMute (! controller.isBroadcastMuted()); updateChrome(); };
     addChildComponent (*muteButton);
 
-    liveSafeButton = std::make_unique<ToolbarToggle> ("LIVE SAFE");
+    // AUTOPILOT is the fourth broadcast key and the second thing in DLIVE allowed to move a
+    // level by itself, so it is on the chrome wherever you are: lit while it is on, one press off.
+    autopilotButton = std::make_unique<ToolbarToggle> ("AUTOPILOT", ToolbarToggle::Kind::Key, Dine::Icon::None, Dine::monitor);
+    autopilotButton->setTooltip ("Hold the mix you set. Autopilot moves group faders only, slowly, inside a few dB of "
+                                 "the mix it was engaged on, and says why every time. Touch a fader and it is yours again.");
+    autopilotButton->onClick = [this] { handleCommand (626); };
+    addChildComponent (*autopilotButton);
+
+    liveSafeButton = std::make_unique<ToolbarToggle> ("LIVE SAFE", ToolbarToggle::Kind::Primary);
     liveSafeButton->setTooltip ("Locks the sound: re-routes and re-tunes are blocked, and a fader cannot move more "
                                 "than 6 dB at a time. Mute, solo, the monitor and the recording always stay free.");
     liveSafeButton->onClick = [this] { handleCommand (614); };
     addChildComponent (*liveSafeButton);
 
     addAndMakeVisible (outputButton);
+    outputButton.setFlat (true);
     outputButton.setTooltip ("Where the finished mix goes out.");
     outputButton.onClick = [this] { chooseOutput(); };
 
     addChildComponent (*toast);
 
+    favouritesPage->onToast = [this] (const juce::String& t) { showToast (t); };
     sessionsPage->onNew = [this] { newSession(); };
     sessionsPage->onOpen = [this] (const juce::File& file)
     {
@@ -1158,7 +1179,6 @@ RoutingPage::Section MainView::sectionForPage (Page p) noexcept
     switch (p)
     {
         case Page::Assign:  return RoutingPage::Section::Inputs;
-        case Page::Purpose: return RoutingPage::Section::Purpose;
         case Page::Outputs: return RoutingPage::Section::Outputs;
         case Page::Maps:    return RoutingPage::Section::Maps;
         default:            return RoutingPage::Section::Device;
@@ -1170,7 +1190,6 @@ MainView::Page MainView::pageForSection (RoutingPage::Section s) noexcept
     switch (s)
     {
         case RoutingPage::Section::Inputs:  return Page::Assign;
-        case RoutingPage::Section::Purpose: return Page::Purpose;
         case RoutingPage::Section::Outputs: return Page::Outputs;
         case RoutingPage::Section::Maps:    return Page::Maps;
         case RoutingPage::Section::Device:
@@ -1189,12 +1208,13 @@ void MainView::showPage (Page p)
 
     page = p;
     sessionsPage->setVisible (p == Page::Sessions);
+    favouritesPage->setVisible (p == Page::Favourites);
+    purposePage->setVisible (p == Page::Purpose);
     routingPage->setVisible (isRoutingPage (p));
     if (isRoutingPage (p)) routingPage->setSection (sectionForPage (p));
     const bool hosted = isRoutingPage (p) && ! routingPage->isCovered();
     devicePage->setVisible (hosted && p == Page::Device);
     assignPage->setVisible (hosted && p == Page::Assign);
-    purposePage->setVisible (hosted && p == Page::Purpose);
     tracksPage->setVisible (p == Page::Tracks);
     mixerPage->setVisible (p == Page::Mixer);
     mixPage->setVisible (p == Page::Tune);
@@ -1202,6 +1222,7 @@ void MainView::showPage (Page p)
     advancedPage->setVisible (p == Page::Inspector);
 
     if (p == Page::Sessions) sessionsPage->refresh();
+    if (p == Page::Favourites) favouritesPage->refresh();
     if (p == Page::Device) devicePage->refresh();
     if (p == Page::Assign) assignPage->refresh();
     if (p == Page::Purpose) purposePage->refresh();
@@ -1222,10 +1243,6 @@ void MainView::showPage (Page p)
 
 void MainView::updateChrome()
 {
-    // The solo band first: whether it is there decides how much room the workspace has, so it
-    // is answered before anything is laid out.
-    if (stateBar != nullptr && stateBar->refresh()) resized();
-
     const auto& session = controller.getSession();
     const bool running = services.isAudioRunning();
     const bool hasInputs = ! session.inputs.empty();
@@ -1234,25 +1251,24 @@ void MainView::updateChrome()
     const auto& project = services.daw().getProject();
 
     // ---- the sidebar's rows
-    const Page all[7] = { Page::Sessions, Page::Routing,
-                          Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
+    const Page all[8] = { Page::Sessions, Page::Favourites, Page::Routing, Page::Purpose,
+                          Page::Tracks, Page::Mixer, Page::Tune, Page::Live };
     for (const Page p : all)
-    {
-        auto& row = sidebar->item (p);
-        row.setSelected (p == Page::Routing ? isRoutingPage (page) : page == p);
-        row.setEnabled (isSetupPage (p) || mixable);
-    }
+        sidebar->item (p).setEnabled (isSetupPage (p) || mixable);
+    sidebar->item (Page::Inspector).setEnabled (mixable);
+    sidebar->setSelected (isRoutingPage (page) ? Page::Routing : page);
     sidebar->item (Page::Sessions).setMeta (juce::String (services.listSessions().size()));
+    sidebar->item (Page::Favourites).setMeta (controller.numFavourites() > 0 ? juce::String (controller.numFavourites()) : juce::String());
     sidebar->item (Page::Routing).setMeta (hasInputs ? juce::String (int (session.inputs.size())) + " in" : juce::String());
     sidebar->item (Page::Routing).setDone (mixable && ! isRoutingPage (page));
     routingPage->refresh();
 
-    // ---- the tabs
-    const Page tabPages[kWorkspaceTabs] = { Page::Tracks, Page::Mixer, Page::Tune, Page::Live, Page::Inspector };
-    for (int i = 0; i < kWorkspaceTabs; ++i)
+    // ---- the solo pill: what is soloed, beside the clock, on every workspace
     {
-        tabs[size_t (i)]->setToggleState (page == tabPages[i], juce::dontSendNotification);
-        tabs[size_t (i)]->setEnabled (mixable);
+        auto soloed = controller.getSoloed();
+        const bool wasShown = soloPill->isVisible();
+        soloPill->setItems (soloed);
+        if (soloPill->hasAny() != wasShown) { soloPill->setVisible (soloPill->hasAny()); resized(); }
     }
 
     // What is on the title row and the toolbar decides where everything else on them goes, so a
@@ -1271,9 +1287,11 @@ void MainView::updateChrome()
     dimButton->setOn (controller.isBroadcastDimmed());
     show (*muteButton, inWorkspace && mixable);
     muteButton->setOn (controller.isBroadcastMuted());
+    show (*autopilotButton, inWorkspace && mixable);
+    autopilotButton->setOn (controller.isAutopilotOn());
     show (*liveSafeButton, inWorkspace && mixable);
     liveSafeButton->setOn (project.liveSafe);
-    liveSafeButton->setSuffix (project.liveSafe ? "ON" : "OFF");
+    liveSafeButton->setSuffix (project.liveSafe ? "ON" : juce::String());
     show (*chatButton, mixable);
     chatButton->setOn (chatSheet != nullptr);
     show (*tuneLiveButton, mixable);
@@ -1395,12 +1413,10 @@ juce::Rectangle<int> MainView::spotlight (const juce::String& what) const
     if (what == "transport" && transportBar != nullptr && transportBar->isVisible()) return transportBar->getBounds();
     if (what == "livesafe" && liveSafeButton != nullptr && liveSafeButton->isVisible()) return liveSafeButton->getBounds();
     if (what == "rail" && sidebar != nullptr && sidebar->isVisible()) return sidebar->getBounds();
-    if (what == "tabs" && tabs[0] != nullptr)
-    {
-        auto track = tabs[0]->getBounds();
-        for (int i = 1; i < kWorkspaceTabs; ++i) track = track.getUnion (tabs[size_t (i)]->getBounds());
-        return track.expanded (6, 4);
-    }
+    // The workspaces are rows in the sidebar now, not a row of tabs.
+    if (what == "tabs" && sidebar != nullptr && sidebar->isVisible())
+        return sidebar->item (Page::Tracks).getBounds().getUnion (sidebar->item (Page::Inspector).getBounds())
+                   .translated (sidebar->getX(), sidebar->getY()).expanded (4, 4);
     return {};
 }
 
@@ -2430,15 +2446,14 @@ void MainView::timerCallback()
 // ---------------------------------------------------------------- layout
 juce::Rectangle<int> MainView::columnBounds() const
 {
-    auto r = getLocalBounds().withTrimmedTop (Dine::Metric::titleRow + Dine::Metric::toolbar);
+    auto r = getLocalBounds().withTrimmedTop (Dine::Metric::toolbar);
     if (sidebar != nullptr && sidebar->isVisible()) r.removeFromLeft (sidebar->width());
-    // A sheet never covers the solo band: it is the one thing the window says that has to be
-    // true whatever else is open.
-    if (stateBar != nullptr && stateBar->isVisible()) r.removeFromTop (StateBar::height);
     return r;
 }
 
-bool MainView::isSoloBarShown() const { return stateBar != nullptr && stateBar->isVisible(); }
+// The solo pill lives in the toolbar now, so a sheet can never cover it: it is the one thing
+// the window says that has to stay true whatever else is open.
+bool MainView::isSoloBarShown() const { return soloPill != nullptr && soloPill->isVisible(); }
 
 // A name on the solo band is a way to the thing it names: the console, with that strip, group
 // or return picked out. Nothing about the mix changes - it is a way of looking, like the band.
@@ -2477,137 +2492,83 @@ void MainView::paint (juce::Graphics& g)
         g.fillRect (strip);
     }
 
-    // ---- the title row, then the toolbar
-    auto top = getLocalBounds();
-    auto titleRow = top.removeFromTop (Dine::Metric::titleRow);
-    g.setColour (Dine::title);
-    g.fillRect (titleRow);
-    {
-        // the counts beside the chat button
-        const auto& session = controller.getSession();
-        const auto& project = services.daw().getProject();
-        int armed = 0;
-        for (const auto& t : project.tracks) if (t.armed) ++armed;
-        juce::String counts;
-        if (! session.inputs.empty())
-            counts = juce::String (int (session.inputs.size())) + " inputs      " + juce::String (armed) + " to record";
-        auto cell = titleRow.reduced (18, 0);
-        // the wordmark, at the left end of the title row after the sidebar switch, on screen whatever the sidebar does.
-        // It is a mark rather than a word, so Text size leaves it alone: its cell is a fixed
-        // 58 px and a bigger DLIVE would only be an ellipsised one.
-        g.setColour (Dine::accent);
-        g.setFont (Dine::caps (13.0f / Dine::textScale(), 0.16f));
-        cell.removeFromLeft (26 + 14);
-        Dine::drawText (g, "DLIVE", cell.removeFromLeft (kWordmarkW), juce::Justification::centredLeft);
-        // The counts end where the buttons begin - measured from where the buttons actually are,
-        // so the two can never be drawn over each other whatever widened one of them.
-        for (juce::Component* button : { static_cast<juce::Component*> (chatButton.get()), static_cast<juce::Component*> (tuneLiveButton.get()) })
-            if (button->isVisible()) cell.setRight (juce::jmin (cell.getRight(), button->getX() - 14));
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (13.0f));
-        Dine::drawText (g, counts, cell, juce::Justification::centredRight, true);
-    }
-    auto toolbarRow = top.removeFromTop (Dine::Metric::toolbar);
-    Dine::drawChrome (g, toolbarRow);
-    // The seams: one hairline under the title row and one under the toolbar, so the three
-    // planes of the chrome read as three rather than as one tall grey band.
+    // ---- the one toolbar, and the seam under it
+    auto bar = getLocalBounds().removeFromTop (Dine::Metric::toolbar);
+    Dine::drawChrome (g, bar);
     g.setColour (Dine::hair);
-    g.fillRect (titleRow.removeFromBottom (1));
-    g.fillRect (toolbarRow.removeFromBottom (1));
+    g.fillRect (bar.removeFromBottom (1));
+
+    // The divider between TUNE LIVE MIX and the broadcast keys: 1 x 20, centred in the row.
+    if (dividerX > 0)
+    {
+        g.setColour (Dine::hair);
+        g.fillRect (juce::Rectangle<int> (dividerX, (Dine::Metric::toolbar - 20) / 2, 1, 20));
+    }
 }
 
 void MainView::resized()
 {
-    // ---- the title row: the sidebar switch, the session in the middle, the chat on the right
-    auto titleRow = getLocalBounds().removeFromTop (Dine::Metric::titleRow).reduced (18, 0);
-    sidebarButton->setBounds (titleRow.removeFromLeft (26).withSizeKeepingCentre (26, 22));
-    auto titleRight = titleRow;
-    if (chatButton->isVisible())
-    {
-        const int w = chatButton->idealWidth();
-        chatButton->setBounds (titleRight.removeFromRight (w).withSizeKeepingCentre (w, 26));
-    }
-    if (tuneLiveButton->isVisible())
-    {
-        titleRight.removeFromRight (10);
-        const int w = tuneLiveButton->idealWidth();
-        tuneLiveButton->setBounds (titleRight.removeFromRight (w).withSizeKeepingCentre (w, 26));
-    }
-    {
-        // The five workspace tabs, centred in the title row between the wordmark and the counts.
-        // They give way to the wordmark on the left and to the counts and the buttons on the right.
-        int widths[kWorkspaceTabs], total = 0;
-        for (int i = 0; i < kWorkspaceTabs; ++i) { widths[i] = tabs[size_t (i)]->idealWidth(); total += widths[i]; }
-        const int gap = 18;
-        total += gap * (kWorkspaceTabs - 1);
-        const int leftEdge = titleRow.getX() + 14 + kWordmarkW + 16;
-        const int rightEdge = titleRight.getRight() - kCountsW - 16;
-        const int x = juce::jlimit (leftEdge, juce::jmax (leftEdge, rightEdge - total), getWidth() / 2 - total / 2);
-        auto row = juce::Rectangle<int> (x, titleRow.getY(), total, titleRow.getHeight()).withSizeKeepingCentre (total, 30);
-        for (int i = 0; i < kWorkspaceTabs; ++i)
-        {
-            tabs[size_t (i)]->setBounds (row.removeFromLeft (widths[i]));
-            row.removeFromLeft (gap);
-        }
-    }
+    // ------------------------------------------------------------------ the toolbar
+    // One row. The window's own buttons are drawn by macOS at the left of it (the peer is told
+    // to put them there), so the first thing this lays out is the sidebar switch beside them;
+    // the transport lines up with the left edge of the workspace column, which is where the eye
+    // is already looking, and everything else is measured in from the right.
+    auto bar = getLocalBounds().removeFromTop (Dine::Metric::toolbar);
+    sidebarButton->setBounds (juce::Rectangle<int> (kTrafficLights, 0, 28, Dine::Metric::toolbar)
+                                  .withSizeKeepingCentre (28, 28));
 
-    // ---- the toolbar: the right cluster, then the transport centred in what is left
-    auto bar = getLocalBounds().withTrimmedTop (Dine::Metric::titleRow).removeFromTop (Dine::Metric::toolbar).reduced (18, 0);
-    auto right = bar;
-    const int transportNeed = transportBar->isVisible() ? transportBar->idealWidth() + 16 : 0;
-    const int clusterNeed = (bypassButton->isVisible() ? bypassButton->idealWidth() + 16 : 0)
-                          + (liveSafeButton->isVisible() ? liveSafeButton->idealWidth() + 10 : 0)
-                          + (dimButton->isVisible() ? dimButton->idealWidth() + 8 : 0)
-                          + (muteButton->isVisible() ? muteButton->idealWidth() + 16 : 0);
+    auto right = bar.withTrimmedRight (12);
+    auto place = [&right] (juce::Component& c, int w, int h, int gapAfter)
+    {
+        if (! c.isVisible()) return;
+        c.setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, h));
+        right.removeFromRight (gapAfter);
+    };
+    place (*chatButton, chatButton->idealWidth(), 28, 8);
     if (outputButton.isVisible())
     {
-        const int room = bar.getWidth() - transportNeed - clusterNeed - 24;
-        const int w = juce::jlimit (60, 220, juce::jmin (outputButton.idealWidth(), room));
-        outputButton.setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
-        right.removeFromRight (10);
+        const int w = juce::jlimit (60, 220, juce::jmin (outputButton.idealWidth(), juce::jmax (60, right.getWidth() / 3)));
+        place (outputButton, w, 28, 16);
     }
-    if (liveSafeButton->isVisible())
-    {
-        const int w = liveSafeButton->idealWidth();
-        liveSafeButton->setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
-        right.removeFromRight (10);
-    }
-    if (bypassButton->isVisible())
-    {
-        const int w = bypassButton->idealWidth();
-        bypassButton->setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
-        right.removeFromRight (16);
-    }
-    // The emergency keys sit left of the cluster, a pair, so the hand finds them without reading.
-    if (muteButton->isVisible())
-    {
-        const int w = muteButton->idealWidth();
-        muteButton->setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
-        right.removeFromRight (8);
-    }
-    if (dimButton->isVisible())
-    {
-        const int w = dimButton->idealWidth();
-        dimButton->setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control));
-        right.removeFromRight (16);
-    }
-    auto left = bar.withRight (right.getRight());
+    place (*liveSafeButton, liveSafeButton->idealWidth(), 30, 16);
+    // DIM MUTE BYPASS AUTOPILOT, in that order left to right, so they are laid out backwards.
+    place (*autopilotButton, autopilotButton->idealWidth(), 28, 2);
+    place (*bypassButton, bypassButton->idealWidth(), 28, 2);
+    place (*muteButton, muteButton->idealWidth(), 28, 2);
+    place (*dimButton, dimButton->idealWidth(), 28, 10);
+    dividerX = (dimButton->isVisible() || bypassButton->isVisible()) ? right.getRight() : 0;
+    if (dividerX > 0) right.removeFromRight (11);
+    place (*tuneLiveButton, tuneLiveButton->idealWidth(), 28, 12);
+
+    // The transport, and the solo pill beside it. They start at the workspace column's left
+    // edge and give way rather than run under the cluster when the window is narrow.
+    auto left = bar.withX (sidebar != nullptr && sidebar->isVisible() ? sidebar->width() + 16 : kTrafficLights + 44)
+                   .withRight (juce::jmax (0, right.getRight() - 16));
+    // What is soloed takes its room before the clock's second cell does: the session's length
+    // is a convenience, and an S left down is the thing that ruins a service.
+    // Enough for the word and a name or two; the pill ellipsises past that rather than
+    // pushing the clock out of the toolbar.
+    const int pillNeed = (soloPill != nullptr && soloPill->isVisible())
+                             ? juce::jmin (soloPill->idealWidth(), 150) + 12 : 0;
     if (transportBar->isVisible())
     {
-        // The playback controls sit in the middle of the toolbar, where the tabs used to be, and
-        // slide left rather than under the right cluster when the window is narrow.
-        const int w = juce::jmin (transportBar->idealWidth(), juce::jmax (transportBar->keysOnlyWidth(), left.getWidth() - 16));
-        const int x = juce::jlimit (left.getX(), juce::jmax (left.getX(), left.getRight() - w), getWidth() / 2 - w / 2);
-        transportBar->setBounds (juce::Rectangle<int> (x, bar.getY(), w, bar.getHeight()).withSizeKeepingCentre (w, TransportBar::height));
+        int want = transportBar->idealWidth();
+        if (left.getWidth() - pillNeed < want) want = transportBar->minimumWidth();
+        if (left.getWidth() - pillNeed < want) want = transportBar->keysOnlyWidth();
+        const int w = juce::jmin (want, juce::jmax (transportBar->keysOnlyWidth(), left.getWidth()));
+        transportBar->setBounds (left.removeFromLeft (w).withSizeKeepingCentre (w, TransportBar::height));
+        left.removeFromLeft (12);
+    }
+    if (soloPill != nullptr && soloPill->isVisible())
+    {
+        const int w = juce::jlimit (0, juce::jmax (0, left.getWidth()), juce::jmin (soloPill->idealWidth(), 280));
+        soloPill->setBounds (left.removeFromLeft (w).withSizeKeepingCentre (w, 28));
     }
 
-    // ---- the body
-    auto body = getLocalBounds().withTrimmedTop (Dine::Metric::titleRow + Dine::Metric::toolbar);
+    // ------------------------------------------------------------------ the body
+    auto body = getLocalBounds().withTrimmedTop (Dine::Metric::toolbar);
     sidebar->setBounds (body.removeFromLeft (sidebar->width()));
     statusBar->setBounds (body.removeFromBottom (Dine::Metric::status));
-    // The solo band sits over the workspace column, under the toolbar, and only exists while
-    // something is soloed - so a console with nothing soloed is exactly as it was.
-    if (stateBar != nullptr && stateBar->isVisible()) stateBar->setBounds (body.removeFromTop (StateBar::height));
     // The requests panel is a column beside the workspace, never over it: the pages and the chain foot
     // give up its width, so a sheet a page opens stays whole and the panel stays readable.
     const int panelW = chatSheet != nullptr ? juce::jmin (kRequestsW, body.getWidth() / 2) : 0;
@@ -2615,20 +2576,20 @@ void MainView::resized()
     if (chainFoot->isVisible()) chainFoot->setBounds (body.removeFromBottom (Dine::Metric::chainFoot));
 
     auto content = body;
-    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) tracksPage.get(),
+    for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) favouritesPage.get(),
+                                (juce::Component*) purposePage.get(), (juce::Component*) tracksPage.get(),
                                 (juce::Component*) mixerPage.get(), (juce::Component*) mixPage.get(),
                                 (juce::Component*) livePage.get(), (juce::Component*) advancedPage.get() })
         p->setBounds (content);
 
-    // ROUTING fills the workspace and the three set-up pages sit inside it, where its section
-    // list and its LIVE SAFE cover can be over them. Covered, `contentBounds` is empty, so the
+    // ROUTING fills the workspace and the two set-up pages sit inside it, where its section
+    // row and its LIVE SAFE cover can be over them. Covered, `contentBounds` is empty, so the
     // page underneath has no size and nothing on it can be reached.
     if (routingPage != nullptr)
     {
         routingPage->setBounds (content);
         const auto inner = routingPage->contentBounds().translated (content.getX(), content.getY());
-        for (juce::Component* p : { (juce::Component*) devicePage.get(), (juce::Component*) assignPage.get(),
-                                    (juce::Component*) purposePage.get() })
+        for (juce::Component* p : { (juce::Component*) devicePage.get(), (juce::Component*) assignPage.get() })
         {
             p->setBounds (inner);
             if (p->isVisible()) p->toFront (false);
@@ -2637,9 +2598,6 @@ void MainView::resized()
 
     // A sheet covers the workspace column; the chat is a panel down the right of it.
     auto column = columnBounds();
-    // MIX HISTORY was missing from this list, so it was created, added and never given
-    // bounds: a sheet with no size is a sheet nobody has ever seen. Found on 2026-09-28 by
-    // photographing it.
     for (juce::Component* sheetComponent : { (juce::Component*) themeSheet.get(), (juce::Component*) historySheet.get(),
                                              (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }

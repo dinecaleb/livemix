@@ -75,10 +75,14 @@ if (LIVEMIX_BUILD_PLUGIN)
             GIT_SHALLOW    TRUE)
         FetchContent_MakeAvailable(JUCE)
     endif()
-    # Embedded UI fonts shared by every Dine product (Barlow, Barlow Condensed, IBM Plex Mono - SIL OFL, see assets/fonts).
+    # Embedded UI fonts shared by every Dine product (Inter, Barlow, Barlow Condensed, IBM Plex Mono - SIL OFL,
+    # see assets/fonts). DLIVE's v3 design is set in Inter; the plug-ins keep Barlow.
     juce_add_binary_data(LiveMixFonts
         NAMESPACE LiveMixFonts
         SOURCES
+            ${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf
+            ${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Medium.ttf
+            ${CMAKE_SOURCE_DIR}/assets/fonts/Inter-SemiBold.ttf
             ${CMAKE_SOURCE_DIR}/assets/fonts/Barlow-Regular.ttf
             ${CMAKE_SOURCE_DIR}/assets/fonts/Barlow-Medium.ttf
             ${CMAKE_SOURCE_DIR}/assets/fonts/Barlow-SemiBold.ttf

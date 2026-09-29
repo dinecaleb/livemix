@@ -1,0 +1,188 @@
+# DLIVE v3 — the Full UX Mockup, and how it is being built
+
+The design is the Figma file `2wv5QSnvrSSQXtDzfuShIn` — **"DLIVE — Full UX Mockup"**, page
+`v3 · Screens` (`70:9050`) with its component sheet on `v3 · Components` (`60:9144`). It was
+generated from `docs/FIGMA-MAKE-PROMPT.md`, so the function inventory in that prompt is the
+contract this design is measured against: **nothing in it may disappear.** The earlier
+"DLIVE Desktop v2" work in the same file was scrapped on 2026-09-28; this is its replacement
+and it is not a reskin of it.
+
+This file is the map from the design to the code. Read it before touching `app/ui`.
+
+## 1. The design language
+
+Flat planes, a hairline between them, no gradients and no glow. macOS-shaped: the traffic
+lights sit *in* the one toolbar, the sidebar is a source list in sentence case, and the only
+caps in the product are the verbs. Type is **Inter** for words and **IBM Plex Mono** for every
+number; both are embedded (`assets/fonts`, SIL OFL), so a booth Mac with nothing installed
+reads like the mock.
+
+### Tokens (Figma variables, `Dine::` names — they already match the code)
+
+| Token | v3 | what it is |
+| --- | --- | --- |
+| `menubar` | `#111214` | the transport well, a segment track, the deepest plane |
+| `window` | `#161719` | every workspace ground |
+| `sidebar` | `#1a1b1e` | the source list |
+| `toolbar` | `#1d1e21` | the one toolbar, the status foot, a side rail |
+| `selected` | `#2a2c30` | the row, segment or strip that is chosen |
+| `control` | `#2b2d31` | a resting button |
+| `controlOn` | `#44474d` | a segment that is on |
+| `hair` | `#ffffff14` (.08) | every seam |
+| `ink` / `ink2` / `ink3` | `#f2f2f4` / `#c2c4c9` / `#9a9da4` | heading / body / caption |
+| `accent` | `#6db8a8` | the primary action, what is on, what TUNE MIX did |
+| `onAccent` | `#0b0d10` | type on an accent fill |
+| `ok` `hot` `warn` `crit` | `#57b98d` `#d8c46a` `#e0a85c` `#f06a61` | meter and status |
+| `keyRec` | `#e5534b` | the record key |
+| `monitor` | `#6eafff` | the engineer's own ears |
+
+Type styles: `Title 1` 22/28 SemiBold (−1 tracking) · `Headline` 13/18 SemiBold ·
+`Body` 13/18 Regular · `Body Medium` 13/18 Medium · `Control` 12/16 Medium ·
+`Caption` 11/14 Medium · `Verb` 11/14 SemiBold **+4 tracking** (the caps words) ·
+`Mono Value` 11/14 Medium · `Mono Clock` 17/22 Medium.
+
+Radii: **4** a broadcast key · **6** a control, chip, segment, sidebar row ·
+**8** the transport well and a stage well · **10** a card or sheet · **12** the window.
+
+Icons: 16 pt, **1.4 pt stroke, round caps and joins** — the 16 glyphs of the `Icon` component
+(`61:9083`), carried in the code as their SVG path data (`Dine::Glyph`), never as bitmaps.
+
+### The components sheet (`v3 · Components`) — what each one says
+
+- **Button** (`61:9098`) 28 pt high, 6 pt radius. *On* = accent. **LIVE SAFE is the only amber
+  control.** *Destructive* = red type on a hairline, never a red fill. *Disabled* = half plane.
+- **Broadcast Key** (`61:9119`) DIM · MUTE · BYPASS · AUTOPILOT. Squarer (4 pt), a hairline
+  edge and a lamp that is always visible, because they change what the broadcast hears. Lit in
+  hot (DIM, BYPASS), red (MUTE), accent (AUTOPILOT).
+- **Channel Key** (`61:9138`) R · A · M · S, 29 × 20, set 2 × 2.
+- **Segment** (`61:9145`) a 2 pt-padded `control` track, 6 pt radius; the chosen item lifts to
+  `controlOn`.
+- **Sidebar Row** (`61:9156`) 28 pt, 6 pt radius, **sentence case**; selected lifts and the
+  icon goes accent. Section headings are 11 pt `ink3`, never caps.
+- **List Row** (`61:9171`) lamp · what (headline) · why (callout, ink3) · value (mono). No box:
+  rows are separated by space and a selected row lifts. Every sheet list is built from it.
+- **Meter** (`62:9124`) 6 × 416, 5 % steps; low zone is the theme accent, mid `hot`, top
+  `crit`; peak hold 8 pt above the level.
+- **Fader** (`62:9241`) a machined cap — two-stop gradient, a top bevel, one index line. The
+  slot is a 4 pt well; **the unity mark is the one fixed line.**
+- **Pan** (`62:9271`) 26 pt, 270° track, arc from centre, pointer dot, readout underneath.
+- **Knob** (`62:9350`) 48 pt, 270° track, value arc in accent, one pointer; **the value sits
+  under the knob, never inside it.** `Knob Large` (`112:10018`) is the 80 pt Simple-view knob.
+- **XY Pad** (`62:9372`) BODY × VOICE and DRIVE × ROOM; 50/50 is the plan, under a dashed ring;
+  values appear only once the puck has left it; hatched fence under LIVE SAFE.
+- **Ribbon** (`62:9400`) ENERGY; the fill runs from the plan mark at the centre to the thumb.
+- **Channel Strip** (`63:9488`) default · selected · soloed · muted · recording · LOW · SILENT
+  · CLIP. No boxes inside a strip; sections are separated by space.
+- **Transport v2** (`117:10151`) one filled glyph family in a 12 pt box; every key 28 × 28 at
+  6 pt; the active one gets a quiet plane (`recGround` while recording) and the clock turns red.
+- **Toolbar v3.4** (`117:32462`) is the live one. v3.0–v3.3 above it are superseded.
+- **Sidebar** (`64:9437`) 208 pt. **Status Bar** (`64:9492`) 28 pt, sentence case.
+  **Chain Foot** (`64:9511`) 44 pt, one quiet line.
+- **Master Column** (`65:9316`) LUFS-I in an inset display, then the four readouts.
+- **Sheet Header** (`65:9347`) Title 1 + one line of summary, close icon top right, no eyebrow.
+  **Sheet Footer** (`65:9354`) Before/After left; actions right with the default (Keep) last.
+- **Inspector Stage Card** (`65:9397`) the only card on the Inspector page.
+- **Stage Controls / \*** (`84:*`) one symbol per chain stage: what that stage draws.
+
+## 2. The shell
+
+One **52 pt toolbar** across the whole window (the traffic lights are inside it at
+x = 16/36/56, y = 20; the sidebar switch at x = 86). Left: the transport well at x = 224 —
+`menubar` ground, hairline, 8 pt radius, 36 pt high, four 28 × 28 keys then a divider then the
+clock in Mono Clock. The **solo pill** sits beside it while anything is soloed. Right, in order:
+`TUNE LIVE MIX` · divider · DIM MUTE BYPASS AUTOPILOT · **LIVE SAFE** · the output picker ·
+Mix Buddy. Everything is flat until it is on.
+
+**Sidebar**, 208 pt, `sidebar` ground, a seam down its right edge, sentence case throughout:
+
+```
+Library      Sessions · Favourite mixes
+Workspace    Tracks · Mixer · Tune · Live · Inspector
+Safety       Mix history · Scenes
+Setup        Routing · Purpose and sound
+             ───────────────────────────
+             MOTU 16A
+             48 kHz · 0 dropped buffers
+```
+
+Caption 11 pt `ink3` at x = 16; rows 28 pt at x = 8, width 192, 10 pt left padding, 10 pt
+between icon and label, 30 pt pitch; a caption sits 12 pt under the previous row and its first
+row 22 pt under it. Folded, the sidebar becomes a **52 pt icon rail** (`112:10026`), not a
+handle — each item keeps its icon and gains a tooltip with its shortcut.
+
+**Status bar**, 28 pt, sentence case: Engine · CPU · Disk · Recording · Broadcast · Dropped ·
+Live safe · Tempo · Autosaved, and at the right `N inputs · N to record`.
+
+**Chain foot**, 44 pt: the picked-out channel as one quiet line — number, name, then each
+stage that is on with its value; a stage TUNE MIX changed carries the accent lamp; a click
+opens it in the Inspector.
+
+## 3. The 40 frames, and where each one lands in the code
+
+| # | Frame | node | Code |
+| --- | --- | --- | --- |
+| 01 | Sessions (library) | `70:9051` | `SetupPages.cpp` `SessionsPage` |
+| 02 | Audio device | `70:9274` | `SetupPages.cpp` `DevicePage`, inside `RoutingPage` |
+| 03 | Inputs (the patch) | `70:9496` | `SetupPages.cpp` `AssignPage` |
+| 11 | Purpose and sound | `70:9783` | `SetupPages.cpp` `PurposePage` |
+| 04 | Tracks | `71:9611` | `TracksPage.cpp` |
+| 05 | Tune | `71:12025` | `MixPage.cpp` |
+| 06 | Live | `71:12363` | `LivePage.cpp` |
+| 07 | Inspector · Sample | `73:10195` | `AdvancedPage.cpp` / `ChainEditor.cpp` |
+| 17a | Inspector · Input | `73:10629` | `ChainEditor.cpp` |
+| 17b | Inspector · Filters | `73:10893` | " |
+| 17c | Inspector · Gate | `73:11161` | " |
+| 17 | Inspector · Corrective EQ | `73:11441` | " |
+| 17d | Inspector · De-esser | `73:11719` | " |
+| 17e | Inspector · Compressor | `73:11985` | " |
+| 17f | Inspector · Transient | `74:11319` | " |
+| 17g | Inspector · Tone EQ | `74:11581` | " |
+| 17h | Inspector · Saturation | `74:11857` | " |
+| 17i | Inspector · Width | `74:12109` | " |
+| 17j | Inspector · Sends | `74:12584` | " |
+| 17k | Inspector · Output | `74:12840` | " |
+| 17l | Inspector · Limiter (master) | `74:13098` | " |
+| 28 | Inspector · Simple view | `89:25394` | `AdvancedPage.cpp` |
+| 08 | Mixer · strips | `75:12328` | `MixerPage.cpp` |
+| 29 | Mixer · text size Larger | `89:25767` | `MixerPage.cpp` + `Dine::setTextScale` |
+| 30 | Mixer · sidebar folded to the rail | `112:30939` | `MainView.cpp` |
+| 09 | TUNE MIX is listening | `75:12415` | `MixPage.cpp` sheet |
+| 10 | TUNE MIX is ready (result) | `75:12362` | `MixPage.cpp` sheet |
+| 13 | TUNE CHANNEL | `75:12481` | `ChannelTuneSheet.cpp` |
+| 12 | Check inputs | `75:12562` | `CheckSheet.cpp` |
+| 16 | Sound like a record you know | `75:12950` | `ReferenceSheet.cpp` |
+| 14 | Outputs | `75:13006` | `OutputsSheet.cpp` |
+| 15 | Mix Buddy | `84:25602` | `ChatSheet.cpp` |
+| 24 | Mix history | `88:22972` | `HistorySheet.cpp` |
+| 25 | Reset the mix to raw | `88:23073` | `MainView::resetMixToRaw` |
+| 26 | Favourite mixes | `88:23130` | **new** `FavouritesPage` |
+| 27 | Export | `88:23516` | `MainView::exportMix` |
+| 23 | Recover session? | `88:22923` | `MainView` recovery dialog |
+| 21 | Appearance | `77:19087` | `ThemeSheet.cpp` |
+| 22 | Getting started (the tour) | `77:19229` | `Tutorial.cpp` |
+| — | Annotation | `91:26974` | "persistent mix history — the code shows it as a sheet; align to that" |
+
+## 4. What is new, and what must not be lost
+
+New surfaces: **Favourite mixes** (a page of its own), **Scenes** and **Mix history** as
+sidebar items (both open the sheets that already exist), the folded **icon rail**, the
+**Voices** Speaking/Singing control on TUNE, **Mix health out of 100**, and the **Aim at**
+favourite on TUNE.
+
+Everything in `docs/FIGMA-MAKE-PROMPT.md` §"FUNCTION INVENTORY" keeps its home. In particular
+the design does not draw, and the code therefore keeps unchanged: the Mixer's **LIST** layout,
+the three strip widths, the three track heights, the timeline's right-click menu, input
+mappings, the menu bar, and every keyboard binding in that prompt's §"INTERACTION RULES".
+
+## 5. Order of work
+
+1. **Language** — Inter into `LiveMixFonts`, the v3 tokens and metrics, `Dine::Glyph`.
+2. **Shell** — one toolbar, the 208 pt sidebar and its 52 pt rail, the 28 pt status bar, the
+   44 pt chain foot.
+3. **Workspaces** — Tracks, Mixer, Tune, Live, Inspector.
+4. **Setup** — Sessions, Favourite mixes, Routing (Audio device / Inputs / Outputs), Purpose.
+5. **Sheets** — listening, result, TUNE CHANNEL, check, reference, outputs, Mix Buddy, history,
+   appearance, export, recover, reset to raw, the tour.
+
+Each step is verified by looking at `build/app-snapshots/*.png` (`scripts/dlive.sh --shots`),
+never by reasoning about layout code, and `dlive_app_tests` must stay green throughout.

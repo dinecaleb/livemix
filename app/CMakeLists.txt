@@ -53,6 +53,7 @@ set(DLIVE_UI_SOURCES
     ${DLIVE_APP_SOURCES}
     ui/AppTheme.cpp
     ui/SetupPages.cpp
+    ui/FavouritesPage.cpp
     ui/TracksPage.cpp
     ui/MixPage.cpp
     ui/MacroPad.cpp
@@ -94,7 +95,7 @@ juce_add_gui_app(DLive
     HARDENED_RUNTIME_ENABLED TRUE
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "DLIVE mixes the inputs of your audio device.")
-target_sources(DLive PRIVATE Main.cpp native/AudioHost.cpp native/MonitorDevice.cpp native/MicPermission.mm ${DLIVE_UI_SOURCES})
+target_sources(DLive PRIVATE Main.cpp native/AudioHost.cpp native/MonitorDevice.cpp native/MicPermission.mm native/WindowChrome.mm ${DLIVE_UI_SOURCES})
 target_include_directories(DLive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(DLive PRIVATE ${DLIVE_DEFINES}
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:DLive,JUCE_PRODUCT_NAME>"

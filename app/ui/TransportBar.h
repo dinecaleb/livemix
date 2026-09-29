@@ -8,12 +8,14 @@
 namespace livemix
 {
 
-// The transport, in the unified toolbar: go to the start, stop, play, record, loop, and
-// the clock beside them. Space plays and stops, R records, Return goes back to the start;
-// the same actions the buttons perform, so the keyboard and the mouse can never disagree.
+// The transport, in the one toolbar (design: `Transport v2`, 117:10151): go to the start,
+// stop, play, record, then a divider and the clock. Space plays and stops, R records, Return
+// goes back to the start; the same actions the keys perform, so the keyboard and the mouse can
+// never disagree. Loop is not one of these keys in v3 - it is a button on the TRACKS tool row,
+// beside the loop it sets - but L and Transport > Loop still reach `toggleLoop()`.
 //
-// It is a cluster, not a bar: it paints only its own two wells, sizes itself with
-// idealWidth() and drops the LENGTH cell when the toolbar is too narrow for it.
+// It is one well, not a bar: it paints its own plane, sizes itself with idealWidth() and drops
+// the session length, then the clock, when the toolbar is too narrow for them.
 class TransportBar : public juce::Component
 {
 public:
@@ -54,7 +56,7 @@ private:
     bool playing = false, recording = false, looping = false;
     juce::int64 lastPosition = -1, lastLength = -1;
 
-    juce::Rectangle<int> keysWell, clockWell, timeCell, lengthCell;
+    juce::Rectangle<int> keysWell, clockWell, timeCell, lengthCell, divider;
     bool showLength = true, showClock = true;
 };
 

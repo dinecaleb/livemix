@@ -582,7 +582,7 @@ TEST_CASE ("Reachability: ROUTING gathers the set-up, and LIVE SAFE covers it un
     using Section = RoutingPage::Section;
 
     // Every section is reachable and names itself.
-    const Section sections[] = { Section::Device, Section::Inputs, Section::Purpose, Section::Outputs, Section::Maps };
+    const Section sections[] = { Section::Device, Section::Inputs, Section::Outputs, Section::Maps };
     for (const auto s : sections)
     {
         view.showPage (MainView::pageForSection (s));

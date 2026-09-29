@@ -19,8 +19,9 @@ namespace
 juce::Typeface::Ptr LiveMixLookAndFeel::typefaceFor (int family, int weight)
 {
     // Shares the cache owned by the live LookAndFeel(s); only creates one if none exists yet.
-    // family 0 = UI label (Barlow), 1 = body (Barlow), 2 = mono (IBM Plex Mono).
-    // Labels share Barlow with body so tracking-heavy condensed caps don't dominate.
+    // family 0 = UI label (Barlow), 1 = body (Barlow), 2 = mono (IBM Plex Mono), 3 = Inter.
+    // Labels share Barlow with body so tracking-heavy condensed caps don't dominate. Inter is
+    // DLIVE's own face (the v3 design); the six plug-ins never ask for it.
     juce::SharedResourcePointer<TypefaceCache> cache;
     const int w = weight >= 600 ? 2 : weight >= 500 ? 1 : 0;
     auto& slot = cache->faces[family][w];
@@ -32,6 +33,11 @@ juce::Typeface::Ptr LiveMixLookAndFeel::typefaceFor (int family, int weight)
     {
         data = w == 2 ? BarlowSemiBold_ttf : w == 1 ? BarlowMedium_ttf : BarlowRegular_ttf;
         size = w == 2 ? BarlowSemiBold_ttfSize : w == 1 ? BarlowMedium_ttfSize : BarlowRegular_ttfSize;
+    }
+    else if (family == 3)
+    {
+        data = w == 2 ? InterSemiBold_ttf : w == 1 ? InterMedium_ttf : InterRegular_ttf;
+        size = w == 2 ? InterSemiBold_ttfSize : w == 1 ? InterMedium_ttfSize : InterRegular_ttfSize;
     }
     else
     {
@@ -50,6 +56,9 @@ juce::Font LiveMixLookAndFeel::condensed (float px, int weight, float spacingEm)
 }
 juce::Font LiveMixLookAndFeel::body (float px, int weight, float spacingEm) { return makeFont (typefaceFor (1, weight), px, juce::jmin (spacingEm, 0.04f)); }
 juce::Font LiveMixLookAndFeel::mono (float px, int weight, float spacingEm) { return makeFont (typefaceFor (2, weight), px, spacingEm); }
+// Tracking is soft-capped the way `body` caps it: the v3 design tracks its caps at .04 em and
+// nothing in it is tracked harder, so a call site still passing a design-era .08 lands on .04.
+juce::Font LiveMixLookAndFeel::inter (float px, int weight, float spacingEm) { return makeFont (typefaceFor (3, weight), px, juce::jmin (spacingEm, 0.04f)); }
 
 void LiveMixLookAndFeel::fillSurface (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour fill, float radius)
 {

@@ -25,6 +25,10 @@ public:
     std::function<void()> onToggleRecord;
     std::function<void()> onOpenHistory;      // MIX HISTORY: the mix as it was, by name
 
+    // The sidebar's SCENES row brings you here and points at them: the scenes live on LIVE,
+    // where the service is run from, and nowhere else.
+    void focusScenes();
+
     void refresh();                    // 30 Hz
     void rebuild();
     void paint (juce::Graphics&) override;
@@ -37,6 +41,7 @@ private:
 
     struct Layout { juce::Rectangle<int> status, tiles, scenes, monitor, safe; };
     Layout layout() const;
+    int sceneFlash = 0;                // frames left of the mark the sidebar's SCENES row leaves
 
     MixController& controller;
     AppServices& services;

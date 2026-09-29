@@ -229,12 +229,12 @@ TEST_CASE ("Text size: every role grows with it, no metric does, and the layouts
 
     // The console's geometry is constant, by construction: not one of these is a function of
     // the scale, so a bigger word can never cost a channel.
-    CHECK (Dine::Metric::chanRail == 200);
+    CHECK (Dine::Metric::chanRail == 180);
     CHECK (Dine::Metric::tuneRail == 198);
-    CHECK (Dine::Metric::titleRow == 52);
-    CHECK (Dine::Metric::toolbar == 56);
-    CHECK (Dine::Metric::status == 50);
-    CHECK (Dine::Metric::chainFoot == 48);
+    CHECK (Dine::Metric::sidebar == 208);
+    CHECK (Dine::Metric::toolbar == 52);
+    CHECK (Dine::Metric::status == 28);
+    CHECK (Dine::Metric::chainFoot == 44);
 
     // Every layout held was for a face at the old size, so the cache is emptied rather than
     // left holding what nothing will ask for again.

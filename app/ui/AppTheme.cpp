@@ -7,7 +7,7 @@ namespace livemix
 {
 
 // ============================================================================ type
-// Barlow and IBM Plex Mono, embedded (LiveMixFonts): the same faces the design file loads,
+// Inter and IBM Plex Mono, embedded (LiveMixFonts): the same faces the design file loads,
 // so the booth Mac reads exactly like the mock whatever it has installed.
 //
 // EVERY ROLE IS BUILT ONCE, and that is not only about speed.
@@ -43,7 +43,7 @@ namespace
         const auto build = [&]
         {
             return kind == 1 ? LiveMixLookAndFeel::mono (px, weight, 0.0f)
-                             : LiveMixLookAndFeel::body (px, weight, 0.0f).withExtraKerningFactor (tracking);
+                             : LiveMixLookAndFeel::inter (px, weight, 0.0f).withExtraKerningFactor (tracking);
         };
 
         auto* memo = FontMemo::getInstance();
@@ -481,7 +481,7 @@ const std::vector<Dine::ThemeBinding>& Dine::themeBindings()
         { "desk", &desk }, { "window", &window }, { "toolbar", &toolbar }, { "title", &title }, { "menubar", &menubar },
         { "sidebar", &sidebar }, { "rail", &rail }, { "pageBar", &pageBar }, { "console", &console }, { "tile", &tile },
         { "card", &card }, { "raised", &raised }, { "item", &item }, { "selected", &selected }, { "control", &control },
-        { "controlHot", &controlHot }, { "controlOn", &controlOn }, { "sheet", &sheet }, { "popover", &popover },
+        { "controlHot", &controlHot }, { "controlOn", &controlOn }, { "sheet", &sheet }, { "popover", &popover }, { "inset", &inset }, { "deep", &deep },
         { "refuse", &refuse }, { "recGround", &recGround }, { "soloGround", &soloGround }, { "editGround", &editGround },
         { "hairSoft", &hairSoft }, { "hair", &hair }, { "hairStrong", &hairStrong }, { "edge", &edge }, { "fill", &fill },
         { "fillHover", &fillHover }, { "fillSoft", &fillSoft }, { "well", &well },
@@ -654,6 +654,28 @@ namespace
             { "M3.4 4.2h13.2a1.8 1.8 0 0 1 1.8 1.8v8a1.8 1.8 0 0 1 -1.8 1.8h-13.2a1.8 1.8 0 0 1 -1.8 -1.8v-8a1.8 1.8 0 0 1 1.8 -1.8z", 1.4f, false },
             { "M7.8 4.2v11.6", 1.4f, false } };
 
+        // ---------------------------------------------------------------- the v3 set
+        // Transcribed straight from the design's `Icon` component (61:9083): a 16 pt box at a
+        // 1.4 pt stroke, round caps and joins. The numbers below are that path data scaled by
+        // 1.25 into the 20 pt box every icon here lives in, and the weight is 1.75 so that the
+        // stroke lands back on 1.4 pt once `drawIcon` scales a 16 pt icon down again.
+        static const std::vector<IconStroke> v3Sessions { { "M2.5 5H17.5M2.5 10H17.5M2.5 15H12.5", 1.75f, false } };
+        static const std::vector<IconStroke> v3Device { { "M7.5 8.75V12.5M10 7.5V12.5M12.5 10V12.5M3.75 3.75H16.25V16.25H3.75V3.75Z", 1.75f, false } };
+        static const std::vector<IconStroke> v3Inputs { { "M10 2.5V11.25M6.25 7.5C6.25 13.75 13.75 13.75 13.75 7.5M10 13.75V17.5M6.25 17.5H13.75", 1.75f, false } };
+        static const std::vector<IconStroke> v3Purpose { { "M2.5 10C2.5 5.875 5.875 2.5 10 2.5C14.12 2.5 17.5 5.875 17.5 10C17.5 14.12 14.12 17.5 10 17.5C5.875 17.5 2.5 14.12 2.5 10Z", 1.75f, false } };
+        static const std::vector<IconStroke> v3Tracks { { "M2.5 5H11.25M6.25 10H17.5M2.5 15H13.75", 1.75f, false } };
+        static const std::vector<IconStroke> v3Mixer { { "M5 2.5V17.5M10 2.5V17.5M15 2.5V17.5M2.5 12.5H7.5M7.5 6.25H12.5M12.5 13.75H17.5", 1.75f, false } };
+        static const std::vector<IconStroke> v3Tune { { "M2.5 15C6.25 5 8.75 5 10 10C11.25 15 13.75 15 17.5 5", 1.75f, false } };
+        static const std::vector<IconStroke> v3Live { { "M10 8.125V11.88M5.625 5.625C3.125 8.125 3.125 11.88 5.625 14.38M14.38 5.625C16.88 8.125 16.88 11.88 14.38 14.38", 1.75f, false } };
+        static const std::vector<IconStroke> v3Inspector { { "M3.75 8.75H16.25M8.75 8.75V16.25M3.75 3.75H16.25V16.25H3.75V3.75Z", 1.75f, false } };
+        static const std::vector<IconStroke> v3Sidebar { { "M7.5 3.75V16.25M2.5 3.75H17.5V16.25H2.5V3.75Z", 1.75f, false } };
+        static const std::vector<IconStroke> v3Chat { { "M16.25 3.75H3.75V12.5H5V16.25L8.75 12.5H16.25V3.75Z", 1.75f, false } };
+        static const std::vector<IconStroke> v3Lock { { "M6.875 8.75V6.25C6.875 3.125 13.12 3.125 13.12 6.25V8.75M5 8.75H15V16.25H5V8.75Z", 1.75f, false } };
+        static const std::vector<IconStroke> v3Window { { "M6.25 2.5H17.5V13.75M2.5 6.25H13.75V17.5H2.5V6.25Z", 1.75f, false } };
+        static const std::vector<IconStroke> v3Chevron { { "M6.25 7.5L10 11.25L13.75 7.5", 1.75f, false } };
+        static const std::vector<IconStroke> v3Close { { "M5 5L15 15M15 5L5 15", 1.75f, false } };
+        static const std::vector<IconStroke> v3Headphones { { "M3.75 13.75V10C3.75 3.75 16.25 3.75 16.25 10V13.75M2.5 12.5H6.25V17.5H2.5V12.5ZM13.75 12.5H17.5V17.5H13.75V12.5Z", 1.75f, false } };
+
         switch (icon)
         {
             case Dine::Icon::Drum:     return drum;
@@ -674,14 +696,27 @@ namespace
             case Dine::Icon::Gear:     return gear;
             case Dine::Icon::Play:     return play;
             case Dine::Icon::Refresh:  return refresh;
-            case Dine::Icon::Chevron:  return chevron;
+            case Dine::Icon::Chevron:  return v3Chevron;
             case Dine::Icon::UpDown:   return updown;
             case Dine::Icon::Dash:     return dash;
             case Dine::Icon::Bus:      return bus;
-            case Dine::Icon::Sidebar:  return sidebar;
+            case Dine::Icon::Sidebar:  return v3Sidebar;
             case Dine::Icon::Search:   return search;
-            case Dine::Icon::Chat:     return chat;
+            case Dine::Icon::Chat:     return v3Chat;
             case Dine::Icon::Shield:   return shield;
+            case Dine::Icon::Sessions:      return v3Sessions;
+            case Dine::Icon::DeviceNav:     return v3Device;
+            case Dine::Icon::Inputs:        return v3Inputs;
+            case Dine::Icon::Purpose:       return v3Purpose;
+            case Dine::Icon::TracksNav:     return v3Tracks;
+            case Dine::Icon::MixerNav:      return v3Mixer;
+            case Dine::Icon::TuneNav:       return v3Tune;
+            case Dine::Icon::LiveNav:       return v3Live;
+            case Dine::Icon::InspectorNav:  return v3Inspector;
+            case Dine::Icon::Lock:          return v3Lock;
+            case Dine::Icon::WindowNav:     return v3Window;
+            case Dine::Icon::Close:         return v3Close;
+            case Dine::Icon::Headphones:    return v3Headphones;
             case Dine::Icon::None:
             default:                   return empty;
         }
@@ -692,7 +727,7 @@ namespace
 
     const ParsedIcon& parsedIcon (Dine::Icon icon)
     {
-        static std::array<std::unique_ptr<ParsedIcon>, 32> cache;
+        static std::array<std::unique_ptr<ParsedIcon>, 48> cache;
         auto& slot = cache[size_t (icon)];
         if (slot == nullptr)
         {
@@ -1123,15 +1158,17 @@ DinePopup::DinePopup() : juce::Button ({})
 
 int DinePopup::idealWidth() const
 {
-    return Dine::textWidth (Dine::text (12.5f), value) + 40 + (dot.isTransparent() ? 0 : 15);
+    return Dine::textWidth (Dine::text (12.0f, 500), value) + (flat ? 38 : 40) + (dot.isTransparent() ? 0 : 15);
 }
 
 void DinePopup::paintButton (juce::Graphics& g, bool over, bool down)
 {
     auto r = getLocalBounds().toFloat();
-    Dine::fillRounded (g, r, down ? Dine::controlOn : over ? Dine::controlHot : Dine::control, Dine::Radius::control);
-    auto inner = getLocalBounds().reduced (10, 0);
-    Dine::drawDropChevron (g, inner.removeFromRight (10).toFloat(), over ? Dine::ink : Dine::ink2);
+    if (flat) { if (over || down) Dine::fillRounded (g, r, down ? Dine::selected : Dine::control, Dine::Radius::control); }
+    else      Dine::fillRounded (g, r, down ? Dine::controlOn : over ? Dine::controlHot : Dine::control, Dine::Radius::control);
+    auto inner = getLocalBounds().reduced (flat ? 8 : 10, 0);
+    Dine::drawIcon (g, Dine::Icon::Chevron, inner.removeFromRight (16).toFloat().withSizeKeepingCentre (16.0f, 16.0f),
+                    over ? Dine::ink : Dine::ink2);
     inner.removeFromRight (6);
     if (! dot.isTransparent())
     {
@@ -1140,7 +1177,7 @@ void DinePopup::paintButton (juce::Graphics& g, bool over, bool down)
         inner.removeFromLeft (8);
     }
     g.setColour (! isEnabled() ? Dine::ink4 : over ? Dine::ink : Dine::ink2);
-    g.setFont (Dine::text (12.5f, 500));
+    g.setFont (Dine::text (12.0f, 500));
     Dine::drawText (g, value, inner, juce::Justification::centredLeft, true);
 }
 
@@ -1150,18 +1187,23 @@ DineNavItem::DineNavItem (const juce::String& l, Dine::Icon i) : juce::Button (l
     setWantsKeyboardFocus (false);
 }
 
+// The design's `Sidebar Row` (61:9156): 28 pt, 6 pt radius, sentence case, a 16 pt icon and a
+// 10 pt gap. Selected lifts to a plane and turns the icon accent - which is what says "you are
+// here"; there is no bar of colour and no capital letter anywhere on it. It is also the row a
+// set-up list is built from, so `meta` and `done` still have their places at the right.
 void DineNavItem::paintButton (juce::Graphics& g, bool over, bool)
 {
     auto r = getLocalBounds().toFloat();
     if (selected)                     Dine::fillRounded (g, r, Dine::selected, Dine::Radius::control);
-    else if (over && isEnabled())     Dine::fillRounded (g, r, Dine::card, Dine::Radius::control);
+    else if (over && isEnabled())     Dine::fillRounded (g, r, Dine::control, Dine::Radius::control);
 
     auto inner = getLocalBounds().reduced (10, 0);
-    const juce::Colour fg = ! isEnabled() ? Dine::ink4 : selected || over ? Dine::ink : Dine::ink3;
+    const juce::Colour fg = ! isEnabled() ? Dine::ink4 : selected ? Dine::ink : over ? Dine::ink : Dine::ink2;
     if (icon != Dine::Icon::None)
     {
-        Dine::drawIcon (g, icon, inner.removeFromLeft (16).toFloat().withSizeKeepingCentre (16.0f, 16.0f), fg);
-        inner.removeFromLeft (8);
+        Dine::drawIcon (g, icon, inner.removeFromLeft (16).toFloat().withSizeKeepingCentre (16.0f, 16.0f),
+                        ! isEnabled() ? Dine::ink4 : selected ? Dine::accent : fg);
+        inner.removeFromLeft (10);
     }
     auto right = inner;
     if (done)
@@ -1172,13 +1214,13 @@ void DineNavItem::paintButton (juce::Graphics& g, bool over, bool)
     else if (meta.isNotEmpty())
     {
         g.setColour (Dine::ink4);
-        g.setFont (Dine::mono (10.5f));
-        const int w = Dine::textWidth (Dine::mono (10.5f), meta);
+        g.setFont (Dine::mono (11.0f, 500));
+        const int w = Dine::textWidth (Dine::mono (11.0f, 500), meta);
         Dine::drawText (g, meta, right.removeFromRight (w), juce::Justification::centredRight);
-        right.removeFromRight (4);
+        right.removeFromRight (6);
     }
     g.setColour (fg);
-    g.setFont (Dine::text (12.5f, 500));
+    g.setFont (Dine::text (13.0f, 500));
     Dine::drawText (g, label, right, juce::Justification::centredLeft, true);
 }
 

@@ -138,7 +138,6 @@ const char* RoutingPage::sectionName (Section s) noexcept
     {
         case Section::Device:  return "Audio device";
         case Section::Inputs:  return "Inputs";
-        case Section::Purpose: return "Purpose and sound";
         case Section::Outputs: return "Outputs and monitoring";
         case Section::Maps:    return "Saved input patches";
         case Section::Count:

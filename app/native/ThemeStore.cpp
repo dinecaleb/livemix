@@ -28,6 +28,8 @@ namespace
         { "controlOn",   "Surfaces", "A setting that is on." },
         { "sheet",       "Surfaces", "A modal sheet." },
         { "popover",     "Surfaces", "Menus, tooltips and the HUD." },
+        { "inset",       "Surfaces", "A well inside a card: a stage's own ground." },
+        { "deep",        "Surfaces", "The deepest well: a meter track, an inset display." },
         { "refuse",      "Surfaces", "The ground of a refusal (amber type on it)." },
         { "recGround",   "Surfaces", "A card that is recording or clipping." },
         { "soloGround",  "Surfaces", "A soloed tile." },
@@ -85,28 +87,29 @@ namespace
         return t;
     }
 
-    // The v2 design, exactly as app/ui/AppTheme.h declares it. Every key is present, so this
+    // The v3 design, exactly as app/ui/AppTheme.h declares it. Every key is present, so this
     // is the floor every other theme resolves down to.
     Theme studioTeal()
     {
-        return make ("Studio Teal", "The DLIVE desktop, v2: a deep blue-black desk and one teal spent where it matters.", "", {
-            { "desk", 0xff070809 }, { "window", 0xff0e1014 }, { "toolbar", 0xff13161c }, { "title", 0xff0c0e12 },
-            { "menubar", 0xff0a0c10 }, { "sidebar", 0xff0c0e12 }, { "rail", 0xff13161c }, { "pageBar", 0xff10131a },
-            { "console", 0xff13161c }, { "tile", 0xff10131a }, { "card", 0xff1a1e26 }, { "raised", 0xff1c212b },
-            { "item", 0xff161a22 }, { "selected", 0xff222830 }, { "control", 0xff2a303a }, { "controlHot", 0xff3e4656 },
-            { "controlOn", 0xff4e5664 }, { "sheet", 0xff1a1e26 }, { "popover", 0xff1c212b }, { "refuse", 0xff231d17 },
-            { "recGround", 0xff241618 }, { "soloGround", 0xff222830 }, { "editGround", 0xff15202b },
+        return make ("Studio Teal", "The DLIVE desktop, v3: flat neutral planes and one teal spent where it matters.", "", {
+            { "desk", 0xff0b0b0c }, { "window", 0xff161719 }, { "toolbar", 0xff1d1e21 }, { "title", 0xff1d1e21 },
+            { "menubar", 0xff111214 }, { "sidebar", 0xff1a1b1e }, { "rail", 0xff18191c }, { "pageBar", 0xff161719 },
+            { "console", 0xff18191c }, { "tile", 0xff18191c }, { "card", 0xff202226 }, { "raised", 0xff202226 },
+            { "item", 0xff1c1d20 }, { "selected", 0xff2a2c30 }, { "control", 0xff2b2d31 }, { "controlHot", 0xff35373c },
+            { "controlOn", 0xff44474d }, { "sheet", 0xff202226 }, { "popover", 0xff202226 },
+            { "inset", 0xff151619 }, { "deep", 0xff111214 }, { "refuse", 0xff2a2218 },
+            { "recGround", 0xff2d1f1f }, { "soloGround", 0xff2a2c30 }, { "editGround", 0xff1f2730 },
             { "hairSoft", 0x0fffffff }, { "hair", 0x14ffffff }, { "hairStrong", 0x1fffffff }, { "edge", 0x33ffffff },
             { "fill", 0x1effffff }, { "fillHover", 0x2affffff }, { "fillSoft", 0x0fffffff }, { "well", 0x0fffffff },
-            { "ink", 0xfff4f5f7 }, { "ink2", 0xffa8b0bc }, { "ink3", 0xff6b7380 }, { "ink4", 0xff4e5664 },
-            { "glyph", 0xff6b7380 }, { "panMark", 0xff556070 },
-            { "accent", 0xff6db8a8 }, { "accentHover", 0xff8ed0c2 }, { "accentDeep", 0xff5aa393 }, { "onAccent", 0xff070809 },
+            { "ink", 0xfff2f2f4 }, { "ink2", 0xffc2c4c9 }, { "ink3", 0xff9a9da4 }, { "ink4", 0xff74777d },
+            { "glyph", 0xffc2c4c9 }, { "panMark", 0xff74777d },
+            { "accent", 0xff6db8a8 }, { "accentHover", 0xff8ed0c2 }, { "accentDeep", 0xff5aa393 }, { "onAccent", 0xff0b0d10 },
             { "focusRing", 0xff6db8a8 },
-            { "ok", 0xff57b98d }, { "hot", 0xffcbbf6a }, { "warn", 0xffe0a85c }, { "crit", 0xffe06a64 }, { "monitor", 0xff6eafff },
-            { "keyMute", 0xffe0a85c }, { "keySolo", 0xff6db8a8 }, { "keyRec", 0xffe06a64 }, { "keyMon", 0xff6eafff },
+            { "ok", 0xff57b98d }, { "hot", 0xffd8c46a }, { "warn", 0xffe0a85c }, { "crit", 0xfff06a61 }, { "monitor", 0xff6eafff },
+            { "keyMute", 0xffe5534b }, { "keySolo", 0xff6db8a8 }, { "keyRec", 0xffe5534b }, { "keyMon", 0xff6eafff },
             { "keyFx", 0xffc98fb0 },
             { "busDrums", 0xffe09a4b }, { "busBass", 0xff8e80ff }, { "busMusic", 0xff6eafff }, { "busVocals", 0xff57b98d },
-            { "busSpeech", 0xffc98fb0 }, { "busAmbience", 0xffa8b0bc }, { "busMaster", 0xffa8b0bc },
+            { "busSpeech", 0xffc98fb0 }, { "busAmbience", 0xff9a9da4 }, { "busMaster", 0xffc2c4c9 },
             { "busLead", 0xfff07f8f },
         });
     }
@@ -120,7 +123,8 @@ namespace
             { "menubar", 0xff0c0c0c }, { "sidebar", 0xff0f0f0f }, { "rail", 0xff151515 }, { "pageBar", 0xff131313 },
             { "console", 0xff161616 }, { "tile", 0xff131313 }, { "card", 0xff191919 }, { "raised", 0xff1d1d1d },
             { "item", 0xff161616 }, { "selected", 0xff242424 }, { "control", 0xff2b2b2b }, { "controlHot", 0xff3a3a3a },
-            { "controlOn", 0xff4c4c4c }, { "sheet", 0xff191919 }, { "popover", 0xff1d1d1d }, { "refuse", 0xff231d14 },
+            { "controlOn", 0xff4c4c4c }, { "sheet", 0xff191919 }, { "popover", 0xff1d1d1d },
+            { "inset", 0xff0d0d0d }, { "deep", 0xff090909 }, { "refuse", 0xff231d14 },
             { "recGround", 0xff241515 }, { "soloGround", 0xff242424 }, { "editGround", 0xff1c2216 },
             { "ink", 0xfff2f2f2 }, { "ink2", 0xffa3a3a3 }, { "ink3", 0xff707070 }, { "ink4", 0xff4d4d4d },
             { "glyph", 0xff707070 }, { "panMark", 0xff5a5a5a },
@@ -142,7 +146,8 @@ namespace
             { "menubar", 0xff10151c }, { "sidebar", 0xff121820 }, { "rail", 0xff1b232d }, { "pageBar", 0xff18202a },
             { "console", 0xff1b232d }, { "tile", 0xff18202a }, { "card", 0xff222c38 }, { "raised", 0xff25303d },
             { "item", 0xff1e2732 }, { "selected", 0xff2c3745 }, { "control", 0xff35414f }, { "controlHot", 0xff485565 },
-            { "controlOn", 0xff586677 }, { "sheet", 0xff222c38 }, { "popover", 0xff25303d }, { "refuse", 0xff2c261d },
+            { "controlOn", 0xff586677 }, { "sheet", 0xff222c38 }, { "popover", 0xff25303d },
+            { "inset", 0xff121820 }, { "deep", 0xff0e141b }, { "refuse", 0xff2c261d },
             { "recGround", 0xff2c1e21 }, { "soloGround", 0xff2c3745 }, { "editGround", 0xff1e2c3a },
             { "ink", 0xfff5f7fa }, { "ink2", 0xffb1bac7 }, { "ink3", 0xff76818f }, { "ink4", 0xff55606e },
             { "glyph", 0xff76818f }, { "panMark", 0xff5d6a7a },
@@ -161,7 +166,8 @@ namespace
             { "menubar", 0xff0e0c0b }, { "sidebar", 0xff110e0d }, { "rail", 0xff1a1614 }, { "pageBar", 0xff171412 },
             { "console", 0xff1a1614 }, { "tile", 0xff171412 }, { "card", 0xff221d1a }, { "raised", 0xff26201c },
             { "item", 0xff1d1815 }, { "selected", 0xff2c2622 }, { "control", 0xff362e29 }, { "controlHot", 0xff4a403a },
-            { "controlOn", 0xff5b4f48 }, { "sheet", 0xff221d1a }, { "popover", 0xff26201c }, { "refuse", 0xff2a1f14 },
+            { "controlOn", 0xff5b4f48 }, { "sheet", 0xff221d1a }, { "popover", 0xff26201c },
+            { "inset", 0xff110e0d }, { "deep", 0xff0d0b0a }, { "refuse", 0xff2a1f14 },
             { "recGround", 0xff2c1a18 }, { "soloGround", 0xff2c2622 }, { "editGround", 0xff2a2216 },
             { "ink", 0xfff7f3ee }, { "ink2", 0xffbcb1a6 }, { "ink3", 0xff7f7369 }, { "ink4", 0xff5b514a },
             { "glyph", 0xff7f7369 }, { "panMark", 0xff655a52 },
@@ -182,7 +188,8 @@ namespace
             { "menubar", 0xffd9dde3 }, { "sidebar", 0xffdfe3e8 }, { "rail", 0xffe5e8ec }, { "pageBar", 0xffeaecf0 },
             { "console", 0xffe5e8ec }, { "tile", 0xffeaecf0 }, { "card", 0xffffffff }, { "raised", 0xfff7f8fa },
             { "item", 0xfff2f3f5 }, { "selected", 0xffdde2ea }, { "control", 0xffd2d8e0 }, { "controlHot", 0xffc2c9d3 },
-            { "controlOn", 0xffa9b2bf }, { "sheet", 0xffffffff }, { "popover", 0xffffffff }, { "refuse", 0xfff6ecdc },
+            { "controlOn", 0xffa9b2bf }, { "sheet", 0xffffffff }, { "popover", 0xffffffff },
+            { "inset", 0xffeaecf0 }, { "deep", 0xffe3e6ea }, { "refuse", 0xfff6ecdc },
             { "recGround", 0xfff8e2e0 }, { "soloGround", 0xffdde2ea }, { "editGround", 0xffdde9f3 },
             { "hairSoft", 0x0f000000 }, { "hair", 0x14000000 }, { "hairStrong", 0x1f000000 }, { "edge", 0x33000000 },
             { "fill", 0x14000000 }, { "fillHover", 0x22000000 }, { "fillSoft", 0x0a000000 }, { "well", 0x14000000 },

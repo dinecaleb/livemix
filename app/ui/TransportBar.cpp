@@ -5,14 +5,18 @@ namespace livemix
 
 namespace
 {
-    // The pill: 5 px of padding, the five keys 5 px apart, then the clock.
-    constexpr int kKeyW      = 30;
-    constexpr int kKeyH      = 26;
-    constexpr int kKeyGap    = 5;
-    constexpr int kPillPadX  = 8;
-    constexpr int kClusterGap = 10;
+    // The well (design: `Transport v2`, 117:10151): 4 px in on the left, 14 on the right, four
+    // 28 x 28 keys 2 px apart, a divider, then the clock. Loop is not a transport key in v3 -
+    // it is a button on the TRACKS tool row, where the loop it sets is drawn.
+    constexpr int kKeyW      = 28;
+    constexpr int kKeyH      = 28;
+    constexpr int kKeyGap    = 2;
+    constexpr int kPadLeft   = 4;
+    constexpr int kPadRight  = 14;
+    constexpr int kClusterGap = 6;
+    constexpr int kNumKeys   = 4;
 
-    int keysWidth() { return kKeyW * 5 + kKeyGap * 4; }
+    int keysWidth() { return kKeyW * kNumKeys + kKeyGap * (kNumKeys - 1); }
 
     // The length beside the clock, the way the design writes it: hh:mm:ss.t
     juce::String shortTime (double seconds)
@@ -46,17 +50,20 @@ public:
     {
         auto r = getLocalBounds().toFloat();
         const bool lit = active;
-        juce::Colour ground = down ? Dine::controlOn : over ? Dine::controlHot : Dine::control;
-        if (lit) ground = glyph == Glyph::Record ? Dine::crit : Dine::accent;
-        if (! isEnabled()) ground = ground.withAlpha (0.5f);
-        Dine::fillRounded (g, r, ground, Dine::Radius::control);
+        // Flat inside the well until the key is doing something: then a quiet plane, and the
+        // record ground while a take is being written.
+        if (lit)        Dine::fillRounded (g, r, glyph == Glyph::Record ? Dine::recGround : Dine::selected, Dine::Radius::control);
+        else if (down)  Dine::fillRounded (g, r, Dine::selected, Dine::Radius::control);
+        else if (over)  Dine::fillRounded (g, r, Dine::control, Dine::Radius::control);
 
-        juce::Colour ink = lit ? Dine::onAccent : over ? Dine::ink : Dine::ink2;
-        if (glyph == Glyph::Record && ! lit) ink = Dine::crit;
+        juce::Colour ink = lit ? (glyph == Glyph::Record ? Dine::keyRec : Dine::accent)
+                               : over ? Dine::ink : Dine::ink2;
+        if (glyph == Glyph::Record && ! lit) ink = Dine::keyRec;
         if (! isEnabled()) ink = ink.withAlpha (0.5f);
 
+        // One glyph family, all filled, all drawn in a 12 pt box at the same weight.
         auto c = r.getCentre();
-        const float s = 5.0f;
+        const float s = 6.0f;
         g.setColour (ink);
 
         switch (glyph)
@@ -64,37 +71,39 @@ public:
             case Glyph::Play:
                 if (paused)
                 {
-                    g.fillRect (juce::Rectangle<float> (2.4f, s * 2.0f).withCentre ({ c.x - 2.6f, c.y }));
-                    g.fillRect (juce::Rectangle<float> (2.4f, s * 2.0f).withCentre ({ c.x + 2.6f, c.y }));
+                    g.fillRect (juce::Rectangle<float> (2.6f, s * 1.7f).withCentre ({ c.x - 2.8f, c.y }));
+                    g.fillRect (juce::Rectangle<float> (2.6f, s * 1.7f).withCentre ({ c.x + 2.8f, c.y }));
                 }
                 else
                 {
+                    // nudged 1 pt right so a triangle sits optically centred
                     juce::Path p;
-                    p.addTriangle (c.x - s * 0.7f, c.y - s, c.x - s * 0.7f, c.y + s, c.x + s * 0.9f, c.y);
+                    p.addTriangle (c.x - s * 0.55f + 1.0f, c.y - s * 0.85f, c.x - s * 0.55f + 1.0f, c.y + s * 0.85f,
+                                   c.x + s * 0.85f + 1.0f, c.y);
                     g.fillPath (p);
                 }
                 break;
             case Glyph::Stop:
-                g.fillRect (juce::Rectangle<float> (s * 1.7f, s * 1.7f).withCentre (c));
+                g.fillRect (juce::Rectangle<float> (s * 1.5f, s * 1.5f).withCentre (c));
                 break;
             case Glyph::Record:
-                g.fillEllipse (juce::Rectangle<float> (s * 1.8f, s * 1.8f).withCentre (c));
+                g.fillEllipse (juce::Rectangle<float> (s * 1.7f, s * 1.7f).withCentre (c));
                 break;
             case Glyph::Start:
             {
                 juce::Path p;
-                p.addTriangle (c.x + s * 0.9f, c.y - s, c.x + s * 0.9f, c.y + s, c.x - s * 0.4f, c.y);
+                p.addTriangle (c.x + s * 0.85f, c.y - s * 0.85f, c.x + s * 0.85f, c.y + s * 0.85f, c.x - s * 0.35f, c.y);
                 g.fillPath (p);
-                g.fillRect (juce::Rectangle<float> (1.8f, s * 2.0f).withCentre ({ c.x - s * 0.9f, c.y }));
+                g.fillRect (juce::Rectangle<float> (2.0f, s * 1.7f).withCentre ({ c.x - s * 0.85f, c.y }));
                 break;
             }
             case Glyph::Loop:
             {
                 juce::Path p;
-                p.addCentredArc (c.x, c.y, s * 0.95f, s * 0.95f, 0.0f, 0.55f, juce::MathConstants<float>::twoPi - 0.35f, true);
-                g.strokePath (p, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                p.addCentredArc (c.x, c.y, s * 0.85f, s * 0.85f, 0.0f, 0.55f, juce::MathConstants<float>::twoPi - 0.35f, true);
+                g.strokePath (p, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
                 juce::Path arrow;
-                arrow.addTriangle (c.x + s * 0.55f, c.y - s * 1.35f, c.x + s * 1.2f, c.y - s * 0.55f, c.x + s * 0.2f, c.y - s * 0.55f);
+                arrow.addTriangle (c.x + s * 0.5f, c.y - s * 1.25f, c.x + s * 1.1f, c.y - s * 0.5f, c.x + s * 0.15f, c.y - s * 0.5f);
                 g.fillPath (arrow);
                 break;
             }
@@ -117,13 +126,11 @@ TransportBar::TransportBar (MixController& c, AppServices& s) : controller (c), 
     make (stopButton, TransportButton::Glyph::Stop, "Stop (Space)");
     make (playButton, TransportButton::Glyph::Play, "Play (Space)");
     make (recordButton, TransportButton::Glyph::Record, "Record: captures every track with its R key on (R)");
-    make (loopButton, TransportButton::Glyph::Loop, "Loop the marked range (L)");
 
     startButton->onClick = [this] { returnToStart(); };
     playButton->onClick = [this] { togglePlay(); };
     stopButton->onClick = [this] { if (services.daw().getTransport().isPlaying()) togglePlay(); };
     recordButton->onClick = [this] { toggleRecord(); };
-    loopButton->onClick = [this] { toggleLoop(); };
     setOpaque (false);
 }
 
@@ -212,7 +219,6 @@ void TransportBar::refresh()
     playButton->setActive (nowPlaying && ! nowRecording);
     playButton->setPaused (nowPlaying);
     recordButton->setActive (nowRecording);
-    loopButton->setActive (nowLooping);
 
     const auto err = daw.getRecorder().getError();
     if (err.isNotEmpty() && nowRecording)
@@ -243,33 +249,41 @@ void TransportBar::refresh()
 // ---------------------------------------------------------------- measurement
 int TransportBar::clockCellWidth() const
 {
-    return Dine::textWidth (Dine::mono (16.0f, 500).withExtraKerningFactor (0.04f), "00:00:00.0") + 8;
+    return Dine::textWidth (Dine::mono (17.0f, 500), "00:00:00.0") + 2;
 }
 
 int TransportBar::lengthCellWidth() const
 {
-    return Dine::textWidth (Dine::mono (11.0f), "/ 00:00:00.0") + 8;
+    return Dine::textWidth (Dine::mono (11.0f), "/ 00:00:00.0") + 10;
 }
 
 int TransportBar::idealWidth() const
 {
-    return kPillPadX * 2 + keysWidth() + kClusterGap + clockCellWidth() + lengthCellWidth() + 4;
+    return kPadLeft + keysWidth() + kClusterGap + 1 + kClusterGap + clockCellWidth() + lengthCellWidth() + kPadRight;
 }
 
 int TransportBar::minimumWidth() const
 {
-    return kPillPadX * 2 + keysWidth() + kClusterGap + clockCellWidth();
+    return kPadLeft + keysWidth() + kClusterGap + 1 + kClusterGap + clockCellWidth() + kPadRight;
 }
 
-int TransportBar::keysOnlyWidth() const { return kPillPadX * 2 + keysWidth(); }
+int TransportBar::keysOnlyWidth() const { return kPadLeft + keysWidth() + kPadRight; }
 
 // ---------------------------------------------------------------- paint
 void TransportBar::paint (juce::Graphics& g)
 {
-    Dine::fillRounded (g, getLocalBounds().toFloat(), Dine::menubar, Dine::Radius::card);
+    auto r = getLocalBounds().toFloat();
+    Dine::fillRounded (g, r, Dine::menubar, Dine::Radius::well);
+    Dine::hairlineRounded (g, r.reduced (0.5f), Dine::hair, Dine::Radius::well);
     if (! showClock) return;
-    g.setColour (recording ? Dine::crit : Dine::ink);
-    g.setFont (Dine::mono (16.0f, 500).withExtraKerningFactor (0.04f));
+    if (! divider.isEmpty())
+    {
+        g.setColour (Dine::hair);
+        g.fillRect (divider);
+    }
+    // The clock turns red while a take is being written.
+    g.setColour (recording ? Dine::keyRec : Dine::ink);
+    g.setFont (Dine::mono (17.0f, 500));
     Dine::drawText (g, timeText, timeCell, juce::Justification::centredLeft);
     if (showLength)
     {
@@ -281,7 +295,7 @@ void TransportBar::paint (juce::Graphics& g)
 
 void TransportBar::resized()
 {
-    auto r = getLocalBounds().reduced (kPillPadX, 0);
+    auto r = getLocalBounds().withTrimmedLeft (kPadLeft).withTrimmedRight (kPadRight);
     auto keys = r.removeFromLeft (keysWidth()).withSizeKeepingCentre (keysWidth(), kKeyH);
     keysWell = keys;
     auto place = [&keys] (juce::Component& c, int w)
@@ -293,14 +307,15 @@ void TransportBar::resized()
     place (*stopButton, kKeyW);
     place (*playButton, kKeyW);
     place (*recordButton, kKeyW);
-    place (*loopButton, kKeyW);
 
     r.removeFromLeft (kClusterGap);
-    showLength = r.getWidth() >= clockCellWidth() + lengthCellWidth();
-    showClock = r.getWidth() >= clockCellWidth();
-    if (! showClock) { clockWell = timeCell = lengthCell = {}; return; }
+    showLength = r.getWidth() >= 1 + kClusterGap + clockCellWidth() + lengthCellWidth();
+    showClock = r.getWidth() >= 1 + kClusterGap + clockCellWidth();
+    if (! showClock) { divider = clockWell = timeCell = lengthCell = {}; return; }
+    divider = r.removeFromLeft (1).withSizeKeepingCentre (1, 20);
+    r.removeFromLeft (kClusterGap);
     clockWell = r;
-    timeCell = r.removeFromLeft (clockCellWidth()).withTrimmedTop (1);
+    timeCell = r.removeFromLeft (clockCellWidth());
     lengthCell = r.withTrimmedTop (3);
 }
 

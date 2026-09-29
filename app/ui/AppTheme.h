@@ -15,70 +15,71 @@ namespace livemix
 {
 
 // ---------------------------------------------------------------------------
-// The DLIVE look, v2 (the Claude Design file "DLIVE Desktop v2", 2026-09-17).
+// The DLIVE look, v3 (the Figma file "DLIVE - Full UX Mockup", page `v3 - Screens`, 2026-09-29).
+// docs/DESIGN-V3.md is the map from that file to this code; read it before moving anything.
 //
-// The desk is a deep blue-black (#070809) and the application sits on it as one rounded
-// panel (#0e1014). Every surface is a flat plane a few levels apart - there are no
-// gradients, no glows and no outlines: the hierarchy is carried by value, by radius and by
-// type. The accent is a teal (#6db8a8) spent on the primary action, the active workspace,
-// what is selected or soloed, what DLIVE tuned, and the meters. The console keys keep their
-// own colours (record red, monitoring blue, mute amber, solo teal) so a key says which key
-// it is before it says it is on.
+// Flat planes a few values apart, one hairline between them, no gradients and no glow. The
+// window is macOS-shaped: the traffic lights sit *inside* the one 52 pt toolbar, the sidebar is
+// a source list in sentence case, and the only capitals in the product are the verbs. The accent
+// is the same teal (#6db8a8) and it is spent on the primary action, what is on, what is selected
+// or soloed, what TUNE MIX did, and the meters. The console keys keep their own colours so a key
+// says which key it is before it says it is on.
 //
-// Type is Barlow for everything a person reads and IBM Plex Mono for every number - both
-// embedded, so a booth Mac with no fonts installed reads exactly like the design.
+// Type is Inter for every word and IBM Plex Mono for every number - both embedded, so a booth Mac
+// with no fonts installed reads exactly like the design.
 //
-// These tokens belong to the application; the plug-in keeps `Tokens` in src/UI.
+// These tokens belong to the application; the plug-ins keep `Tokens` in src/UI and stay on Barlow.
 //
-// THEMES (2026-09-17). The values below are the design's - "Studio Teal", the default - and
-// they are the tokens' *initial* values, not constants: a theme (`app/native/ThemeStore`, a
-// named table of the same colours) is written into them by `Dine::applyTheme`, and every
-// page reads the token at paint time, so one call changes the whole app. Nothing captures a
-// token at construction unless it re-reads it in `lookAndFeelChanged()`, and
-// `Dine::refreshAllWindows()` is what a theme change calls to make that happen. The colour
-// literals still belong here and nowhere else; a theme is the one thing allowed to move them.
+// THEMES. The values below are the design's - "Studio Teal", the default - and they are the
+// tokens' *initial* values, not constants: a theme (`app/native/ThemeStore`, a named table of the
+// same colours) is written into them by `Dine::applyTheme`, and every page reads the token at
+// paint time, so one call changes the whole app. Nothing captures a token at construction unless
+// it re-reads it in `lookAndFeelChanged()`, and `Dine::refreshAllWindows()` is what a theme change
+// calls to make that happen. The colour literals still belong here and nowhere else.
 // ---------------------------------------------------------------------------
 namespace Dine
 {
     // Materials. Named for what they are used for; several share a value on purpose, so a
-    // page that asks for "the rail" and one that asks for "the toolbar" read as one thing.
-    inline juce::Colour desk        { 0xff070809 };   // behind the window, the sidebar ground
-    inline juce::Colour window      { 0xff0e1014 };   // the application panel: every workspace ground
-    inline juce::Colour toolbar     { 0xff13161c };   // the toolbar, the status foot, a side rail
-    inline juce::Colour title       { 0xff0c0e12 };   // the title row under the traffic lights
-    inline juce::Colour menubar     { 0xff0a0c10 };   // the menu row, the transport pill, a segment track
-    inline juce::Colour sidebar     { 0xff0c0e12 };   // the sidebar: the same plane as the title row above it
-    inline juce::Colour rail        { 0xff13161c };   // a panel at the edge of a workspace
-    inline juce::Colour pageBar     { 0xff10131a };   // a workspace's own tool row
-    inline juce::Colour console     { 0xff13161c };   // a console column, a timeline row
-    inline juce::Colour tile        { 0xff10131a };   // a tile inside a workspace (a group, the stage device)
-    inline juce::Colour card        { 0xff1a1e26 };   // a card, a sheet, a selected column
-    inline juce::Colour raised      { 0xff1c212b };   // a row in a list, a popover
-    inline juce::Colour item        { 0xff161a22 };   // a row inside a card
-    inline juce::Colour selected    { 0xff222830 };   // the row or segment that is chosen
-    inline juce::Colour control     { 0xff2a303a };   // a resting button
-    inline juce::Colour controlHot  { 0xff3e4656 };   // ... under the pointer
-    inline juce::Colour controlOn   { 0xff4e5664 };   // a setting that is on (a monitor chip, MONO)
-    inline juce::Colour sheet       { 0xff1a1e26 };   // sheet material
-    inline juce::Colour popover     { 0xff1c212b };   // menus, HUD, tooltips
-    inline juce::Colour refuse      { 0xff231d17 };   // a refusal's ground (amber on it)
-    inline juce::Colour recGround   { 0xff241618 };   // a card that is recording / clipping
-    // A soloed tile, a tuned chip: a lifted neutral plane. Green is not a brand colour, so a chosen or
-    // tuned state is said by the teal lamp / hairline on a neutral ground, never by a green ground.
-    inline juce::Colour soloGround  { 0xff222830 };
-    inline juce::Colour editGround  { 0xff15202b };   // a hand-edited chip
+    // page that asks for "the rail" and one that asks for "the console" read as one thing.
+    inline juce::Colour desk        { 0xff0b0b0c };   // behind the window
+    inline juce::Colour window      { 0xff161719 };   // every workspace ground
+    inline juce::Colour toolbar     { 0xff1d1e21 };   // the one toolbar and the status foot
+    inline juce::Colour title       { 0xff1d1e21 };   // kept as an alias: the title row is the toolbar now
+    inline juce::Colour menubar     { 0xff111214 };   // the transport well, a segment track, an inset display
+    inline juce::Colour sidebar     { 0xff1a1b1e };   // the source list
+    inline juce::Colour rail        { 0xff18191c };   // a panel at the edge of a workspace
+    inline juce::Colour pageBar     { 0xff161719 };   // a workspace's own tool row: the window's own plane
+    inline juce::Colour console     { 0xff18191c };   // a console column, a timeline header
+    inline juce::Colour tile        { 0xff18191c };   // a quiet tile inside a workspace
+    inline juce::Colour card        { 0xff202226 };   // a card, a sheet, a scene
+    inline juce::Colour raised      { 0xff202226 };   // a popover, a lifted row
+    inline juce::Colour item        { 0xff1c1d20 };   // a row inside a card, the timeline ground
+    inline juce::Colour selected    { 0xff2a2c30 };   // the row, segment or strip that is chosen
+    inline juce::Colour control     { 0xff2b2d31 };   // a resting button
+    inline juce::Colour controlHot  { 0xff35373c };   // ... under the pointer
+    inline juce::Colour controlOn   { 0xff44474d };   // a segment that is on
+    inline juce::Colour sheet       { 0xff202226 };   // sheet material
+    inline juce::Colour popover     { 0xff202226 };   // menus, HUD, tooltips
+    inline juce::Colour inset       { 0xff151619 };   // a well inside a card: the stage's own ground
+    inline juce::Colour deep        { 0xff111214 };   // the deepest well: a meter track, an inset display
+    inline juce::Colour refuse      { 0xff2a2218 };   // a refusal's ground, and LIVE SAFE's card (amber on it)
+    inline juce::Colour recGround   { 0xff2d1f1f };   // a card or a key that is recording / clipping
+    // A soloed strip, a tuned chip: a lifted neutral plane. Green is not a brand colour, so a chosen
+    // or tuned state is said by the teal lamp / hairline on a neutral ground, never by a green ground.
+    inline juce::Colour soloGround  { 0xff2a2c30 };
+    inline juce::Colour editGround  { 0xff1f2730 };   // a hand-edited chip, Autopilot's card
 
-    // Kept for the few callers that name them; the v2 surfaces are flat, so they are the
+    // Kept for the few callers that name them; the v3 surfaces are flat, so they are the
     // flat value the band used to ramp to.
-    inline juce::Colour chromeTop   { 0xff13161c };
-    inline juce::Colour headerTop   { 0xff10131a };
-    inline juce::Colour footTop     { 0xff13161c };
-    inline juce::Colour footBottom  { 0xff13161c };
-    inline juce::Colour cardTop     { 0xff1a1e26 };
-    inline juce::Colour cardBottom  { 0xff1a1e26 };
-    inline juce::Colour sheetTop    { 0xff1a1e26 };
-    inline juce::Colour sheetBottom { 0xff1a1e26 };
-    inline juce::Colour railTop     { 0xff13161c };
+    inline juce::Colour chromeTop   { 0xff1d1e21 };
+    inline juce::Colour headerTop   { 0xff161719 };
+    inline juce::Colour footTop     { 0xff1d1e21 };
+    inline juce::Colour footBottom  { 0xff1d1e21 };
+    inline juce::Colour cardTop     { 0xff202226 };
+    inline juce::Colour cardBottom  { 0xff202226 };
+    inline juce::Colour sheetTop    { 0xff202226 };
+    inline juce::Colour sheetBottom { 0xff202226 };
+    inline juce::Colour railTop     { 0xff18191c };
     inline juce::Colour accentTopLit{ 0xff6db8a8 };
     inline juce::Colour accentBotLit{ 0xff6db8a8 };
 
@@ -93,12 +94,12 @@ namespace Dine
     inline juce::Colour well        { 0x0fffffff };   // meter wells, slider tracks: .06 of white
 
     // Ink.
-    inline juce::Colour ink         { 0xfff4f5f7 };
-    inline juce::Colour ink2        { 0xffa8b0bc };
-    inline juce::Colour ink3        { 0xff6b7380 };
-    inline juce::Colour ink4        { 0xff4e5664 };
-    inline juce::Colour glyph       { 0xff6b7380 };   // resting icon
-    inline juce::Colour panMark     { 0xff556070 };   // the centre mark of a balance, a resting radio
+    inline juce::Colour ink         { 0xfff2f2f4 };
+    inline juce::Colour ink2        { 0xffc2c4c9 };
+    inline juce::Colour ink3        { 0xff9a9da4 };
+    inline juce::Colour ink4        { 0xff74777d };
+    inline juce::Colour glyph       { 0xffc2c4c9 };   // a resting icon reads as body ink in v3
+    inline juce::Colour panMark     { 0xff74777d };   // the centre mark of a balance, a resting radio
 
     // Roles.
     inline juce::Colour accent      { 0xff6db8a8 };
@@ -106,16 +107,16 @@ namespace Dine
     inline juce::Colour accentDeep  { 0xff5aa393 };   // pressed
     inline juce::Colour accentTop   { 0xff6db8a8 };
     inline juce::Colour accentBottom{ 0xff6db8a8 };
-    inline juce::Colour onAccent    { 0xff070809 };   // an accent button carries near-black type
+    inline juce::Colour onAccent    { 0xff0b0d10 };   // an accent button carries near-black type
     inline juce::Colour ok          { 0xff57b98d };
-    inline juce::Colour hot         { 0xffcbbf6a };   // the meter's middle band
-    inline juce::Colour warn        { 0xffe0a85c };
-    inline juce::Colour crit        { 0xffe06a64 };
+    inline juce::Colour hot         { 0xffd8c46a };   // the meter's middle band, DIM and BYPASS when lit
+    inline juce::Colour warn        { 0xffe0a85c };   // LIVE SAFE, and the one amber control
+    inline juce::Colour crit        { 0xfff06a61 };
 
     // The console keys keep their own colours.
-    inline juce::Colour keyMute     { 0xffe0a85c };
+    inline juce::Colour keyMute     { 0xffe5534b };
     inline juce::Colour keySolo     { 0xff6db8a8 };
-    inline juce::Colour keyRec      { 0xffe06a64 };
+    inline juce::Colour keyRec      { 0xffe5534b };
     inline juce::Colour keyMon      { 0xff6eafff };
     inline juce::Colour keyFx       { 0xffc98fb0 };
     inline juce::Colour monitor     { 0xff6eafff };   // the engineer's own ears
@@ -129,47 +130,54 @@ namespace Dine
     // a member of the band's family - it is what everything else is set against.
     inline juce::Colour busLead     { 0xfff07f8f };
     inline juce::Colour busSpeech   { 0xffc98fb0 };
-    inline juce::Colour busAmbience { 0xffa8b0bc };
-    inline juce::Colour busMaster   { 0xffa8b0bc };
+    inline juce::Colour busAmbience { 0xff9a9da4 };
+    inline juce::Colour busMaster   { 0xffc2c4c9 };
 
     inline juce::Colour focusRing   { 0xff6db8a8 };
     inline constexpr float    disabled    = 0.38f;
 
     // Corners: 12 for the window, 10 for a card or tile, 8 for a control, 6 for a chip.
+    // Corners: 12 the window, 10 a card or sheet, 8 the transport well and a stage well,
+    // 6 a control, chip, segment or sidebar row, 4 a broadcast key.
     namespace Radius
     {
         inline constexpr float window  = 12.0f;
         inline constexpr float card    = 10.0f;
-        inline constexpr float control = 8.0f;
+        inline constexpr float well    = 8.0f;
+        inline constexpr float control = 6.0f;
         inline constexpr float chip    = 6.0f;
         inline constexpr float pill    = 6.0f;
+        inline constexpr float key     = 4.0f;   // DIM / MUTE / BYPASS / AUTOPILOT
     }
 
     namespace Metric
     {
-        inline constexpr int titleRow  = 52;    // the document row: the sidebar switch, the session, the counts
-        inline constexpr int toolbar   = 56;    // the transport, the tabs, BYPASS / LIVE SAFE / the output
-        inline constexpr int sidebar   = 184;   // LIBRARY / SET-UP / WORKSPACE, and the device along the foot
-        inline constexpr int railHandle= 17;    // what a closed sidebar leaves behind
-        inline constexpr int header    = 46;    // a workspace's own tool row
-        inline constexpr int status    = 50;    // the status foot
-        inline constexpr int chainFoot = 48;    // the picked-out channel's chain, under every workspace
+        inline constexpr int toolbar   = 52;    // the one row: lights, sidebar switch, transport, the right cluster
+        inline constexpr int titleRow  = 0;     // there is no separate title row in v3
+        inline constexpr int sidebar   = 208;   // Library / Workspace / Safety / Setup, the device along the foot
+        inline constexpr int sidebarRail = 52;  // what a folded sidebar becomes: the icons, still reachable
+        inline constexpr int railHandle= 52;    // kept as an alias of the above
+        inline constexpr int header    = 40;    // a workspace's own tool row
+        inline constexpr int status    = 28;    // the status foot
+        inline constexpr int chainFoot = 44;    // the picked-out channel's chain, under every workspace
         inline constexpr int onAir     = 2;
-        inline constexpr int chanRail  = 200;   // a workspace's own channel list
-        inline constexpr int tuneRail  = 198;
-        inline constexpr int trail     = 280;   // WHAT DLIVE DID
+        inline constexpr int chanRail  = 180;   // the Inspector's channel list
+        inline constexpr int tuneRail  = 198;   // TUNE's input rail
+        inline constexpr int trail     = 280;   // WHAT DLIVE DID / TUNE's right column
         inline constexpr int setupNav  = 212;
-        inline constexpr int footer    = 52;
+        inline constexpr int footer    = 28;
         inline constexpr int rail      = 198;
-        inline constexpr int setupRail = 340;   // the column beside a setup page (WHAT IS ARRIVING)
-        inline constexpr int padX      = 24;
-        inline constexpr int padY      = 22;
+        inline constexpr int setupRail = 340;
+        inline constexpr int padX      = 40;    // a full-width page's gutter
+        inline constexpr int padY      = 26;
+        inline constexpr int gutter    = 24;    // the gutter between a rail and the middle
         inline constexpr int control   = 28;    // segments, chips, popups
-        inline constexpr int button    = 32;    // a standard button
+        inline constexpr int button    = 28;    // a standard button
+        inline constexpr int row       = 28;    // a sidebar row, a list row's key line
         inline constexpr int panelTab  = 15;    // the gutter a folded side panel leaves behind
     }
 
-    // Type: Barlow for words, IBM Plex Mono for numbers. Both embedded.
+    // Type: Inter for words, IBM Plex Mono for numbers. Both embedded.
     juce::Font text (float px, int weight = 400);
     juce::Font mono (float px, int weight = 400);
     // A letterspaced caption: 600, tracked. The design's section labels and key words.
@@ -266,7 +274,11 @@ namespace Dine
     enum class Icon
     {
         None, Drum, Cymbal, Mic, Guitar, Piano, Speech, Room, Fx, Waveform, Sliders,
-        Device, List, Target, Check, Warn, Gear, Play, Refresh, Chevron, UpDown, Dash, Bus, Sidebar, Search, Chat, Shield
+        Device, List, Target, Check, Warn, Gear, Play, Refresh, Chevron, UpDown, Dash, Bus, Sidebar, Search, Chat, Shield,
+        // The v3 set: the sixteen glyphs of the design's `Icon` component (61:9083), drawn from
+        // its own path data in a 16 pt box at a 1.4 pt stroke with round caps and joins.
+        Sessions, DeviceNav, Inputs, Purpose, TracksNav, MixerNav, TuneNav, LiveNav, InspectorNav,
+        Lock, WindowNav, Close, Headphones
     };
     void drawIcon (juce::Graphics&, Icon, juce::Rectangle<float>, juce::Colour, float thickness = 1.4f);
     Icon iconForRole (ChannelRole) noexcept;
@@ -371,12 +383,16 @@ public:
     const juce::String& getValue() const  { return value; }
     // A colour dot before the value (the Outputs sheet's source picker).
     void setDot (juce::Colour c)          { dot = c; repaint(); }
+    // Flat: no plane until the pointer is on it. What the toolbar's output picker is, and any
+    // other picker that sits on chrome rather than inside a form.
+    void setFlat (bool f)                 { if (f != flat) { flat = f; repaint(); } }
     int idealWidth() const;
     void paintButton (juce::Graphics&, bool over, bool down) override;
 
 private:
     juce::String value;
     juce::Colour dot { juce::Colours::transparentBlack };
+    bool flat = false;
 };
 
 // Sidebar row: a label, optionally a leading icon and a trailing meta or tick.
