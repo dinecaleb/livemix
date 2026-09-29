@@ -33,6 +33,8 @@ public:
     std::function<void (const juce::String&)> onToast;
     std::function<void()> onOpenChat;                 // Mix Buddy, from the action column
     std::function<void()> onOpenHistory;              // MIX HISTORY: the whole mix as it was, by name
+    std::function<void()> onOpenCheck;                // CHECK INPUTS: every assigned input and one word about it
+    std::function<void()> onOpenFavourites;           // the favourite mixes a tune can be aimed at
     std::function<void (int strip)> onSelectStrip;    // a row on the rail was picked out
     int selectedStrip() const noexcept { return selectedRow; }
 
@@ -66,6 +68,7 @@ public:
 
 private:
     class GroupTile;
+    class VoiceRow;
     class ScopeSheet;
     class ListenSheet;
     class ResultSheet;
@@ -114,7 +117,17 @@ private:
     bool sideShown = true;
     DineButton tuneButton { "TUNE MIX", DineButton::Style::Filled };
     DineButton liveTuneButton { "TUNE LIVE MIX", DineButton::Style::Standard };
-    DineButton referenceButton { "Reference", DineButton::Style::Standard };
+    DineButton referenceButton { "Match to reference", DineButton::Style::Standard };
+    DineButton checkButton { "Check inputs", DineButton::Style::Standard };
+    // WHAT TO TUNE: the whole mix, one group, or the channels picked out. The segment sets it;
+    // TUNE MIX acts on it, and asks *which* group or channels when it has to.
+    std::array<std::unique_ptr<DineButton>, 3> scopeTabs;
+    int wantedScope = 0;
+    // AIM AT: the favourite mix a later tune is fitted to, by name.
+    DineButton aimButton { "Pick a favourite mix", DineButton::Style::Standard };
+    std::vector<std::unique_ptr<VoiceRow>> voiceRows;
+    int builtVoicesFor = -1;
+    void rebuildVoices();
     DineButton chatButton { "Mix Buddy", DineButton::Style::Standard };
     DineButton undoButton { "Undo mix", DineButton::Style::Standard };
     DineButton redoButton { "Redo mix", DineButton::Style::Standard };
@@ -126,7 +139,11 @@ private:
     DineButton raiseButton { "Raise loudness to target", DineButton::Style::Standard };
     DinePopup voicingButton;
     juce::String masterNote;
+    // The three numbers on the master's card, and what they mean.
+    juce::String masterLevelText { "0.0 dB" }, masterLoudText { "not measured yet" }, masterPeakText;
+    bool masterOnTarget = true, masterPeakOver = false;
     bool raisePossible = false;
+    static constexpr int kMasterCardH = 66;
     int health = 0;
     struct PageLook
     {

@@ -322,9 +322,12 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         { "appearance", [&] { view.showThemes(); } },
         { "chat",       [&] { view.showChat(); } },
         { "channel",    [&] { view.tuneChannel (0); } },
-        // TUNE asks what to tune before it tunes anything. It is the workspace's own sheet
+        // TUNE asks *which* group or channels before it tunes them - the whole mix needs
+        // nothing more said about it, so that one starts. It is the workspace's own sheet
         // rather than the window's, and Escape means the same thing over it.
-        { "tunescope",  [&] { view.showPage (MainView::Page::Tune); view.getMixPage().pressTune(); } },
+        { "tunescope",  [&] { view.showPage (MainView::Page::Tune);
+                              view.getMixPage().setScopeForSnapshot (1, -1);
+                              view.getMixPage().pressTune(); } },
     };
 
     for (const auto& sheet : sheets)

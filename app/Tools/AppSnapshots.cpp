@@ -1029,16 +1029,19 @@ int main (int argc, char** argv)
     // that was not.
     {
         auto& mix = view.getMixPage();
-        mix.pressTune();
-        rig.feed (0.2);
-        rig.snap (dir, "07e-tune-scope-mix");
         mix.setScopeForSnapshot (1, -1);
+        mix.pressTune();
         rig.feed (0.2);
         rig.snap (dir, "07f-tune-scope-group");
         mix.setScopeForSnapshot (2, -1);
         rig.feed (0.2);
         rig.snap (dir, "07g-tune-scope-channels");
-        mix.pressTune();        // the picker is a toggle: this puts it away
+        mix.setScopeForSnapshot (0, -1);
+        rig.feed (0.2);
+        rig.snap (dir, "07e-tune-scope-mix");
+        mix.closeScopeSheet();
+        mix.setScopeForSnapshot (0, -1);
+        rig.controller.abortTuneMix();
         rig.feed (0.2);
     }
 

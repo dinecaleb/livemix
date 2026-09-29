@@ -1401,22 +1401,14 @@ void TracksPage::paintRuler (juce::Graphics& g)
     g.setColour (Dine::pageBar);
     g.fillRect (all);
 
-    // The header column of the ruler says what the lane beside it holds.
+    // The header column of the ruler stays empty: the design leaves it so, and how many
+    // tracks are set to record is on the status foot, where it is true from every workspace.
     {
         auto cell = juce::Rectangle<int> (0, all.getY(), headerWidth, all.getHeight());
-        g.setColour (Dine::toolbar);
+        g.setColour (Dine::console);
         g.fillRect (cell);
-        const auto& project = services.daw().getProject();
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::caps (11.0f, 0.08f, 500));
-        auto text = cell.reduced (14, 0);
-        Dine::drawText (g, "MARKERS", text, juce::Justification::centredLeft);
-        if (project.numArmed() > 0)
-        {
-            g.setColour (Dine::crit);
-            g.setFont (Dine::mono (10.0f, 500));
-            Dine::drawText (g, juce::String (project.numArmed()) + " TO RECORD", text, juce::Justification::centredRight, true);
-        }
+        g.setColour (Dine::hair);
+        g.fillRect (cell.removeFromRight (1));
     }
 
     juce::Graphics::ScopedSaveState save (g);
@@ -1687,7 +1679,7 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
     if (state.clips.empty() && state.armed)
     {
         g.setColour (Dine::crit.withAlpha (0.55f));
-        g.setFont (Dine::caps (10.0f, 0.08f));
+        g.setFont (Dine::caps (10.0f, 0.04f, 600));
         Dine::drawText (g, "TO RECORD", area.reduced (12, 0).withWidth (96), juce::Justification::centredLeft);
     }
 }
