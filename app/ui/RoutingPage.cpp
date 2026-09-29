@@ -6,7 +6,6 @@ namespace livemix
 
 namespace
 {
-    constexpr int kNavW    = Dine::Metric::setupNav;   // the section list down the left
     constexpr int kPadX    = 26;
     constexpr int kPadY    = 22;
     constexpr int kHeadH   = 58;
@@ -93,13 +92,6 @@ private:
 // ------------------------------------------------------------------ RoutingPage
 RoutingPage::RoutingPage (MixController& c, AppServices& s) : controller (c), services (s)
 {
-    for (int i = 0; i < int (Section::Count); ++i)
-    {
-        nav[size_t (i)] = std::make_unique<DineNavItem> (sectionName (Section (i)));
-        nav[size_t (i)]->onClick = [this, i] { setSection (Section (i)); if (onSection) onSection (Section (i)); };
-        addAndMakeVisible (*nav[size_t (i)]);
-    }
-
     outputs = std::make_unique<OutputsSheet> (controller, services);
     outputs->setEmbedded (true);
     outputs->onToast = [this] (const juce::String& t) { if (onToast) onToast (t); };
@@ -127,6 +119,16 @@ RoutingPage::RoutingPage (MixController& c, AppServices& s) : controller (c), se
     };
     addChildComponent (unlockButton);
 
+    // The sections are a segmented control at the top right of the page, over whatever page is
+    // hosted (design: `02 - Audio device`, 70:9274). They are added last so they stay on top.
+    addAndMakeVisible (segments);
+    for (int i = 0; i < int (Section::Count); ++i)
+    {
+        nav[size_t (i)] = std::make_unique<DineChip> (sectionName (Section (i)));
+        nav[size_t (i)]->onClick = [this, i] { setSection (Section (i)); if (onSection) onSection (Section (i)); };
+        segments.addAndMakeVisible (*nav[size_t (i)]);
+    }
+
     setSection (Section::Device);
 }
 
@@ -138,8 +140,10 @@ const char* RoutingPage::sectionName (Section s) noexcept
     {
         case Section::Device:  return "Audio device";
         case Section::Inputs:  return "Inputs";
-        case Section::Outputs: return "Outputs and monitoring";
-        case Section::Maps:    return "Saved input patches";
+        case Section::Outputs: return "Outputs";
+        // The design draws three sections; the patches a church saves are a fourth, because they
+        // are in the inventory and nothing else on this workspace is a home for them.
+        case Section::Maps:    return "Patches";
         case Section::Count:
         default:               return "?";
     }
@@ -150,7 +154,7 @@ void RoutingPage::setSection (Section s)
     section = s;
     coverShown = isCovered();
     for (int i = 0; i < int (Section::Count); ++i)
-        nav[size_t (i)]->setSelected (i == int (s));
+        nav[size_t (i)]->setToggleState (i == int (s), juce::dontSendNotification);
 
     const bool covered = isCovered();
     outputs->setVisible (s == Section::Outputs && ! covered);
@@ -197,78 +201,67 @@ void RoutingPage::refresh()
         const auto device = services.currentInputDevice();
         if (device != lastDevice) { lastDevice = device; rebuildMaps(); }
     }
-    for (int i = 0; i < int (Section::Count); ++i)
-    {
-        juce::String meta;
-        switch (Section (i))
-        {
-            case Section::Device:  meta = services.isAudioRunning() ? juce::String (Glyph::check()) : juce::String(); break;
-            case Section::Inputs:  meta = controller.getSession().inputs.empty()
-                                             ? juce::String() : juce::String (int (controller.getSession().inputs.size())); break;
-            case Section::Outputs: meta = juce::String (juce::jmax (1, controller.getOutputFeeds().count)); break;
-            case Section::Maps:    meta = maps.isEmpty() ? juce::String() : juce::String (maps.size()); break;
-            default: break;
-        }
-        nav[size_t (i)]->setMeta (meta);
-    }
 }
 
-// The three hosted pages carry their own title and their own sentence - saying "Audio device"
+// The two hosted pages carry their own title and their own sentence - saying "Audio device"
 // twice, once above the other, is what a shell does when it does not trust the thing inside
 // it. So the head is only drawn over the two sections ROUTING owns.
+// The hosted pages draw their own title in the same band the sections sit in, so ROUTING
+// never takes a strip of its own off the top of them.
 int RoutingPage::headHeight() const noexcept { return hostsAPage() ? 0 : kHeadH; }
+
+namespace { constexpr int kSegTop = 34; }
 
 juce::Rectangle<int> RoutingPage::contentBounds() const
 {
     if (isCovered()) return {};        // nothing is reachable until somebody says they mean it
-    return getLocalBounds().withTrimmedLeft (kNavW).withTrimmedTop (headHeight());
+    return getLocalBounds();
+}
+
+// The window owns DevicePage and AssignPage; they live inside this workspace so the section
+// control sits over them rather than behind them.
+void RoutingPage::host (juce::Component& page)
+{
+    addChildComponent (page);
+    segments.toFront (false);
 }
 
 void RoutingPage::paint (juce::Graphics& g)
 {
     g.fillAll (Dine::window);
 
-    // the section list
-    auto navArea = getLocalBounds().removeFromLeft (kNavW);
-    Dine::drawPanelGround (g, navArea);
-    g.setColour (Dine::hair);
-    g.fillRect (navArea.removeFromRight (1));
-    Dine::drawCaption (g, { kPadX / 2 + 8, kPadY, kNavW - 24, 14 }, "SET-UP AND ROUTING");
-
     // the head over the two sections ROUTING owns; the hosted pages carry their own
     if (headHeight() > 0)
     {
-        auto head = getLocalBounds().withTrimmedLeft (kNavW).removeFromTop (headHeight()).reduced (kPadX, 0);
-        auto title = head.withSizeKeepingCentre (head.getWidth(), 40);
+        auto r = getLocalBounds().reduced (Dine::Metric::padX, 0);
+        r.removeFromTop (kSegTop);
+        auto head = r.removeFromTop (28);
+        head.removeFromRight (juce::jmax (0, getWidth() - Dine::Metric::padX - segments.getX()) + 16);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (18.0f, 600));
-        const juce::String name (sectionName (section));
-        const int nameW = Dine::textWidth (Dine::text (18.0f, 600), name);
-        Dine::drawText (g, name, title.removeFromLeft (nameW), juce::Justification::centredLeft);
-        title.removeFromLeft (16);
+        g.setFont (Dine::text (22.0f, 600));
+        Dine::drawText (g, sectionName (section), head, juce::Justification::centredLeft, true);
+        r.removeFromTop (2);
         g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.5f));
+        g.setFont (Dine::text (13.0f));
         Dine::drawText (g, section == Section::Outputs
-                               ? "Where the mix leaves this Mac, and where the engineer listens. Monitoring only: "
+                               ? "Send the mix, or one group, to another pair of outputs as well. Monitoring only: "
                                  "nothing here changes the mix."
                                : "The patches this church has saved. A patch is the inputs and nothing else - never a mix.",
-                        title, juce::Justification::centredLeft, true);
-        g.setColour (Dine::hair);
-        g.fillRect (getLocalBounds().withTrimmedLeft (kNavW).removeFromTop (headHeight()).removeFromBottom (1));
+                        r.removeFromTop (18), juce::Justification::centredLeft, true);
     }
 
     if (isCovered())
     {
-        auto r = getLocalBounds().withTrimmedLeft (kNavW).withTrimmedTop (headHeight()).reduced (kPadX, kPadY);
-        auto card = r.withHeight (juce::jmin (r.getHeight(), 168));
+        auto r = getLocalBounds().reduced (Dine::Metric::padX, 0).withTrimmedTop (kSegTop + 28 + 2 + 18 + 24);
+        auto card = r.withHeight (juce::jmin (r.getHeight(), 168)).withWidth (juce::jmin (r.getWidth(), 720));
         Dine::drawCard (g, card.toFloat(), Dine::refuse, Dine::warn);
         auto in = card.reduced (24, 22);
         g.setColour (Dine::warn);
-        g.setFont (Dine::caps (11.5f, 0.10f));
+        g.setFont (Dine::caps (11.0f, 0.04f, 600));
         Dine::drawText (g, "LIVE SAFE IS ON", in.removeFromTop (14), juce::Justification::centredLeft);
         in.removeFromTop (10);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (14.0f));
+        g.setFont (Dine::text (13.0f));
         Dine::drawFittedText (g, "The device, the patch and the output feeds are the three ways to silence a room in the "
                                  "middle of a service. Nothing on this screen can be changed until you say you mean it, "
                                  "and it locks itself again when you leave.",
@@ -279,31 +272,38 @@ void RoutingPage::paint (juce::Graphics& g)
 
     if (section == Section::Maps && maps.isEmpty())
     {
-        auto r = getLocalBounds().withTrimmedLeft (kNavW).withTrimmedTop (headHeight()).reduced (kPadX, kPadY);
+        auto r = getLocalBounds().reduced (Dine::Metric::padX, 0).withTrimmedTop (kSegTop + 28 + 2 + 18 + 24);
         r.removeFromBottom (Dine::Metric::button + 14);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
         Dine::drawFittedText (g, "No patches saved yet. A church patches the same desk the same way every Sunday; save "
                                  "this session's patch once and every later session starts from it.",
-                              r.removeFromTop (60), juce::Justification::topLeft, 3);
+                              r.removeFromTop (60).withWidth (juce::jmin (620, r.getWidth())), juce::Justification::topLeft, 3);
     }
 }
 
 void RoutingPage::resized()
 {
-    auto navArea = getLocalBounds().removeFromLeft (kNavW).reduced (8, 0);
-    navArea.removeFromTop (kPadY + 14 + 10);
-    for (auto& item : nav)
+    // the sections, right to left, level with the page's title
+    if (nav[0] != nullptr)
     {
-        item->setBounds (navArea.removeFromTop (34));
-        navArea.removeFromTop (2);
+        auto row = getLocalBounds().reduced (Dine::Metric::padX, 0).removeFromTop (kSegTop + 28).removeFromBottom (28);
+        int total = 0;
+        int widths[size_t (Section::Count)] {};
+        for (size_t i = 0; i < nav.size(); ++i) { widths[i] = juce::jmax (84, nav[i]->idealWidth()); total += widths[i]; }
+        segments.setBounds (row.removeFromRight (total + 4).expanded (0, 2));
+        auto track = segments.getLocalBounds().reduced (2, 2);
+        for (size_t i = 0; i < nav.size(); ++i)
+            nav[i]->setBounds (track.removeFromLeft (widths[i]));
     }
 
-    auto body = getLocalBounds().withTrimmedLeft (kNavW).withTrimmedTop (headHeight()).reduced (kPadX, kPadY);
+    auto body = getLocalBounds().reduced (Dine::Metric::padX, 0)
+                    .withTrimmedTop (kSegTop + 28 + 2 + 18 + 24)
+                    .withTrimmedBottom (Dine::Metric::padY);
 
     if (isCovered())
     {
-        auto card = body.withHeight (juce::jmin (body.getHeight(), 168)).reduced (24, 22);
+        auto card = body.withHeight (juce::jmin (body.getHeight(), 168)).withWidth (juce::jmin (body.getWidth(), 720)).reduced (24, 22);
         const int w = juce::jmax (180, unlockButton.idealWidth());
         unlockButton.setBounds (card.removeFromBottom (Dine::Metric::button).removeFromLeft (w));
         return;

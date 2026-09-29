@@ -891,11 +891,14 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     // its LIVE SAFE cover rather than under them.
     addChildComponent (*routingPage);
     for (juce::Component* p : { (juce::Component*) sessionsPage.get(), (juce::Component*) favouritesPage.get(),
-                                (juce::Component*) devicePage.get(), (juce::Component*) assignPage.get(),
                                 (juce::Component*) purposePage.get(), (juce::Component*) tracksPage.get(),
                                 (juce::Component*) mixerPage.get(), (juce::Component*) mixPage.get(),
                                 (juce::Component*) livePage.get(), (juce::Component*) advancedPage.get() })
         addChildComponent (*p);
+    // The device and the patch are sections of ROUTING, so they are its children: its section
+    // control sits at the top right of the page, over them.
+    routingPage->host (*devicePage);
+    routingPage->host (*assignPage);
     addChildComponent (*transportBar);
 
     // The chain along the foot belongs to the window now: one strip under every workspace.
@@ -997,6 +1000,8 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
 
     favouritesPage->onToast = [this] (const juce::String& t) { showToast (t); };
     sessionsPage->onNew = [this] { newSession(); };
+    sessionsPage->onOpenFile = [this] { openSession(); };
+    sessionsPage->onImportFolder = [this] { importMultitrack(); };
     sessionsPage->onOpen = [this] (const juce::File& file)
     {
         const auto err = services.loadSession (file);
@@ -2588,12 +2593,9 @@ void MainView::resized()
     if (routingPage != nullptr)
     {
         routingPage->setBounds (content);
-        const auto inner = routingPage->contentBounds().translated (content.getX(), content.getY());
+        const auto inner = routingPage->contentBounds();
         for (juce::Component* p : { (juce::Component*) devicePage.get(), (juce::Component*) assignPage.get() })
-        {
             p->setBounds (inner);
-            if (p->isVisible()) p->toFront (false);
-        }
     }
 
     // A sheet covers the workspace column; the chat is a panel down the right of it.

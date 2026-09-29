@@ -467,6 +467,16 @@ private:
     juce::Colour dot;
 };
 
+// A row of segments in its own track. The track is a plane, so the row can sit over another
+// page (the ROUTING sections sit over the page they host) rather than being painted by a
+// parent the page covers up.
+class DineSegmentRow : public juce::Component
+{
+public:
+    DineSegmentRow() { setInterceptsMouseClicks (false, true); }
+    void paint (juce::Graphics&) override;
+};
+
 // The 28x16 switch used for stereo pairs.
 class DineSwitch : public juce::Button
 {

@@ -110,20 +110,23 @@ namespace
         return t.formatted ("%d %b");
     }
 
-    constexpr int kHead = 58, kToolbar = 46, kGutter = 24;
+    // The v3 rhythm every set-up page shares: 34 above the title, the title 28, 2, the one
+    // sentence 18, then 31 to the tool row and 21 from it to whatever the page is about.
+    constexpr int kTopPad = 34, kHead = 48, kToolbar = 30, kHeadGap = 31, kToolGap = 21, kGutter = 24;
+    constexpr int kFooterH = Dine::Metric::button + Dine::Metric::padY;
 }
 
 // ============================================================================ the shared shape
 SetupLayout SetupLayout::of (juce::Rectangle<int> page, bool withToolbar, bool withRail)
 {
     SetupLayout L;
-    L.footer = page.removeFromBottom (Dine::Metric::footer);
+    L.footer = page.removeFromBottom (kFooterH);
     auto r = page.reduced (Dine::Metric::padX, 0);
-    r.removeFromTop (22);
+    r.removeFromTop (kTopPad);
     L.head = r.removeFromTop (kHead);
+    r.removeFromTop (kHeadGap);
     L.toolbar = withToolbar ? r.removeFromTop (kToolbar) : juce::Rectangle<int>();
-    if (! withToolbar) r.removeFromTop (14);
-    r.removeFromBottom (14);
+    r.removeFromTop (withToolbar ? kToolGap : 0);
     if (withRail && r.getWidth() > Dine::Metric::setupRail + 420)
     {
         L.rail = r.removeFromRight (Dine::Metric::setupRail);
@@ -136,27 +139,32 @@ SetupLayout SetupLayout::of (juce::Rectangle<int> page, bool withToolbar, bool w
 void drawSetupHead (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& title, const juce::String& sentence)
 {
     g.setColour (Dine::ink);
-    g.setFont (Dine::text (20.0f, 600));
-    Dine::drawText (g, title, r.removeFromTop (26), juce::Justification::centredLeft);
-    r.removeFromTop (6);
+    g.setFont (Dine::text (22.0f, 600));
+    Dine::drawText (g, title, r.removeFromTop (28), juce::Justification::centredLeft, true);
+    r.removeFromTop (2);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (13.0f));
-    Dine::drawFittedText (g, sentence, r.removeFromTop (20).withWidth (juce::jmin (r.getWidth(), 620)), juce::Justification::topLeft, 1);
+    Dine::drawFittedText (g, sentence, r.removeFromTop (18).withWidth (juce::jmin (r.getWidth(), 760)), juce::Justification::topLeft, 1);
 }
 
 void drawSetupFooter (juce::Graphics& g, juce::Rectangle<int> page, const juce::String& note, int reservedRight)
 {
-    auto footer = page.removeFromBottom (Dine::Metric::footer);
+    auto footer = page.removeFromBottom (kFooterH).removeFromTop (Dine::Metric::button);
     if (note.isEmpty()) return;
     auto r = footer.reduced (Dine::Metric::padX, 0);
     r.removeFromRight (reservedRight + 12);
-    g.setColour (Dine::ink4);
-    g.setFont (Dine::text (12.5f));
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (12.0f));
     Dine::drawText (g, note, r, juce::Justification::centredRight, true);
 }
 
 // ============================================================================ SessionsPage
 
+// A session, as the design draws it (`01 - Sessions`, 70:9051): a lamp, the name, then one
+// line saying what it is and what it was for, with when it was last saved at the right. The
+// stacked bar of how its inputs fall across the groups sits before that date - the design left
+// it out, and it is the one thing on this screen that says at a glance what kind of service a
+// session was, so it stays.
 class SessionsPage::Row : public juce::Button
 {
 public:
@@ -171,66 +179,80 @@ public:
         if (const auto* it = page.selectedItem(); it != nullptr && page.onOpen) page.onOpen (it->listing.file);
     }
 
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (! e.mods.isPopupMenu()) { juce::Button::mouseDown (e); return; }
+        page.select (index);
+        const auto file = page.items[size_t (index)].listing.file;
+        juce::PopupMenu m;
+        m.addItem (1, "Open");
+        m.addItem (2, "Show in Finder");
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+                         [this, file] (int r)
+                         {
+                             if (r == 1 && page.onOpen) page.onOpen (file);
+                             else if (r == 2) file.revealToUser();
+                         });
+    }
+
     void paintButton (juce::Graphics& g, bool over, bool) override
     {
         const auto& it = page.items[size_t (index)];
         const bool on = getToggleState();
-        auto b = getLocalBounds().withTrimmedBottom (8);
-        Dine::fillRounded (g, b.toFloat(), on ? Dine::selected : over ? Dine::raised : Dine::card, Dine::Radius::card);
+        auto b = getLocalBounds().withTrimmedBottom (4);
+        if (on)        Dine::fillRounded (g, b.toFloat(), Dine::selected, Dine::Radius::control);
+        else if (over) Dine::fillRounded (g, b.toFloat(), Dine::item, Dine::Radius::control);
 
-        auto r = b.reduced (16, 0);
+        auto r = b.reduced (12, 0);
         auto when = r.removeFromRight (kWhenW);
-        r.removeFromRight (20);
-        auto bars = r.removeFromRight (260);
-        r.removeFromRight (20);
+        r.removeFromRight (16);
+        auto bars = r.getWidth() > 620 ? r.removeFromRight (200) : juce::Rectangle<int>();
+        if (! bars.isEmpty()) r.removeFromRight (20);
 
-        // the name and what it was for
-        auto text = r.withSizeKeepingCentre (r.getWidth(), 40);
+        // the lamp: green while this is the session on screen, quiet otherwise
+        auto lamp = r.removeFromLeft (8).withSizeKeepingCentre (7, 7);
+        g.setColour (it.open ? Dine::accent : it.summary.valid ? Dine::ok : Dine::warn);
+        g.fillEllipse (lamp.toFloat());
+        r.removeFromLeft (12);
+
+        auto text = r.withSizeKeepingCentre (r.getWidth(), 38);
         auto name = text.removeFromTop (18);
-        const juce::String tag = it.open ? "Open" : it.listing.file.getFileName().endsWithIgnoreCase (".dinelive.json") ? "Older name" : juce::String();
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (15.0f));
-        const int nameW = juce::jmin (Dine::textWidth (Dine::text (15.0f), it.listing.name), name.getWidth() - (tag.isEmpty() ? 0 : 70));
-        Dine::drawText (g, it.listing.name, name.removeFromLeft (nameW), juce::Justification::centredLeft, true);
-        if (tag.isNotEmpty())
+        g.setFont (Dine::text (14.0f, 600));
+        Dine::drawText (g, it.listing.name, name, juce::Justification::centredLeft, true);
+        text.removeFromTop (2);
+
+        // what it is, in one line: inputs, takes, purpose, sound
+        juce::StringArray parts;
+        if (it.summary.valid)
         {
-            name.removeFromLeft (8);
-            const int w = Dine::textWidth (Dine::caps (9.0f, 0.06f, 500), tag.toUpperCase()) + 14;
-            Dine::drawStatusChip (g, name.removeFromLeft (w).withSizeKeepingCentre (w, 16).toFloat(), tag.toUpperCase(),
-                                  tag == "Open" ? Dine::accent : Dine::monitor);
+            parts.add (juce::String (it.summary.inputs) + (it.summary.inputs == 1 ? " input" : " inputs"));
+            if (it.summary.tracks > 0) parts.add (juce::String (it.summary.tracks) + (it.summary.tracks == 1 ? " track" : " tracks"));
+            parts.add (mixPurposeName (it.summary.purpose));
+            parts.add (styleProfileName (it.summary.profile));
         }
-        text.removeFromTop (5);
+        else parts.add ("Not a DLIVE session");
         g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.5f));
-        Dine::drawText (g, it.summary.valid ? juce::String (styleProfileName (it.summary.profile)) + "  " + Glyph::dot() + "  "
-                                           + juce::String (mixPurposeName (it.summary.purpose)) + "  " + Glyph::dot() + "  "
-                                           + page.folderText (it.listing.file)
-                                     : juce::String ("Not a DLIVE session"),
-                    text, juce::Justification::centredLeft, true);
+        g.setFont (Dine::text (12.0f));
+        Dine::drawText (g, parts.joinIntoString ("  " + juce::String (Glyph::dot()) + "  "), text,
+                        juce::Justification::centredLeft, true);
 
         // how its inputs fall across the groups
-        auto barArea = bars.withSizeKeepingCentre (bars.getWidth(), 8 + 7 + 14);
-        std::vector<Dine::BarSlice> slices;
-        const float total = juce::jmax (1.0f, float (it.summary.inputs));
-        for (int bus = 0; bus < int (MixBus::Master); ++bus)
-            slices.push_back ({ float (it.summary.perBus[size_t (bus)]) / total, busColour (MixBus (bus)) });
-        Dine::drawStackedBar (g, barArea.removeFromTop (8), slices);
-        barArea.removeFromTop (7);
-        int groupsUsed = 0;
-        for (int bus = 0; bus < int (MixBus::Master); ++bus) if (it.summary.perBus[size_t (bus)] > 0) ++groupsUsed;
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::text (12.0f));
-        Dine::drawText (g, it.summary.valid ? juce::String (it.summary.inputs) + " inputs across " + juce::String (groupsUsed) + " groups"
-                                     + (it.summary.tracks > 0 ? "  " + Glyph::dot() + "  " + juce::String (it.summary.tracks) + " tracks recorded" : juce::String())
-                                     : juce::String (Glyph::dash()),
-                    barArea, juce::Justification::centredLeft, true);
+        if (! bars.isEmpty() && it.summary.valid)
+        {
+            std::vector<Dine::BarSlice> slices;
+            const float total = juce::jmax (1.0f, float (it.summary.inputs));
+            for (int bus = 0; bus < int (MixBus::Master); ++bus)
+                slices.push_back ({ float (it.summary.perBus[size_t (bus)]) / total, busColour (MixBus (bus)) });
+            Dine::drawStackedBar (g, bars.withSizeKeepingCentre (bars.getWidth(), 5), slices);
+        }
 
         g.setColour (Dine::ink3);
-        g.setFont (Dine::text (13.0f));
+        g.setFont (Dine::mono (11.0f, 500));
         Dine::drawText (g, it.when, when, juce::Justification::centredRight, true);
     }
 
-    static constexpr int kSoundW = 140, kPurposeW = 130, kCountW = 56, kWhenW = 120;
+    static constexpr int kWhenW = 96;
 
     SessionsPage& page;
     int index;
@@ -249,34 +271,34 @@ SessionsPage::SessionsPage (MixController& c, AppServices& s) : controller (c), 
     search.setIndents (24, 0);
     search.setBorder (juce::BorderSize<int> (0));
     Dine::styleTextEditor (search, Dine::control);
-    search.setTextToShowWhenEmpty ("Search sessions", Dine::ink4);
-    search.setIndents (12, 0);
+    search.setTextToShowWhenEmpty ("Search sessions", Dine::ink3);
+    search.setIndents (34, 0);
     search.onTextChange = [this] { rebuild(); };
     addAndMakeVisible (search);
 
-    const char* names[3] = { "All", "Recent", "Templates" };
-    for (int i = 0; i < 3; ++i)
+    const char* names[2] = { "Recent", "Templates" };
+    for (int i = 0; i < 2; ++i)
     {
         chips[size_t (i)] = std::make_unique<DineChip> (names[i]);
-        chips[size_t (i)]->onClick = [this, i] { filter = i; rebuild(); };
+        chips[size_t (i)]->onClick = [this, i] { filter = (filter == i ? -1 : i); rebuild(); };
         addAndMakeVisible (*chips[size_t (i)]);
     }
+    filter = -1;   // everything, until a chip is pressed
 
     addAndMakeVisible (newButton);
     addAndMakeVisible (openButton);
-    addAndMakeVisible (revealButton);
+    addAndMakeVisible (importButton);
     newButton.setCaps (false);
     openButton.setCaps (false);
+    importButton.setCaps (false);
     newButton.setTooltip ("Start from nothing: pick the device, name the inputs, then tune.");
     newButton.onClick = [this] { if (onNew) onNew(); };
-    openButton.onClick = [this]
-    {
-        if (const auto* it = selectedItem(); it != nullptr && onOpen) onOpen (it->listing.file);
-    };
-    revealButton.onClick = [this]
-    {
-        if (const auto* it = selectedItem()) it->listing.file.revealToUser();
-    };
+    openButton.setButtonText ("Open" + juce::String (Glyph::ellip()));
+    openButton.setTooltip ("Open a session from anywhere on this Mac.");
+    openButton.onClick = [this] { if (onOpenFile) onOpenFile(); };
+    importButton.setTooltip ("A folder of stems becomes a session: one track per file, named and assigned.");
+    importButton.onClick = [this] { if (onImportFolder) onImportFolder(); };
+    setWantsKeyboardFocus (true);
     refresh();
 }
 
@@ -313,8 +335,8 @@ void SessionsPage::rebuild()
     for (int i = 0; i < int (items.size()); ++i)
     {
         const auto& it = items[size_t (i)];
-        if (filter == 1 && juce::Time::getCurrentTime().toMilliseconds() - it.listing.modified.toMilliseconds() > 7LL * 24 * 3600 * 1000) continue;
-        if (filter == 2 && ! it.listing.name.containsIgnoreCase ("template")) continue;
+        if (filter == 0 && juce::Time::getCurrentTime().toMilliseconds() - it.listing.modified.toMilliseconds() > 7LL * 24 * 3600 * 1000) continue;
+        if (filter == 1 && ! it.listing.name.containsIgnoreCase ("template")) continue;
         if (q.isNotEmpty()
             && ! it.listing.name.toLowerCase().contains (q)
             && ! juce::String (styleProfileName (it.summary.profile)).toLowerCase().contains (q)
@@ -334,10 +356,7 @@ void SessionsPage::rebuild()
         listHolder.addAndMakeVisible (*row);
         rows.push_back (std::move (row));
     }
-    for (int i = 0; i < 3; ++i) chips[size_t (i)]->setToggleState (filter == i, juce::dontSendNotification);
-    const bool any = selectedItem() != nullptr;
-    openButton.setEnabled (any);
-    revealButton.setEnabled (any);
+    for (int i = 0; i < 2; ++i) chips[size_t (i)]->setToggleState (filter == i, juce::dontSendNotification);
     resized();
     repaint();
 }
@@ -346,8 +365,6 @@ void SessionsPage::select (int index)
 {
     selected = index;
     for (auto& r : rows) r->setToggleState (r->index == selected, juce::dontSendNotification);
-    openButton.setEnabled (selectedItem() != nullptr);
-    revealButton.setEnabled (selectedItem() != nullptr);
     repaint();
 }
 
@@ -366,119 +383,186 @@ const SessionsPage::Item* SessionsPage::selectedItem() const
     return &items[size_t (selected)];
 }
 
+// The library, as the design lays it out (`01 - Sessions`, 70:9051): the title and its one
+// sentence, the three actions at the right, a filter and a search under them, then the rows.
+// There is no bar along the foot: a session is opened by double-clicking it, by Return, or
+// from its own right-click menu, and the note under the list says where to start from nothing.
 void SessionsPage::paint (juce::Graphics& g)
 {
     g.fillAll (Dine::window);
-    const auto L = SetupLayout::of (getLocalBounds(), true, false);
+    auto r = getLocalBounds().reduced (Dine::Metric::padX, 0);
+    r.removeFromTop (34);
 
-    auto head = L.head;
-    head.removeFromRight (juce::jmax (0, getWidth() - search.getX()) + 10);
-    drawSetupHead (g, head, "Library", "Opening a session puts its inputs, groups and tune back exactly as they were.");
+    auto head = r.removeFromTop (28);
+    head.removeFromRight (juce::jmax (0, getRight() - Dine::Metric::padX - openButton.getX()) + 16);
+    g.setColour (Dine::ink);
+    g.setFont (Dine::text (22.0f, 600));
+    Dine::drawText (g, "Sessions", head, juce::Justification::centredLeft, true);
+    r.removeFromTop (2);
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (13.0f));
+    Dine::drawText (g, "Sessions live in ~/Music/DLIVE. The audio stays in its own folder.",
+                    r.removeFromTop (18), juce::Justification::centredLeft, true);
 
+    // the filter track behind the two chips
     if (chips[0] != nullptr)
     {
         auto track = chips[0]->getBounds();
-        for (int i = 1; i < 3; ++i) track = track.getUnion (chips[size_t (i)]->getBounds());
+        for (int i = 1; i < 2; ++i) track = track.getUnion (chips[size_t (i)]->getBounds());
         Dine::drawSegmentTrack (g, track.expanded (2, 2));
     }
-    g.setColour (Dine::ink4);
-    g.setFont (Dine::text (12.5f));
-    Dine::drawText (g, "Sorted by when it was last saved", L.toolbar.withTrimmedRight (2), juce::Justification::centredRight, true);
+
+    // the glyph inside the search field
+    Dine::drawIcon (g, Dine::Icon::Sessions,
+                    juce::Rectangle<int> (search.getX() + 10, search.getY(), 16, search.getHeight())
+                        .toFloat().withSizeKeepingCentre (16.0f, 16.0f), Dine::ink3);
+
+    auto sorted = juce::Rectangle<int> (r.getX(), search.getBottom() + 16, r.getWidth(), 16);
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (11.0f, 500));
+    Dine::drawText (g, "Sorted by when it was last saved", sorted, juce::Justification::centredLeft, true);
 
     if (shown.empty())
     {
-        auto empty = L.main.reduced (30, 40).removeFromTop (90);
+        auto empty = juce::Rectangle<int> (r.getX(), viewport.getY() + 30, juce::jmin (620, r.getWidth()), 70);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (15.0f, 600));
+        g.setFont (Dine::text (14.0f, 600));
         Dine::drawText (g, items.empty() ? "No sessions saved yet" : "Nothing matches that",
-                    empty.removeFromTop (20), juce::Justification::centredTop);
+                        empty.removeFromTop (20), juce::Justification::topLeft);
         empty.removeFromTop (6);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
         Dine::drawFittedText (g, items.empty() ? "Start a new session and it is saved into ~/Music/DLIVE as you work."
-                                        : "Try a different word, or switch the filter back to All.",
-                          empty.removeFromTop (34), juce::Justification::centredTop, 2);
+                                               : "Try a different word, or switch the filter off.",
+                              empty.removeFromTop (34), juce::Justification::topLeft, 2);
+        return;
     }
 
-    drawSetupFooter (g, getLocalBounds(), items.empty() ? juce::String ("Sessions live in ~/Music/DLIVE. The audio stays in its own folder.")
-                                                        : juce::String (items.size()) + (items.size() == 1 ? " session" : " sessions")
-                                                              + " in your library  " + Glyph::dot() + "  ~/Music/DLIVE",
-                     openButton.getWidth() + revealButton.getWidth() + 10);
+    // the note under the list
+    auto note = juce::Rectangle<int> (r.getX(), viewport.getBottom() + 14, r.getWidth(), 18);
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (13.0f));
+    Dine::drawText (g, "Start from nothing: pick the device, name the inputs, then tune.", note,
+                    juce::Justification::centredLeft, true);
+}
+
+bool SessionsPage::keyPressed (const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::returnKey)
+    {
+        if (const auto* it = selectedItem(); it != nullptr && onOpen) { onOpen (it->listing.file); return true; }
+    }
+    if (key == juce::KeyPress::upKey || key == juce::KeyPress::downKey)
+    {
+        if (shown.empty()) return false;
+        int at = 0;
+        for (int i = 0; i < int (shown.size()); ++i) if (shown[size_t (i)] == selected) at = i;
+        at = juce::jlimit (0, int (shown.size()) - 1, at + (key == juce::KeyPress::downKey ? 1 : -1));
+        select (shown[size_t (at)]);
+        return true;
+    }
+    return false;
 }
 
 void SessionsPage::resized()
 {
-    const auto L = SetupLayout::of (getLocalBounds(), true, false);
+    auto r = getLocalBounds().reduced (Dine::Metric::padX, 0);
+    r.removeFromTop (34);
 
-    auto head = L.head.withHeight (Dine::Metric::button);
-    const int nw = juce::jmax (110, newButton.idealWidth());
+    // the three actions, right to left, level with the title
+    auto head = r.removeFromTop (28);
+    const int nw = juce::jmax (104, newButton.idealWidth());
     newButton.setBounds (head.removeFromRight (nw));
-    head.removeFromRight (10);
-    search.setBounds (head.removeFromRight (200).withHeight (Dine::Metric::button));
+    head.removeFromRight (8);
+    const int iw = importButton.idealWidth();
+    importButton.setBounds (head.removeFromRight (iw));
+    head.removeFromRight (8);
+    const int ow = juce::jmax (72, openButton.idealWidth());
+    openButton.setBounds (head.removeFromRight (ow));
 
-    auto chipRow = L.toolbar.withSizeKeepingCentre (L.toolbar.getWidth(), Dine::Metric::control);
+    r.removeFromTop (2 + 18);
+    r.removeFromTop (27);
+
+    // the filter and the search share one row
+    auto row = r.removeFromTop (30);
+    search.setBounds (row.removeFromRight (juce::jmin (280, row.getWidth() / 3)));
+    auto chipRow = row.withSizeKeepingCentre (row.getWidth(), Dine::Metric::control);
     int x = chipRow.getX() + 2;
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 2; ++i)
     {
-        const int w = juce::jmax (58, chips[size_t (i)]->idealWidth());
+        const int w = juce::jmax (66, chips[size_t (i)]->idealWidth());
         chips[size_t (i)]->setBounds (x, chipRow.getY() + 2, w, chipRow.getHeight() - 4);
         x += w;
     }
 
-    auto list = L.main;
-    viewport.setBounds (list);
-    const int rowH = 74;
+    r.removeFromTop (16 + 16 + 8);
+    auto list = r.withTrimmedBottom (shown.empty() ? Dine::Metric::padY : 32 + Dine::Metric::padY);
+    // the rows are inset 12 so a lifted plane has room to be a plane
+    viewport.setBounds (list.expanded (12, 0));
+    const int rowH = 56;
     const int total = int (rows.size()) * rowH;
-    listHolder.setSize (list.getWidth() - (total > list.getHeight() ? 10 : 0), juce::jmax (total, list.getHeight()));
+    listHolder.setSize (viewport.getWidth() - (total > list.getHeight() ? 10 : 0), juce::jmax (total, list.getHeight()));
     int y = 0;
-    for (auto& r : rows) { r->setBounds (0, y, listHolder.getWidth(), rowH); y += rowH; }
-
-    auto footer = L.footer.reduced (Dine::Metric::padX, 0);
-    const int ow = juce::jmax (120, openButton.idealWidth());
-    openButton.setBounds (footer.removeFromRight (ow).withSizeKeepingCentre (ow, Dine::Metric::button));
-    footer.removeFromRight (10);
-    const int rw = juce::jmax (120, revealButton.idealWidth());
-    revealButton.setBounds (footer.removeFromRight (rw).withSizeKeepingCentre (rw, Dine::Metric::button));
+    for (auto& rw : rows) { rw->setBounds (0, y, listHolder.getWidth(), rowH); y += rowH; }
 }
 
 // ============================================================================ DevicePage
 
+// A device, as the design draws it (`02 - Audio device`, 70:9274): a lamp, the name, what it
+// carries under it, and "In use" at the right of the one that is open. Chosen lifts to a plane.
 class DevicePage::DeviceRow : public juce::Button
 {
 public:
     DeviceRow (const juce::String& name, int in, int out, bool firstRow, bool isOpen)
         : juce::Button (name), deviceName (name), inputChannels (in), outputChannels (out), first (firstRow), open (isOpen) {}
 
+    void setTransport (const juce::String& t) { transport = t; }
+
     void paintButton (juce::Graphics& g, bool over, bool) override
     {
         const bool on = getToggleState();
-        auto b = getLocalBounds().withTrimmedBottom (8);
-        Dine::fillRounded (g, b.toFloat(), on ? Dine::selected : over ? Dine::raised : Dine::card, Dine::Radius::card);
+        auto b = getLocalBounds().withTrimmedBottom (4);
+        if (on)        Dine::fillRounded (g, b.toFloat(), Dine::selected, Dine::Radius::control);
+        else if (over) Dine::fillRounded (g, b.toFloat(), Dine::item, Dine::Radius::control);
 
-        auto r = b.reduced (14, 0);
-        Dine::drawRadio (g, r.removeFromLeft (14).toFloat(), on);
-        r.removeFromLeft (14);
-
+        auto r = b.reduced (12, 0);
         const bool usable = inputChannels > 0;
-        auto text = r.withSizeKeepingCentre (r.getWidth(), 38);
+        auto lamp = r.removeFromLeft (8).withSizeKeepingCentre (7, 7);
+        g.setColour (open ? Dine::accent : usable ? Dine::ok : Dine::ink4);
+        g.fillEllipse (lamp.toFloat());
+        r.removeFromLeft (12);
+
+        if (open)
+        {
+            const auto font = Dine::mono (11.0f, 500);
+            auto cell = r.removeFromRight (Dine::textWidth (font, "In use"));
+            g.setColour (Dine::ink3);
+            g.setFont (font);
+            Dine::drawText (g, "In use", cell, juce::Justification::centredRight);
+            r.removeFromRight (12);
+        }
+
+        auto text = r.withSizeKeepingCentre (r.getWidth(), 36);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (13.5f));
+        g.setFont (Dine::text (13.0f, 600));
         Dine::drawText (g, deviceName, text.removeFromTop (18), juce::Justification::centredLeft, true);
-        text.removeFromTop (4);
+        juce::StringArray parts;
+        parts.add (juce::String (inputChannels) + " in");
+        parts.add (juce::String (outputChannels) + " out");
+        if (transport.isNotEmpty()) parts.add (transport);
+        if (! usable) parts.add ("output only: nothing comes in this way");
         g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.5f));
-        juce::String meta = juce::String (inputChannels) + " in  " + Glyph::dot() + "  " + juce::String (outputChannels) + " out";
-        if (! usable)  meta += "  " + Glyph::dot() + "  output only: nothing comes in this way";
-        else if (open) meta += "  " + Glyph::dot() + "  open now";
-        Dine::drawText (g, meta, text, juce::Justification::centredLeft, true);
+        g.setFont (Dine::text (11.0f, 500));
+        Dine::drawText (g, parts.joinIntoString ("  " + juce::String (Glyph::dot()) + "  "), text,
+                        juce::Justification::centredLeft, true);
     }
 
-    juce::String deviceName;
+    juce::String deviceName, transport;
     int inputChannels, outputChannels;
     bool first, open;
 };
 
-// The output pair the mix is monitored through: a radio row in the rail.
+// The output pair the mix is monitored through.
 class DevicePage::OutputRow : public juce::Button
 {
 public:
@@ -487,20 +571,23 @@ public:
     void paintButton (juce::Graphics& g, bool over, bool) override
     {
         const bool on = getToggleState();
-        auto b = getLocalBounds().withTrimmedBottom (4);
-        Dine::fillRounded (g, b.toFloat(), on ? Dine::selected : over ? Dine::raised : Dine::card, Dine::Radius::control);
-        auto r = b.reduced (10, 0);
-        Dine::drawRadio (g, r.removeFromLeft (14).toFloat(), on);
-        r.removeFromLeft (10);
-        auto name = r.removeFromTop (r.getHeight() / 2 + 1).withTrimmedTop (4);
+        auto b = getLocalBounds().withTrimmedBottom (2);
+        if (on)        Dine::fillRounded (g, b.toFloat(), Dine::selected, Dine::Radius::control);
+        else if (over) Dine::fillRounded (g, b.toFloat(), Dine::item, Dine::Radius::control);
+        auto r = b.reduced (12, 0);
+        auto lamp = r.removeFromLeft (7).withSizeKeepingCentre (7, 7);
+        g.setColour (on ? Dine::accent : Dine::ink4);
+        g.fillEllipse (lamp.toFloat());
+        r.removeFromLeft (11);
+        auto name = r.removeFromTop (r.getHeight() / 2 + 1).withTrimmedTop (3);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (12.5f));
+        g.setFont (Dine::text (13.0f, on ? 600 : 500));
         Dine::drawText (g, deviceName, name, juce::Justification::centredLeft, true);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::text (11.0f));
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.0f, 500));
         Dine::drawText (g, outputChannels >= 2 ? "Output 1-2  " + Glyph::dot() + "  " + juce::String (outputChannels) + " available"
-                                        : "No stereo pair",
-                    r, juce::Justification::centredLeft, true);
+                                               : "No stereo pair",
+                        r, juce::Justification::centredLeft, true);
     }
 
     juce::String deviceName;
@@ -644,197 +731,246 @@ int DevicePage::liveInputCount() const
 
 SetupLayout DevicePage::layout() const { return SetupLayout::of (getLocalBounds(), false, true); }
 
+// The two columns the design lays this page out in (`02 - Audio device`, 70:9274): the
+// devices and where the sound comes out down the left, what it is running at and what is
+// arriving down the right. Measured once, so paint and resized cannot disagree.
 DevicePage::Column DevicePage::column() const
 {
     Column c;
-    auto main = layout().main;
-    c.listCaption = main.removeFromTop (14);
-    main.removeFromTop (4);
-    const int specH = 4 * 34 + 12;
-    const int below = 20 + 14 + 8 + specH + 18 + 44;
-    c.list = main.removeFromTop (juce::jlimit (74, juce::jmax (74, 6 * 74), juce::jmax (74, main.getHeight() - below)));
-    main.removeFromTop (juce::jmax (20, main.getHeight() - below));
-    c.specCaption = main.removeFromTop (14);
-    main.removeFromTop (8);
-    c.spec = main.removeFromTop (specH);
-    main.removeFromTop (18);
-    c.importCard = main.removeFromTop (44);
+    auto page = getLocalBounds().reduced (Dine::Metric::padX, 0);
+    page.removeFromTop (34 + 28 + 2 + 18 + 26);
+    auto foot = page.removeFromBottom (Dine::Metric::button + Dine::Metric::padY);
+    c.footer = foot.removeFromTop (Dine::Metric::button);
+
+    auto left = page.removeFromLeft ((page.getWidth() - 52) / 2);
+    page.removeFromLeft (52);
+    auto right = page;
+
+    // left: the devices, then where it comes out directly under them
+    c.listCaption = left.removeFromTop (18);
+    left.removeFromTop (8);
+    const int outsH = 18 + 8 + int (outputRows.size()) * 44 + 12 + Dine::Metric::button;
+    const int wanted = juce::jmax (56, int (rows.size()) * 52);
+    c.list = left.removeFromTop (juce::jmin (wanted, juce::jmax (56, left.getHeight() - outsH - 30)));
+    left.removeFromTop (30);
+    c.outCaption = left.removeFromTop (18);
+    left.removeFromTop (8);
+    c.outputs = left.withTrimmedBottom (12);
+
+    // right: what it is running at, then what is arriving
+    c.specCaption = right.removeFromTop (18);
+    right.removeFromTop (8);
+    c.spec = right.removeFromTop (3 * 64);
+    right.removeFromTop (28);
+    c.arrivingCaption = right.removeFromTop (18);
+    right.removeFromTop (8);
+    c.arriving = right;
     return c;
+}
+
+namespace
+{
+    // A caption over a column of this page: sentence case, quiet, the design's `Headline`.
+    void columnCaption (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& text)
+    {
+        g.setColour (Dine::ink2);
+        g.setFont (Dine::text (13.0f, 600));
+        Dine::drawText (g, text, r, juce::Justification::centredLeft, true);
+    }
 }
 
 void DevicePage::paint (juce::Graphics& g)
 {
     g.fillAll (Dine::window);
-    const auto L = layout();
-    const int channels = services.isAudioRunning() ? services.numInputChannels()
+    const auto col = column();
+    const bool running = services.isAudioRunning();
+    const int channels = running ? services.numInputChannels()
                        : selected >= 0 && selected < inputs.size() ? inputs[selected].inputChannels : 0;
 
-    drawSetupHead (g, L.head, "Audio device",
-                   "macOS opens one device at a time. Two at once means an Aggregate Device - DLIVE builds one for solo when it needs to.");
+    // ---- the head. The sections live at the top right of the workspace, so the sentence
+    // stops well short of them.
+    {
+        auto r = getLocalBounds().reduced (Dine::Metric::padX, 0);
+        r.removeFromTop (34);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (22.0f, 600));
+        Dine::drawText (g, "Audio device", r.removeFromTop (28), juce::Justification::centredLeft, true);
+        r.removeFromTop (2);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (13.0f));
+        Dine::drawText (g, "Pick the device your console reaches DLIVE through. Nothing about the mix changes here.",
+                        r.removeFromTop (18).withWidth (juce::jmin (r.getWidth(), 700)), juce::Justification::centredLeft, true);
+    }
 
-    // ---- the device list
-    const auto col = column();
-    Dine::drawSection (g, col.listCaption, "DEVICES ON THIS MACHINE");
+    // ---- the devices
+    columnCaption (g, col.listCaption, "Devices on this machine");
     if (rows.empty())
     {
-        auto r = juce::Rectangle<int> (col.list).withSizeKeepingCentre (col.list.getWidth() - 60, 74);
+        auto r = juce::Rectangle<int> (col.list).removeFromTop (60);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (14.0f, 600));
+        g.setFont (Dine::text (13.0f, 600));
         Dine::drawText (g, "No inputs yet", r.removeFromTop (18), juce::Justification::centredLeft);
         r.removeFromTop (4);
         g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.5f));
-        Dine::drawFittedText (g, "Connect your interface or console and rescan. You can also work from a folder of stems while nothing is plugged in.",
-                          r.removeFromTop (36), juce::Justification::topLeft, 2);
-    }
-
-    // ---- what it is running at
-    Dine::drawSection (g, col.specCaption, "WHAT IT IS RUNNING AT");
-    auto spec = col.spec;
-    Dine::fillRounded (g, spec.toFloat(), Dine::card, Dine::Radius::card);
-    spec = spec.reduced (0, 6);
-    const bool running = services.isAudioRunning();
-    struct Line { juce::String key, value, note; juce::Colour colour; };
-    const Line lines[4] = {
-        { "Sample rate", running ? juce::String (services.sampleRate() / 1000.0, 1) + " kHz" : juce::String ("48.0 kHz"),
-          running ? "Matched to the console" : "Set when the device opens", Dine::ink },
-        { "Buffer", running ? juce::String (services.bufferSize()) + " samples" : juce::String (Glyph::dash()),
-          running ? juce::String (1000.0 * services.bufferSize() / juce::jmax (1.0, services.sampleRate()), 1) + " ms each way"
-                  : juce::String ("The lower it is, the sooner you hear it"), Dine::ink },
-        { "Inputs seen", juce::String (channels), "Channels DLIVE can listen to", channels > 0 ? Dine::accent : Dine::ink3 },
-        { "Dropped buffers", running ? juce::String (services.xrunCount()) : juce::String (Glyph::dash()),
-          services.xrunCount() > 0 ? "Raise the buffer if this keeps climbing" : "Nothing missed",
-          services.xrunCount() > 0 ? Dine::warn : Dine::ink }
-    };
-    for (int i = 0; i < 4; ++i)
-    {
-        auto row = spec.removeFromTop (34);
-        auto r = row.reduced (16, 0);
-        g.setColour (Dine::ink2);
-        g.setFont (Dine::text (12.5f));
-        Dine::drawText (g, lines[i].key, r.removeFromLeft (130), juce::Justification::centredLeft, true);
-        g.setColour (Dine::ink4);
         g.setFont (Dine::text (12.0f));
-        Dine::drawText (g, lines[i].note, r.removeFromRight (juce::jmin (260, r.getWidth() / 2)), juce::Justification::centredRight, true);
-        g.setColour (lines[i].colour);
-        g.setFont (Dine::mono (12.5f, 500));
-        Dine::drawText (g, lines[i].value, r, juce::Justification::centredLeft, true);
+        Dine::drawFittedText (g, "Connect your interface or console and rescan. You can also work from a folder of stems "
+                                 "while nothing is plugged in.",
+                              r.removeFromTop (36), juce::Justification::topLeft, 2);
     }
 
-    // ---- no band in the room
+    // ---- where it comes out
+    columnCaption (g, col.outCaption, "Where it comes out");
+    if (outputRows.empty())
     {
-        auto r = col.importCard;
-        r.removeFromLeft (recordingButton.getWidth() + 14);
         g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.5f));
-        Dine::drawText (g, "No band in the room? A folder of stems becomes tracks and clips, and everything from here works exactly as it does live.",
-                    r, juce::Justification::centredLeft, true);
+        g.setFont (Dine::text (12.0f));
+        Dine::drawText (g, "Nothing to come out of yet.", juce::Rectangle<int> (col.outputs).removeFromTop (18),
+                        juce::Justification::centredLeft, true);
+    }
+
+    // ---- what it is running at: three rows, each a line and its note, with the value at
+    // the right, separated by a hairline rather than boxed in a card.
+    columnCaption (g, col.specCaption, "What it is running at");
+    struct Line { juce::String key, note, value; juce::Colour colour; };
+    const int drops = services.xrunCount();
+    const Line lines[3] = {
+        { "Sample rate", running ? "Matched to the console" : "Set when the device opens",
+          running ? juce::String (services.sampleRate() / 1000.0, 0) + " kHz" : juce::String (Glyph::dash()), Dine::ink },
+        { "Buffer", "The lower it is, the sooner you hear it",
+          running ? juce::String (services.bufferSize()) + " samples  " + Glyph::dot() + "  "
+                        + juce::String (1000.0 * services.bufferSize() / juce::jmax (1.0, services.sampleRate()), 1) + " ms"
+                  : juce::String (Glyph::dash()), Dine::ink },
+        { "Dropped buffers", drops > 0 ? "Raise the buffer if this keeps climbing" : "Nothing missed",
+          running ? juce::String (drops) : juce::String (Glyph::dash()), drops > 0 ? Dine::warn : Dine::ink },
+    };
+    {
+        auto spec = col.spec;
+        for (const auto& line : lines)
+        {
+            auto row = spec.removeFromTop (64);
+            g.setColour (Dine::hair);
+            g.fillRect (row.removeFromBottom (1));
+            auto r = row.withSizeKeepingCentre (row.getWidth(), 36);
+            const auto valueFont = Dine::mono (11.0f, 500);
+            auto value = r.removeFromRight (Dine::textWidth (valueFont, line.value));
+            r.removeFromRight (16);
+            g.setColour (line.colour);
+            g.setFont (valueFont);
+            Dine::drawText (g, line.value, value, juce::Justification::centredRight);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::text (13.0f, 500));
+            Dine::drawText (g, line.key, r.removeFromTop (18), juce::Justification::centredLeft, true);
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (12.0f));
+            Dine::drawText (g, line.note, r, juce::Justification::centredLeft, true);
+        }
+    }
+
+    // ---- what is arriving: two columns of number, name and a bar, the way the design draws
+    // it, so "the console is plugged in but channel 9 is dead" is visible before anything is
+    // named.
+    columnCaption (g, col.arrivingCaption, "What is arriving");
+    {
+        auto area = col.arriving;
+        const int perRow = area.getWidth() >= 440 ? 2 : 1;
+        const int rowH = 26;
+        const int maxRows = juce::jmax (0, (area.getHeight() - 18) / rowH);
+        const int shownMax = maxRows * perRow;
+        const int n = juce::jmin (channels, shownMax);
+        if (n <= 0)
+        {
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (12.0f));
+            Dine::drawFittedText (g, running ? "No inputs on this device."
+                                             : "Press Continue and the meters fill in - your console is untouched.",
+                                  area.removeFromTop (40), juce::Justification::topLeft, 2);
+        }
+        const int colW = perRow == 2 ? (area.getWidth() - 20) / 2 : area.getWidth();
+        const auto& session = controller.getSession();
+        for (int c = 0; c < n; ++c)
+        {
+            const int cx = area.getX() + (c % perRow) * (colW + 20);
+            const int cy = area.getY() + (c / perRow) * rowH;
+            auto row = juce::Rectangle<int> (cx, cy, colW, rowH);
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::mono (10.0f, 500));
+            Dine::drawText (g, juce::String (c + 1).paddedLeft ('0', 2), row.removeFromLeft (22), juce::Justification::centredLeft);
+            row.removeFromLeft (8);
+            const juce::String name = c < int (session.inputs.size()) && ! session.inputs[size_t (c)].name.empty()
+                                          ? juce::String (session.inputs[size_t (c)].name)
+                                          : "In " + juce::String (c + 1);
+            const bool named = c < int (session.inputs.size()) && ! session.inputs[size_t (c)].name.empty();
+            g.setColour (named ? Dine::ink2 : Dine::ink4);
+            g.setFont (Dine::text (12.0f, 500));
+            Dine::drawText (g, name, row.removeFromLeft (juce::jmin (78, row.getWidth() / 3)), juce::Justification::centredLeft, true);
+            row.removeFromLeft (10);
+            const float db = running ? services.daw().inputPeakDb (c) : -120.0f;
+            Dine::fillMeter (g, row.withSizeKeepingCentre (row.getWidth(), 4).toFloat(), DineMeter::norm (db), false, false, 2.0f);
+        }
+        if (channels > n && n > 0)
+        {
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::text (11.0f));
+            Dine::drawText (g, "and " + juce::String (channels - n) + " more",
+                            juce::Rectangle<int> (area.getX(), area.getY() + (n + perRow - 1) / perRow * rowH, area.getWidth(), 16),
+                            juce::Justification::centredLeft);
+        }
     }
 
     if (error.isNotEmpty())
     {
         g.setColour (Dine::crit);
-        g.setFont (Dine::text (12.5f));
-        Dine::drawFittedText (g, error, juce::Rectangle<int> (L.main).removeFromBottom (30), juce::Justification::centredLeft, 2);
+        g.setFont (Dine::text (12.0f));
+        Dine::drawFittedText (g, error, juce::Rectangle<int> (col.footer).withTrimmedRight (280).translated (0, -22),
+                              juce::Justification::centredLeft, 2);
     }
 
-    // ---- the right column: what is arriving, then where it comes out
-    if (! L.rail.isEmpty())
-    {
-        auto rail = L.rail;
-        Dine::drawSection (g, rail.removeFromTop (14), "WHAT IS ARRIVING");
-        rail.removeFromTop (6);
-        const int n = juce::jmin (channels, 16);
-        const int outsH = int (outputRows.size()) * 38 + 14 + 6 + 8 + Dine::Metric::control;
-        auto meters = rail.removeFromTop (juce::jmax (0, rail.getHeight() - outsH - 18));
-        if (n == 0)
-        {
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::text (12.5f));
-            Dine::drawFittedText (g, running ? "No inputs on this device." : "Press Continue and the meters fill in - your console is untouched.",
-                              meters.removeFromTop (40), juce::Justification::topLeft, 2);
-        }
-        for (int c = 0; c < n; ++c)
-        {
-            if (meters.getHeight() < 22) break;
-            auto row = meters.removeFromTop (22);
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::mono (11.0f));
-            Dine::drawText (g, juce::String (c + 1).paddedLeft ('0', 2), row.removeFromLeft (24), juce::Justification::centredLeft);
-            row.removeFromLeft (10);
-            const float db = running ? services.daw().inputPeakDb (c) : -120.0f;
-            auto note = row.removeFromRight (110);
-            row.removeFromRight (10);
-            Dine::fillMeter (g, row.withSizeKeepingCentre (row.getWidth(), 6).toFloat(), DineMeter::norm (db), false, false, 2.0f);
-            const bool faint = running && db <= -54.0f;
-            const bool clip = db > -0.2f;
-            g.setColour (clip ? Dine::crit : Dine::warn);
-            g.setFont (Dine::text (11.0f));
-            Dine::drawText (g, clip ? "clipping" : faint ? "nothing arriving" : juce::String(), note, juce::Justification::centredLeft);
-        }
-        if (channels > 16)
-        {
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::text (11.0f));
-            Dine::drawText (g, "and " + juce::String (channels - 16) + " more", meters.removeFromTop (16), juce::Justification::centredLeft);
-        }
-
-        auto outs = rail.removeFromBottom (outsH);
-        Dine::drawSection (g, outs.removeFromTop (14), "WHERE IT COMES OUT");
-    }
-
-    // "No audio device found" was DLIVE's answer to four different situations, only one of
-    // which was true. DeviceState.h names them, and each carries the sentence that says what
-    // to do about it.
+    // the note along the foot, left of the buttons
     const juce::String note = selected < 0 || selected >= inputs.size()
                                 ? deviceSentence (services.deviceState(), ! inputs.isEmpty())
                             : inputs[selected].inputChannels <= 0 ? juce::String ("Pick a device with inputs to carry on.")
                             : inputs[selected].name + "  " + Glyph::dot() + "  " + juce::String (inputs[selected].inputChannels) + " inputs ready.";
-    drawSetupFooter (g, getLocalBounds(), note, continueButton.getWidth() + backButton.getWidth() + 10);
+    {
+        auto r = col.footer;
+        r.removeFromLeft (rescanButton.getWidth() + recordingButton.getWidth() + 20);
+        r.removeFromRight (continueButton.getWidth() + backButton.getWidth() + 22);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (12.0f));
+        Dine::drawText (g, note, r, juce::Justification::centredRight, true);
+    }
 }
 
 void DevicePage::resized()
 {
-    const auto L = layout();
     const auto col = column();
 
-    viewport.setBounds (col.list);
+    viewport.setBounds (col.list.expanded (12, 0));
     viewport.setVisible (! rows.empty());
-    const int rowH = 74;
+    const int rowH = 52;
     const int total = int (rows.size()) * rowH;
     listHolder.setSize (viewport.getWidth() - (total > viewport.getHeight() ? 10 : 0), juce::jmax (total, viewport.getHeight()));
     int y = 0;
     for (auto& r : rows) { r->setBounds (0, y, listHolder.getWidth(), rowH); y += rowH; }
 
     {
-        const int w = juce::jmax (140, recordingButton.idealWidth());
-        recordingButton.setBounds (juce::Rectangle<int> (col.importCard).removeFromLeft (w).withSizeKeepingCentre (w, Dine::Metric::button));
+        auto outs = col.outputs;
+        for (auto& r : outputRows) r->setBounds (outs.removeFromTop (44).expanded (12, 0));
+        outs.removeFromTop (10);
+        const int w = juce::jmax (110, outputsButton.idealWidth());
+        outputsButton.setBounds (outs.removeFromTop (Dine::Metric::button).removeFromLeft (w));
     }
 
-    if (! L.rail.isEmpty())
-    {
-        auto rail = L.rail;
-        const int outsH = int (outputRows.size()) * 38 + 14 + 6 + 8 + Dine::Metric::control;
-        auto outs = rail.removeFromBottom (outsH);
-        outs.removeFromTop (14 + 6);
-        for (auto& r : outputRows) r->setBounds (outs.removeFromTop (38));
-        outs.removeFromTop (8);
-        outputsButton.setBounds (outs.removeFromTop (Dine::Metric::control));
-    }
-    else
-    {
-        for (auto& r : outputRows) r->setBounds (0, 0, 0, 0);
-        outputsButton.setBounds (0, 0, 0, 0);
-    }
-
-    auto footer = L.footer.reduced (Dine::Metric::padX, 0);
-    const int cw = juce::jmax (110, continueButton.idealWidth());
-    continueButton.setBounds (footer.removeFromRight (cw).withSizeKeepingCentre (cw, Dine::Metric::button));
+    auto footer = col.footer;
+    const int cw = juce::jmax (100, continueButton.idealWidth());
+    continueButton.setBounds (footer.removeFromRight (cw));
     footer.removeFromRight (10);
-    const int bw = juce::jmax (72, backButton.idealWidth());
-    backButton.setBounds (footer.removeFromRight (bw).withSizeKeepingCentre (bw, Dine::Metric::button));
-    const int rw = juce::jmax (130, rescanButton.idealWidth());
-    rescanButton.setBounds (footer.removeFromLeft (rw).withSizeKeepingCentre (rw, Dine::Metric::button));
+    const int bw = juce::jmax (68, backButton.idealWidth());
+    backButton.setBounds (footer.removeFromRight (bw));
+    const int rw = juce::jmax (120, rescanButton.idealWidth());
+    rescanButton.setBounds (footer.removeFromLeft (rw));
+    footer.removeFromLeft (10);
+    const int iw = juce::jmax (140, recordingButton.idealWidth());
+    recordingButton.setBounds (footer.removeFromLeft (iw));
 }
 
 // ============================================================================ AssignPage
@@ -842,19 +978,19 @@ void DevicePage::resized()
 class AssignPage::Row : public juce::Component
 {
 public:
-    void lookAndFeelChanged() override { Dine::styleTextEditor (name, juce::Colours::transparentBlack); }
+    void lookAndFeelChanged() override { Dine::styleTextEditor (name, Dine::control); }
 
     Row (AssignPage& owner, int index) : page (owner), input (index)
     {
         addAndMakeVisible (name);
         name.setFont (Dine::text (13.0f));
         name.setJustification (juce::Justification::centredLeft);
-        name.setIndents (6, 0);
+        name.setIndents (10, 0);
         name.setBorder (juce::BorderSize<int> (0));
-        Dine::styleTextEditor (name, juce::Colours::transparentBlack);
+        Dine::styleTextEditor (name, Dine::control);
         name.setTextToShowWhenEmpty ("Untitled", Dine::ink4);
         name.setSelectAllWhenFocused (true);
-        name.onTextChange = [this] { page.entries[size_t (input)].name = name.getText(); resized(); };
+        name.onTextChange = [this] { page.entries[size_t (input)].name = name.getText(); };
         name.onReturnKey = [this] { name.giveAwayKeyboardFocus(); page.commit(); };
         name.onFocusLost = [this] { page.commit(); };
 
@@ -899,67 +1035,67 @@ public:
         page.toggleSelection (input, e.mods.isShiftDown());
     }
 
+    // Input | Name | What it is | Group | Signal here, in the design's order (`03 - Inputs`,
+    // 70:9496). Rows are separated by a hairline rather than boxed; a picked-out row lifts.
     void paint (juce::Graphics& g) override
     {
         const auto& e = page.entries[size_t (input)];
         const auto bus = e.assigned ? mixBusForRole (e.role) : MixBus::Master;
         const auto tint = e.assigned ? busColour (bus) : Dine::ink4;
-        auto b = getLocalBounds().withTrimmedBottom (3);
-        Dine::fillRounded (g, b.toFloat(), e.selected ? Dine::selected : isMouseOver (true) ? Dine::selected.withAlpha (0.5f) : Dine::raised, Dine::Radius::control);
+        auto b = getLocalBounds();
+        g.setColour (Dine::hair);
+        g.fillRect (b.removeFromBottom (1));
+        if (e.selected)               Dine::fillRounded (g, b.toFloat(), Dine::selected, Dine::Radius::control);
+        else if (isMouseOver (true))  Dine::fillRounded (g, b.toFloat(), Dine::item, Dine::Radius::control);
 
-        auto r = b.reduced (12, 0);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::mono (11.0f));
+        auto r = b.reduced (10, 0);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::mono (11.0f, 500));
         Dine::drawText (g, e.linkedToNext ? juce::String (input + 1) + Glyph::minus() + juce::String (input + 2) : juce::String (input + 1),
-                    r.removeFromLeft (kNumW), juce::Justification::centredLeft);
+                        r.removeFromLeft (kNumW), juce::Justification::centredLeft);
 
         // the signal column: what is arriving on this channel right now
         const float db = page.services.isAudioRunning() ? page.services.daw().inputPeakDb (input) : -120.0f;
-        auto meter = r.removeFromLeft (kSignalW).withSizeKeepingCentre (kSignalW, 6);
+        auto meter = r.removeFromRight (kSignalW).withSizeKeepingCentre (kSignalW, 4);
         Dine::fillMeter (g, meter.toFloat(), DineMeter::norm (db), false, ! e.assigned, 2.0f);
-        r.removeFromLeft (kGap);
-        r.removeFromLeft (kIconW);
-        Dine::drawIcon (g, e.assigned ? Dine::iconFor (e.icon, e.role) : Dine::Icon::Dash,
-                        juce::Rectangle<int> (r.getX() - kIconW, r.getY(), kIconW - 6, r.getHeight()).toFloat().withSizeKeepingCentre (15.0f, 15.0f), tint);
+        r.removeFromRight (kGap);
+        r.removeFromRight (kPairW + kGap);
 
-        // the bus, in its colour, right of the source popup
-        auto right = b.reduced (12, 0);
-        right.removeFromRight (kPairW + kGap);
-        auto busCell = right.removeFromRight (kBusW).withTrimmedLeft (kGap);
+        // the group, in its colour, with a lamp before it
+        auto busCell = r.removeFromRight (kBusW);
+        auto lamp = busCell.removeFromLeft (7).withSizeKeepingCentre (7, 7);
         g.setColour (tint);
-        g.setFont (Dine::caps (11.0f, 0.06f, 500));
-        Dine::drawText (g, e.assigned ? juce::String (mixBusName (bus)).toUpperCase() : "NOT USED", busCell, juce::Justification::centredLeft, true);
+        g.fillEllipse (lamp.toFloat());
+        busCell.removeFromLeft (8);
+        g.setColour (e.assigned ? Dine::ink2 : Dine::ink4);
+        g.setFont (Dine::text (12.0f, 500));
+        Dine::drawText (g, e.assigned ? juce::String (busLabel (bus)) : "Not used", busCell, juce::Justification::centredLeft, true);
 
         // an unassigned input that is carrying signal is worth saying out loud
         if (! e.assigned && db > -54.0f)
         {
-            auto flag = right;
-            flag.removeFromRight (kSourceW + kGap);
             const juce::String text = db > -30.0f ? "SIGNAL HERE" : "FAINT";
-            const int w = Dine::textWidth (Dine::caps (9.0f, 0.06f, 500), text) + 14;
-            if (flag.getWidth() > w + 220)
-                Dine::drawStatusChip (g, flag.removeFromRight (w).withSizeKeepingCentre (w, 16).toFloat(), text, Dine::warn);
+            const int w = Dine::textWidth (Dine::caps (9.0f, 0.04f, 600), text) + 14;
+            auto flag = juce::Rectangle<int> (meter.getX(), b.getY(), w, b.getHeight());
+            if (flag.getRight() < b.getRight())
+                Dine::drawStatusChip (g, flag.withSizeKeepingCentre (w, 16).toFloat(), text, Dine::warn);
         }
     }
 
     void resized() override
     {
-        auto r = getLocalBounds().withTrimmedBottom (3).reduced (12, 0);
-        r.removeFromLeft (kNumW + kSignalW + kGap + kIconW);
-        auto pair = r.removeFromRight (kPairW);
-        link.setBounds (pair.withSizeKeepingCentre (kPairW, 20));
-        r.removeFromRight (kGap);
-        r.removeFromRight (kBusW);
-        source.setBounds (r.removeFromRight (kSourceW).withSizeKeepingCentre (kSourceW, Dine::Metric::control));
-        r.removeFromRight (kGap);
-        // The name takes what is left up to its width; the suggestions chevron sits right after the text, not in the middle of the row.
-        r = r.removeFromLeft (juce::jmin (r.getWidth(), kNameW));
-        const int textW = juce::jlimit (120, r.getWidth() - 24, Dine::textWidth (Dine::text (13.0f), name.getText().isEmpty() ? juce::String ("Untitled") : name.getText()) + 14);
-        name.setBounds (r.removeFromLeft (textW).withSizeKeepingCentre (textW, 22));
-        suggest.setBounds (r.removeFromLeft (20).withSizeKeepingCentre (20, 20));
+        auto r = getLocalBounds().withTrimmedBottom (1).reduced (10, 0);
+        r.removeFromLeft (kNumW);
+        name.setBounds (r.removeFromLeft (kNameW).withSizeKeepingCentre (kNameW, 30));
+        suggest.setBounds (r.removeFromLeft (22).withSizeKeepingCentre (20, 20));
+        r.removeFromLeft (kGap - 6);
+        source.setBounds (r.removeFromLeft (juce::jmin (kSourceW, juce::jmax (100, r.getWidth() - kBusW - kPairW - kSignalW - 3 * kGap)))
+                              .withSizeKeepingCentre (juce::jmin (kSourceW, juce::jmax (100, r.getWidth() - kBusW - kPairW - kSignalW - 3 * kGap)), 30));
+        r.removeFromRight (kSignalW + kGap);
+        link.setBounds (r.removeFromRight (kPairW).withSizeKeepingCentre (kPairW, 20));
     }
 
-    static constexpr int kNumW = 34, kGap = 12, kIconW = 24, kNameW = 230, kSignalW = 70, kSourceW = 200, kPairW = 80, kBusW = 124;
+    static constexpr int kNumW = 52, kGap = 20, kNameW = 200, kSignalW = 200, kSourceW = 210, kPairW = 56, kBusW = 140;
 
     AssignPage& page;
     int input;
@@ -986,15 +1122,15 @@ public:
         g.setColour (colour);
         g.fillEllipse (r.removeFromLeft (7).toFloat().withSizeKeepingCentre (7.0f, 7.0f));
         r.removeFromLeft (8);
-        g.setColour (over ? Dine::ink : Dine::ink4);
-        g.setFont (Dine::caps (9.5f, 0.12f));
-        const int w = Dine::textWidth (Dine::caps (9.5f, 0.12f), name.toUpperCase());
-        Dine::drawText (g, name.toUpperCase(), r.removeFromLeft (w), juce::Justification::centredLeft);
+        g.setColour (over ? Dine::ink : Dine::ink2);
+        g.setFont (Dine::text (12.0f, 600));
+        const int w = Dine::textWidth (Dine::text (12.0f, 600), name);
+        Dine::drawText (g, name, r.removeFromLeft (w), juce::Justification::centredLeft);
         r.removeFromLeft (8);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::mono (10.0f));
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::mono (10.0f, 500));
         Dine::drawText (g, juce::String (n), r.removeFromLeft (24), juce::Justification::centredLeft);
-        g.setColour (Dine::ink4);
+        g.setColour (Dine::ink3);
         g.setFont (Dine::text (11.0f));
         Dine::drawText (g, over ? "Select them all" : unused ? "stays out of the mix" : juce::String(),
                     r, juce::Justification::centredRight, true);
@@ -1049,15 +1185,12 @@ AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), serv
     search.onTextChange = [this] { query = search.getText(); rebuild(); };
     addAndMakeVisible (search);
 
-    // The bus filter: All, then one chip per group in its own colour, then Not used.
-    chips.push_back (std::make_unique<DineChip> ("All"));
+    // The filter the design draws: everything, or only what is still open. One group at a
+    // time is a choice under the list button beside it, so the row keeps its room for the
+    // three things a volunteer actually presses.
+    chips.push_back (std::make_unique<DineChip> ("All inputs"));
     chips.back()->onClick = [this] { busFilter = -2; rebuild(); };
-    for (int b = 0; b < int (MixBus::Master); ++b)
-    {
-        chips.push_back (std::make_unique<DineChip> (busLabel (MixBus (b)), busColour (MixBus (b))));
-        chips.back()->onClick = [this, b] { busFilter = busFilter == b ? -2 : b; rebuild(); };
-    }
-    chips.push_back (std::make_unique<DineChip> ("Not used", juce::Colours::white.withAlpha (0.25f)));
+    chips.push_back (std::make_unique<DineChip> ("Not used"));
     chips.back()->onClick = [this] { busFilter = busFilter == -1 ? -2 : -1; rebuild(); };
     for (auto& c : chips) addAndMakeVisible (*c);
 
@@ -1068,24 +1201,13 @@ AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), serv
     continueButton.setCaps (false);
     groupButton.setIcon (Dine::Icon::List);
     groupButton.setPadX (5);
-    groupButton.setTooltip ("Group the inputs by the bus they feed, or list them in channel order.");
+    groupButton.setTooltip ("Show one group at a time, or group the list by the bus each input feeds.");
     bulkButton.setIcon (Dine::Icon::UpDown);
     kitButton.setIcon (Dine::Icon::UpDown);
     kitButton.setTooltip ("Lay a whole kit down the selection, in order: the first input gets the first source, the next the next.");
     deskLabelsButton.setTooltip ("Every input still without a name takes its channel number, the way it is written on the desk.");
 
-    selectAllButton.onClick = [this]
-    {
-        const bool all = [this]
-        {
-            for (int i = 0; i < numInputs; ++i)
-                if (visible (i) && ! entries[size_t (i)].linkedFromPrevious && ! entries[size_t (i)].selected) return false;
-            return true;
-        }();
-        for (int i = 0; i < numInputs; ++i)
-            if (visible (i) && ! entries[size_t (i)].linkedFromPrevious) entries[size_t (i)].selected = ! all;
-        rebuild();
-    };
+    selectAllButton.onClick = [this] { if (quickButtons[1]->onClick) quickButtons[1]->onClick(); };
     deskLabelsButton.onClick = [this]
     {
         for (int i = 0; i < numInputs; ++i)
@@ -1094,11 +1216,30 @@ AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), serv
         commit();
         rebuild();
     };
-    groupButton.onClick = [this] { grouped = ! grouped; rebuild(); };
+    groupButton.onClick = [this]
+    {
+        juce::PopupMenu m;
+        m.addItem (1, "Every input", true, busFilter == -2);
+        for (int b = 0; b < int (MixBus::Master); ++b)
+            m.addItem (10 + b, juce::String ("Only ") + busLabel (MixBus (b)), true, busFilter == b);
+        m.addSeparator();
+        m.addItem (2, grouped ? "Show one flat list" : "Group by the bus each input feeds", true, grouped);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&groupButton).withMinimumWidth (220),
+                         [this] (int r)
+                         {
+                             if (r == 1) busFilter = -2;
+                             else if (r == 2) grouped = ! grouped;
+                             else if (r >= 10) busFilter = r - 10;
+                             else return;
+                             rebuild();
+                         });
+    };
     bulkButton.onClick = [this] { showBulkMenu (bulkButton); };
     kitButton.onClick = [this] { showKitMenu (kitButton); };
-    nameButton.onClick = [this] { nameFromRole(); };
-    linkButton.onClick = [this] { linkSelection(); };
+    // The three named buttons act on the whole desk, because that is what the words say and
+    // because they are on screen whether anything is selected or not.
+    nameButton.onClick = [this] { if (quickButtons[0]->onClick) quickButtons[0]->onClick(); };
+    linkButton.onClick = [this] { if (quickButtons[2]->onClick) quickButtons[2]->onClick(); };
     dropButton.onClick = [this] { dropSelection(); };
     deselectButton.onClick = [this] { clearSelection(); };
     clearButton.onClick = [this] { clearAll(); };
@@ -1112,15 +1253,28 @@ AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), serv
     patchApplyButton.setTooltip ("Apply a saved patch. An input this device cannot provide comes back switched off and named.");
     addAndMakeVisible (patchSaveButton);
     addAndMakeVisible (patchApplyButton);
-    quickButton.setTooltip ("The three things worth doing to a whole session at once.");
+    quickButton.setTooltip ("Everything else a whole desk can have done to it at once.");
     quickButton.onClick = [this]
     {
         juce::PopupMenu m;
         m.addItem (1, "Name everything from what it is");
         m.addItem (2, "Select every input not used");
         m.addItem (3, "Pair every L and R");
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&quickButton).withMinimumWidth (260),
-                         [this] (int r) { if (r >= 1 && r <= 3 && quickButtons[size_t (r - 1)]->onClick) quickButtons[size_t (r - 1)]->onClick(); });
+        m.addSeparator();
+        m.addItem (4, grouped ? "Show one flat list" : "Group by the bus each input feeds");
+        m.addItem (5, "Save this patch" + juce::String (Glyph::ellip()));
+        m.addItem (6, "Apply a saved patch" + juce::String (Glyph::ellip()));
+        m.addSeparator();
+        m.addItem (7, "Clear every assignment");
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&quickButton).withMinimumWidth (280),
+                         [this] (int r)
+                         {
+                             if (r >= 1 && r <= 3) { if (quickButtons[size_t (r - 1)]->onClick) quickButtons[size_t (r - 1)]->onClick(); return; }
+                             if (r == 4) { grouped = ! grouped; rebuild(); return; }
+                             if (r == 5) { if (onSaveMapping) onSaveMapping(); return; }
+                             if (r == 6) { if (onApplyMapping) onApplyMapping(); return; }
+                             if (r == 7) clearAll();
+                         });
     };
     addAndMakeVisible (quickButton);
 
@@ -1252,11 +1406,8 @@ void AssignPage::rebuild()
             rows.push_back (std::move (row));
         }
     }
-    for (size_t i = 0; i < chips.size(); ++i)
-    {
-        const int key = i == 0 ? -2 : i == chips.size() - 1 ? -1 : int (i) - 1;
-        chips[i]->setToggleState (busFilter == key, juce::dontSendNotification);
-    }
+    chips[0]->setToggleState (busFilter == -2, juce::dontSendNotification);
+    chips[1]->setToggleState (busFilter == -1, juce::dontSendNotification);
     groupButton.setToggleState (grouped, juce::dontSendNotification);
     continueButton.setEnabled (assignedCount() > 0);
     updateToolbar();
@@ -1266,14 +1417,19 @@ void AssignPage::rebuild()
 
 void AssignPage::updateToolbar()
 {
+    // The tool row has two states: what a whole desk can have done to it, and - once inputs are
+    // picked out - what those inputs can. The filter and the grouping stay in both, because a
+    // selection made under a filter is still a selection.
     const bool any = selectionCount() > 0;
-    for (auto* b : { &bulkButton, &kitButton, &nameButton, &linkButton, &dropButton, &deselectButton })
+    for (auto* b : { &bulkButton, &kitButton, &deskLabelsButton, &dropButton, &deselectButton })
         b->setVisible (any);
-    for (auto* b : { &selectAllButton, &deskLabelsButton })
+    for (auto* b : { &nameButton, &linkButton, &selectAllButton, &quickButton })
         b->setVisible (! any);
-    search.setVisible (! any);
-    for (auto& c : chips) c->setVisible (! any);
-    groupButton.setVisible (! any);
+    search.setVisible (false);
+    patchSaveButton.setVisible (false);
+    patchApplyButton.setVisible (false);
+    for (auto& c : chips) c->setVisible (true);
+    groupButton.setVisible (true);
 }
 
 void AssignPage::commit()
@@ -1566,37 +1722,24 @@ void AssignPage::paint (juce::Graphics& g)
     g.fillAll (Dine::window);
     const auto L = layout();
     const int assigned = assignedCount(), unused = unusedCount();
-    const int total = assigned + unused;
 
-    auto head = L.head;
-    auto progress = head.removeFromRight (juce::jmin (250, juce::jmax (0, head.getWidth() - 430)));
-    drawSetupHead (g, head, "Inputs", "Name each input and say what it is. DLIVE sends it to the right group.");
-    if (progress.getWidth() > 150)
+    // ---- the head. The ROUTING sections sit at the top right of the workspace, so the
+    // sentence stops short of them and the progress readout has moved to the foot.
     {
-        auto line = progress.removeFromTop (17);
-        g.setColour (Dine::ink2);
+        auto r = getLocalBounds().reduced (Dine::Metric::padX, 0);
+        r.removeFromTop (34);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (22.0f, 600));
+        Dine::drawText (g, "Inputs", r.removeFromTop (28), juce::Justification::centredLeft, true);
+        r.removeFromTop (2);
+        g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        Dine::drawText (g, juce::String (assigned) + " of " + juce::String (total) + " assigned", line, juce::Justification::centredRight, true);
-        progress.removeFromTop (6);
-        std::vector<Dine::BarSlice> slices;
-        for (int b = 0; b < int (MixBus::Master); ++b)
-        {
-            int n = 0;
-            for (int i = 0; i < numInputs; ++i)
-                if (entries[size_t (i)].assigned && ! entries[size_t (i)].linkedFromPrevious
-                    && int (mixBusForRole (entries[size_t (i)].role)) == b) ++n;
-            slices.push_back ({ float (n) / float (juce::jmax (1, total)), busColour (MixBus (b)) });
-        }
-        Dine::drawStackedBar (g, progress.removeFromTop (6), slices);
-        progress.removeFromTop (5);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::text (11.5f));
-        Dine::drawText (g, unused > 0 ? juce::String (unused) + " still open" : "Every input placed",
-                    progress.removeFromTop (14), juce::Justification::centredRight, true);
+        Dine::drawText (g, "Every assigned input takes its short desk name. Press Continue and the meters fill in "
+                           + juce::String (Glyph::dash()) + " your console is untouched.",
+                        r.removeFromTop (18).withWidth (juce::jmin (r.getWidth(), 760)), juce::Justification::centredLeft, true);
     }
 
-    // ---- toolbar
-    Dine::drawHeaderBand (g, L.toolbar.expanded (Dine::Metric::padX, 0));
+    // ---- the tool row: what to do to a selection at the left, the filter at the right
     if (selectionCount() == 0)
     {
         auto track = juce::Rectangle<int>();
@@ -1605,124 +1748,180 @@ void AssignPage::paint (juce::Graphics& g)
     }
     else
     {
-        auto label = L.toolbar.withHeight (Dine::Metric::control).withWidth (bulkButton.getX() - L.toolbar.getX() - 9)
-                        .withSizeKeepingCentre (bulkButton.getX() - L.toolbar.getX() - 9, L.toolbar.getHeight());
+        auto label = juce::Rectangle<int> (deselectButton.getRight() + 12, L.toolbar.getY(),
+                                           juce::jmax (0, chips.empty() ? 0 : chips.front()->getX() - deselectButton.getRight() - 24),
+                                           L.toolbar.getHeight());
         g.setColour (Dine::ink2);
-        g.setFont (Dine::text (13.0f));
+        g.setFont (Dine::text (12.0f, 500));
         Dine::drawText (g, juce::String (selectionCount()) + (selectionCount() == 1 ? " input selected" : " inputs selected"),
-                    label, juce::Justification::centredLeft, true);
+                        label, juce::Justification::centredLeft, true);
+    }
+
+    // ---- the column captions, over the table
+    {
+        auto head = juce::Rectangle<int> (L.main.getX(), L.main.getY(), L.main.getWidth(), 18).reduced (10, 0);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.0f, 500));
+        auto cell = [&g, &head] (int w, const juce::String& text, bool fromRight = false)
+        {
+            auto c = fromRight ? head.removeFromRight (w) : head.removeFromLeft (w);
+            Dine::drawText (g, text, c, juce::Justification::centredLeft, true);
+        };
+        cell (Row::kNumW, "Input");
+        cell (Row::kNameW + 22, "Name");
+        head.removeFromLeft (Row::kGap - 6);
+        auto signal = head.removeFromRight (Row::kSignalW);
+        head.removeFromRight (Row::kGap);
+        head.removeFromRight (Row::kPairW + Row::kGap);
+        auto group = head.removeFromRight (Row::kBusW);
+        Dine::drawText (g, "What it is", head, juce::Justification::centredLeft, true);
+        Dine::drawText (g, "Group", group, juce::Justification::centredLeft, true);
+        Dine::drawText (g, "Signal here", signal, juce::Justification::centredLeft, true);
     }
 
     if (rows.empty())
     {
-        auto empty = L.main.reduced (30, 40).removeFromTop (72);
+        auto empty = L.main.withTrimmedTop (30).removeFromTop (72).withWidth (juce::jmin (620, L.main.getWidth()));
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (14.0f, 600));
+        g.setFont (Dine::text (13.0f, 600));
         Dine::drawText (g, numInputs == 0 ? "No inputs to name yet" : "Nothing matches that",
-                    empty.removeFromTop (18), juce::Justification::centredLeft);
+                        empty.removeFromTop (18), juce::Justification::centredLeft);
         empty.removeFromTop (4);
         g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.5f));
+        g.setFont (Dine::text (12.0f));
         Dine::drawFittedText (g, numInputs == 0 ? "Go back and pick a device with inputs, or import a folder of stems."
-                                         : "Clear the search, or switch the filter back to All.",
-                          empty.removeFromTop (34), juce::Justification::topLeft, 2);
+                                                : "Switch the filter back to All inputs.",
+                              empty.removeFromTop (34), juce::Justification::topLeft, 2);
     }
 
+    // ---- the foot: where the patch stands, then Back and Continue
     int live = 0;
     for (int i = 0; i < numInputs; ++i)
         if (! entries[size_t (i)].assigned && ! entries[size_t (i)].linkedFromPrevious
             && services.isAudioRunning() && services.daw().inputPeakDb (i) > -54.0f) ++live;
-    drawSetupFooter (g, getLocalBounds(),
-                     assigned > 0 ? juce::String (unused) + " unassigned inputs stay out of the mix"
-                                        + (live > 0 ? " - " + juce::String (live) + " of them " + (live == 1 ? "is" : "are") + " carrying signal right now." : ".")
-                                  : juce::String ("Name at least one input to carry on."),
-                     continueButton.getWidth() + backButton.getWidth() + 10);
+    {
+        auto foot = L.footer.reduced (Dine::Metric::padX, 0);
+        foot.removeFromRight (continueButton.getWidth() + backButton.getWidth() + 22);
+        const juce::String left = unused == 0 && assigned > 0 ? juce::String ("Every input placed")
+                                : assigned == 0 ? juce::String ("Name at least one input to carry on.")
+                                : juce::String (unused) + (unused == 1 ? " input is" : " inputs are") + " still open";
+        g.setColour (unused == 0 && assigned > 0 ? Dine::accent : assigned == 0 ? Dine::ink3 : Dine::ink3);
+        g.setFont (Dine::text (12.0f, 500));
+        const int w = Dine::textWidth (Dine::text (12.0f, 500), left);
+        Dine::drawText (g, left, foot.removeFromLeft (w), juce::Justification::centredLeft);
+        if (live > 0)
+        {
+            foot.removeFromLeft (16);
+            g.setColour (Dine::warn);
+            g.setFont (Dine::text (12.0f));
+            Dine::drawText (g, juce::String (live) + " unassigned " + (live == 1 ? "input is" : "inputs are")
+                                + " carrying signal right now.",
+                            foot, juce::Justification::centredLeft, true);
+        }
+    }
 }
 
 void AssignPage::resized()
 {
     const auto L = layout();
 
-    // ---- toolbar
+    // ---- the tool row. The three things a volunteer does to a whole desk at once are named
+    // in full at the left (design `03 - Inputs`, 70:9496); everything else a selection can
+    // have done to it is one press away under Quick actions.
     auto bar = L.toolbar.withSizeKeepingCentre (L.toolbar.getWidth(), Dine::Metric::control);
+    {
+        // the filter, right-aligned
+        auto right = bar;
+        int x = right.getRight();
+        for (int i = int (chips.size()) - 1; i >= 0; --i)
+        {
+            const int w = juce::jmax (84, chips[size_t (i)]->idealWidth());
+            x -= w;
+            chips[size_t (i)]->setBounds (x, bar.getY() + 2, w, bar.getHeight() - 4);
+        }
+        const int gw = 30;
+        groupButton.setBounds (juce::Rectangle<int> (x - 8 - gw, bar.getY(), gw, bar.getHeight()));
+        bar = bar.withRight (groupButton.getX() - 12);
+    }
+
     if (selectionCount() == 0)
     {
-        auto right = bar;
-        const int aw = juce::jmax (120, patchApplyButton.idealWidth());
-        patchApplyButton.setBounds (right.removeFromRight (aw));
-        right.removeFromRight (8);
-        const int sw = juce::jmax (110, patchSaveButton.idealWidth());
-        patchSaveButton.setBounds (right.removeFromRight (sw));
-        right.removeFromRight (8);
-        const int qw = juce::jmax (100, quickButton.idealWidth());
-        quickButton.setBounds (right.removeFromRight (qw));
-        right.removeFromRight (8);
-        const int gw = 30;
-        groupButton.setBounds (right.removeFromRight (gw));
-        right.removeFromRight (8);
-        const int dw = juce::jmax (120, deskLabelsButton.idealWidth());
-        deskLabelsButton.setBounds (right.removeFromRight (dw));
-        right.removeFromRight (8);
-        const int saw = juce::jmax (86, selectAllButton.idealWidth());
-        selectAllButton.setBounds (right.removeFromRight (saw));
-
-        int x = bar.getX() + 2;
-        for (auto& c : chips)
+        auto left = bar;
+        for (auto* b : { &nameButton, &linkButton, &selectAllButton })
         {
-            const int w = juce::jmax (48, c->idealWidth());
-            c->setBounds (x, bar.getY() + 2, w, bar.getHeight() - 4);
-            x += w;
+            const int w = juce::jmax (110, b->idealWidth());
+            b->setBounds (left.removeFromLeft (juce::jmin (w, juce::jmax (0, left.getWidth()))));
+            left.removeFromLeft (8);
         }
-        search.setBounds (juce::Rectangle<int> (x + 12, bar.getY(), juce::jmax (0, juce::jmin (184, selectAllButton.getX() - 10 - (x + 12))), bar.getHeight()));
+        const int qw = juce::jmax (100, quickButton.idealWidth());
+        quickButton.setBounds (left.removeFromLeft (juce::jmin (qw, juce::jmax (0, left.getWidth()))));
     }
     else
     {
-        bar.removeFromLeft (juce::jmin (150, bar.getWidth() / 4));
-        for (auto* b : { &bulkButton, &kitButton, &nameButton, &linkButton, &dropButton })
+        auto left = bar;
+        const int dw = juce::jmax (78, deselectButton.idealWidth());
+        deselectButton.setBounds (left.removeFromLeft (dw));
+        left.removeFromLeft (12);
+        left.removeFromLeft (juce::jmin (160, left.getWidth() / 3));   // the count, painted
+        for (auto* b : { &bulkButton, &kitButton, &deskLabelsButton, &dropButton })
         {
             const int w = juce::jmax (86, b->idealWidth());
-            b->setBounds (bar.removeFromLeft (w));
-            bar.removeFromLeft (8);
+            b->setBounds (left.removeFromLeft (juce::jmin (w, juce::jmax (0, left.getWidth()))));
+            left.removeFromLeft (8);
         }
-        const int dw = juce::jmax (78, deselectButton.idealWidth());
-        deselectButton.setBounds (bar.removeFromRight (dw));
     }
-    for (auto* b : { &patchSaveButton, &patchApplyButton, &quickButton })
-        b->setVisible (selectionCount() == 0);
 
-    // ---- the list, and where the group headers land inside it
-    auto list = L.main.withTrimmedTop (8);
-    viewport.setBounds (list);
-    const int rowH = 44, groupH = 28;
+    // ---- the list. The column captions are drawn over it, so it starts under them; a flat
+    // list has no band over it at all, because "All inputs" over every input says nothing.
+    const bool banded = grouped && groups.size() > 1;
+    auto list = L.main.withTrimmedTop (18 + 6);
+    viewport.setBounds (list.expanded (10, 0));
+    const int rowH = 46, groupH = banded ? 30 : 0;
     int total = 0;
-    for (const auto& g : groups) total += groupH + int (g.inputs.size()) * rowH + 6;
-    listHolder.setSize (list.getWidth() - (total > list.getHeight() ? 10 : 0), juce::jmax (total + 8, list.getHeight()));
+    for (const auto& g : groups) total += groupH + int (g.inputs.size()) * rowH + (banded ? 8 : 0);
+    listHolder.setSize (viewport.getWidth() - (total > list.getHeight() ? 10 : 0), juce::jmax (total + 8, list.getHeight()));
     int y = 0;
     size_t r = 0;
     for (size_t gi = 0; gi < groups.size(); ++gi)
     {
-        if (gi < headers.size()) headers[gi]->setBounds (0, y, listHolder.getWidth(), groupH);
+        if (gi < headers.size())
+        {
+            headers[gi]->setVisible (banded);
+            if (banded) headers[gi]->setBounds (0, y, listHolder.getWidth(), groupH);
+        }
         y += groupH;
         for (size_t n = 0; n < groups[gi].inputs.size() && r < rows.size(); ++n, ++r)
         {
             rows[r]->setBounds (0, y, listHolder.getWidth(), rowH);
             y += rowH;
         }
-        y += 6;
+        if (banded) y += 8;
     }
     showUnusedButton.setVisible (false);
 
-    auto footer = L.footer.reduced (Dine::Metric::padX, 0);
-    const int cw = juce::jmax (110, continueButton.idealWidth());
+    auto footer = juce::Rectangle<int> (L.footer).removeFromTop (Dine::Metric::button).reduced (Dine::Metric::padX, 0);
+    const int cw = juce::jmax (100, continueButton.idealWidth());
     continueButton.setBounds (footer.removeFromRight (cw).withSizeKeepingCentre (cw, Dine::Metric::button));
     footer.removeFromRight (10);
-    const int bw = juce::jmax (72, backButton.idealWidth());
+    const int bw = juce::jmax (68, backButton.idealWidth());
     backButton.setBounds (footer.removeFromRight (bw).withSizeKeepingCentre (bw, Dine::Metric::button));
     const int clw = juce::jmax (80, clearButton.idealWidth());
-    clearButton.setBounds (footer.removeFromLeft (clw).withSizeKeepingCentre (clw, Dine::Metric::button));
+    clearButton.setBounds (footer.removeFromRight (clw + 10).removeFromLeft (clw).withSizeKeepingCentre (clw, Dine::Metric::button));
+    clearButton.setVisible (false);
 }
 
 // ============================================================================ PurposePage
+
+namespace
+{
+    // A section caption on a set-up page: the design's Headline, sentence case, never capitals.
+    void sectionCaption (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& text)
+    {
+        g.setColour (Dine::ink2);
+        g.setFont (Dine::text (13.0f, 600));
+        Dine::drawText (g, text, r, juce::Justification::centredLeft, true);
+    }
+}
 
 class PurposePage::Tile : public juce::Button
 {
@@ -1927,7 +2126,7 @@ void PurposePage::paint (juce::Graphics& g)
     g.fillAll (Dine::window);
     const auto L = layout();
     drawSetupHead (g, L.head, "Purpose and sound",
-                   "Each card is a commitment: the numbers on it are what DLIVE will mix to.");
+                   "What the mix is for and what it should sound like. Changing either changes nothing until the next TUNE MIX.");
     drawSetupFooter (g, getLocalBounds(), "DLIVE listens for about thirty seconds, then sets the whole mix.",
                      continueButton.getWidth() + backButton.getWidth() + 10);
 }
@@ -1943,11 +2142,11 @@ void PurposePage::paintBody (juce::Graphics& g)
     }
 
     auto main = body.getLocalBounds();
-    Dine::drawSection (g, main.removeFromTop (kSectionCaption), "PURPOSE  " + juce::String (Glyph::dot()) + "  WHERE IT IS GOING");
+    sectionCaption (g, main.removeFromTop (kSectionCaption), "Purpose");
     main.removeFromTop (kCaptionGap + purposeGridHeight (main.getWidth(), int (purposeTiles.size())) + kSectionGap);
-    Dine::drawSection (g, main.removeFromTop (kSectionCaption), "SOUND  " + juce::String (Glyph::dot()) + "  WHAT IT SHOULD FEEL LIKE");
+    sectionCaption (g, main.removeFromTop (kSectionCaption), "Sound");
     main.removeFromTop (kCaptionGap + soundGridHeight (main.getWidth(), int (soundTiles.size())) + kSectionGap);
-    Dine::drawSection (g, main.removeFromTop (kSectionCaption), "HOW LOUD IT SHOULD END UP");
+    sectionCaption (g, main.removeFromTop (kSectionCaption), "How loud it should end up");
     main.removeFromTop (kCaptionGap);
     auto row = main.removeFromTop (Dine::Metric::button);
     row.removeFromLeft (deliveryButton.getWidth() + 14);
@@ -2001,7 +2200,7 @@ void PurposePage::resized()
     auto loudRow = main.removeFromTop (Dine::Metric::button);
     deliveryButton.setBounds (loudRow.removeFromLeft (juce::jmin (300, juce::jmax (220, deliveryButton.idealWidth()))));
 
-    auto footer = L.footer.reduced (Dine::Metric::padX, 0);
+    auto footer = juce::Rectangle<int> (L.footer).removeFromTop (Dine::Metric::button).reduced (Dine::Metric::padX, 0);
     const int cw = juce::jmax (130, continueButton.idealWidth());
     continueButton.setBounds (footer.removeFromRight (cw).withSizeKeepingCentre (cw, Dine::Metric::button));
     footer.removeFromRight (10);

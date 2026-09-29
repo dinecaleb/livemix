@@ -1181,6 +1181,11 @@ void DinePopup::paintButton (juce::Graphics& g, bool over, bool down)
     Dine::drawText (g, value, inner, juce::Justification::centredLeft, true);
 }
 
+void DineSegmentRow::paint (juce::Graphics& g)
+{
+    Dine::drawSegmentTrack (g, getLocalBounds());
+}
+
 // ============================================================================ DineNavItem
 DineNavItem::DineNavItem (const juce::String& l, Dine::Icon i) : juce::Button (l), label (l), icon (i)
 {

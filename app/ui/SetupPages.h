@@ -53,11 +53,14 @@ public:
 
     std::function<void (const juce::File&)> onOpen;    // open this saved session
     std::function<void()> onNew;                       // start a new one: straight to the device
+    std::function<void()> onOpenFile;                  // Open... : a session from anywhere on disk
+    std::function<void()> onImportFolder;              // a folder of stems becomes a session
 
     void refresh();
     void paint (juce::Graphics&) override;
     void resized() override;
     void lookAndFeelChanged() override;
+    bool keyPressed (const juce::KeyPress&) override;
 
 private:
     class Row;
@@ -86,16 +89,16 @@ private:
     std::vector<std::unique_ptr<Row>> rows;
     std::map<juce::String, SessionStore::Summary> cache;   // by path: a listing is re-read, a document is not
     int selected = -1;
-    int filter = 0;                 // 0 All, 1 Recent, 2 Templates
+    int filter = 0;                 // 0 Recent, 1 Templates
     juce::Viewport viewport;
     juce::Component listHolder;
     juce::TextEditor search;
-    std::array<std::unique_ptr<DineChip>, 3> chips;
+    std::array<std::unique_ptr<DineChip>, 2> chips;
     // One primary action on the screen. Opening the session you picked is what this page is
     // for; starting a new one is the alternative to it, not a second headline.
     DineButton newButton { "New session", DineButton::Style::Filled };
-    DineButton openButton { "Open session", DineButton::Style::Filled };
-    DineButton revealButton { "Show in Finder", DineButton::Style::Standard };
+    DineButton openButton { "Open", DineButton::Style::Standard };
+    DineButton importButton { "Import a multitrack folder", DineButton::Style::Standard };
 };
 
 // STEP 1: which device brings the inputs in. The list, what it is running at, where the
@@ -124,7 +127,8 @@ private:
     // The three bands of the device column, measured once so paint and resized cannot
     // disagree: the list takes the height, the spec sits under it, and the "no band in the
     // room" card is pinned to the foot.
-    struct Column { juce::Rectangle<int> listCaption, list, specCaption, spec, importCard; };
+    struct Column { juce::Rectangle<int> listCaption, list, outCaption, outputs,
+                                    specCaption, spec, arrivingCaption, arriving, footer; };
     Column column() const;
     void select (int index);
     void selectOutput (int index);
@@ -220,18 +224,18 @@ private:
     juce::String query;
     int busFilter = -2;                   // -2 all, -1 not used, else MixBus
     int lastClicked = -1;                 // for shift-click
-    bool grouped = true;
+    bool grouped = false;   // the design's table is flat; Quick actions groups it by bus
     juce::Viewport viewport;
     juce::Component listHolder;
     juce::TextEditor search;
     std::vector<std::unique_ptr<DineChip>> chips;
-    DineButton selectAllButton { "Select all", DineButton::Style::Standard };
+    DineButton selectAllButton { "Select every input not used", DineButton::Style::Standard };
     DineButton deskLabelsButton { "Use desk labels", DineButton::Style::Standard };
     DineButton groupButton { "", DineButton::Style::Standard };
     DineButton bulkButton { "Set what it is", DineButton::Style::Standard };
     DineButton kitButton { "Fill in order", DineButton::Style::Standard };
-    DineButton nameButton { "Name from role", DineButton::Style::Standard };
-    DineButton linkButton { "Link as pair", DineButton::Style::Standard };
+    DineButton nameButton { "Name everything from what it is", DineButton::Style::Standard };
+    DineButton linkButton { "Pair every L and R", DineButton::Style::Standard };
     DineButton dropButton { "Not used", DineButton::Style::Ghost };
     DineButton deselectButton { "Deselect", DineButton::Style::Ghost };
     DineButton continueButton { "Continue", DineButton::Style::Filled };

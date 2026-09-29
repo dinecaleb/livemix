@@ -54,9 +54,11 @@ public:
     Section getSection() const noexcept { return section; }
     static const char* sectionName (Section) noexcept;
 
-    // Where the hosted page goes. The window puts DevicePage or AssignPage here; the last two
-    // sections are this page's own.
+    // Where the hosted page goes. The window owns DevicePage and AssignPage but they are
+    // children of *this*, so the segmented control at the top right stays over them.
     juce::Rectangle<int> contentBounds() const;
+    // The window hands the two pages it owns over to be parented here.
+    void host (juce::Component&);
     int headHeight() const noexcept;
     // Does the window have a page of its own to put there, or does ROUTING fill it?
     bool hostsAPage() const noexcept { return section <= Section::Inputs; }
@@ -87,7 +89,8 @@ private:
     bool confirmed = false;
     bool coverShown = false;      // what the last layout drew, so refresh() only acts on a change
 
-    std::array<std::unique_ptr<DineNavItem>, size_t (Section::Count)> nav;
+    DineSegmentRow segments;                                              // the track they sit in
+    std::array<std::unique_ptr<DineChip>, size_t (Section::Count)> nav;   // the segmented control, top right
     std::unique_ptr<OutputsSheet> outputs;
 
     // the patches this church has saved
