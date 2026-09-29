@@ -813,6 +813,140 @@ bool MixController::setInputRole (int strip, ChannelRole role)
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// AUTOPILOT
+// ---------------------------------------------------------------------------
+AutopilotReading MixController::readAutopilotMeters() const
+{
+    AutopilotReading r;
+    if (! prepared) return r;
+    for (int b = 0; b < int (MixBus::Master); ++b)
+    {
+        if (! engine.isBusUsed (MixBus (b))) continue;
+        const auto& m = engine.getBus (MixBus (b)).getOutputMeter();
+        r.busRmsDb[size_t (b)] = m.getMaxRmsDb();
+        r.busActive[size_t (b)] = r.busRmsDb[size_t (b)] > -100.0f;
+    }
+    const auto& master = engine.getBus (MixBus::Master).getOutputMeter();
+    r.masterRmsDb = master.getMaxRmsDb();
+    const auto loud = getMasterLoudness();
+    r.masterShortLufs = loud.shortTermLufs;
+    r.masterTruePeakDb = loud.truePeakDb;
+    r.clipping = master.hasClipped();
+    return r;
+}
+
+bool MixController::setAutopilot (bool on)
+{
+    if (on == autopilot.on) return on;
+    if (! on)
+    {
+        autopilot = AutopilotState {};
+        autopilotTarget = AutopilotTarget {};
+        autopilotSinceHistoryDb.fill (0.0f);
+        if (onMessage) onMessage ("Autopilot off. Every fader is where it is; nothing goes back.");
+        mark ("Autopilot off");
+        return false;
+    }
+    if (! built || ! prepared)
+    {
+        if (onMessage) onMessage ("There is no mix running for Autopilot to hold yet.");
+        return false;
+    }
+
+    // WHERE THE ENGINEER LEFT IT, measured. Never a fader position: what they set was each
+    // group *against the rest of it*, and that is the thing to hold an hour later.
+    const auto now = readAutopilotMeters();
+    if (now.masterRmsDb <= -100.0f)
+    {
+        if (onMessage)
+            onMessage ("Nothing is playing, so there is no mix to hold. Engage Autopilot while the band is going "
+                       "and it will keep that mix.");
+        return false;
+    }
+    AutopilotTarget target;
+    target.valid = true;
+    target.deliveryLufs = deliveryLoudnessLufs (session.delivery);
+    for (int b = 0; b < int (MixBus::Master); ++b)
+    {
+        if (! now.busActive[size_t (b)] || now.busRmsDb[size_t (b)] <= autopilotLimits.quietGroupDb) continue;
+        target.busBelowMasterDb[size_t (b)] = now.busRmsDb[size_t (b)] - now.masterRmsDb;
+        target.measured[size_t (b)] = true;
+    }
+    autopilotTarget = target;
+    autopilot = AutopilotState {};
+    autopilot.on = true;
+    autopilot.holding = true;
+    autopilotSinceHistoryDb.fill (0.0f);
+    autopilotLastMs = 0;
+    checkpoint ("Before Autopilot", false);
+    if (onMessage)
+        onMessage ("Autopilot is holding this mix. It moves group faders only, by the smallest step, and never "
+                   "more than " + std::to_string (int (autopilotLimits.maxTotalDb)) + " dB from here. Touch a fader "
+                   "and that group is yours again.");
+    mark ("Autopilot on");
+    return true;
+}
+
+// Called from poll(), on the message thread, a few times a second. Never the audio thread.
+void MixController::pollAutopilot()
+{
+    if (! autopilot.on || ! autopilotTarget.valid || ! prepared) return;
+
+    // A few times a second is plenty: a mix drifts over minutes, and a fader that moves at
+    // video rate is a fader somebody can hear moving.
+    const long long nowMs = (long long) std::chrono::duration_cast<std::chrono::milliseconds> (
+                                std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (autopilotLastMs != 0 && nowMs - autopilotLastMs < 400) return;
+    autopilotLastMs = nowMs;
+
+    // It never works against something the engineer is in the middle of: a listen, a plan on
+    // preview, a live run or BYPASS all mean the mix on screen is not the mix being held.
+    if (stage == Stage::Listening || stage == Stage::Planning || stage == Stage::Preview || liveRun || bypassed)
+        return;
+
+    const auto reading = readAutopilotMeters();
+    autopilot.holding = reading.masterRmsDb > -100.0f;
+
+    // A group the engineer has taken back is not offered to the decision at all.
+    auto target = autopilotTarget;
+    for (int b = 0; b < int (MixBus::Master); ++b)
+        if (autopilot.released[size_t (b)]) target.measured[size_t (b)] = false;
+
+    std::array<bool, int (MixBus::Count)> correcting {};
+    for (int b = 0; b < int (MixBus::Count); ++b) correcting[size_t (b)] = std::fabs (autopilot.movedDb[size_t (b)]) > 0.001f;
+
+    for (const auto& move : Autopilot::decide (target, reading, autopilot.movedDb, correcting, autopilotLimits))
+    {
+        const size_t b = size_t (move.bus);
+        const float before = kept.buses[b].faderDb;
+        autopilotMoving = true;
+        setBusFader (move.bus, before + move.deltaDb);
+        autopilotMoving = false;
+        const float applied = kept.buses[b].faderDb - before;
+        if (std::fabs (applied) < 0.005f) continue;          // LIVE SAFE, or the end of the fader
+
+        if (std::fabs (autopilot.movedDb[b]) < 0.001f) ++autopilot.groupsCorrected;
+        autopilot.movedDb[b] += applied;
+        autopilotSinceHistoryDb[b] += applied;
+        autopilot.largestMoveDb = std::max (autopilot.largestMoveDb, std::fabs (autopilot.movedDb[b]));
+        autopilot.lastWhat = move.what;
+        autopilot.lastWhy = move.why;
+
+        // EVERY MOVE IS A MIX HISTORY ENTRY WITH ITS REASON - written when the correction on
+        // that group has added up to something worth reading, so an hour of half-decibel steps
+        // is a handful of entries a person can follow rather than four hundred.
+        if (std::fabs (autopilotSinceHistoryDb[b]) >= 1.0f)
+        {
+            char line[96];
+            std::snprintf (line, sizeof (line), "Autopilot: %s %+.1f dB", mixBusName (move.bus), double (autopilotSinceHistoryDb[b]));
+            checkpoint (std::string (line) + ". " + move.why, false);
+            autopilotSinceHistoryDb[b] = 0.0f;
+        }
+        if (onMessage) onMessage (move.what + ". " + move.why);
+    }
+}
+
 bool MixController::resetMixToRaw()
 {
     if (! built) return false;
@@ -1294,6 +1428,10 @@ void MixController::pollTuneLive()
 
 void MixController::poll()
 {
+    // AUTOPILOT, if it is on: the operator's own mix, held where they left it. Message thread,
+    // group faders only, and within tolerance it does nothing.
+    pollAutopilot();
+
     // The slow beat of the mix history. A morning of small moves - a fader here, a send there -
     // is a mix that drifted a long way from the one TUNE MIX built, with no single moment in it
     // worth marking. So one is marked: every few minutes, if anything actually changed.
@@ -2057,6 +2195,18 @@ void MixController::setStripSend (int strip, FxSlot slot, float db)
 void MixController::setBusFader (MixBus bus, float db)
 {
     if (bus == MixBus::Count) return;
+    // THE PERSON AT THE DESK OUTRANKS THE MACHINE STANDING IN FOR THEM. A move on a group
+    // Autopilot has been holding hands that group straight back: it stops correcting it for
+    // this engagement, and says so once.
+    if (autopilot.on && ! autopilotMoving && int (bus) < int (MixBus::Master)
+        && ! autopilot.released[size_t (bus)]
+        && std::fabs (autopilot.movedDb[size_t (bus)]) > 0.001f)
+    {
+        autopilot.released[size_t (bus)] = true;
+        if (onMessage)
+            onMessage (std::string (mixBusName (bus)) + " is yours again. Autopilot stops correcting it until "
+                       "you engage it afresh.");
+    }
     float want = clamp (db, -60.0f, 12.0f);
     liveSafe::Verdict v;
     want = liveSafe::limitStepDb (safety, bus == MixBus::Master ? LiveAction::MasterFader : LiveAction::Fader,

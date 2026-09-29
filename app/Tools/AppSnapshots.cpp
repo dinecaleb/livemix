@@ -1385,6 +1385,20 @@ int main (int argc, char** argv)
     view.closeSheets();
     rig.feed (0.3);
 
+    // AUTOPILOT, holding the mix: the band under the toolbar that says so on every workspace,
+    // what it has had to move, and the one press that stops it.
+    rig.controller.setAutopilot (true);
+    view.updateChromeForSnapshot();
+    rig.feed (0.5);
+    rig.snap (dir, "27d-autopilot");
+    view.showPage (MainView::Page::Tracks);
+    rig.feed (0.4);
+    rig.snap (dir, "27e-autopilot-tracks");
+    rig.controller.setAutopilot (false);
+    view.showPage (MainView::Page::Mixer);
+    view.updateChromeForSnapshot();
+    rig.feed (0.3);
+
     // MIX HISTORY, with the favourites at the top of it: the mixes somebody said worked, what
     // each one sounded like, and the one press that aims the next tune at one of them.
     rig.controller.markFavourite ("Sunday 09:30 - the one");

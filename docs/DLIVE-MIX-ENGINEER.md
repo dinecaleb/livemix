@@ -87,6 +87,30 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   they were would change the blend rather than the tone - and the blend is what the hierarchy rules own. Mix
   Buddy hears "the vocals", "the voices" and "the singers" as the lead, and "BGV", "backing" and "choir" as the
   backing group.
+- **AUTOPILOT (2026-09-28, `src/Mix/Autopilot.h`, `MixController::setAutopilot`).** The second thing in DLIVE
+  allowed to move a level by itself, and the rules it lives under are in `CLAUDE.md` because they are not
+  negotiable: deterministic (there is no AI anywhere in `Autopilot.cpp`), off by default, engaged only on
+  purpose, group faders only, bounded to `maxTotalDb` of the mix it was engaged on, every move a Mix history
+  entry with its reason, and never the audio thread. It never touches a channel, a chain, the master fader, the
+  returns, the room or the engineer's listen.
+  **What it is for**: a volunteer sets a mix at 9:30 and then has a camera to run and a door to answer. By
+  10:20 the band is louder, the lead has stepped back from the microphone and the backing voices have found
+  their confidence, and nobody is at the desk. Autopilot is not a mixing engine - it is the operator's own mix,
+  held where they left it, by the smallest move that will do it.
+  **It works in relationships**, exactly as the planner does: where each group sat *against the master* when it
+  was engaged. Never an absolute level, because "the drums at -6" means nothing an hour later - what the
+  engineer set was the drums against the rest of it.
+  **Within tolerance it does nothing**, which is the usual answer and the thing the tests spend most of their
+  time on (`tests/Mix/AutopilotTests.cpp`). Past the tolerance it moves one `maxStepDb` step, in the direction
+  that helps, never past `maxTotalDb` from the engaged mix, and it keeps holding a group until the error is
+  well inside the tolerance again (`hysteresisDb`) so a group on the boundary is not nudged all morning. It
+  stands down entirely while a listen, a plan, a live run or BYPASS is in the way, and while nothing is
+  playing. **An engineer's own move on a group it had been correcting hands that group straight back** - the
+  person at the desk outranks the machine standing in for them - and says so once.
+  The decision is a pure function of a target, a reading and what has already been moved, so it is tested with
+  no engine, no audio and no clock; `MixController` reads the meters off `poll()`, calls it, and applies what
+  comes back through `setBusFader`, which is the same path a hand uses and already has LIVE SAFE in it. The
+  window says AUTOPILOT on every workspace while it is on (`MainView::StateBar`, shared with the solo band).
 - **FAVOURITE MIXES (2026-09-28, `MixController::markFavourite` and friends).** The mixes somebody said worked,
   kept by name in a list - **and not a third store beside SCENES and REFERENCE MIX.** A favourite *is* a scene:
   the scene list grows past its four fixed service slots, so saving, restoring, refusing onto a different

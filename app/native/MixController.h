@@ -13,6 +13,7 @@
 #include "Mix/OutputFeeds.h"
 #include "Mix/LiveSafe.h"
 #include "Mix/MonitorBus.h"
+#include "Mix/Autopilot.h"
 #include "MixAI/TuneLiveCoordinator.h"
 #include "MixHistory.h"
 
@@ -440,6 +441,42 @@ public:
     // Is this strip one of them? A kick drum is not offered a job.
     bool isVoiceChannel (int strip) const;
 
+    // ---- AUTOPILOT: the operator's own mix, held where they left it ----
+    //
+    // The rules it lives under are in CLAUDE.md. The shape of it here: engaging measures where
+    // each group sits against the master right now and keeps that as the target; `poll()` reads
+    // the engine's meters a few times a second, asks `Autopilot::decide` (a pure function in
+    // src/Mix, with no AI in it anywhere) and applies whatever comes back through
+    // `setBusFader` - the same path a hand uses, so LIVE SAFE and the validator are already in
+    // it. Group faders only. Never a channel, a chain, the master fader, the returns or the
+    // engineer's listen, and never the audio thread.
+    //
+    // WITHIN TOLERANCE IT DOES NOTHING, which is the usual answer.
+    //
+    // An engineer's own move on a group Autopilot has been holding hands that group straight
+    // back: `setBusFader` from anywhere but here releases it, because the person at the desk
+    // outranks the machine that was standing in for them.
+    struct AutopilotState
+    {
+        bool on = false;
+        bool holding = false;            // it has a target and something is playing
+        int groupsCorrected = 0;         // how many it has had to move since it was engaged
+        float largestMoveDb = 0.0f;
+        std::string lastWhat, lastWhy;   // the last thing it did, in the words the history has
+        std::array<float, int (MixBus::Count)> movedDb {};
+        std::array<bool, int (MixBus::Count)> released {};   // the engineer took this one back
+    };
+    // Engaging snapshots the mix that is running. Returns false when there is nothing to hold
+    // (nothing built, or nothing playing to measure), with the reason on onMessage.
+    bool setAutopilot (bool on);
+    bool isAutopilotOn() const noexcept { return autopilot.on; }
+    const AutopilotState& getAutopilot() const noexcept { return autopilot; }
+    const AutopilotLimits& getAutopilotLimits() const noexcept { return autopilotLimits; }
+    void setAutopilotLimits (const AutopilotLimits& l) { autopilotLimits = l; }
+    // What Autopilot can see right now, for the panel that shows it and for the tests.
+    AutopilotReading readAutopilotMeters() const;
+    float autopilotDrift (MixBus bus) const noexcept { return Autopilot::driftDb (autopilotTarget, readAutopilotMeters(), bus); }
+
     // ---- RESET MIX TO RAW ----
     //
     // Everything DLIVE has decided about the sound, taken back: every strip's chain, gain,
@@ -761,6 +798,17 @@ private:
     bool broadcastDim = false, broadcastMute = false;   // the emergency keys: overlays on what is published, never kept
     // The four fixed service slots first, then the favourites - one list, so saving,
     // restoring and refusing onto a different console are the same code for both.
+    // Autopilot. `autopilotMoving` is what tells setBusFader that a move is its own, so an
+    // engineer's move on the same group can be told apart from one of its own and hand the
+    // group back.
+    AutopilotState autopilot;
+    AutopilotTarget autopilotTarget;
+    AutopilotLimits autopilotLimits;
+    bool autopilotMoving = false;
+    long long autopilotLastMs = 0;
+    std::array<float, int (MixBus::Count)> autopilotSinceHistoryDb {};
+    void pollAutopilot();
+
     std::vector<MixScene> scenes = std::vector<MixScene> (size_t (kMixScenes));
     MixFingerprint measureNow() const;      // what the mix that is running actually sounds like
     std::vector<MixCheckpoint> checkpoints;

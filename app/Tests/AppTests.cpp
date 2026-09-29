@@ -2006,3 +2006,80 @@ TEST_CASE ("MixController: a favourite mix is a scene that was also measured, an
     c.removeFavourite (99);
     CHECK (c.numFavourites() == 2);
 }
+
+TEST_CASE ("MixController: Autopilot holds the mix it was given, and hands a fader back the moment you touch it")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+
+    std::string said;
+    c.onMessage = [&said] (const std::string& m) { said = m; };
+
+    // Nothing playing: there is no mix to hold, and DLIVE says so rather than engaging on
+    // silence and calling it a target.
+    CHECK (! c.setAutopilot (true));
+    CHECK (! c.isAutopilotOn());
+    CHECK (said.find ("Nothing is playing") != std::string::npos);
+
+    f.play (1.0);
+    REQUIRE (c.setAutopilot (true));
+    CHECK (c.isAutopilotOn());
+    CHECK (c.getAutopilot().on);
+    // A place to come back to is kept before it starts.
+    bool named = false;
+    for (const auto& cp : c.getCheckpoints()) if (cp.what.find ("Before Autopilot") != std::string::npos) named = true;
+    CHECK (named);
+
+    // WITHIN TOLERANCE IT DOES NOTHING. The same band, playing the same way, for a while.
+    const MixParameters before = c.getKept();
+    f.play (3.0);
+    for (int b = 0; b < int (MixBus::Count); ++b)
+        CHECK_MESSAGE (std::fabs (c.getKept().buses[size_t (b)].faderDb - before.buses[size_t (b)].faderDb) < 0.001f,
+                       std::string ("Autopilot moved ") + mixBusName (MixBus (b)) + " with nothing wrong");
+    CHECK (c.getAutopilot().groupsCorrected == 0);
+
+    // IT NEVER TOUCHES ANYTHING BUT A GROUP FADER, whatever it sees.
+    for (int i = 0; i < c.getKept().numStrips; ++i)
+    {
+        CHECK (diffParameters (before.strips[size_t (i)].channel, c.getKept().strips[size_t (i)].channel).empty());
+        CHECK_NEAR (before.strips[size_t (i)].faderDb, c.getKept().strips[size_t (i)].faderDb, 0.001f);
+    }
+    for (int b = 0; b < int (MixBus::Count); ++b)
+        CHECK (diffParameters (before.buses[size_t (b)].channel, c.getKept().buses[size_t (b)].channel).empty());
+    CHECK_NEAR (before.master().faderDb, c.getKept().master().faderDb, 0.001f);
+
+    // THE ENGINEER OUTRANKS IT. A move on a group it had been correcting hands that group
+    // back for this engagement.
+    CHECK (! c.getAutopilot().released[size_t (MixBus::Drums)]);
+    c.setBusFader (MixBus::Drums, -2.0f);
+    CHECK (! c.getAutopilot().released[size_t (MixBus::Drums)]);   // it had not moved this one, so there is nothing to hand back
+    // ...and once it has, a touch releases it.
+    {
+        MixController::AutopilotState& state = const_cast<MixController::AutopilotState&> (c.getAutopilot());
+        state.movedDb[size_t (MixBus::Music)] = 0.5f;               // as though it had corrected MUSIC
+    }
+    said.clear();
+    c.setBusFader (MixBus::Music, -1.0f);
+    CHECK (c.getAutopilot().released[size_t (MixBus::Music)]);
+    CHECK (said.find ("is yours again") != std::string::npos);
+
+    // One press off, and nothing goes back: the faders are where they are.
+    const float drumsNow = c.getKept().buses[size_t (MixBus::Drums)].faderDb;
+    c.setAutopilot (false);
+    CHECK (! c.isAutopilotOn());
+    CHECK_NEAR (c.getKept().buses[size_t (MixBus::Drums)].faderDb, drumsNow, 0.001f);
+    CHECK (c.getAutopilot().groupsCorrected == 0);
+
+    // It never works against something the engineer is in the middle of.
+    f.play (0.5);
+    REQUIRE (c.setAutopilot (true));
+    c.setBypass (true);
+    const MixParameters underBypass = c.getKept();
+    f.play (2.0);
+    for (int b = 0; b < int (MixBus::Count); ++b)
+        CHECK_NEAR (underBypass.buses[size_t (b)].faderDb, c.getKept().buses[size_t (b)].faderDb, 0.001f);
+    c.setBypass (false);
+    c.setAutopilot (false);
+}

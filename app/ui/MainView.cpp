@@ -255,7 +255,9 @@ private:
     bool diskLow = false;
 };
 
-// ---------------------------------------------------------------- the solo bar
+// ---------------------------------------------------------------- the state band
+// THE TWO THINGS THE WINDOW HAS TO SAY WHATEVER WORKSPACE YOU ARE ON.
+//
 // SOLO YOU CANNOT MISS.
 //
 // Solo is the one state that changes what the engineer hears and nothing at all about what the
@@ -268,12 +270,15 @@ private:
 // under the toolbar, on every workspace, and says which. Each name is a way to that item;
 // CLEAR SOLO is one press; and the sentence says the thing a volunteer needs to hear, which is
 // that the room is fine. It takes no space at all when nothing is soloed.
-class MainView::SoloBar : public juce::Component
+// AND AUTOPILOT, for the same reason and a stronger one: it is the second thing in DLIVE
+// allowed to move a level by itself, so while it is on the window says so on every workspace,
+// says what it has had to move, and carries the one press that stops it.
+class MainView::StateBar : public juce::Component
 {
 public:
     static constexpr int height = 34;
 
-    SoloBar (MixController& c, std::function<void (const MixController::SoloedItem&)> jump)
+    StateBar (MixController& c, std::function<void (const MixController::SoloedItem&)> jump)
         : controller (c), onJump (std::move (jump))
     {
         setOpaque (true);
@@ -283,6 +288,12 @@ public:
         clear.setTooltip ("Every solo off. The room and the stream never heard any of it.");
         clear.onClick = [this] { controller.clearSolos(); refresh(); };
         addAndMakeVisible (clear);
+        stop.setFontPx (11.5f);
+        stop.setCaps (true);
+        stop.setPadX (12);
+        stop.setTooltip ("Autopilot off. Every fader stays where it is; nothing goes back.");
+        stop.onClick = [this] { controller.setAutopilot (false); refresh(); };
+        addChildComponent (stop);
     }
 
     // Returns true when the bar's visibility changed, so the window knows to lay itself out.
@@ -290,12 +301,25 @@ public:
     {
         auto now = controller.getSoloed();
         const bool wasShown = isVisible();
-        const bool show = ! now.empty();
-        bool same = now.size() == items.size();
+        const bool autopilotNow = controller.isAutopilotOn();
+        const juce::String held = autopilotNow ? juce::String (controller.getAutopilot().lastWhat) : juce::String();
+        const bool show = ! now.empty() || autopilotNow;
+
+        bool same = now.size() == items.size() && autopilotNow == autopilot && held == autopilotLine;
         if (same)
             for (size_t i = 0; i < now.size(); ++i)
                 same = same && now[i].kind == items[i].kind && now[i].index == items[i].index && now[i].name == items[i].name;
-        if (! same) { items = std::move (now); layoutChips(); repaint(); }
+        if (! same)
+        {
+            items = std::move (now);
+            autopilot = autopilotNow;
+            autopilotLine = held;
+            clear.setVisible (! items.empty());
+            stop.setVisible (autopilot);
+            layoutChips();
+            resized();
+            repaint();
+        }
         if (show != wasShown) { setVisible (show); return true; }
         return false;
     }
@@ -303,14 +327,37 @@ public:
     void paint (juce::Graphics& g) override
     {
         // A tinted band rather than a coloured one: the console keys own solo's colour, and the
-        // bar is the same thing said louder, not a second idea.
-        g.fillAll (Dine::mix (Dine::keySolo, 0.16f, Dine::toolbar));
-        g.setColour (Dine::keySolo);
+        // band is the same thing said louder, not a second idea. Autopilot takes the accent,
+        // because what it means is "DLIVE is doing something", which is what the accent means
+        // everywhere else in the application.
+        const auto tint = autopilot ? Dine::accent : Dine::keySolo;
+        g.fillAll (Dine::mix (tint, 0.16f, Dine::toolbar));
+        g.setColour (tint);
         g.fillRect (getLocalBounds().removeFromLeft (3));
         g.setColour (Dine::hair);
         g.fillRect (getLocalBounds().removeFromBottom (1));
 
         auto r = getLocalBounds().withTrimmedLeft (3).reduced (15, 0);
+        if (autopilot)
+        {
+            const auto caps = Dine::caps (11.0f, 0.10f);
+            g.setColour (Dine::accent);
+            g.setFont (caps);
+            Dine::drawText (g, "AUTOPILOT", r.removeFromLeft (Dine::textWidth (caps, "AUTOPILOT")),
+                            juce::Justification::centredLeft);
+            r.removeFromLeft (14);
+            auto words = r;
+            if (! items.empty()) words = words.withWidth (juce::jmax (0, chipsLeft - r.getX() - 14));
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::text (12.0f));
+            Dine::drawText (g, autopilotLine.isNotEmpty()
+                                   ? autopilotLine + "  " + Glyph::dot() + "  " + juce::String (controller.getAutopilot().lastWhy)
+                                   : juce::String ("Holding the mix you set. Group faders only, and nothing at all while it is where you left it."),
+                            words, juce::Justification::centredLeft, true);
+            if (items.empty()) return;
+            r = getLocalBounds().withTrimmedLeft (chipsLeft).withTrimmedRight (15);
+        }
+
         g.setColour (Dine::keySolo);
         g.setFont (Dine::caps (11.0f, 0.10f));
         Dine::drawText (g, "SOLO", r.removeFromLeft (Dine::textWidth (Dine::caps (11.0f, 0.10f), "SOLO")),
@@ -336,8 +383,17 @@ public:
     void resized() override
     {
         auto r = getLocalBounds().withTrimmedLeft (3).reduced (15, 0);
-        clear.setBounds (r.removeFromRight (juce::jmax (96, clear.idealWidth())).withSizeKeepingCentre (
-                             juce::jmax (96, clear.idealWidth()), Dine::Metric::control - 4));
+        if (stop.isVisible())
+        {
+            const int w = juce::jmax (110, stop.idealWidth());
+            stop.setBounds (r.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control - 4));
+            r.removeFromRight (10);
+        }
+        if (clear.isVisible())
+        {
+            const int w = juce::jmax (96, clear.idealWidth());
+            clear.setBounds (r.removeFromRight (w).withSizeKeepingCentre (w, Dine::Metric::control - 4));
+        }
         layoutChips();
     }
 
@@ -357,8 +413,14 @@ private:
     {
         chips.clear();
         noteBox = {};
+        chipsLeft = getWidth();
+        if (items.empty()) return;
         auto r = getLocalBounds().withTrimmedLeft (3).reduced (15, 0);
+        if (stop.isVisible()) r.removeFromRight (stop.getWidth() + 10);
         r.removeFromRight (clear.getWidth() + 14);
+        // Autopilot takes the left of the band when it is on, so solo starts after it.
+        if (autopilot) r.removeFromLeft (r.getWidth() / 2);
+        chipsLeft = r.getX();
         r.removeFromLeft (Dine::textWidth (Dine::caps (11.0f, 0.10f), "SOLO") + 14);
 
         const auto font = Dine::text (12.0f, 500);
@@ -390,7 +452,11 @@ private:
     std::vector<Chip> chips;
     juce::Rectangle<int> noteBox;
     juce::String note;
+    bool autopilot = false;
+    juce::String autopilotLine;
+    int chipsLeft = 0;
     DineButton clear { "Clear solo", DineButton::Style::Standard };
+    DineButton stop { "Autopilot off", DineButton::Style::Standard };
 };
 
 // ---------------------------------------------------------------- sidebar
@@ -690,6 +756,10 @@ public:
                     m.addSubMenu ("Master Sound", sound);
                 }
                 m.addSeparator();
+                // AUTOPILOT: the second thing in DLIVE allowed to move a level by itself, and
+                // the only way to turn it on. Ticked while it is holding the mix.
+                m.addItem (415, "Autopilot: hold this mix", true, view.controller.isAutopilotOn());
+                m.addSeparator();
                 m.addItem (414, "Reset Mix to Raw" + juce::String (Glyph::ellip()), ! view.controller.isLiveSafe());
                 m.addSeparator();
                 m.addItem (401, "Centre Macro Pads");
@@ -844,8 +914,8 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     statusBar = std::make_unique<StatusBar> (controller, services);
     addAndMakeVisible (*statusBar);
 
-    soloBar = std::make_unique<SoloBar> (controller, [this] (const MixController::SoloedItem& item) { jumpToSoloed (item); });
-    addChildComponent (*soloBar);
+    stateBar = std::make_unique<StateBar> (controller, [this] (const MixController::SoloedItem& item) { jumpToSoloed (item); });
+    addChildComponent (*stateBar);
 
     // ---- title row
     sidebarButton = std::make_unique<SidebarButton>();
@@ -1154,7 +1224,7 @@ void MainView::updateChrome()
 {
     // The solo band first: whether it is there decides how much room the workspace has, so it
     // is answered before anything is laid out.
-    if (soloBar != nullptr && soloBar->refresh()) resized();
+    if (stateBar != nullptr && stateBar->refresh()) resized();
 
     const auto& session = controller.getSession();
     const bool running = services.isAudioRunning();
@@ -1945,6 +2015,11 @@ void MainView::handleCommand (int id)
             showPage (Page::Tracks);
             tracksPage->moveSelectedTrack (id == 305 ? -1 : 1);
             break;
+        case 415:
+            controller.setAutopilot (! controller.isAutopilotOn());
+            updateChrome();
+            if (menu != nullptr) menu->menuItemsChanged();
+            break;
         case 414: resetMixToRaw(); break;
         case 401: mixPage->centreMacroPads(); showToast ("Both pads and the ENERGY ribbon are back to the plan."); break;
         case 420: showToast (juce::String (controller.raiseLoudnessToTarget())); break;
@@ -2359,11 +2434,11 @@ juce::Rectangle<int> MainView::columnBounds() const
     if (sidebar != nullptr && sidebar->isVisible()) r.removeFromLeft (sidebar->width());
     // A sheet never covers the solo band: it is the one thing the window says that has to be
     // true whatever else is open.
-    if (soloBar != nullptr && soloBar->isVisible()) r.removeFromTop (SoloBar::height);
+    if (stateBar != nullptr && stateBar->isVisible()) r.removeFromTop (StateBar::height);
     return r;
 }
 
-bool MainView::isSoloBarShown() const { return soloBar != nullptr && soloBar->isVisible(); }
+bool MainView::isSoloBarShown() const { return stateBar != nullptr && stateBar->isVisible(); }
 
 // A name on the solo band is a way to the thing it names: the console, with that strip, group
 // or return picked out. Nothing about the mix changes - it is a way of looking, like the band.
@@ -2532,7 +2607,7 @@ void MainView::resized()
     statusBar->setBounds (body.removeFromBottom (Dine::Metric::status));
     // The solo band sits over the workspace column, under the toolbar, and only exists while
     // something is soloed - so a console with nothing soloed is exactly as it was.
-    if (soloBar != nullptr && soloBar->isVisible()) soloBar->setBounds (body.removeFromTop (SoloBar::height));
+    if (stateBar != nullptr && stateBar->isVisible()) stateBar->setBounds (body.removeFromTop (StateBar::height));
     // The requests panel is a column beside the workspace, never over it: the pages and the chain foot
     // give up its width, so a sheet a page opens stays whole and the panel stays readable.
     const int panelW = chatSheet != nullptr ? juce::jmin (kRequestsW, body.getWidth() / 2) : 0;

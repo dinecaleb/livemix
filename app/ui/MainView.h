@@ -147,7 +147,7 @@ private:
     class SidebarButton;
     class MixerWindow;
     class StatusBar;
-    class SoloBar;
+    class StateBar;
     class Sidebar;
     class TextButtonV2;
     class WorkspaceTab;
@@ -218,9 +218,9 @@ private:
     std::unique_ptr<MixerWindow> mixerWindow;
     std::unique_ptr<Sidebar> sidebar;
     std::unique_ptr<StatusBar> statusBar;
-    // Under the toolbar whenever anything is soloed, on every workspace, and nowhere at all
-    // when nothing is. See the class for why solo gets a band of its own.
-    std::unique_ptr<SoloBar> soloBar;
+    // Under the toolbar whenever anything is soloed or Autopilot is on, on every workspace,
+    // and nowhere at all when neither is. See the class for why those two get a band.
+    std::unique_ptr<StateBar> stateBar;
     void jumpToSoloed (const MixController::SoloedItem&);
     std::unique_ptr<ChainStrip> chainFoot;
     std::unique_ptr<Tutorial> tutorial;

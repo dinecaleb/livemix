@@ -31,10 +31,18 @@ file under `docs/` — read the one for the area you are touching before changin
   measured from where a source will actually land, never from where the profile wishes it were. The master is
   fitted to a band, so a sermon-only listen leaves it alone and sets the speech group by what leaves the mix.
   A listen with no performance in it is refused rather than mixed.
-- **Only one thing moves a level by itself, and it is off by default.** Speech priority ducks DRUMS, BASS and
-  MUSIC into the master while the speech group is open. Never the voices, never the room, never the returns,
-  and never the engineer's listen - it is applied where a group is summed into the master, after the monitor
-  has taken its copy.
+- **Two things move a level by themselves, and both are off by default.** *Speech priority* ducks DRUMS, BASS
+  and MUSIC into the master while the speech group is open. Never the voices, never the room, never the
+  returns, and never the engineer's listen - it is applied where a group is summed into the master, after the
+  monitor has taken its copy.
+  *Autopilot* is the second, added 2026-09-28. It is **deterministic - no AI anywhere in it** - off by default,
+  engaged only by explicit action, shown as AUTOPILOT on every workspace while it is on, bounded by
+  `MixSafetyValidator`, limited to **group faders only** and to +/- `maxTotalDb` of the mix it was engaged on,
+  and every move it makes is a Mix history entry with the sentence that says why. It never touches EQ,
+  dynamics, a channel, the room, the returns, the master fader or the engineer's listen. It runs on the
+  message thread off `MixController::poll` and never on the audio thread. **Within tolerance it does nothing,
+  and that is the default outcome** (`tests/Mix/AutopilotTests.cpp` asserts it). One press turns it off, and an
+  engineer's own move on a fader it had been correcting hands that fader straight back.
 - **AI is optional, validated and never auto-applied.** Default Off, explicit user action only, a
   `SafetyValidator` / `MixSafetyValidator` on every path, the deterministic result as the fallback on any
   failure, AI output never enters the proposed parameters, nothing AI-related on the audio thread, and a

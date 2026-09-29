@@ -44,6 +44,7 @@ add_library(livemix_engine STATIC
     Mix/MixPlanner.cpp
     Mix/ReferenceMix.cpp
     Mix/MixMacros.cpp
+    Mix/Autopilot.cpp
     MixAI/RelationshipEngine.cpp
     MixAI/MixContext.cpp
     MixAI/DspCapabilityRegistry.cpp

@@ -10,7 +10,7 @@ its tests pass. Each phase writes what it learned into `docs/`, so the next one 
 | 1     | Session state foundation              | **Done** — 2026-09-27, four commits, `b15b902`..`d1d96ce`                        |
 | 2     | Mixing workflow                       | **Done** — 2026-09-28, five commits                                              |
 | 3     | Mix features                          | **Done** — 2026-09-28, five commits                                              |
-| 4     | Autopilot and the offline-model study | In progress — the invariant was amended on 2026-09-28                            |
+| 4     | Autopilot and the offline-model study | **Done** — 2026-09-28, one commit; the invariant was amended first               |
 
 
 ---
@@ -162,6 +162,9 @@ test; each change that alters the sound creates a Mix history checkpoint.
 > `MixSafetyValidator`, limited to group and lead faders within ±N dB of the engaged mix, and every move is a
 > Mix history entry with its reason. It never touches EQ, dynamics, the room, returns, or the engineer's listen.
 
+1. ✅ **Autopilot (deterministic).** *(2026-09-28. `src/Mix/Autopilot.h` is the whole decision and is a pure
+   function; `MixController::setAutopilot` engages it and `poll()` runs it. The `CLAUDE.md` invariant was
+   amended first, in the wording below.)* The original note:
 1. **Autopilot (deterministic).** Engaging it snapshots the current mix's relationship profile (the Phase 3
   code) as the target. A worker thread — never the audio thread — reads the existing meters and analysis
    every few hundred ms and checks: lead fallen below its relationship to the band, speech intelligibility
@@ -170,6 +173,11 @@ test; each change that alters the sound creates a Mix history checkpoint.
    smallest move, faders only, slow ramps, hysteresis, hard limits, validated. One-press off, and any engineer
    touch on a fader it moved hands that fader back. Each move is a Mix history entry: "Autopilot: Lead
    +1.2 dB. The lead fell below where you had it against the band."
+2. ✅ **Offline model study.** *(2026-09-28. `docs/LOCAL-MODEL-STUDY.md`. The answer to "which requests would
+   a small model handle better" is **few** - eight of twelve hard sentences already fail safely, and the four
+   that do not are negation and scoping, which fifty lines of guard would turn into refusals. Recommendation:
+   **defer**, take the cheap fix, and measure the residue. It also found a real bug on the way: "bring the lead
+   vocal forward" answers itself twice, once as the strip and once as the bus.)* The original note:
 2. **Offline model study — research only, no code in the product.** `docs/LOCAL-MODEL-STUDY.md`: which Mix
   Buddy / TUNE LIVE MIX requests a small model would handle better than `MixRequestParser` +
    `RelationshipEngine` today, with real example phrases (**if the answer is "few", say so**); candidate models
