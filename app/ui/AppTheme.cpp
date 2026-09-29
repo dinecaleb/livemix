@@ -389,11 +389,44 @@ void Dine::drawSegmentTrack (juce::Graphics& g, juce::Rectangle<int> r)
     fillRounded (g, r.toFloat(), menubar, Radius::control);
 }
 
+// A section caption. In v3 the only capitals in the product are its verbs, so a caption that
+// arrives in capitals is written back in sentence case here rather than at three hundred call
+// sites - and the words that really are verbs, or initialisms, keep their capitals.
+juce::String Dine::sectionCase (const juce::String& label)
+{
+    static const char* kept[] = { "DLIVE", "TUNE", "MIX", "LIVE", "SAFE", "BYPASS", "RE-TUNE", "KEEP", "REVERT",
+                                  "BEFORE", "AFTER", "CHANNEL", "REFERENCE", "MATCH", "TO", "EQ", "FX", "BGV",
+                                  "AFL", "PFL", "LUFS", "DIM", "MUTE", "SOLO", "R", "A", "M", "S", "L", "PA", "AI" };
+    juce::StringArray words;
+    words.addTokens (label, " ", "");
+    bool first = true;
+    juce::String out;
+    for (auto word : words)
+    {
+        if (word.isEmpty()) continue;
+        juce::String written = word;
+        const bool isCaps = word == word.toUpperCase() && word.containsAnyOf ("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+        if (isCaps)
+        {
+            bool keep = false;
+            for (const char* k : kept) if (word == juce::String (k)) { keep = true; break; }
+            // The product's two-word verbs keep their capitals as a pair; a lone word that
+            // happens to match one of them ("MIX HEALTH") does not.
+            if (! keep) written = first ? word.substring (0, 1) + word.substring (1).toLowerCase()
+                                        : word.toLowerCase();
+        }
+        else if (first) written = written.substring (0, 1).toUpperCase() + written.substring (1);
+        out += (out.isEmpty() ? juce::String() : juce::String (" ")) + written;
+        first = false;
+    }
+    return out.isEmpty() ? label : out;
+}
+
 void Dine::drawSection (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& label)
 {
-    g.setColour (ink4);
-    g.setFont (caps (12.0f, 0.08f));
-    Dine::drawText (g, label, r, juce::Justification::centredLeft, true);
+    g.setColour (ink3);
+    g.setFont (text (12.0f, 600));
+    Dine::drawText (g, sectionCase (label), r, juce::Justification::centredLeft, true);
 }
 
 juce::Colour Dine::mix (juce::Colour tint, float amount, juce::Colour over) noexcept

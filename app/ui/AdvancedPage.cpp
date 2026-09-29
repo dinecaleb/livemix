@@ -2,6 +2,8 @@
 #include "Core/DbUtils.h"
 #include "DSP/ChannelProcessor.h"
 #include "State/ParameterSpecs.h"
+#include "Profiles/MacroMapping.h"
+#include "Core/ProductDefinition.h"
 #include "UI/LiveMixLookAndFeel.h"
 #include <ctime>
 
@@ -11,6 +13,7 @@ namespace livemix
 namespace
 {
     constexpr int kHeadH  = 108;   // the channel header
+    constexpr int kViewRowH = 38;  // Simple / Advanced and RE-TUNE, under it
     constexpr int kFootH  = 72;    // the rail's engine footer
     constexpr int kPadX   = 22;
 
@@ -76,9 +79,9 @@ public:
         g.setColour (tint.withAlpha (0.9f));
         g.fillEllipse (dot.withSizeKeepingCentre (5, 5).toFloat());
         r.removeFromLeft (8);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::caps (9.5f, 0.12f));
-        Dine::drawText (g, label, r.removeFromLeft (r.getWidth() - 30), juce::Justification::centredLeft, true);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.0f, 600));
+        Dine::drawText (g, Dine::sectionCase (label), r.removeFromLeft (r.getWidth() - 30), juce::Justification::centredLeft, true);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (10.0f));
         Dine::drawText (g, countText, r, juce::Justification::centredRight);
@@ -470,6 +473,310 @@ private:
     // Wide enough for the longer of the two words it carries, so the button does not change
     // width as it is switched.
     static constexpr int kEffectsW = 108;
+};
+
+// ------------------------------------------------------------------ SimplePanel
+// THE CHANNEL IN FIVE PLAIN WORDS (design: `28 - Inspector - Simple view`, 89:25394).
+//
+// The same five controls the plug-in's Simple view has, for whatever this channel is - a voice
+// gets WARMTH, CLARITY, SMOOTH, STEADY and CLEAN-UP; a drum gets PUNCH, BODY, ATTACK, TONE and
+// BLEED - and under them what DLIVE did to this channel, in sentences, its level, and the two
+// verbs that matter: TUNE CHANNEL and PUT BACK.
+//
+// 50 IS THE PLAN. A knob does not start from the profile's baseline the way the plug-in's
+// does: it starts from the channel as TUNE left it, so the centre of every knob is "as tuned"
+// and moving one leans that channel away from the plan by a bounded, musical amount - the same
+// convention as TUNE's own macro pads. A tune, or a hand edit in Advanced, re-seeds it.
+class AdvancedPage::SimplePanel : public juce::Component
+{
+public:
+    explicit SimplePanel (MixController& c) : controller (c)
+    {
+        for (int i = 0; i < 5; ++i)
+        {
+            knobs[size_t (i)] = std::make_unique<Knob>();
+            knobs[size_t (i)]->onChange = [this, i] (float v) { setMacro (i, v); };
+            addAndMakeVisible (*knobs[size_t (i)]);
+        }
+        level.setSliderStyle (juce::Slider::LinearHorizontal);
+        level.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        Dine::dragOnly (level);
+        level.setRange (-60.0, 12.0, 0.1);
+        level.setSkewFactorFromMidPoint (-12.0);
+        level.setDoubleClickReturnValue (true, 0.0);
+        level.getProperties().set ("dineFader", true);
+        level.setTooltip ("How loud this channel is in the mix. Double-click for 0.0 dB.");
+        level.onValueChange = [this]
+        {
+            if (updating || strip < 0) return;
+            controller.setStripFader (strip, float (level.getValue()));
+            repaint();
+        };
+        addAndMakeVisible (level);
+
+        tuneButton.setCaps (true);
+        tuneButton.setFontPx (12.0f);
+        tuneButton.setTooltip ("DLIVE listens to this channel on its own and sets its chain. Nothing else in the mix moves.");
+        tuneButton.onClick = [this] { if (onTune && strip >= 0) onTune (strip); };
+        addAndMakeVisible (tuneButton);
+
+        putBack.setFontPx (12.0f);
+        putBack.setTooltip ("Put this channel back to what TUNE left it at: the five controls go back to the middle.");
+        putBack.onClick = [this]
+        {
+            if (strip < 0) return;
+            values = MacroMapping::defaults (product);
+            controller.setStripChannel (strip, asTuned);
+            syncKnobs();
+            repaint();
+        };
+        addAndMakeVisible (putBack);
+        setOpaque (false);
+    }
+
+    std::function<void (int strip)> onTune;
+
+    // A new channel, or a chain that changed from outside: the five controls go back to the
+    // middle and this becomes what they are measured from.
+    void setStrip (int index)
+    {
+        strip = index;
+        reseed();
+    }
+
+    void reseed()
+    {
+        if (strip < 0 || ! controller.isPrepared() || strip >= controller.getBase().numStrips) return;
+        const auto& st = controller.getBase().strips[size_t (strip)];
+        asTuned = st.channel;
+        role = controller.getGraph().strips[size_t (strip)].role;
+        product = productOf (role);
+        values = MacroMapping::defaults (product);
+        syncKnobs();
+        repaint();
+    }
+
+    void refresh()
+    {
+        if (strip < 0 || ! controller.isPrepared() || strip >= controller.getBase().numStrips) return;
+        updating = true;
+        const float db = controller.getBase().strips[size_t (strip)].faderDb;
+        if (std::fabs (db - float (level.getValue())) > 0.01f) { level.setValue (db, juce::dontSendNotification); repaint(); }
+        updating = false;
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds();
+        Dine::fillRounded (g, r.toFloat(), Dine::card, Dine::Radius::card);
+        auto inner = r.reduced (24, 20);
+
+        const auto& def = productDefinition (product);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (17.0f, 600));
+        Dine::drawText (g, "How it sounds", inner.removeFromTop (22), juce::Justification::centredLeft, true);
+        inner.removeFromTop (kKnobBlockH + 22);
+
+        g.setColour (Dine::hair);
+        g.fillRect (inner.removeFromTop (1));
+        inner.removeFromTop (18);
+
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (15.0f, 600));
+        Dine::drawText (g, "What DLIVE did", inner.removeFromTop (20), juce::Justification::centredLeft, true);
+        inner.removeFromTop (8);
+
+        // The sentences TUNE already wrote for this channel, as a list a volunteer can read.
+        const auto notes = sentences();
+        for (const auto& note : notes)
+        {
+            if (inner.getHeight() < 40) break;
+            auto row = inner.removeFromTop (20);
+            g.setColour (Dine::accent);
+            g.fillEllipse (row.removeFromLeft (5).withSizeKeepingCentre (4, 4).toFloat());
+            row.removeFromLeft (9);
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::text (12.5f));
+            Dine::drawText (g, note, row, juce::Justification::centredLeft, true);
+            inner.removeFromTop (6);
+        }
+        if (notes.isEmpty())
+        {
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (12.5f));
+            Dine::drawText (g, "Nothing yet. TUNE CHANNEL listens to this one source and sets its chain.",
+                            inner.removeFromTop (20), juce::Justification::centredLeft, true);
+        }
+
+        // the level, over its slider
+        auto foot = getLocalBounds().reduced (24, 20).removeFromBottom (Dine::Metric::button + 10 + 34);
+        auto levelRow = foot.removeFromTop (34);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.0f, 500));
+        Dine::drawText (g, "Level", levelRow.removeFromTop (14), juce::Justification::centredLeft);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::mono (12.0f, 500));
+        Dine::drawText (g, db1 (float (level.getValue())) + " dB",
+                        juce::Rectangle<int> (levelRow).removeFromRight (64), juce::Justification::centredRight);
+
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.5f));
+        Dine::drawText (g, "The engineer's words " + juce::String (Glyph::dash()) + " gate, compressor, de-esser " 
+                            + Glyph::dash() + " are in Advanced.",
+                        getLocalBounds().reduced (24, 20).removeFromBottom (16), juce::Justification::centredLeft, true);
+        juce::ignoreUnused (def);
+    }
+
+    void resized() override
+    {
+        auto inner = getLocalBounds().reduced (24, 20);
+        inner.removeFromTop (22 + 10);
+        auto row = inner.removeFromTop (kKnobBlockH);
+        const int each = row.getWidth() / 5;
+        for (int i = 0; i < 5; ++i) knobs[size_t (i)]->setBounds (row.removeFromLeft (each));
+
+        auto foot = getLocalBounds().reduced (24, 20).removeFromBottom (Dine::Metric::button + 10 + 34 + 16 + 8);
+        foot.removeFromTop (14 + 4);
+        level.setBounds (foot.removeFromTop (16).withTrimmedRight (72));
+        foot.removeFromTop (10);
+        auto buttons = foot.removeFromTop (Dine::Metric::button);
+        const int tw = juce::jmax (120, tuneButton.idealWidth());
+        tuneButton.setBounds (buttons.removeFromLeft (tw));
+        buttons.removeFromLeft (10);
+        const int pw = juce::jmax (100, putBack.idealWidth());
+        putBack.setBounds (buttons.removeFromLeft (pw));
+    }
+
+private:
+    // The design's `Knob Large` (112:10018): a 270 degree track, the value arc in the accent,
+    // one pointer, and the value under the knob so the arc is never covered by it.
+    class Knob : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        std::function<void (float)> onChange;
+
+        void set (float v, const juce::String& text, const juce::String& label)
+        {
+            value = v; readout = text; name = label;
+            repaint();
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            auto r = getLocalBounds();
+            auto box = r.removeFromTop (kKnobSize).withSizeKeepingCentre (kKnobSize, kKnobSize).toFloat().reduced (3.0f);
+            const auto centre = box.getCentre();
+            const float radius = box.getWidth() * 0.5f;
+            const float start = juce::MathConstants<float>::pi * 1.25f;
+            const float end   = juce::MathConstants<float>::pi * 2.75f;
+            const float angle = start + juce::jlimit (0.0f, 1.0f, value / 100.0f) * (end - start);
+
+            juce::Path track;
+            track.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, start, end, true);
+            g.setColour (Dine::control);
+            g.strokePath (track, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            juce::Path arc;
+            arc.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, start, angle, true);
+            g.setColour (isEnabled() ? Dine::accent : Dine::ink4);
+            g.strokePath (arc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+            const auto dot = centre.getPointOnCircumference (radius - 6.0f, angle);
+            g.setColour (isEnabled() ? Dine::ink : Dine::ink4);
+            g.fillEllipse (juce::Rectangle<float> (4.5f, 4.5f).withCentre (dot));
+
+            r.removeFromTop (6);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::mono (13.0f, 500));
+            Dine::drawText (g, readout, r.removeFromTop (16), juce::Justification::centred);
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::caps (10.0f, 0.04f, 600));
+            Dine::drawText (g, name, r.removeFromTop (14), juce::Justification::centred, true);
+        }
+
+        void mouseDown (const juce::MouseEvent&) override { dragFrom = value; }
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            if (! isEnabled()) return;
+            const float v = juce::jlimit (0.0f, 100.0f, dragFrom - float (e.getDistanceFromDragStartY()) * 0.5f);
+            if (std::fabs (v - value) < 0.01f) return;
+            value = v;
+            repaint();
+            if (onChange) onChange (v);
+        }
+        void mouseDoubleClick (const juce::MouseEvent&) override
+        {
+            if (! isEnabled()) return;
+            value = 50.0f;
+            repaint();
+            if (onChange) onChange (value);
+        }
+
+        float value = 50.0f, dragFrom = 50.0f;
+        juce::String readout { "50" }, name;
+    };
+
+    static constexpr int kKnobSize = 76;
+    static constexpr int kKnobBlockH = kKnobSize + 6 + 16 + 14;
+
+    void setMacro (int index, float v)
+    {
+        if (strip < 0 || index < 0 || index >= 5) return;
+        values.v[size_t (index)] = v;
+        controller.setStripChannel (strip, MacroMapping::apply (product, asTuned, values, roleFamily (role)));
+        syncKnobs();
+    }
+
+    void syncKnobs()
+    {
+        const auto& def = productDefinition (product);
+        for (int i = 0; i < 5; ++i)
+        {
+            const auto& spec = def.macros[size_t (i)];
+            const float v = values.v[size_t (i)];
+            const bool unit = spec.maxValue <= 1.001f;
+            const float shown = unit ? v * 100.0f : v;
+            knobs[size_t (i)]->set (shown, juce::String (juce::roundToInt (shown)), spec.label);
+            knobs[size_t (i)]->setTooltip (juce::String (spec.tooltip) + "  The middle is what TUNE left this channel at.");
+        }
+    }
+
+    juce::StringArray sentences() const
+    {
+        juce::StringArray out;
+        if (strip < 0) return out;
+        // What TUNE said about this one channel, in its own words: the WHY of each item it
+        // decided, oldest first, capped so the panel stays a summary rather than a report.
+        if (const auto* plan = controller.getPlan())
+            for (const auto& sp : plan->strips)
+            {
+                if (sp.strip != strip) continue;
+                for (const auto& item : sp.tune.report.items)
+                {
+                    if (item.why.empty()) continue;
+                    out.addIfNotAlreadyThere (juce::String (item.why));
+                    if (out.size() >= 5) return out;
+                }
+                for (const auto& item : sp.mixItems)
+                {
+                    if (item.why.empty()) continue;
+                    out.addIfNotAlreadyThere (juce::String (item.why));
+                    if (out.size() >= 5) return out;
+                }
+            }
+        return out;
+    }
+
+    MixController& controller;
+    int strip = -1;
+    ChannelRole role = ChannelRole::LeadVocal;
+    Product product = Product::Vocals;
+    ChannelParameters asTuned;
+    MacroValues values;
+    std::array<std::unique_ptr<Knob>, 5> knobs;
+    juce::Slider level;
+    DineButton tuneButton { "TUNE CHANNEL", DineButton::Style::Filled };
+    DineButton putBack { "Put it back", DineButton::Style::Standard };
+    bool updating = false;
 };
 
 // ------------------------------------------------------------------ Trail
@@ -912,6 +1219,29 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
     path = std::make_unique<SignalPath> (*chain);
     addAndMakeVisible (*path);
 
+    simple = std::make_unique<SimplePanel> (controller);
+    simple->onTune = [this] (int strip) { if (onTuneChannel) onTuneChannel (strip); };
+    addChildComponent (*simple);
+
+    // SIMPLE / ADVANCED: a way of looking at the channel, never a mode the mix is in.
+    addAndMakeVisible (viewTrack);
+    for (auto* b : { &simpleTab, &advancedTab })
+    {
+        b->setFontPx (11.5f);
+        viewTrack.addAndMakeVisible (*b);
+    }
+    simpleTab.setTooltip ("This channel in five plain words. The middle of each control is what TUNE left it at.");
+    advancedTab.setTooltip ("The whole chain, stage by stage, with every number it owns.");
+    simpleTab.onClick = [this] { setSimpleView (true); };
+    advancedTab.onClick = [this] { setSimpleView (false); };
+    advancedTab.setToggleState (true, juce::dontSendNotification);
+
+    retuneButton.setCaps (true);
+    retuneButton.setFontPx (11.0f);
+    retuneButton.setTooltip ("Listen again and build the mix from what it hears now. Nothing is committed until KEEP.");
+    retuneButton.onClick = [this] { if (onRetune) onRetune(); };
+    addAndMakeVisible (retuneButton);
+
     trail = std::make_unique<Trail> (controller);
     trail->onPick = [this] (int stage) { chain->selectStage (stage); };
     trail->onRetune = [this] { if (onRetune) onRetune(); };
@@ -1095,9 +1425,30 @@ void AdvancedPage::selectStage (int index)
     refresh();
 }
 
+// SIMPLE / ADVANCED. A way of looking at the channel: the sound is identical either way, and
+// what one view changes the other shows.
+void AdvancedPage::setSimpleView (bool on)
+{
+    if (on == simpleView) return;
+    simpleView = on;
+    simpleTab.setToggleState (on, juce::dontSendNotification);
+    advancedTab.setToggleState (! on, juce::dontSendNotification);
+    // Simple is about one channel: a group bus has no five plain words, so it stays on the chain.
+    simple->setVisible (on && ! selection.isBus && selection.strip >= 0);
+    path->setVisible (! on);
+    chain->setVisible (! on);
+    if (simple->isVisible()) simple->reseed();
+    resized();
+    repaint();
+}
+
 void AdvancedPage::showSelection()
 {
     head->show (selection);
+    simple->setStrip (selection.isBus ? -1 : selection.strip);
+    simple->setVisible (simpleView && ! selection.isBus && selection.strip >= 0);
+    path->setVisible (! simple->isVisible());
+    chain->setVisible (! simple->isVisible());
 
     // The headline and the sentence: what the last TUNE MIX said about this channel.
     juce::String headline, sentence;
@@ -1200,6 +1551,7 @@ std::vector<AdvancedPage::HistoryView> AdvancedPage::historyViews()
 void AdvancedPage::refresh()
 {
     if (! controller.isPrepared()) return;
+    if (simple != nullptr && simple->isVisible()) simple->refresh();
     const auto& engine = controller.getEngine();
     const auto& graph = engine.getGraph();
     if (graph.numStrips() != builtForStrips) rebuild();
@@ -1302,7 +1654,7 @@ void AdvancedPage::paintWorkspaceBands (juce::Graphics& g, juce::Rectangle<int> 
 {
     // The stage device sits in its own tile under the path; the head and the path are on the ground.
     auto workspace = area;
-    workspace.removeFromTop (kHeadH + SignalPath::height + 20);
+    workspace.removeFromTop (kHeadH + kViewRowH + SignalPath::height + 20);
     Dine::fillRounded (g, workspace.reduced (kPadX, 4).withTrimmedBottom (10).toFloat(), Dine::tile, Dine::Radius::card);
 }
 
@@ -1353,6 +1705,28 @@ void AdvancedPage::resized()
     if (trailShown) trail->setBounds (trailArea);
 
     head->setBounds (area.removeFromTop (kHeadH));
+    {
+        // SIMPLE / ADVANCED and RE-TUNE: the design puts them level with the channel's name,
+        // which is where the head's own gain, level and keys already are, so they take the row
+        // under it - still the first thing at the right of the channel, and over nothing.
+        auto row = area.removeFromTop (kViewRowH).reduced (kPadX, 0).withSizeKeepingCentre (
+                       area.getWidth() - 2 * kPadX, Dine::Metric::control);
+        const int rw = juce::jmax (92, retuneButton.idealWidth());
+        retuneButton.setBounds (row.removeFromRight (rw));
+        row.removeFromRight (12);
+        const int each = 78;
+        viewTrack.setBounds (row.removeFromRight (each * 2 + 4));
+        auto track = viewTrack.getLocalBounds().reduced (2, 2);
+        simpleTab.setBounds (track.removeFromLeft (each));
+        advancedTab.setBounds (track);
+    }
+    if (simpleView)
+    {
+        path->setBounds (0, 0, 0, 0);
+        chain->setBounds (0, 0, 0, 0);
+        simple->setBounds (area.reduced (kPadX, 10).withTrimmedBottom (10));
+        return;
+    }
     auto pathArea = area.removeFromTop (SignalPath::height + 20).reduced (kPadX, 10);
     path->setBounds (pathArea);
     chain->setBounds (area.reduced (kPadX, 4).withTrimmedBottom (10).reduced (18, 14));

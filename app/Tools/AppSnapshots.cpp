@@ -1151,6 +1151,13 @@ int main (int argc, char** argv)
     view.getAdvancedPage().selectStage (4);  // corrective EQ: the curve, its nodes and the band cards (the kick's chain has a sample stage before it)
     rig.feed (0.3);
     rig.snap (dir, "11b-inspector-eq");
+
+    // THE CHANNEL IN FIVE PLAIN WORDS: the Inspector's Simple view.
+    view.getAdvancedPage().setSimpleView (true);
+    rig.feed (0.3);
+    rig.snap (dir, "28-inspector-simple");
+    view.getAdvancedPage().setSimpleView (false);
+    rig.feed (0.2);
     view.getAdvancedPage().selectStage (6);  // the compressor: its in/out line and the live reduction
     rig.feed (0.3);
     rig.snap (dir, "11c-inspector-comp");

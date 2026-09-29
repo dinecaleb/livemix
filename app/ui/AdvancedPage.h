@@ -52,6 +52,11 @@ public:
     void selectBus (MixBus bus);
     MixBus selectedBus() const noexcept { return selection.isBus ? selection.bus : MixBus::Count; }
     void selectStage (int index);             // ... and one stage of its chain
+    // SIMPLE / ADVANCED. Simple is the channel in five plain words, with 50 meaning "as TUNE
+    // left it"; Advanced is the whole chain, stage by stage. It is a way of looking, never a
+    // mode the mix is in: the sound is the same either way.
+    void setSimpleView (bool);
+    bool isSimpleView() const noexcept { return simpleView; }
     void revealHistory();                     // scroll the trail to the channel's HISTORY (a menu, the snapshot tool)
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -61,6 +66,7 @@ private:
     class Row;
     class Head;
     class Trail;
+    class SimplePanel;
     struct Selection { bool isBus = false; int strip = -1; MixBus bus = MixBus::Master; };
 
     void showSelection();
@@ -87,6 +93,13 @@ private:
     juce::Viewport viewport;
     juce::Component listHolder;
     std::unique_ptr<Head> head;
+    std::unique_ptr<SimplePanel> simple;
+    // The design's Simple / Advanced segment, and RE-TUNE, at the right of the channel head.
+    DineSegmentRow viewTrack;
+    DineButton simpleTab { "Simple", DineButton::Style::Segment };
+    DineButton advancedTab { "Advanced", DineButton::Style::Segment };
+    DineButton retuneButton { "RE-TUNE", DineButton::Style::Standard };
+    bool simpleView = false;
     std::unique_ptr<ChainEditor> chain;
     std::unique_ptr<SignalPath> path;
     std::unique_ptr<Trail> trail;

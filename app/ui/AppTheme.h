@@ -259,7 +259,10 @@ namespace Dine
     // The track a row of segments sits in: #0a0c10, radius 8, the segments 2 px inside it.
     void drawSegmentTrack (juce::Graphics&, juce::Rectangle<int>);
 
-    // A section label: 12 px, 600, tracked .08 em, quiet. "MIX HEALTH", "GROUPS", "SIGNAL PATH".
+    // A section label. The design's captions are sentence case - the only capitals in the
+    // product are its verbs - so a caption written in capitals is put back into sentence case
+    // by `sectionCase`, which leaves the verbs and the initialisms alone.
+    juce::String sectionCase (const juce::String&);
     void drawSection (juce::Graphics&, juce::Rectangle<int>, const juce::String&);
     // A small status chip: 9 px tracked caps on a 20 % tint of its colour. Gain staging, badges.
     void drawStatusChip (juce::Graphics&, juce::Rectangle<float>, const juce::String&, juce::Colour, float px = 9.0f);
