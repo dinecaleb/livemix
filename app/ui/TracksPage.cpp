@@ -1831,6 +1831,21 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
         if (track < 0) return;
         // Right-click is the header's own menu: the name, the source and the assignments.
         if (e.mods.isPopupMenu()) { headerMenu (track); return; }
+
+        // A PRESS ON A HEADER PICKS THAT TRACK OUT, WHATEVER ELSE IT DOES.
+        //
+        // Every control on the row - the keys, the fader, TUNE, the height grip - used to
+        // claim the press and return, so clicking M, or arming a track, or grabbing the row's
+        // bottom edge, left the chain strip reading some other channel. A click on a row
+        // selected it only if it happened to land on the bare part of it, which is why it
+        // looked as though selecting a track worked some of the time.
+        if (selection.track != track || selection.index != -1)
+        {
+            selection = { track, -1 };
+            updateChainStrip();
+            repaint();
+        }
+
         const int bottom = trackTop (track) + trackHeight (track);
         if (p.y >= bottom - kResizeGrip)
         {
@@ -1885,14 +1900,11 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
             }
         }
 
-        // A click on the header picks that channel out - the chain strip along the foot reads
-        // it, and the fader, the keys and the menu are all right there. Leaving the timeline
-        // is a bigger move than a single click, so the Inspector waits for a double-click.
-        //
-        // The same press, dragged up or down, rearranges the channels. Nothing happens until
-        // the pointer has actually travelled (kOrderGrip), so a click that wanders by a pixel
-        // still just selects.
-        selection = { track, -1 };
+        // The channel is already picked out (above). The same press, dragged up or down,
+        // rearranges the channels: nothing happens until the pointer has actually travelled
+        // (kOrderGrip), so a click that wanders by a pixel still just selects. Leaving the
+        // timeline is a bigger move than a single click, so the Inspector waits for a
+        // double-click.
         drag = Drag::TrackOrder;
         dragOrderFrom = track;
         dragOrderSlot = -1;

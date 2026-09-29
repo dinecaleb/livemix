@@ -800,7 +800,7 @@ public:
         if (selectedStrip >= 0 && selectedStrip < int (controller.getSession().inputs.size())) picked.insert (selectedStrip);
         group = -1;
         for (int i = 0; i < kGroupBuses; ++i)
-            if (controller.getGraph().busUsed[size_t (i)]) { group = i; break; }
+            if (controller.getGraph().busUsed[size_t (groupBus (i))]) { group = i; break; }
         setScope (Scope::Mix);
         setVisible (true);
         toFront (true);
@@ -816,7 +816,7 @@ public:
         if (scope == Scope::Group)
         {
             int used = 0;
-            for (int i = 0; i < kGroupBuses; ++i) if (controller.getGraph().busUsed[size_t (i)]) ++used;
+            for (int i = 0; i < kGroupBuses; ++i) if (controller.getGraph().busUsed[size_t (groupBus (i))]) ++used;
             const int perRow = juce::jlimit (1, 4, used);
             const int rows = juce::jmax (1, (juce::jmax (1, used) + perRow - 1) / perRow);
             return 14 + 12 + rows * Dine::Metric::button + (rows - 1) * 10 + 14;
@@ -902,14 +902,14 @@ public:
         {
             body.removeFromTop (14 + 12);
             int used = 0;
-            for (int i = 0; i < kGroupBuses; ++i) if (controller.getGraph().busUsed[size_t (i)]) ++used;
+            for (int i = 0; i < kGroupBuses; ++i) if (controller.getGraph().busUsed[size_t (groupBus (i))]) ++used;
             const int perRow = juce::jlimit (1, 4, used);
             const int cell = (body.getWidth() - 10 * (perRow - 1)) / perRow;
             auto row = body.removeFromTop (Dine::Metric::button);
             int placed = 0;
             for (int i = 0; i < kGroupBuses; ++i)
             {
-                if (! controller.getGraph().busUsed[size_t (i)]) continue;
+                if (! controller.getGraph().busUsed[size_t (groupBus (i))]) continue;
                 if (placed > 0 && placed % perRow == 0)
                 {
                     body.removeFromTop (10);
@@ -946,7 +946,7 @@ private:
         scope = s;
         for (int i = 0; i < 3; ++i) tabs[size_t (i)]->setToggleState (int (s) == i, juce::dontSendNotification);
         for (int i = 0; i < kGroupBuses; ++i)
-            groupButtons[size_t (i)]->setVisible (s == Scope::Group && controller.getGraph().busUsed[size_t (i)]);
+            groupButtons[size_t (i)]->setVisible (s == Scope::Group && controller.getGraph().busUsed[size_t (groupBus (i))]);
         channelView.setVisible (s == Scope::Channels);
         allButton.setVisible (s == Scope::Channels);
         resized();
@@ -1034,7 +1034,10 @@ private:
         {
             case Scope::Group:
                 if (chosenGroup < 0) return;
-                controller.startTuneBus (MixBus (chosenGroup));
+                // The picker counts in the console's order; the engine counts in the enum's.
+                // `MixBus (chosenGroup)` tuned whichever bus happened to be stored at that
+                // index, which is not the one whose name is written on the chip.
+                controller.startTuneBus (groupBus (chosenGroup));
                 if (onToast) onToast ("Listening for " + groupName (chosenGroup)
                                       + " alone. Every other group, and the master, stay where they are.");
                 break;

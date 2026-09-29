@@ -13,7 +13,9 @@ namespace
 {
     constexpr int kHeaderH   = Dine::Metric::header;     // the tool row
     constexpr int kPadX      = 18;
-    constexpr int kStripGap  = 3;       // between columns
+    // Between columns. Enough that two strips are two things: at 3 the console read as one
+    // wall of faders, and on a busy service the eye has to find a strip before it can move it.
+    constexpr int kStripGap  = 8;
     constexpr int kRowH      = 46;      // list view
     constexpr int kRowGap    = 3;
     constexpr int kListHeadH = 30;

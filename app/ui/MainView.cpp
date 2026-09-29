@@ -982,7 +982,9 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     autopilotButton = std::make_unique<ToolbarToggle> ("AUTOPILOT", ToolbarToggle::Kind::Key, Dine::Icon::None, Dine::monitor);
     autopilotButton->setTooltip ("Hold the mix you set. Autopilot moves group faders only, slowly, inside a few dB of "
                                  "the mix it was engaged on, and says why every time. Touch a fader and it is yours again.");
-    autopilotButton->onClick = [this] { handleCommand (626); };
+    // The same command the Mix menu's "Autopilot: hold this mix" carries. It asked for 626,
+    // which nothing handled, so the key looked dead while the menu item worked.
+    autopilotButton->onClick = [this] { handleCommand (415); };
     addChildComponent (*autopilotButton);
 
     liveSafeButton = std::make_unique<ToolbarToggle> ("LIVE SAFE", ToolbarToggle::Kind::Primary);
