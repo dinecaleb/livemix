@@ -9,7 +9,7 @@ its tests pass. Each phase writes what it learned into `docs/`, so the next one 
 | ----- | ------------------------------------- | -------------------------------------------------------------------------------- |
 | 1     | Session state foundation              | **Done** — 2026-09-27, four commits, `b15b902`..`d1d96ce`                        |
 | 2     | Mixing workflow                       | **Done** — 2026-09-28, five commits                                              |
-| 3     | Mix features                          | In progress — 2026-09-28                                                         |
+| 3     | Mix features                          | **Done** — 2026-09-28, five commits                                              |
 | 4     | Autopilot and the offline-model study | In progress — the invariant was amended on 2026-09-28                            |
 
 
@@ -137,6 +137,10 @@ test; each change that alters the sound creates a Mix history checkpoint.
 4. **Sample replacement, finished.** User samples imported from the strip (copied into the session folder so
   the session is portable), preview, and the 8-per-family cap removed or made clear. Kick, snare, toms only.
    *(Phase 1 already made the cap say so out loud and made the selection survive a moved slot.)*
+5. ✅ **Favourite mixes.** *(2026-09-28. A favourite is a scene past the four fixed slots, with a
+   `MixFingerprint` measured from the listen; `useFavouriteAsReference` aims TUNE at one through the Reference
+   machinery. The surface is the Mix history sheet - which, it turned out, had never been given bounds and so
+   had never been seen by anybody.)* The original note:
 5. **Favourite mixes.** Do not add a third system beside SCENES and REFERENCE MIX — extend them. "Mark as
   favourite" stores the mix plus a relationship profile computed from the capture at that moment (lead vs
    band, lead vs BGV, speech vs master, drum balance, bus levels relative to master, compression and EQ

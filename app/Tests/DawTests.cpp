@@ -3224,3 +3224,36 @@ TEST_CASE ("SessionStore: LEAD and BGV survive the round trip as two groups")
              || file.loadFileAsString().contains ("\"version\":" + juce::String (SessionStore::kVersion)));
     file.deleteFile();
 }
+
+TEST_CASE ("SessionStore: a favourite and what it sounded like survive the round trip")
+{
+    FullSession s (false);
+    s.daw.setLiveSafe (false);
+    s.controller.keepScene (2);                            // one of the four, so both kinds are in the file
+    REQUIRE (s.controller.markFavourite ("The good one"));
+    // A fingerprint with something in it, whether or not this fixture has listened.
+    CHECK (s.controller.numFavourites() == 1);
+
+    const auto file = scratchFolder().getChildFile ("favourites.dlive.json");
+    file.deleteFile();
+    REQUIRE (SessionStore::save (captureSession (s.controller, s.daw, kDevices, 0), file));
+    SessionStore::Document back;
+    REQUIRE (SessionStore::load (file, back));
+
+    REQUIRE (back.scenes.size() >= size_t (kMixScenes) + 1);
+    CHECK (back.scenes[2].kept);
+    CHECK (! back.scenes[2].favourite);
+    const auto& fav = back.scenes[size_t (kMixScenes)];
+    CHECK (fav.favourite);
+    CHECK (fav.name == std::string ("The good one"));
+    CHECK (fav.kept);
+
+    // ...and it comes back as a favourite rather than as a fifth service slot.
+    FullSession another (false);
+    auto& other = another.controller;
+    other.restoreScenes (back.scenes);
+    CHECK (other.numFavourites() == 1);
+    CHECK (other.getFavourite (0).name == std::string ("The good one"));
+    for (int i = 0; i < kMixScenes; ++i) CHECK (! other.getScene (i).favourite);
+    file.deleteFile();
+}

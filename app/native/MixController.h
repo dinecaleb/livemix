@@ -333,6 +333,36 @@ public:
     std::vector<MixScene> getScenes() const;
     void restoreScenes (const std::vector<MixScene>& scenes);
 
+    // ---- FAVOURITE MIXES: the ones that worked, kept and measured ----
+    //
+    // Not a third store. A favourite *is* a scene - the whole kept mix, the macros and the
+    // input names - with two things added: it is named by the engineer rather than by a slot,
+    // and it carries a `MixFingerprint` of what it actually sounded like. The scene list simply
+    // grows past its four fixed slots, so everything that saves, restores, refuses onto a
+    // different console and records a recall keeps working untouched.
+    //
+    // THE FINGERPRINT IS THE POINT. A mix is fader positions and chains, and neither of those
+    // is what anybody means when they say they liked it: what they liked is where things
+    // *landed* - the lead over the band, the backing under the lead, the kit against the bass,
+    // how loud the master was and how much of it was peaks. Those are measured from the listen
+    // (RelationshipEngine, and the capture's own bus and master measurements), never read off a
+    // fader, because a fader at -6 means nothing without knowing what arrived at it. Marking a
+    // favourite with nothing heard yet keeps the mix and says the sound is not measured.
+    //
+    // AND IT IS AIMABLE AT. `useFavouriteAsReference` builds a ReferenceProfile out of the
+    // fingerprint's master measurements and hands it to setReference, so TUNE aims at a mix
+    // this church liked through exactly the path it aims at a record - no second target
+    // system, no second set of bounds.
+    int numFavourites() const noexcept;
+    const MixScene& getFavourite (int index) const;
+    // Keep what is running now, by name. False when there is nothing built to keep.
+    bool markFavourite (const std::string& name);
+    bool recallFavourite (int index);
+    void renameFavourite (int index, const std::string& name);
+    void removeFavourite (int index);
+    // Aim the mix at one, the way it is aimed at a record. False when it was never measured.
+    bool useFavouriteAsReference (int index);
+
     // ---- Track history: what changed on one channel, and any earlier setting put back ----
     //
     // UNDO walks the whole mix back one change at a time. This is the other way an engineer
@@ -729,7 +759,10 @@ private:
     std::array<std::vector<StripTuneRecord>, kMaxStrips> stripHistory;
     bool liveKept = false;              // the plan on preview came from TUNE LIVE MIX (or the chat), so KEEP names it so
     bool broadcastDim = false, broadcastMute = false;   // the emergency keys: overlays on what is published, never kept
-    std::array<MixScene, kMixScenes> scenes;
+    // The four fixed service slots first, then the favourites - one list, so saving,
+    // restoring and refusing onto a different console are the same code for both.
+    std::vector<MixScene> scenes = std::vector<MixScene> (size_t (kMixScenes));
+    MixFingerprint measureNow() const;      // what the mix that is running actually sounds like
     std::vector<MixCheckpoint> checkpoints;
     long long lastCheckpointMs = 0;     // the slow beat: see poll()
     MixParameters atLastCheckpoint;

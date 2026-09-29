@@ -1,4 +1,5 @@
 #include "MixController.h"
+#include "MixAI/RelationshipEngine.h"
 #include "Core/DbUtils.h"
 #include "Profiles/MixProfileData.h"
 #include <cmath>
@@ -519,7 +520,9 @@ void MixController::keepScene (int slot)
 
 bool MixController::recallScene (int slot)
 {
-    if (slot < 0 || slot >= kMixScenes || ! built) return false;
+    // Bounded by the list rather than by the four fixed slots: a favourite is a scene past
+    // them and is brought back by exactly this code, refusals and strip records included.
+    if (slot < 0 || slot >= int (scenes.size()) || ! built) return false;
     const auto& s = scenes[size_t (slot)];
     if (! s.kept)
     {
@@ -567,8 +570,156 @@ std::vector<MixScene> MixController::getScenes() const
 
 void MixController::restoreScenes (const std::vector<MixScene>& list)
 {
+    scenes.assign (size_t (kMixScenes), MixScene {});
     for (int i = 0; i < kMixScenes; ++i) scenes[size_t (i)] = i < int (list.size()) ? list[size_t (i)] : MixScene {};
-    for (int i = 0; i < kMixScenes; ++i) if (scenes[size_t (i)].name.empty()) scenes[size_t (i)].name = defaultSceneName (i);
+    for (int i = 0; i < kMixScenes; ++i)
+    {
+        if (scenes[size_t (i)].name.empty()) scenes[size_t (i)].name = defaultSceneName (i);
+        scenes[size_t (i)].favourite = false;      // the four slots are never favourites
+    }
+    // Everything past the four slots is a favourite, whatever a file happened to call it.
+    for (size_t i = size_t (kMixScenes); i < list.size(); ++i)
+    {
+        auto favourite = list[i];
+        favourite.favourite = true;
+        if (favourite.name.empty()) favourite.name = "Favourite " + std::to_string (i - size_t (kMixScenes) + 1);
+        scenes.push_back (favourite);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FAVOURITE MIXES
+// ---------------------------------------------------------------------------
+int MixController::numFavourites() const noexcept
+{
+    return int (scenes.size()) - kMixScenes;
+}
+
+const MixScene& MixController::getFavourite (int index) const
+{
+    static const MixScene none;
+    if (index < 0 || index >= numFavourites()) return none;
+    return scenes[size_t (kMixScenes + index)];
+}
+
+// WHAT THE MIX THAT IS RUNNING ACTUALLY SOUNDS LIKE. Measured from the listen DLIVE already
+// has - the relationships, where each group lands against the master, and what the master
+// itself measured. Never read off a fader: a fader at -6 dB means nothing without knowing
+// what arrived at it, which is the whole reason this exists.
+MixFingerprint MixController::measureNow() const
+{
+    MixFingerprint f;
+    if (! listened || ! lastCapture.valid) return f;
+
+    MixPlanContext ctx;
+    ctx.session = session;
+    ctx.graph = graph;
+    ctx.current = kept;
+    ctx.atCapture = lastCaptureAt;
+    ctx.capture = lastCapture;
+    ctx.reference = reference;
+    ctx.retune = lastCaptureRetune;
+    for (const auto& r : RelationshipEngine::measure (ctx))
+        if (! r.metric.empty()) f.metrics.push_back ({ r.metric, r.value });
+
+    const auto& master = lastCapture.buses[size_t (MixBus::Master)];
+    for (int b = 0; b < int (MixBus::Master); ++b)
+    {
+        const auto& bus = lastCapture.buses[size_t (b)];
+        if (! bus.valid || bus.rmsDb <= -100.0f || ! master.valid || master.rmsDb <= -100.0f) continue;
+        f.busBelowMasterDb[size_t (b)] = bus.rmsDb - master.rmsDb;
+        f.busMeasured[size_t (b)] = true;
+    }
+
+    const auto& out = lastCapture.masterOutput;
+    if (out.valid)
+    {
+        f.masterLufs = out.loudnessLufs;
+        f.masterCrestDb = out.crestFactorDb;
+        f.masterTruePeakDb = out.truePeakDb;
+        f.masterCorrelation = out.stereoCorrelation;
+        f.masterBandDb = out.bandEnergyDb;
+        f.valid = true;
+    }
+    else if (! f.metrics.empty()) f.valid = true;
+    return f;
+}
+
+bool MixController::markFavourite (const std::string& name)
+{
+    if (! built) return false;
+    MixScene s;
+    s.name = name.empty() ? "Favourite " + std::to_string (numFavourites() + 1) : name;
+    s.kept = true;
+    s.favourite = true;
+    s.mix = kept;
+    s.macros = macros;
+    s.inputs = inputNamesNow();
+    s.whenMs = (long long) std::chrono::duration_cast<std::chrono::milliseconds> (
+                   std::chrono::system_clock::now().time_since_epoch()).count();
+    s.sound = measureNow();
+    scenes.push_back (s);
+    if (onMessage)
+        onMessage (s.sound.valid
+                       ? s.name + " is a favourite. DLIVE measured what it sounds like, so a later mix can be "
+                                  "aimed at it the way it is aimed at a record."
+                       : s.name + " is a favourite. Nothing has been listened to yet, so the mix is kept but what "
+                                  "it sounds like is not measured - TUNE MIX once and mark it again to aim at it.");
+    mark ("Favourite: " + s.name);
+    return true;
+}
+
+bool MixController::recallFavourite (int index)
+{
+    if (index < 0 || index >= numFavourites()) return false;
+    return recallScene (kMixScenes + index);
+}
+
+void MixController::renameFavourite (int index, const std::string& name)
+{
+    if (index < 0 || index >= numFavourites() || name.empty()) return;
+    scenes[size_t (kMixScenes + index)].name = name;
+    touch();
+}
+
+void MixController::removeFavourite (int index)
+{
+    if (index < 0 || index >= numFavourites()) return;
+    const auto name = scenes[size_t (kMixScenes + index)].name;
+    scenes.erase (scenes.begin() + long (kMixScenes + index));
+    if (onMessage) onMessage (name + " is no longer a favourite. The mix it held is still in the mix history.");
+    mark ("Favourite removed: " + name);
+}
+
+bool MixController::useFavouriteAsReference (int index)
+{
+    if (index < 0 || index >= numFavourites()) return false;
+    const auto& f = getFavourite (index);
+    if (! f.sound.valid || f.sound.masterLufs <= -100.0f)
+    {
+        if (onMessage)
+            onMessage (f.name + " was kept before DLIVE had listened to anything, so there is nothing measured to "
+                                "aim at. Mark the mix again once it has been tuned.");
+        return false;
+    }
+
+    // A favourite becomes a reference through exactly the path a record goes through: same
+    // profile, same bounds, same MATCH TO REFERENCE. There is no second target system.
+    ReferenceProfile r;
+    r.valid = true;
+    r.name = f.name;
+    r.path = "this session's own mix";
+    r.channels = 2;
+    r.bandEnergyDb = f.sound.masterBandDb;
+    r.crestFactorDb = f.sound.masterCrestDb;
+    r.loudnessLufs = f.sound.masterLufs;
+    r.truePeakDb = f.sound.masterTruePeakDb;
+    r.stereoCorrelation = f.sound.masterCorrelation;
+    setReference (r);
+    if (onMessage)
+        onMessage ("Aimed at " + f.name + ". The next TUNE MIX, or MATCH TO REFERENCE, moves the master towards how "
+                   "that mix sounded - inside the profile's own bounds, as it does for a record.");
+    return true;
 }
 
 void MixController::setOutputFeeds (const OutputFeeds& f)

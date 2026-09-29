@@ -1,7 +1,9 @@
 #pragma once
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <string>
+#include <utility>
 #include <vector>
 #include "Mix/MixParameters.h"
 #include "Mix/MixSession.h"
@@ -41,10 +43,62 @@ inline bool stripTuneDiffers (const StripParameters& a, const StripParameters& b
     return ! diffParameters (a.channel, b.channel).empty();
 }
 
+// ---------------------------------------------------------------------------
+// WHAT A MIX SOUNDED LIKE, measured
+//
+// A mix is a set of fader positions and a set of chains, and neither of those is what
+// somebody means when they say they liked it. What they liked is where things *landed*: the
+// lead over the band, the backing under the lead, the kit against the bass, how loud the
+// master was and how much of it was peaks. Those are relationships, and a relationship is
+// measured from the listen - never from a fader, because a fader at -6 means nothing without
+// knowing what arrived at it.
+//
+// So a favourite mix carries this beside its parameters: the RelationshipEngine's own metrics
+// under their own stable names, where each group landed against the master, and what the
+// master itself measured. It is what makes a favourite something a later mix can be aimed at
+// rather than only something that can be recalled.
+struct MixFingerprint
+{
+    static constexpr int kVersion = 1;
+    int version = kVersion;
+    bool valid = false;
+
+    // The RelationshipEngine's measurements, keyed on its own stable metric names
+    // ("sub_overlap_db", "lead_over_band_db", ...). A name it does not know is ignored, so an
+    // older favourite opens in a later build without pretending to know more than it does.
+    std::vector<std::pair<std::string, float>> metrics;
+
+    // Where each group landed relative to the master, dB - measured at the master's input,
+    // not read off a fader.
+    std::array<float, int (MixBus::Count)> busBelowMasterDb {};
+    std::array<bool, int (MixBus::Count)> busMeasured {};
+
+    // The master itself: how loud it was, how much of it was peaks, how wide it was, and its
+    // tonal balance - the same numbers a ReferenceProfile carries, so a favourite can be
+    // aimed at exactly the way a record is.
+    float masterLufs = -120.0f;
+    float masterCrestDb = 0.0f;
+    float masterTruePeakDb = -120.0f;
+    float masterCorrelation = 1.0f;
+    std::array<float, int (Band::Count)> masterBandDb {};
+
+    float metric (const std::string& name, float fallback = 0.0f) const noexcept
+    {
+        for (const auto& m : metrics) if (m.first == name) return m.second;
+        return fallback;
+    }
+};
+
 // A scene: the whole mix as it was kept for one part of the service - the band, the pastor,
 // the choir - recalled in one press. It holds the kept mix and the macros, and the names of
 // the inputs it was kept with, so it is recalled onto the same console and refused, with a
 // sentence, onto a different one. Four slots with plain names; saved with the session.
+//
+// A FAVOURITE IS A SCENE THAT WAS ALSO MEASURED (2026-09-28). Rather than a third store beside
+// the scenes and the reference, the scene list simply grows: slots 0..kMixScenes-1 are the
+// four named parts of a service that LIVE's pads recall, and everything after them is a
+// favourite - named by the engineer, carrying a `MixFingerprint` of what it sounded like, and
+// aimable at through the same ReferenceMix machinery a record goes through.
 struct MixScene
 {
     std::string name;
@@ -52,6 +106,9 @@ struct MixScene
     MixParameters mix;
     MixMacroValues macros;
     std::vector<std::string> inputs;     // the session's input names when it was kept
+    bool favourite = false;              // one of the list, rather than one of the four slots
+    long long whenMs = 0;                // wall clock when it was marked; 0 when unknown
+    MixFingerprint sound;                // what it actually sounded like, measured
 };
 inline constexpr int kMixScenes = 4;
 inline const char* defaultSceneName (int slot) noexcept

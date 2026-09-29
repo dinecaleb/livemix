@@ -1385,6 +1385,17 @@ int main (int argc, char** argv)
     view.closeSheets();
     rig.feed (0.3);
 
+    // MIX HISTORY, with the favourites at the top of it: the mixes somebody said worked, what
+    // each one sounded like, and the one press that aims the next tune at one of them.
+    rig.controller.markFavourite ("Sunday 09:30 - the one");
+    rig.controller.setStripFader (10, -2.0f);
+    rig.controller.markFavourite ("After the choir came in");
+    view.showHistory();
+    rig.feed (0.4);
+    rig.snap (dir, "27c-mix-history-favourites");
+    view.closeSheets();
+    rig.feed (0.3);
+
     // ---- the smallest window DLIVE allows (MainWindow::setResizeLimits). A workspace that
     // only works at the developer's resolution is a workspace that breaks on a laptop at the
     // back of a church, so every one of them is rendered here too.

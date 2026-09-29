@@ -1925,3 +1925,84 @@ TEST_CASE ("SampleLibrary: a sound imported from a strip is copied into the sess
 
     folder.getParentDirectory().deleteRecursively();
 }
+
+TEST_CASE ("MixController: a favourite mix is a scene that was also measured, and TUNE can aim at it")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+
+    // A favourite marked before anything has been heard keeps the mix and says so: there is
+    // nothing measured to aim at, and DLIVE does not pretend there is.
+    std::string said;
+    c.onMessage = [&said] (const std::string& m) { said = m; };
+    REQUIRE (c.markFavourite ("Too early"));
+    CHECK (c.numFavourites() == 1);
+    CHECK (! c.getFavourite (0).sound.valid);
+    CHECK (said.find ("not measured") != std::string::npos);
+    CHECK (! c.useFavouriteAsReference (0));
+    CHECK (! c.hasReference());
+    c.removeFavourite (0);
+    CHECK (c.numFavourites() == 0);
+
+    // A real one: listen, tune, keep, then mark.
+    c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    c.keepPlan();
+    c.setStripFader (3, -2.5f);
+    REQUIRE (c.markFavourite ("Sunday 09:30"));
+    REQUIRE (c.numFavourites() == 1);
+
+    const auto& fav = c.getFavourite (0);
+    CHECK (fav.name == std::string ("Sunday 09:30"));
+    CHECK (fav.favourite);
+    CHECK (fav.kept);
+    CHECK (fav.whenMs > 0);
+    CHECK_NEAR (fav.mix.strips[3].faderDb, -2.5f, 0.01f);
+
+    // THE FINGERPRINT IS MEASURED, not read off a fader: the master's own numbers, where each
+    // group landed against it, and the relationships under their own stable names.
+    REQUIRE (fav.sound.valid);
+    CHECK (fav.sound.masterLufs > -100.0f);
+    CHECK (! fav.sound.metrics.empty());
+    bool anyBus = false;
+    for (int b = 0; b < int (MixBus::Master); ++b) anyBus = anyBus || fav.sound.busMeasured[size_t (b)];
+    CHECK (anyBus);
+
+    // THE FOUR SERVICE SLOTS ARE UNTOUCHED BY IT. A favourite is a scene past them, so the
+    // pads on LIVE still mean what they meant.
+    for (int i = 0; i < kMixScenes; ++i) CHECK (! c.getScene (i).favourite);
+    c.keepScene (0);
+    CHECK (c.getScene (0).kept);
+    CHECK (! c.getScene (0).favourite);
+    CHECK (c.numFavourites() == 1);
+
+    // IT IS AIMABLE AT, through the same Reference a record goes through - no second target.
+    REQUIRE (c.useFavouriteAsReference (0));
+    REQUIRE (c.hasReference());
+    CHECK (c.getReference().name == std::string ("Sunday 09:30"));
+    CHECK_NEAR (c.getReference().loudnessLufs, fav.sound.masterLufs, 0.01f);
+    CHECK (c.getReference().bandEnergyDb == fav.sound.masterBandDb);
+
+    // ...and recalled like a scene, refused onto a different console like a scene.
+    c.setStripFader (3, -9.0f);
+    REQUIRE (c.recallFavourite (0));
+    CHECK_NEAR (c.getKept().strips[3].faderDb, -2.5f, 0.01f);
+
+    c.renameFavourite (0, "The one from the 9:30");
+    CHECK (c.getFavourite (0).name == std::string ("The one from the 9:30"));
+
+    // A LIST, NOT ONE SLOT.
+    REQUIRE (c.markFavourite ("Later that morning"));
+    CHECK (c.numFavourites() == 2);
+    CHECK (c.getFavourite (1).name == std::string ("Later that morning"));
+    CHECK (c.getScenes().size() == size_t (kMixScenes) + 2);
+
+    // Out of range does nothing at all, in either direction.
+    CHECK (! c.recallFavourite (7));
+    CHECK (! c.useFavouriteAsReference (-1));
+    c.removeFavourite (99);
+    CHECK (c.numFavourites() == 2);
+}

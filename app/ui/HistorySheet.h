@@ -31,15 +31,23 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
 
 private:
+    // One line of the list. Three kinds, because a favourite, a place to go back to and the
+    // caption between them are the same shape on screen and there is no sense in three classes.
     struct Row
     {
-        int index = 0;                 // into MixController::getCheckpoints()
+        enum class Kind { Caption, Favourite, Checkpoint };
+        Kind kind = Kind::Checkpoint;
+        int index = 0;                 // into getCheckpoints(), or the favourite's own index
         juce::String when, what;
         bool fromTune = false;
         bool sameConsole = true;       // false: kept with different inputs, so it cannot go back on
+        bool measured = false;         // a favourite DLIVE heard, so it can be aimed at
         std::unique_ptr<DineButton> restore;
+        std::unique_ptr<DineButton> aim;      // favourites only: aim the mix at this one
+        std::unique_ptr<DineButton> drop;     // favourites only: it is not a favourite any more
     };
 
+    static int rowHeight (const Row&) noexcept;
     juce::Rectangle<int> cardBounds() const;
     void rebuild();
     void paintRows (juce::Graphics&);
@@ -59,8 +67,14 @@ private:
     juce::Viewport viewport;
     ListBody list { *this };
     DineButton doneButton { "Close", DineButton::Style::Standard };
+    // MARK AS FAVOURITE: the mix that is running, kept by name with what it sounds like
+    // measured beside it, so a later mix can be aimed at it.
+    DineButton favouriteButton { "Mark this mix as a favourite", DineButton::Style::Filled };
+    std::unique_ptr<juce::AlertWindow> nameDialog;
+    void askForFavouriteName();
     size_t builtFor = 0;
-    static constexpr int kCardW = 660, kRowH = 42;
+    int builtFavourites = -1;
+    static constexpr int kCardW = 660, kRowH = 42, kCaptionH = 26;
 };
 
 } // namespace livemix

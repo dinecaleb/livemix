@@ -339,6 +339,17 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
                        std::string ("the ") + sheet.name + " sheet did not open (open: \""
                            + view.openSheetName().toStdString() + "\")");
 
+        // ...AND IT HAS A SIZE. Mix history was created, added to the window and left out of
+        // the list that gives the sheets their bounds, so it was a sheet with no size that
+        // nobody had ever seen (found 2026-09-28 by photographing it). Opening is half of it.
+        bool sized = false;
+        for (int i = 0; i < view.getNumChildComponents(); ++i)
+            if (auto* child = view.getChildComponent (i))
+                if (child->isVisible() && child->getWidth() > 200 && child->getHeight() > 100
+                    && child->getWidth() >= view.getWidth() / 3)
+                    sized = true;
+        CHECK_MESSAGE (sized, std::string ("the ") + sheet.name + " sheet has no bounds, so nobody can see it");
+
         view.keyPressed ({ juce::KeyPress::escapeKey, 0, 0 });
         window.pump (10);
         CHECK_MESSAGE (view.openSheetName().isEmpty(),

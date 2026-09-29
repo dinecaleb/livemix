@@ -2562,7 +2562,10 @@ void MainView::resized()
 
     // A sheet covers the workspace column; the chat is a panel down the right of it.
     auto column = columnBounds();
-    for (juce::Component* sheetComponent : { (juce::Component*) themeSheet.get(),
+    // MIX HISTORY was missing from this list, so it was created, added and never given
+    // bounds: a sheet with no size is a sheet nobody has ever seen. Found on 2026-09-28 by
+    // photographing it.
+    for (juce::Component* sheetComponent : { (juce::Component*) themeSheet.get(), (juce::Component*) historySheet.get(),
                                              (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)

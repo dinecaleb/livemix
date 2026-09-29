@@ -87,6 +87,23 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   they were would change the blend rather than the tone - and the blend is what the hierarchy rules own. Mix
   Buddy hears "the vocals", "the voices" and "the singers" as the lead, and "BGV", "backing" and "choir" as the
   backing group.
+- **FAVOURITE MIXES (2026-09-28, `MixController::markFavourite` and friends).** The mixes somebody said worked,
+  kept by name in a list - **and not a third store beside SCENES and REFERENCE MIX.** A favourite *is* a scene:
+  the scene list grows past its four fixed service slots, so saving, restoring, refusing onto a different
+  console and recording a recall are the same code for both, and LIVE's four pads mean exactly what they meant.
+  A favourite carries two things a scene does not: a name the engineer gave it, and a `MixFingerprint`.
+  **The fingerprint is the point.** A mix is fader positions and chains, and neither of those is what anybody
+  means when they say they liked it: what they liked is where things *landed* - the lead over the band, the
+  backing under the lead, the kit against the bass, how loud the master was and how much of it was peaks. So it
+  is measured from the listen - `RelationshipEngine`'s metrics under their own stable names, where each group
+  landed against the master, and the master's own loudness, crest, true peak, correlation and band balance -
+  and never read off a fader, because a fader at -6 dB means nothing without knowing what arrived at it. A
+  favourite marked before anything has been heard keeps the mix and says out loud that the sound is not
+  measured, rather than pretending.
+  **And it is aimable at.** `useFavouriteAsReference` builds a `ReferenceProfile` out of the fingerprint's
+  master measurements and hands it to `setReference`, so TUNE aims at a mix this church liked through exactly
+  the path it aims at a record: same profile bounds, same MATCH TO REFERENCE, no second target system. The
+  surface is the Mix history sheet, which is where a list of mixes by name already lived.
 - **WHAT THIS MICROPHONE IS DOING (2026-09-28, `MixController::setInputRole` / `voiceJobs`).** A church has
   three or four microphones that do two jobs: the handheld is the pastor's in the sermon and the worship
   leader's in the last song, the lapel is a host and then an MC, the spare at the back is a guest nobody can

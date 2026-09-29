@@ -194,6 +194,40 @@ namespace
                 for (const auto& n : s.inputs) inputs.add (juce::String (n));
                 so->setProperty ("inputs", inputs);
             }
+            // A FAVOURITE is a scene past the four fixed slots, and what makes it worth having
+            // is the fingerprint: what the mix actually sounded like when it was marked.
+            if (s.favourite)
+            {
+                so->setProperty ("favourite", true);
+                if (s.whenMs > 0) so->setProperty ("whenMs", double (s.whenMs));
+                if (s.sound.valid)
+                {
+                    auto* fo = new juce::DynamicObject();
+                    fo->setProperty ("version", s.sound.version);
+                    juce::Array<juce::var> metrics;
+                    for (const auto& m : s.sound.metrics)
+                    {
+                        auto* mo = new juce::DynamicObject();
+                        mo->setProperty ("m", juce::String (m.first));
+                        mo->setProperty ("v", double (m.second));
+                        metrics.add (juce::var (mo));
+                    }
+                    fo->setProperty ("metrics", metrics);
+                    juce::Array<juce::var> buses;
+                    for (int b = 0; b < int (MixBus::Count); ++b)
+                        buses.add (s.sound.busMeasured[size_t (b)] ? juce::var (double (s.sound.busBelowMasterDb[size_t (b)]))
+                                                                    : juce::var());
+                    fo->setProperty ("busBelowMasterDb", buses);
+                    fo->setProperty ("masterLufs", double (s.sound.masterLufs));
+                    fo->setProperty ("masterCrestDb", double (s.sound.masterCrestDb));
+                    fo->setProperty ("masterTruePeakDb", double (s.sound.masterTruePeakDb));
+                    fo->setProperty ("masterCorrelation", double (s.sound.masterCorrelation));
+                    juce::Array<juce::var> bands;
+                    for (float v : s.sound.masterBandDb) bands.add (double (v));
+                    fo->setProperty ("masterBandDb", bands);
+                    so->setProperty ("sound", juce::var (fo));
+                }
+            }
             out.add (juce::var (so));
         }
         return out;
@@ -218,6 +252,34 @@ namespace
                     for (int i = 0; i < std::min (int (MixMacro::Count), macros->size()); ++i) s.macros.set (MixMacro (i), float (double (macros->getReference (i))));
                 if (auto* inputs = so->getProperty ("inputs").getArray())
                     for (const auto& n : *inputs) s.inputs.push_back (n.toString().toStdString());
+            }
+            s.favourite = bool (so->getProperty ("favourite"));
+            s.whenMs = (long long) double (so->getProperty ("whenMs"));
+            if (auto* fo = so->getProperty ("sound").getDynamicObject())
+            {
+                auto& f = s.sound;
+                f.version = int (fo->getProperty ("version"));
+                if (auto* metrics = fo->getProperty ("metrics").getArray())
+                    for (const auto& mv : *metrics)
+                        if (auto* mo = mv.getDynamicObject())
+                            f.metrics.push_back ({ mo->getProperty ("m").toString().toStdString(),
+                                                   float (double (mo->getProperty ("v"))) });
+                if (auto* buses = fo->getProperty ("busBelowMasterDb").getArray())
+                    for (int b = 0; b < std::min (int (MixBus::Count), buses->size()); ++b)
+                    {
+                        const auto& bv = buses->getReference (b);
+                        if (bv.isVoid()) continue;
+                        f.busBelowMasterDb[size_t (b)] = float (double (bv));
+                        f.busMeasured[size_t (b)] = true;
+                    }
+                f.masterLufs = float (double (fo->getProperty ("masterLufs")));
+                f.masterCrestDb = float (double (fo->getProperty ("masterCrestDb")));
+                f.masterTruePeakDb = float (double (fo->getProperty ("masterTruePeakDb")));
+                f.masterCorrelation = float (double (fo->getProperty ("masterCorrelation")));
+                if (auto* bands = fo->getProperty ("masterBandDb").getArray())
+                    for (int i = 0; i < std::min (int (Band::Count), bands->size()); ++i)
+                        f.masterBandDb[size_t (i)] = float (double (bands->getReference (i)));
+                f.valid = true;
             }
             scenes.push_back (std::move (s));
         }
