@@ -74,6 +74,7 @@ private:
 
     void showSelection();
     void paintHead (juce::Graphics&, juce::Rectangle<int>) const;
+    void refreshKeys();
     juce::String tunedLabel() const;
     // One row of the channel's HISTORY, in the trail's words: what did it, when, how much,
     // and each change as "High-pass  80 Hz to 100 Hz".
@@ -103,6 +104,12 @@ private:
     DineButton simpleTab { "Simple", DineButton::Style::Segment };
     DineButton advancedTab { "Advanced", DineButton::Style::Segment };
     DineButton retuneButton { "RE-TUNE", DineButton::Style::Standard };
+    // MUTE and SOLO on the channel the Inspector has open. The design's head does not draw
+    // them, and for a while this page did not carry them - but "is this one heard" and "is
+    // this the only one I am hearing" are two of the states an engineer changes while looking
+    // at a channel, and making them a journey to MIXER and back was wrong.
+    DineButton muteButton { "MUTE", DineButton::Style::Standard };
+    DineButton soloButton { "SOLO", DineButton::Style::Standard };
     bool simpleView = false;
     std::unique_ptr<ChainEditor> chain;
     std::unique_ptr<SignalPath> path;

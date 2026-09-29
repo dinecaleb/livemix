@@ -510,6 +510,18 @@ private:
 class MixPage::InputRow : public juce::Component, public juce::SettableTooltipClient
 {
 public:
+    // A ROW IS A ROW, AND A VERB IS A BUTTON.
+    //
+    // The rail used to write TUNE CHANNEL and FOCUS along a row as soon as the pointer was on
+    // it, and hit-test those words by where they had been drawn. On a 198 pt rail that put
+    // FOCUS in the middle of the row, over the name - so the obvious thing, clicking an input
+    // to look at it, made it the source the whole mix is built around instead.
+    //
+    // Now a click on a row picks the input out, always. The row you have picked out grows and
+    // offers its two verbs as chips of their own underneath, which is also the answer to what
+    // the click was reaching for: more about this input.
+    static constexpr int rowH = 36, openH = 68;
+
     InputRow (const juce::String& n, ChannelRole role, int number, const std::string& iconKey)
         : name (n), icon (Dine::iconFor (iconKey, role)), num (number)
     {
@@ -520,67 +532,85 @@ public:
     }
 
     std::function<void()> onTune, onSelect, onFocus;
+    // The rail re-lays itself out when a row opens or closes: only one row is ever open.
+    std::function<void()> onHeightChanged;
 
     void mouseEnter (const juce::MouseEvent&) override { hover = true; repaint(); }
     void mouseExit  (const juce::MouseEvent&) override { hover = false; repaint(); }
     void mouseUp (const juce::MouseEvent& e) override
     {
         if (e.mouseWasDraggedSinceMouseDown() || ! getLocalBounds().contains (e.getPosition())) return;
-        if (e.getPosition().x >= verbRect.getX() - 6) { if (onTune) onTune(); }
-        else if (! focusRect.isEmpty() && e.getPosition().x >= focusRect.getX() - 4 && e.getPosition().x < focusRect.getRight() + 4)
-        { if (onFocus) onFocus(); }
-        else if (onSelect) onSelect();
+        // The chips exist only on the open row, and they are hit exactly where they are drawn.
+        if (selected)
+        {
+            if (verbRect.contains (e.getPosition()))  { if (onTune) onTune();  return; }
+            if (focusRect.contains (e.getPosition())) { if (onFocus) onFocus(); return; }
+        }
+        if (onSelect) onSelect();
     }
 
     void set (bool isMuted, bool isFaint, bool isSelected, bool isFocal)
     {
-        if (muted != isMuted || faint != isFaint || selected != isSelected || focal != isFocal)
-        {
-            muted = isMuted; faint = isFaint; selected = isSelected; focal = isFocal; repaint();
-        }
+        if (muted == isMuted && faint == isFaint && selected == isSelected && focal == isFocal) return;
+        const bool opened = selected != isSelected;
+        muted = isMuted; faint = isFaint; selected = isSelected; focal = isFocal;
+        if (opened && onHeightChanged) onHeightChanged();
+        repaint();
     }
 
     void paint (juce::Graphics& g) override
     {
-        if (selected)   Dine::fillRounded (g, getLocalBounds().reduced (8, 2).toFloat(), Dine::selected, Dine::Radius::control);
-        else if (hover) Dine::fillRounded (g, getLocalBounds().reduced (8, 2).toFloat(), Dine::item, Dine::Radius::control);
+        auto card = getLocalBounds().reduced (8, 2);
+        if (selected)   Dine::fillRounded (g, card.toFloat(), Dine::selected, Dine::Radius::control);
+        else if (hover) Dine::fillRounded (g, card.toFloat(), Dine::item, Dine::Radius::control);
 
-        auto r = getLocalBounds().reduced (16, 0);
-        // TUNE CHANNEL is offered on the row the pointer is on and on the row that is picked
-        // out - not on all thirty of them at once, which is a wall of the same three words.
-        const auto verbFont = Dine::caps (10.0f, 0.04f, 600);
-        verbRect = {};
-        if (selected || hover)
-        {
-            verbRect = r.removeFromRight (Dine::textWidth (verbFont, "TUNE CHANNEL"));
-            g.setColour (Dine::accent);
-            g.setFont (verbFont);
-            Dine::drawText (g, "TUNE CHANNEL", verbRect, juce::Justification::centredRight);
-            r.removeFromRight (8);
-        }
-
-        // THE FOCAL SOURCE: what the mix is built around. Shown always once it is set, offered
-        // on hover before that, so a rail of thirty inputs is not a row of thirty labels.
-        focusRect = {};
-        if (focal || hover)
-        {
-            const auto focusFont = Dine::caps (10.0f, 0.06f);
-            focusRect = r.removeFromRight (Dine::textWidth (focusFont, "FOCUS"));
-            g.setColour (focal ? Dine::accent : Dine::ink4);
-            g.setFont (focusFont);
-            Dine::drawText (g, "FOCUS", focusRect, juce::Justification::centredRight);
-            r.removeFromRight (10);
-        }
-
+        auto r = getLocalBounds().withHeight (rowH).reduced (16, 0);
         // A lamp in the group's colour, so the rail says which part of the mix each input is
         // in without a word; amber or red when it is muted or has never risen above a whisper.
         g.setColour (muted ? Dine::warn : faint ? Dine::crit : tint);
         g.fillEllipse (r.removeFromLeft (7).withSizeKeepingCentre (7, 7).toFloat());
         r.removeFromLeft (10);
+        // FOCUS is what the mix is built around, so it is said on the row whether it is open
+        // or not - it is a fact about the mix, not a control until the row is open.
+        if (focal && ! selected)
+        {
+            const auto focusFont = Dine::caps (9.5f, 0.06f, 600);
+            auto mark = r.removeFromRight (Dine::textWidth (focusFont, "FOCUS") + 4);
+            g.setColour (Dine::accent);
+            g.setFont (focusFont);
+            Dine::drawText (g, "FOCUS", mark, juce::Justification::centredRight);
+        }
         g.setColour (selected ? Dine::ink : Dine::ink2);
         g.setFont (Dine::text (13.0f, selected ? 600 : 500));
         Dine::drawText (g, name, r, juce::Justification::centredLeft, true);
+
+        verbRect = focusRect = {};
+        if (! selected) return;
+
+        // The open row's two verbs, as chips, under the name.
+        auto chips = getLocalBounds().withTrimmedTop (rowH).reduced (16, 0).withTrimmedBottom (8);
+        chips = chips.withHeight (juce::jmin (chips.getHeight(), 22));
+        const auto chipFont = Dine::caps (9.5f, 0.06f, 600);
+        auto chip = [&] (const juce::String& text, bool lit) -> juce::Rectangle<int>
+        {
+            const int w = juce::jmin (chips.getWidth(), Dine::textWidth (chipFont, text) + 16);
+            auto box = chips.removeFromLeft (w);
+            chips.removeFromLeft (6);
+            const bool over = isMouseOver (true) && box.contains (getMouseXYRelative());
+            Dine::fillRounded (g, box.toFloat(), lit ? Dine::accent.withAlpha (0.20f)
+                                                     : over ? Dine::controlHot : Dine::control, Dine::Radius::chip);
+            g.setColour (lit ? Dine::accent : over ? Dine::ink : Dine::ink3);
+            g.setFont (chipFont);
+            Dine::drawText (g, text, box, juce::Justification::centred);
+            return box;
+        };
+        verbRect  = chip ("TUNE CHANNEL", false);
+        focusRect = chip ("FOCUS", focal);
     }
+
+    void mouseMove (const juce::MouseEvent&) override { if (selected) repaint(); }
+
+    int wantedHeight() const noexcept { return selected ? openH : rowH; }
 
     juce::String name;
     Dine::Icon icon;
@@ -1966,6 +1996,7 @@ void MixPage::rebuildRail()
         row->onTune = [this, i] { selectRow (i); if (onTuneStrip) onTuneStrip (i); };
         row->onSelect = [this, i] { selectRow (i); };
         row->onFocus = [this, i] { controller.setFocusInput (i); rebuildRail(); };
+        row->onHeightChanged = [this] { resized(); };
         railHolder.addAndMakeVisible (*row);
         inputRows.push_back (std::move (row));
     }
@@ -2326,10 +2357,11 @@ void MixPage::resized()
     auto rail = l.rail.withTrimmedTop (46);
     if (faintCount > 0) rail.removeFromBottom (92);
     railView.setBounds (rail);
-    const int total = int (inputRows.size()) * 36;
+    int total = 0;
+    for (const auto& r : inputRows) total += r->wantedHeight();
     railHolder.setSize (rail.getWidth() - (total > rail.getHeight() ? 10 : 0), juce::jmax (total, rail.getHeight()));
     int y = 0;
-    for (auto& r : inputRows) { r->setBounds (0, y, railHolder.getWidth(), 36); y += 36; }
+    for (auto& r : inputRows) { const int h = r->wantedHeight(); r->setBounds (0, y, railHolder.getWidth(), h); y += h; }
 
     scopeSheet->setBounds (getLocalBounds());
     listenSheet->setBounds (getLocalBounds());

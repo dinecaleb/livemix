@@ -315,12 +315,25 @@ public:
                     lay.note, juce::Justification::centredLeft, true);
     }
 
+    // What this panel needs to say everything it has. The card is sized to it, so a channel
+    // with four sentences and one with none both look finished instead of leaving half a
+    // window of empty card under the last line. The sum is layout()'s own steps.
+    int wantedHeight() const
+    {
+        const int lines = juce::jmax (1, sentences().size());
+        return 20 + 22 + 22 + kKnobBlockH + 20 + 1 + 16 + 18 + 10 + lines * kBulletH
+                  + 28 + 14 + 10 + 18 + 18 + Dine::Metric::button + 16 + 16 + 20;
+    }
+
     void resized() override
     {
         auto lay = layout();
+        // Five controls across the whole card, evenly: the design sets them at a 141 pt pitch
+        // in a 723 pt card, which is the width shared out rather than a fixed cell.
         auto row = lay.knobs;
-        const int each = juce::jmax (96, juce::jmin (141, row.getWidth() / 5));
-        for (int i = 0; i < 5; ++i) knobs[size_t (i)]->setBounds (row.removeFromLeft (each));
+        const int each = juce::jmax (96, row.getWidth() / 5);
+        for (int i = 0; i < 5; ++i)
+            knobs[size_t (i)]->setBounds (row.getX() + i * each, row.getY(), each, row.getHeight());
 
         if (voiceTrack.isVisible())
         {
@@ -820,6 +833,41 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
     retuneButton.onClick = [this] { if (onRetune) onRetune(); };
     addAndMakeVisible (retuneButton);
 
+    // The two keys that change what the room hears, on the channel that is open.
+    for (auto* b : { &muteButton, &soloButton })
+    {
+        b->setCaps (true);
+        b->setFontPx (11.0f);
+        b->setPadX (8);
+        addChildComponent (*b);
+    }
+    muteButton.setTint (Dine::keyMute);
+    soloButton.setTint (Dine::keySolo);
+    muteButton.setTooltip ("Muted: the signal arrives and is not heard. Recording is unaffected.");
+    soloButton.setTooltip ("Soloed: this and nothing else. Solo never changes what the room hears.");
+    muteButton.onClick = [this]
+    {
+        if (selection.isBus)
+        {
+            if (selection.bus != MixBus::Master)
+                controller.setBusMute (selection.bus, ! controller.getBase().buses[size_t (selection.bus)].mute);
+        }
+        else if (selection.strip >= 0)
+            controller.setStripMute (selection.strip, ! controller.getBase().strips[size_t (selection.strip)].mute);
+        refresh();
+    };
+    soloButton.onClick = [this]
+    {
+        if (selection.isBus)
+        {
+            if (selection.bus != MixBus::Master)
+                controller.setBusSolo (selection.bus, ! controller.getBase().buses[size_t (selection.bus)].solo);
+        }
+        else if (selection.strip >= 0)
+            controller.setStripSolo (selection.strip, ! controller.getBase().strips[size_t (selection.strip)].solo);
+        refresh();
+    };
+
     trail = std::make_unique<Trail> (controller);
     trail->onRestore = [this] (int record)
     {
@@ -1004,8 +1052,41 @@ void AdvancedPage::setSimpleView (bool on)
     repaint();
 }
 
+// MUTE and SOLO, as the mix has them. The master has nothing to solo against, so it is the
+// one selection that carries neither: muting the master is what DIM and MUTE in the toolbar
+// are for, and they say so from every workspace.
+void AdvancedPage::refreshKeys()
+{
+    const bool master = selection.isBus && selection.bus == MixBus::Master;
+    const bool wanted = ! master && (selection.isBus || selection.strip >= 0);
+    if (muteButton.isVisible() != wanted)
+    {
+        muteButton.setVisible (wanted);
+        soloButton.setVisible (wanted);
+        resized();
+    }
+    if (! wanted) return;
+    const auto& kept = controller.getBase();
+    bool muted = false, soloed = false;
+    if (selection.isBus)
+    {
+        muted = kept.buses[size_t (selection.bus)].mute;
+        soloed = kept.buses[size_t (selection.bus)].solo;
+    }
+    else if (selection.strip < kept.numStrips)
+    {
+        muted = kept.strips[size_t (selection.strip)].mute;
+        soloed = kept.strips[size_t (selection.strip)].solo;
+    }
+    muteButton.setStyle (muted ? DineButton::Style::Filled : DineButton::Style::Standard);
+    soloButton.setStyle (soloed ? DineButton::Style::Filled : DineButton::Style::Standard);
+    muteButton.setEnabled (! controller.isBypassed());
+    soloButton.setEnabled (! controller.isBypassed());
+}
+
 void AdvancedPage::showSelection()
 {
+    refreshKeys();
     simple->setStrip (selection.isBus ? -1 : selection.strip);
     simple->setVisible (simpleView && ! selection.isBus && selection.strip >= 0);
     path->setVisible (! simple->isVisible());
@@ -1125,6 +1206,7 @@ void AdvancedPage::refresh()
 
     chain->refresh();
     path->refresh();
+    refreshKeys();
     trail->setGain (selection.isBus ? MixController::InputAdvice {} : controller.getInputAdvice (selection.strip));
     {
         // The history only ever grows at the end, so the count and the newest record's clock
@@ -1293,13 +1375,24 @@ void AdvancedPage::resized()
         simpleTab.setBounds (track.removeFromLeft (track.getWidth() / 2));
         track.removeFromLeft (2);
         advancedTab.setBounds (track);
+        if (muteButton.isVisible())
+        {
+            row.removeFromRight (20);
+            const int kw = juce::jmax (52, juce::jmax (muteButton.idealWidth(), soloButton.idealWidth()));
+            soloButton.setBounds (row.removeFromRight (kw));
+            row.removeFromRight (6);
+            muteButton.setBounds (row.removeFromRight (kw));
+        }
     }
 
     if (simpleView && simple->isVisible())
     {
         path->setBounds (0, 0, 0, 0);
         chain->setBounds (0, 0, 0, 0);
-        simple->setBounds (area.withTrimmedTop (84).reduced (kPadX, 0).withTrimmedBottom (24));
+        auto card = area.withTrimmedTop (84).reduced (kPadX, 0).withTrimmedBottom (24);
+        // The panel is sized to what it says. A card that runs to the foot of a tall window
+        // with its last line a third of the way down does not look finished.
+        simple->setBounds (card.withHeight (juce::jmin (card.getHeight(), simple->wantedHeight())));
         return;
     }
     path->setBounds (area.withTrimmedTop (kPathTop).withHeight (SignalPath::height).reduced (kPadX, 0));

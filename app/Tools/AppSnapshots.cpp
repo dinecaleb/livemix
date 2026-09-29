@@ -1024,6 +1024,14 @@ int main (int argc, char** argv)
     rig.feed (0.5);
     rig.snap (dir, "07-tune-ready");
 
+    // AN INPUT PICKED OUT. A click on a row picks the input out and the row opens with its two
+    // verbs under the name - which is what a click on an input was always reaching for.
+    view.getMixPage().selectRow (8);
+    rig.feed (0.3);
+    rig.snap (dir, "07h-tune-input-open");
+    view.getMixPage().selectRow (-1);
+    rig.feed (0.2);
+
     // WHAT SHOULD DLIVE TUNE: the scope picker the verb opens with. All three, because the
     // whole point of it is that the two that were invisible are now the same size as the one
     // that was not.

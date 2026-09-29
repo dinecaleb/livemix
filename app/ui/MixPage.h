@@ -60,6 +60,8 @@ public:
     // (0 the whole mix, 1 one group, 2 some channels) and, for a group, which one (-1 = leave
     // it where it is). Nothing about the mix.
     void setScopeForSnapshot (int scope, int group);
+    // Pick an input out of the rail, the way a click on its row does. -1 picks nothing out.
+    void selectRow (int strip);
     void pressLiveTune();
     void setMacroValue (MixMacro m, float v);
     void centreMacroPads();            // both pads and the ribbon back to the plan, eased
@@ -91,7 +93,6 @@ private:
     void refreshTuneButton();
     void refreshMaster();              // the loudness readout and the two pickers, a few times a second
     void rebuildRail();
-    void selectRow (int strip);
     void syncMacros();                 // the pads and the ribbon read the controller
     void updateSide();                 // the pad card's words follow the pads
     void layoutSide();                 // the panel's content height, for its own scroll
