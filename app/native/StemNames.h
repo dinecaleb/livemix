@@ -73,11 +73,27 @@ namespace StemNames
             { "lead",  ChannelRole::LeadVocal }, { "ld", ChannelRole::LeadVocal, true },
             { "choir", ChannelRole::Choir },
             { "vox",   ChannelRole::BackingVocal }, { "bgv", ChannelRole::BackingVocal }, { "bv", ChannelRole::BackingVocal, true }, { "vocal", ChannelRole::BackingVocal },
-            // Anyone who talks to the room: the pastor, the host, the MC, whoever is at the lectern.
+            // WHAT IT IS SPOKEN INTO COMES FIRST. A stage plot that reads "Pastor lapel" is two
+            // facts, and the second one is the one that changes the chain. The table is walked
+            // in order and the first needle found in the name wins, so these have to be met
+            // before "pastor" is.
+            //
+            // Only words that mean one thing on a stage plot are here: no "hh" (a hi-hat, and
+            // it is spoken for above), no "clip" (a clip is a piece of audio), and no
+            // microphone brands - a DPA is a headset on one plot and a piano mic on the next.
+            { "lapel", ChannelRole::SpeechLapel }, { "lavalier", ChannelRole::SpeechLapel },
+            { "lav", ChannelRole::SpeechLapel, true },
+            { "headset", ChannelRole::SpeechHeadset }, { "headworn", ChannelRole::SpeechHeadset },
+            { "earset", ChannelRole::SpeechHeadset }, { "countryman", ChannelRole::SpeechHeadset },
+            { "handheld", ChannelRole::SpeechHandheld }, { "roving", ChannelRole::SpeechHandheld },
+            { "podium", ChannelRole::SpeechLectern }, { "pulpit", ChannelRole::SpeechLectern },
+            { "lectern", ChannelRole::SpeechLectern }, { "gooseneck", ChannelRole::SpeechLectern },
+            // Anyone who talks to the room: the pastor, the host, the MC, whoever is at the
+            // lectern - when the name does not say what they are holding.
             { "pastor", ChannelRole::Speech }, { "speech", ChannelRole::Speech }, { "spk", ChannelRole::Speech, true },
             { "talk", ChannelRole::Speech }, { "preach", ChannelRole::Speech }, { "sermon", ChannelRole::Speech },
             { "host", ChannelRole::Speech, true }, { "mc", ChannelRole::Speech, true }, { "emcee", ChannelRole::Speech },
-            { "announc", ChannelRole::Speech }, { "podium", ChannelRole::Speech }, { "pulpit", ChannelRole::Speech }, { "lectern", ChannelRole::Speech },
+            { "announc", ChannelRole::Speech },
         };
         count = int (sizeof (table) / sizeof (table[0]));
         return table;

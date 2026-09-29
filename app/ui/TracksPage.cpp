@@ -1022,7 +1022,8 @@ void TracksPage::headerMenu (int track)
         juce::PopupMenu jobs;
         int jobId = 400;
         for (const auto& job : MixController::voiceJobs())
-            jobs.addItem (jobId++, juce::String (job.name), ! controller.isLiveSafe(), job.role == input.role);
+            jobs.addItem (jobId++, juce::String (job.name), ! controller.isLiveSafe(),
+                          roleFamily (job.role) == roleFamily (input.role));
         m.addSubMenu ("This microphone is", jobs, true);
     }
 
@@ -1080,7 +1081,8 @@ void TracksPage::headerMenu (int track)
                          {
                              const auto& jobs = MixController::voiceJobs();
                              const size_t which = size_t (chosen - 400);
-                             if (which < jobs.size() && controller.setInputRole (track, jobs[which].role))
+                             if (which < jobs.size()
+                                 && controller.setInputRole (track, controller.roleForJob (track, jobs[which].role)))
                              {
                                  services.reconfigure();    // the graph changed, exactly as a source change does
                                  rebuild();

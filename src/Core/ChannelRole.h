@@ -82,6 +82,21 @@ enum class ChannelRole : int
     Trumpet,
     Trombone,
     BrassSection,        // one microphone over a horn line
+    // ---- The spoken word, by what it is spoken into (2026-09-29) ----
+    // "Speech" was one role for every talking microphone, and the four a church actually
+    // patches are not the same instrument. A lapel sits on the chest, off-axis from the
+    // mouth: no proximity bass, a chest resonance around 800 Hz, and clothing under it. A
+    // headset is the opposite - close, on-axis and consistent, which is the one that needs
+    // the de-esser. A handheld moves: its distance changes every sentence, so it is the one
+    // that needs the compressor's range. A lectern gooseneck is a foot away with the room
+    // behind it, and it is the one that feeds back.
+    //
+    // `Speech` stays exactly where it is and keeps meaning "somebody talking" - a stored
+    // session opens on the same role it was saved with.
+    SpeechLapel,
+    SpeechHeadset,
+    SpeechHandheld,
+    SpeechLectern,
     Count
 };
 
@@ -137,7 +152,8 @@ inline constexpr std::array<const char*, int (ChannelRole::Count)> kChannelRoleN
     "Crowd Mic", "Ambience Mic", "Ambience Bus",
     "Alto Sax", "Tenor Sax", "Baritone Sax",
     "Congas", "Bongos", "Djembe", "Timbales", "Shaker",
-    "Trumpet", "Trombone", "Brass Section"
+    "Trumpet", "Trombone", "Brass Section",
+    "Lapel Mic", "Headset Mic", "Handheld Mic", "Lectern Mic"
 };
 
 inline constexpr const char* channelRoleName (ChannelRole r) noexcept
@@ -165,7 +181,11 @@ inline constexpr RoleFamily roleFamily (ChannelRole r) noexcept
         case ChannelRole::LeadVocal:      return RoleFamily::LeadVocal;
         case ChannelRole::BackingVocal:   return RoleFamily::BackingVocal;
         case ChannelRole::Choir:          return RoleFamily::Choir;
-        case ChannelRole::Speech:         return RoleFamily::Speech;
+        case ChannelRole::Speech:
+        case ChannelRole::SpeechLapel:
+        case ChannelRole::SpeechHeadset:
+        case ChannelRole::SpeechHandheld:
+        case ChannelRole::SpeechLectern:  return RoleFamily::Speech;
         case ChannelRole::VocalBus:       return RoleFamily::VocalBus;
         case ChannelRole::Piano:          return RoleFamily::Piano;
         case ChannelRole::ElectricPiano:  return RoleFamily::ElectricPiano;

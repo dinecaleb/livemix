@@ -765,6 +765,13 @@ const std::vector<MixController::VoiceJob>& MixController::voiceJobs()
     return jobs;
 }
 
+ChannelRole MixController::roleForJob (int strip, ChannelRole job) const
+{
+    if (strip < 0 || strip >= int (session.inputs.size())) return job;
+    const auto current = session.inputs[size_t (strip)].role;
+    return roleFamily (current) == roleFamily (job) ? current : job;
+}
+
 bool MixController::isVoiceChannel (int strip) const
 {
     if (strip < 0 || strip >= int (session.inputs.size())) return false;

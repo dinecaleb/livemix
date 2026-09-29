@@ -55,6 +55,10 @@ namespace
             case ChannelRole::BackingVocal:         return "BV";
             case ChannelRole::Choir:                return "Choir";
             case ChannelRole::Speech:               return "Pastor";
+            case ChannelRole::SpeechLapel:          return "Lapel";
+            case ChannelRole::SpeechHeadset:        return "Headset";
+            case ChannelRole::SpeechHandheld:       return "Handheld";
+            case ChannelRole::SpeechLectern:        return "Lectern";
             case ChannelRole::CrowdMic:             return "Crowd";
             case ChannelRole::AmbienceMic:          return "Ambience";
             case ChannelRole::SaxAlto:              return "Alto sax";
@@ -81,7 +85,8 @@ namespace
                                        ChannelRole::AcousticGuitar, ChannelRole::Piano, ChannelRole::SynthPad } },
             { "Keys in stereo", MixBus::Music, { ChannelRole::Piano, ChannelRole::Piano } },
             { "Singers", MixBus::Vocals, { ChannelRole::LeadVocal, ChannelRole::BackingVocal } },
-            { "Speaking mics", MixBus::Speech, { ChannelRole::Speech } },
+            { "Speaking mics", MixBus::Speech, { ChannelRole::SpeechLapel, ChannelRole::SpeechHandheld,
+                                                 ChannelRole::SpeechLectern } },
             // The building. Two of these across the room is what makes a stream sound like a
             // service rather than a studio recording of a band.
             { "Crowd and room", MixBus::Ambience, { ChannelRole::CrowdMic, ChannelRole::CrowdMic, ChannelRole::AmbienceMic } },

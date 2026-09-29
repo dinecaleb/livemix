@@ -829,8 +829,11 @@ const std::vector<Dine::RoleGroup>& Dine::roleGroups()
                      ChannelRole::SaxAlto, ChannelRole::SaxTenor, ChannelRole::SaxBari } },
         { "Vocals", { ChannelRole::LeadVocal, ChannelRole::BackingVocal, ChannelRole::Choir } },
         // Speaking microphones are their own group in the mix, so they are their own group here:
-        // whoever assigns the inputs picks the pastor out of a list of one, not out of the singers.
-        { "Speech", { ChannelRole::Speech } },
+        // whoever assigns the inputs finds the pastor's microphone among the other speaking
+        // microphones, not among the singers - and picks what he is speaking into while they
+        // are there, because that is what decides the chain.
+        { "Speech", { ChannelRole::Speech, ChannelRole::SpeechLapel, ChannelRole::SpeechHeadset,
+                      ChannelRole::SpeechHandheld, ChannelRole::SpeechLectern } },
         // The room and the people in it. Its own group for the same reason SPEECH is: these
         // microphones are turned up and down at moments nothing else moves at, and an operator
         // has to be able to find them.
@@ -846,6 +849,12 @@ juce::String Dine::friendlyRoleName (ChannelRole r)
     {
         case ChannelRole::SynthPad:  return "Synth Pad / Tracks";
         case ChannelRole::Speech:    return "Pastor / Speech";
+        // What it is spoken into: a lapel on the chest and a handheld at the mouth are not
+        // the same microphone, and the chain DLIVE builds for them is not the same either.
+        case ChannelRole::SpeechLapel:    return "Lapel / lavalier";
+        case ChannelRole::SpeechHeadset:  return "Headset / earset";
+        case ChannelRole::SpeechHandheld: return "Handheld (roving)";
+        case ChannelRole::SpeechLectern:  return "Lectern / pulpit";
         case ChannelRole::Overhead:  return "Overheads (stereo pair)";
         case ChannelRole::DrumBus:   return "Drum mix (stereo, from the console)";
         case ChannelRole::BassDI:    return "Bass (DI)";
@@ -876,7 +885,8 @@ Dine::Icon Dine::iconForRole (ChannelRole r) noexcept
         case ChannelRole::LeadVocal: case ChannelRole::BackingVocal: case ChannelRole::Choir:
         case ChannelRole::VocalBus:
             return Icon::Mic;
-        case ChannelRole::Speech:
+        case ChannelRole::Speech: case ChannelRole::SpeechLapel: case ChannelRole::SpeechHeadset:
+        case ChannelRole::SpeechHandheld: case ChannelRole::SpeechLectern:
             return Icon::Speech;
         case ChannelRole::Piano: case ChannelRole::ElectricPiano: case ChannelRole::Organ:
         case ChannelRole::SynthPad: case ChannelRole::SynthLead: case ChannelRole::KeysBus:

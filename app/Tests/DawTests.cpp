@@ -956,8 +956,11 @@ TEST_CASE ("StemNames: the labels a live desk actually writes, and no accidents 
 
     // A two-letter abbreviation matched anywhere inside a name is a trap: "ld" lives inside "handheld", which
     // put the preacher's microphone on the vocal bus with the singers - and with their plate and delay on it.
-    CHECK (guess ("Pastor Handheld #02") == ChannelRole::Speech);
-    CHECK (guess ("Pastor Lapel") == ChannelRole::Speech);
+    // Both of these are speaking microphones, and since 2026-09-29 the name says which kind.
+    CHECK (guess ("Pastor Handheld #02") == ChannelRole::SpeechHandheld);
+    CHECK (guess ("Pastor Lapel") == ChannelRole::SpeechLapel);
+    CHECK (roleFamily (guess ("Pastor Handheld #02")) == RoleFamily::Speech);
+    CHECK (roleFamily (guess ("Pastor Lapel")) == RoleFamily::Speech);
     CHECK (guess ("HOST") == ChannelRole::Speech);
     CHECK (guess ("Holy Ghost") == ChannelRole::Count);     // not a host microphone
     CHECK (guess ("Lead mic 2") == ChannelRole::LeadVocal); // the real lead still reads as one
@@ -3282,7 +3285,13 @@ TEST_CASE ("Percussion and brass: the stored enum only grew, the names are guess
     CHECK (int (ChannelRole::SaxBari) == 40);
     // ... and the new ones start after it, which is the only place they may start.
     CHECK (int (ChannelRole::Congas) == 41);
-    CHECK (int (ChannelRole::BrassSection) == int (ChannelRole::Count) - 1);
+    CHECK (int (ChannelRole::BrassSection) == 48);
+    // ... and the four speaking microphones after them, which is where 2026-09-29 appended.
+    CHECK (int (ChannelRole::SpeechLapel) == 49);
+    CHECK (int (ChannelRole::SpeechLectern) == int (ChannelRole::Count) - 1);
+    // `Speech` did not move: a session saved before the split opens on exactly the role it
+    // was saved with, and that role still means "somebody talking".
+    CHECK (int (ChannelRole::Speech) == 15);
 
     // Every role has a name, and the table is the same length as the enum.
     for (int r = 0; r < int (ChannelRole::Count); ++r)
@@ -3327,6 +3336,77 @@ TEST_CASE ("Percussion and brass: the stored enum only grew, the names are guess
     // The ring is the instrument: a hand drum's gate may only ever take a little off.
     CHECK (profile.targets[int (RoleFamily::Percussion)].gateMaxRangeDb
                < profile.targets[int (RoleFamily::Tom)].gateMaxRangeDb);
+}
+
+// THE SPOKEN WORD, BY WHAT IT IS SPOKEN INTO. Four microphones a church actually patches,
+// which are not the same instrument: a lapel is on the chest, a headset is at the mouth, a
+// handheld moves, and a lectern gooseneck is a foot away with the room behind it.
+TEST_CASE ("Speaking microphones: four kinds, one family, and a chain apiece")
+{
+    auto guess = [] (const char* name)
+    {
+        ChannelRole r = ChannelRole::Count;
+        return StemNames::guessRole (name, r) ? r : ChannelRole::Count;
+    };
+
+    // The names a stage plot actually writes.
+    CHECK (guess ("Pastor lapel") == ChannelRole::SpeechLapel);
+    CHECK (guess ("Lav 2") == ChannelRole::SpeechLapel);
+    CHECK (guess ("Headset 1") == ChannelRole::SpeechHeadset);
+    CHECK (guess ("Countryman") == ChannelRole::SpeechHeadset);
+    CHECK (guess ("Handheld") == ChannelRole::SpeechHandheld);
+    CHECK (guess ("Lectern") == ChannelRole::SpeechLectern);
+    CHECK (guess ("Pulpit mic") == ChannelRole::SpeechLectern);
+    // ... and the word on its own still means what it always meant.
+    CHECK (guess ("Pastor") == ChannelRole::Speech);
+    CHECK (guess ("Sermon") == ChannelRole::Speech);
+
+    // All five are the speech family, on the speech bus, and all five are voice channels a
+    // volunteer can put on SPEAKING.
+    for (auto r : { ChannelRole::Speech, ChannelRole::SpeechLapel, ChannelRole::SpeechHeadset,
+                    ChannelRole::SpeechHandheld, ChannelRole::SpeechLectern })
+    {
+        CHECK_MESSAGE (roleFamily (r) == RoleFamily::Speech,
+                       juce::String (channelRoleName (r)).toStdString() + " is not in the speech family");
+        CHECK_MESSAGE (mixBusForRole (r) == MixBus::Speech,
+                       juce::String (channelRoleName (r)).toStdString() + " should be on SPEECH");
+        CHECK (juce::String (channelRoleName (r)).isNotEmpty());
+    }
+
+    // The chains differ where the microphones differ, and the numbers come from the profile.
+    const auto lapel    = Profiles::baseline (StyleProfileId::ModernGospel, ChannelRole::SpeechLapel);
+    const auto headset  = Profiles::baseline (StyleProfileId::ModernGospel, ChannelRole::SpeechHeadset);
+    const auto handheld = Profiles::baseline (StyleProfileId::ModernGospel, ChannelRole::SpeechHandheld);
+    const auto lectern  = Profiles::baseline (StyleProfileId::ModernGospel, ChannelRole::SpeechLectern);
+
+    // A lectern is furthest from the mouth, a headset is closest: the high-pass follows.
+    CHECK (lectern.hpfHz > lapel.hpfHz);
+    CHECK (lapel.hpfHz > headset.hpfHz);
+    // A lapel's box is its chest, an octave above a close microphone's proximity.
+    CHECK (lapel.correctiveBands[0].enabled);
+    CHECK (lapel.correctiveBands[0].gainDb < 0.0f);
+    CHECK (lapel.correctiveBands[0].freqHz > handheld.correctiveBands[0].freqHz);
+    // A handheld's distance changes every sentence, so it is the one that is compressed hardest.
+    CHECK (handheld.compRatio > headset.compRatio);
+    // The room is behind a lectern, so its expander reaches further and opens later than the
+    // others' - and it is still a courtesy, never a gate: the family's own ceiling holds.
+    CHECK (lectern.gateRangeDb > lapel.gateRangeDb);
+    CHECK (lectern.gateThresholdDb > lapel.gateThresholdDb);
+    CHECK (lectern.gateRangeDb <= Profiles::targets (StyleProfileId::ModernGospel, RoleFamily::Speech).gateMaxRangeDb);
+
+    // WHAT THIS MICROPHONE IS DOING is a family, not a role: a lapel put on SPEAKING stays a
+    // lapel, and one put on SINGING LEAD becomes the lead.
+    MixController controller;
+    MixSession session;
+    InputAssignment a;
+    a.role = ChannelRole::SpeechLapel;
+    a.name = "Pastor lapel";
+    a.inputA = 0;
+    session.inputs.push_back (a);
+    controller.setSession (session);
+    CHECK (controller.isVoiceChannel (0));
+    CHECK (controller.roleForJob (0, ChannelRole::Speech) == ChannelRole::SpeechLapel);
+    CHECK (controller.roleForJob (0, ChannelRole::LeadVocal) == ChannelRole::LeadVocal);
 }
 
 

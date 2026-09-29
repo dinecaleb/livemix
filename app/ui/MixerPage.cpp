@@ -964,7 +964,8 @@ public:
                 int id = 200;
                 for (const auto& job : MixController::voiceJobs())
                 {
-                    jobs.addItem (id++, juce::String (job.name), ! controller.isLiveSafe(), job.role == now);
+                    jobs.addItem (id++, juce::String (job.name), ! controller.isLiveSafe(),
+                                  roleFamily (job.role) == roleFamily (now));
                 }
                 m.addSubMenu ("This microphone is", jobs);
             }
@@ -1009,7 +1010,8 @@ public:
                              {
                                  const auto& jobs = MixController::voiceJobs();
                                  const size_t which = size_t (chosen - 200);
-                                 if (which < jobs.size() && s.controller.setInputRole (s.strip, jobs[which].role))
+                                 if (which < jobs.size()
+                                     && s.controller.setInputRole (s.strip, s.controller.roleForJob (s.strip, jobs[which].role)))
                                      s.services.reconfigure();     // the graph changed, exactly as an assignment does
                                  return;
                              }

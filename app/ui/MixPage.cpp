@@ -2021,7 +2021,14 @@ void MixPage::rebuildVoices()
         if (! controller.isVoiceChannel (i)) continue;
         const auto& st = graph.strips[size_t (i)];
         auto row = std::make_unique<VoiceRow> (st.name, Dine::busTint (st.bus));
-        row->speaking.onClick = [this, i] { controller.setInputRole (i, ChannelRole::Speech); rebuildVoices(); layoutSide(); };
+        // SPEAKING keeps what kind of speaking microphone this is: a lapel that was singing
+        // and goes back to speaking is a lapel again, not a generic speech channel.
+        row->speaking.onClick = [this, i]
+        {
+            controller.setInputRole (i, controller.roleForJob (i, ChannelRole::Speech));
+            rebuildVoices();
+            layoutSide();
+        };
         row->singing.onClick = [this, i]
         {
             // Singing, and which kind of singing it already was: a backing voice stays a
@@ -2032,7 +2039,7 @@ void MixPage::rebuildVoices()
             rebuildVoices();
             layoutSide();
         };
-        row->setJob (st.role == ChannelRole::Speech);
+        row->setJob (roleFamily (st.role) == RoleFamily::Speech);
         side->addAndMakeVisible (*row);
         voiceRows.push_back (std::move (row));
     }

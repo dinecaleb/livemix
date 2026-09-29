@@ -1547,6 +1547,54 @@ namespace
             case ChannelRole::ElectricGuitarClean: p.hpfHz = 70.0f; p.lpfEnabled = false; p.lpfHz = 12000.0f; p.satEnabled = false; p.satDrive = 0.0f;
                                                    p.correctiveBands[2].enabled = false; p.toneBands[3] = band (true, FilterType::HighShelf, 8000.0f, 1.0f, 0.7f); break;
             case ChannelRole::BassAmp:   p.lpfEnabled = true; p.lpfHz = 5000.0f; p.correctiveBands[0] = band (true, FilterType::Peak, 350.0f, -1.5f, 1.2f); p.satDrive = 0.15f; break;
+            // THE SPOKEN WORD, BY WHAT IT IS SPOKEN INTO. All four sit on the speech family's
+            // baseline; what differs is where the microphone is in relation to the mouth.
+            //
+            // A lapel is on the chest and off-axis: no proximity bass to take out, a chest
+            // resonance around 800 Hz that is the reason lapels sound boxy, and a top end that
+            // has to be put back rather than tamed. Clothing lives under it, so the high-pass
+            // is higher than a close microphone's.
+            case ChannelRole::SpeechLapel:
+                p.hpfHz = 120.0f;
+                p.correctiveBands[0] = band (true, FilterType::Peak, 800.0f, -3.0f, 1.6f);
+                p.toneBands[2] = band (true, FilterType::Peak, 4500.0f, 2.5f, 1.0f);
+                p.toneBands[3] = band (true, FilterType::HighShelf, 9000.0f, 2.0f, 0.7f);
+                p.deEssThresholdDb = -26.0f;
+                break;
+            // A headset is close, on-axis and never moves, which is the one that sounds like a
+            // studio vocal and the one that needs the de-esser: every sibilant arrives at the
+            // same level, an inch from the mouth.
+            case ChannelRole::SpeechHeadset:
+                p.hpfHz = 100.0f;
+                p.deEssHz = 6800.0f;
+                p.deEssThresholdDb = -32.0f;
+                p.deEssRangeDb = 6.0f;
+                p.compRatio = 2.5f;
+                break;
+            // A handheld moves: the distance to the mouth changes every sentence, so it is the
+            // one that needs the compressor's range, and proximity puts bass in when it is
+            // close and plosives with it.
+            case ChannelRole::SpeechHandheld:
+                p.hpfHz = 110.0f;
+                p.correctiveBands[0] = band (true, FilterType::Peak, 250.0f, -2.0f, 1.2f);
+                p.compThresholdDb = -26.0f;
+                p.compRatio = 3.5f;
+                p.compReleaseMs = 180.0f;
+                break;
+            // A lectern gooseneck is a foot away with the room behind it: more high-pass, a
+            // narrower lift so the feedback band is not fed, and the expander reaching as far
+            // as the speech family lets it - which is a courtesy, never a gate. A soft word
+            // cut by an expander is a word the stream did not hear, so the family's own
+            // gateMaxRangeDb is the ceiling here as it is everywhere else.
+            case ChannelRole::SpeechLectern:
+                p.hpfHz = 130.0f;
+                p.correctiveBands[0] = band (true, FilterType::Peak, 400.0f, -2.5f, 1.8f);
+                p.toneBands[2] = band (true, FilterType::Peak, 3200.0f, 2.0f, 1.4f);
+                p.gateThresholdDb = -42.0f;
+                p.gateRangeDb = 8.0f;
+                p.gateHoldMs = 180.0f;
+                p.gateReleaseMs = 300.0f;
+                break;
             default: break;
         }
     }
@@ -1568,6 +1616,18 @@ namespace
             case ChannelRole::ElectricGuitarDrive: t.crestFactorMaxDb = 16.0f; t.crestFactorMinDb = 5.0f; t.compTargetGrDb = 2.0f; t.compRatioMax = 3.0f; break;
             case ChannelRole::BassAmp:   t.bandTargetDb[size_t (Band::Brilliance)] = -58.0f; t.bandTargetDb[size_t (Band::Air)] = -66.0f;
                                          t.bandToleranceDb[size_t (Band::Air)] = 12.0f; t.harshnessMinHz = 1500.0f; t.harshnessMaxHz = 4000.0f; t.boxinessHz = 350.0f; break;
+            // A lapel's boxiness is its chest, an octave above where a close microphone's is;
+            // and its top has to be measured against what a chest microphone can actually give.
+            case ChannelRole::SpeechLapel:    t.boxinessHz = 800.0f; t.harshnessMinHz = 3500.0f; t.harshnessMaxHz = 7000.0f;
+                                              t.bandTargetDb[size_t (Band::Air)] = -34.0f; break;
+            // A headset is the closest of the four, so its sibilance is the loudest thing in it.
+            case ChannelRole::SpeechHeadset:  t.harshnessMinHz = 5000.0f; t.harshnessMaxHz = 9000.0f; t.deEssAppropriate = true; t.deEssMaxRangeDb = 7.0f; break;
+            // A handheld's level is the thing that moves, so the compressor is given more to do.
+            case ChannelRole::SpeechHandheld: t.compTargetGrDb = 5.0f; t.compRatioMax = 4.0f; t.crestFactorMaxDb = 16.0f; break;
+            // A lectern is a foot away with a room behind it: it is the one that is gated, and
+            // the one whose low end is the room rather than the voice.
+            case ChannelRole::SpeechLectern:  t.gateAppropriate = true; t.boxinessHz = 400.0f;
+                                              t.bandTargetDb[size_t (Band::LowMid)] = -30.0f; break;
             default: break;
         }
     }

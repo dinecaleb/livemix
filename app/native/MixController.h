@@ -440,6 +440,11 @@ public:
     static const std::vector<VoiceJob>& voiceJobs();
     // Is this strip one of them? A kick drum is not offered a job.
     bool isVoiceChannel (int strip) const;
+    // WHAT THIS MICROPHONE IS DOING is a family, not a role: a lapel and a lectern gooseneck
+    // are both SPEAKING, and choosing SPEAKING on one of them must not turn it into the
+    // other. Returns the role to store for `job` on `strip`: the one it already has when it
+    // is already doing that job, and the job's own role when it is not.
+    ChannelRole roleForJob (int strip, ChannelRole job) const;
 
     // ---- AUTOPILOT: the operator's own mix, held where they left it ----
     //
