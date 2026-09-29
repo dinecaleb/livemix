@@ -1073,6 +1073,12 @@ void MixController::startListening (const ListenSettings& s, int strip, int bus,
     // A new listen starts from what is audible now - except the verify listen of a live run,
     // which is deliberately listening to a proposal the user has not kept yet.
     if (stage == Stage::Preview && ! liveVerifying) keepPlan();
+    // AN ORDINARY TUNE IS NOT THE LAST LIVE RUN. The coordinator stays Ready after TUNE LIVE
+    // MIX finishes, and the result card reads that to decide what it is a card about - so a
+    // TUNE DRUMS started afterwards would title itself TUNE LIVE MIX and list the reasoning
+    // layer's sentences about the voices. The live run is over the moment a new listen that
+    // is not part of one begins, and its review goes with it.
+    if (! liveRun) tuneLive.reset();
     listen = s;
     clearTuningScope();
     tuningStrip = strip;

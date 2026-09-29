@@ -157,6 +157,38 @@ TEST_CASE ("MixController: TUNE LIVE MIX listens, builds, verifies and leaves a 
     CHECK (! c.isTuningLive());
 }
 
+// A TUNE THAT IS NOT A LIVE RUN IS NOT THE LAST LIVE RUN. The coordinator stays Ready once
+// TUNE LIVE MIX has finished, and the result card reads that state to decide what it is a
+// card about - so a TUNE DRUMS started afterwards used to title itself TUNE LIVE MIX and list
+// the reasoning layer's sentences about the voices under a scope that said DRUMS.
+TEST_CASE ("MixController: an ordinary tune started after a live run does not inherit its review")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    f.play (0.5);
+
+    MixController::LiveTuneSettings settings;
+    settings.initial = { 7.0f, -200.0f, 0.0f };
+    settings.verify = { 6.5f, -200.0f, 0.0f };
+    c.startTuneLiveMix (settings);
+    REQUIRE (f.waitForLiveTune());
+    REQUIRE (c.getTuneLive().getState() == TuneLiveCoordinator::State::Ready);
+    REQUIRE (! c.getTuneLive().getReviewLines().empty());
+    c.keepPlan();
+
+    // Now one group on its own, the ordinary way.
+    c.startTuneBus (MixBus::Drums, { 7.0f, -200.0f, 0.0f });
+    CHECK (! c.isTuningLive());
+    CHECK (c.getTuneLive().getState() == TuneLiveCoordinator::State::Idle);
+    CHECK (c.getTuneLive().getReviewLines().empty());
+    REQUIRE (f.waitFor (MixController::Stage::Preview, 20000));
+    CHECK (c.getLastTuneScope() == std::string (mixBusName (MixBus::Drums)));
+    CHECK (c.getTuneLive().getState() == TuneLiveCoordinator::State::Idle);
+    CHECK (c.getTuneLive().getReviewLines().empty());
+}
+
 TEST_CASE ("MixController: when the reasoning provider fails, the deterministic mix is what you are left with")
 {
     struct DeadProvider final : MixReasoningProvider
