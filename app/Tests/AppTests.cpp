@@ -555,12 +555,12 @@ TEST_CASE ("MixController: TUNE <GROUP> tunes one group, and KEEP SOME keeps onl
     CHECK (c.isTuningPart());
     CHECK (! c.isTuningChannel());
     CHECK (c.getTuningBus() == MixBus::Vocals);
-    CHECK (c.getTuningName() == std::string ("VOCALS"));
+    CHECK (c.getTuningName() == std::string ("BGV"));      // VOCALS is the backing voices now
     f.play (2.6);
     REQUIRE (f.waitFor (MixController::Stage::Preview));
     REQUIRE (c.hasPlan());
     const auto* plan = c.getPlan();
-    CHECK (plan->headline.find ("VOCALS") == 0);
+    CHECK (plan->headline.find ("BGV") == 0);
     const auto& graph = c.getGraph();
     for (int i = 0; i < plan->before.numStrips; ++i)
     {

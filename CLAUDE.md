@@ -44,7 +44,9 @@ file under `docs/` — read the one for the area you are touching before changin
   deterministic plan is built first and always.
 - **Never rename a released parameter ID**; sessions, presets and automation depend on them. Enums that are
   stored (`StyleProfileId`, `MixBus`, roles) are appended to, never reordered; a stored-layout change bumps
-  `SessionStore`'s version and remaps the old one.
+  `SessionStore`'s version and remaps the old one. A group bus goes in immediately before `MASTER`, so
+  `b < int (MixBus::Master)` keeps meaning "the groups"; what a person *sees* follows
+  `mixBusInDisplayOrder`, never the enum, because the enum is the storage.
 - **Latency is reported honestly, and so is the ceiling.** The channel path is sample-synchronous and
   minimum-phase and adds none; the lookahead limiter (`Limiter::kLookaheadMs` = 1.5 ms) exists only where the
   stage is turned on (Dine Master, DLIVE's master bus) and is reported through `setLatencySamples` constantly,

@@ -123,7 +123,10 @@ namespace Dine
     inline juce::Colour busDrums    { 0xffe09a4b };
     inline juce::Colour busBass     { 0xff8e80ff };
     inline juce::Colour busMusic    { 0xff6eafff };
-    inline juce::Colour busVocals   { 0xff57b98d };
+    inline juce::Colour busVocals   { 0xff57b98d };   // BGV, since LEAD became its own group
+    // LEAD: the one voice the mix is built around, so it is the one group colour that is not
+    // a member of the band's family - it is what everything else is set against.
+    inline juce::Colour busLead     { 0xfff07f8f };
     inline juce::Colour busSpeech   { 0xffc98fb0 };
     inline juce::Colour busAmbience { 0xffa8b0bc };
     inline juce::Colour busMaster   { 0xffa8b0bc };

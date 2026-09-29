@@ -190,7 +190,13 @@ namespace
             { "drums", MixBus::Drums }, { "kit", MixBus::Drums },
             { "bass group", MixBus::Bass },
             { "music", MixBus::Music }, { "band", MixBus::Music },
-            { "vocals", MixBus::Vocals }, { "voices", MixBus::Vocals }, { "singers", MixBus::Vocals },
+            // "the vocals" and "the voices" mean the singing as a whole, and the one anybody is
+            // really talking about when they say it is the lead. The backing group is asked
+            // for by its own words.
+            { "vocals", MixBus::Lead }, { "voices", MixBus::Lead }, { "singers", MixBus::Lead },
+            { "lead", MixBus::Lead }, { "lead vocal", MixBus::Lead },
+            { "bgv", MixBus::Vocals }, { "backing", MixBus::Vocals }, { "backing vocals", MixBus::Vocals },
+            { "choir", MixBus::Vocals },
             { "speech", MixBus::Speech },
             { "crowd", MixBus::Ambience }, { "congregation", MixBus::Ambience }, { "room mics", MixBus::Ambience },
             { "master", MixBus::Master }, { "mix", MixBus::Master }, { "output", MixBus::Master },

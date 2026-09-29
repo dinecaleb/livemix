@@ -12,28 +12,48 @@ namespace livemix
 inline constexpr int kMaxInputs = 64;   // device input channels DLIVE will look at
 inline constexpr int kMaxStrips = 64;   // assigned inputs (a stereo pair is one strip)
 
-// The internal buses DLIVE builds on its own. The user never creates them.
-// The group buses, in the order a console reads left to right, then the master. SPEECH is
-// its own group and never sits inside VOCALS: a preaching microphone is not a singer - it is
-// levelled, muted and sent somewhere else at different moments of a service, and an operator
-// has to be able to find it and move it without touching the singers. Everything that walks
-// the group buses uses `b < int (MixBus::Master)`, so the order here is what the mixer bands,
-// the TUNE meters, the LIVE tiles and the output feeds all follow.
-// AMBIENCE is the sixth group and the newest (2026-09). A broadcast mix that carries only
-// the stage sounds like a studio recording of a band; what makes a stream sound like a
-// service is the building - the congregation singing back, the response, the applause. Those
-// microphones need their own fader for the same reason SPEECH does: they are turned up and
-// down at different moments from everything else, and an operator has to be able to find
-// them. Everything that walks the group buses uses `b < int (MixBus::Master)`, so a new bus
-// goes in before MASTER - and doing that moved the stored indices again, which is why
-// SessionStore is version 4.
-enum class MixBus : int { Drums = 0, Bass, Music, Vocals, Speech, Ambience, Master, Count };
+// THE GROUP BUSES DLIVE builds on its own. The user never creates them.
+//
+// Each one exists because an operator has to be able to find it and move it without touching
+// the others. SPEECH never sits inside the voices: a preaching microphone is levelled, muted
+// and sent somewhere else at different moments of a service. AMBIENCE (the sixth, 2026-09) is
+// the building - the congregation singing back, the response, the applause - and a broadcast
+// without it sounds like a studio recording of a band rather than like a service.
+//
+// LEAD is the seventh (2026-09-28), and it is there for the same reason again, plus one:
+// the lead is what the mix is *built around*, and the backing voices are a texture that sits
+// under it. Summed into one group, "bring the voices up" brought the thing the lead has to
+// stay above up with it, and the one relationship the whole hierarchy hangs on - lead against
+// backing - could not be set at all.
+//
+// APPENDED TO, NEVER REORDERED: the enum is stored. A new group goes in before MASTER,
+// everything that walks the groups uses `b < int (MixBus::Master)`, and SessionStore remaps an
+// older file by the bus count it actually has (the last stored slot has always been the
+// master). That moved the stored indices for the fifth, the sixth and now the seventh, which
+// is why SessionStore is on version 6. It is also why LEAD is not beside VOCALS here:
+// `mixBusInDisplayOrder` is where the console's own order lives.
+enum class MixBus : int { Drums = 0, Bass, Music, Vocals, Speech, Ambience, Lead, Master, Count };
 
-inline constexpr std::array<const char*, int (MixBus::Count)> kMixBusNames { "DRUMS", "BASS", "MUSIC", "VOCALS", "SPEECH", "AMBIENCE", "MASTER" };
+// VOCALS is called BGV on screen: with LEAD split out it is the backing voices and nothing
+// else, and "VOCALS" beside "LEAD" reads as though one of them contained the other. The enum
+// name and the stored index are untouched.
+inline constexpr std::array<const char*, int (MixBus::Count)> kMixBusNames { "DRUMS", "BASS", "MUSIC", "BGV", "SPEECH", "AMBIENCE", "LEAD", "MASTER" };
 inline constexpr const char* mixBusName (MixBus b) noexcept
 {
     const int i = int (b);
     return (i >= 0 && i < int (MixBus::Count)) ? kMixBusNames[size_t (i)] : "?";
+}
+
+// The order a console reads the groups in, which is not the order they are stored in: the
+// lead sits with the voices, where an engineer looks for it. Every list a person sees - the
+// group tiles on TUNE and LIVE, the pinned rail on MIXER - walks this; everything that
+// iterates buses to *compute* something walks the enum, because the enum is the storage.
+inline constexpr std::array<MixBus, int (MixBus::Master)> kMixBusDisplayOrder {
+    MixBus::Drums, MixBus::Bass, MixBus::Music, MixBus::Lead, MixBus::Vocals, MixBus::Speech, MixBus::Ambience
+};
+inline constexpr MixBus mixBusInDisplayOrder (int i) noexcept
+{
+    return (i >= 0 && i < int (MixBus::Master)) ? kMixBusDisplayOrder[size_t (i)] : MixBus::Master;
 }
 
 // The effect returns DLIVE builds on its own. Each is one FxChain fed by sends.
@@ -311,7 +331,9 @@ inline constexpr MixBus mixBusForFamily (RoleFamily f) noexcept
         case RoleFamily::ElectricBass:
         case RoleFamily::SynthBass:
         case RoleFamily::BassBus:        return MixBus::Bass;
-        case RoleFamily::LeadVocal:
+        // The lead is its own group. Everything else that sings - the backing voices, the
+        // choir, a vocal subgroup off the desk - is BGV.
+        case RoleFamily::LeadVocal:      return MixBus::Lead;
         case RoleFamily::BackingVocal:
         case RoleFamily::Choir:
         case RoleFamily::VocalBus:       return MixBus::Vocals;
@@ -344,6 +366,10 @@ inline constexpr ChannelRole busRole (MixBus b, MixPurpose purpose) noexcept
         case MixBus::Bass:   return ChannelRole::BassBus;
         case MixBus::Music:  return ChannelRole::KeysBus;
         case MixBus::Vocals: return ChannelRole::VocalBus;
+        // The lead group is one voice (or a handful of them on one microphone each), so it is
+        // glued like a vocal group rather than processed like a vocal channel: the de-essing,
+        // the boom cut and the presence lift were already done on the microphone itself.
+        case MixBus::Lead:   return ChannelRole::VocalBus;
         // The speech group is still a bus of voices: it takes the vocal bus baseline (gentle
         // glue, light tone), not the speech *channel* chain - the de-essing, the boom cut and
         // the presence lift were already done on the microphone itself.

@@ -25,7 +25,12 @@ namespace SessionStore
     // slot. Every earlier version still opens: busFromStoredIndex remaps whatever layout it
     // finds, and a sample with no name stored is resolved from its index against the library
     // as it is at load time.
-    inline constexpr int kVersion = 5;
+    // 6 added the LEAD group bus the same way SPEECH and AMBIENCE went in: immediately before
+    // MASTER, which moves the master's stored index and nothing else's. A session saved before
+    // it opens with an empty LEAD group and every lead microphone still on BGV, where it was;
+    // the next TUNE MIX routes it where it belongs, because a routing graph is built from the
+    // assignments rather than stored.
+    inline constexpr int kVersion = 6;
 
     // The old name for SessionState, kept because it reads well at the call sites that mean
     // "the thing on disk".

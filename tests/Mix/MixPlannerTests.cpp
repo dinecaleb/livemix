@@ -687,7 +687,7 @@ TEST_CASE ("MixPlanner: keeping part of a plan applies exactly what was picked, 
     MixPlanner::PlanSelection one;
     one.strips[size_t (lead)] = true;
     const auto solo = MixPlanner::restrictTo (full, one, ctx.graph, ctx.session.profile);
-    CHECK (solo.headline == "MIX: VOCALS KEPT");
+    CHECK (solo.headline == "MIX: LEAD KEPT");
     const auto channel = MixPlanner::channelOnly (full, lead, ctx.session.profile);
     CHECK (MixPlanner::countParameterChanges (solo.proposed, channel.proposed) == 0);
     CHECK (solo.parametersChanged == channel.parametersChanged);
@@ -967,10 +967,17 @@ TEST_CASE ("MixPlanner: a re-tune corrects a mix rather than rearranging it, and
     CHECK (listedMoves);
 }
 
-TEST_CASE ("MixPlanner: the groups are set against the voices, whatever the church has on the stage")
+TEST_CASE ("MixPlanner: the groups are set against the lead, whatever the church has on the stage")
 {
     // Two sessions, the same band, one with three backing voices and one with one. Per source
-    // the numbers are identical; the VOCALS bus is not, and the groups have to follow it.
+    // the numbers are identical; the BGV bus is not, because N voices add up - and the rule
+    // has to follow it without the rest of the mix following it too.
+    //
+    // This is what splitting LEAD off VOCALS bought (2026-09-28). The groups used to be set
+    // against the voices *as one sum*, so adding two backing singers moved the drums, the bass
+    // and the band - which is not a thing a mix engineer would ever do. Now the reference is
+    // the lead: it is the same lead in both rooms, so the band is the same mix in both rooms,
+    // and the only thing that moves is the backing group itself.
     auto planFor = [] (int backingVoices)
     {
         MixSession s = band();
@@ -987,12 +994,23 @@ TEST_CASE ("MixPlanner: the groups are set against the voices, whatever the chur
     const auto one = planFor (1);
     REQUIRE (three.first.valid && one.first.valid);
 
-    // The drum group sits where the profile says it should against the voices, and that is a
-    // different fader in the two rooms because the voices are not the same sum.
     const auto& R = MixProfile::relationships (StyleProfileId::ModernGospel);
     CHECK (R.busBelowVocalsDb[size_t (MixBus::Drums)] != 0.0f);      // the table this rule exists to read
-    CHECK (three.first.proposed.buses[size_t (MixBus::Drums)].faderDb
-             != one.first.proposed.buses[size_t (MixBus::Drums)].faderDb);
+    CHECK (R.busBelowVocalsDb[size_t (MixBus::Lead)] == 0.0f);       // the lead is the zero
+    CHECK (R.busBelowVocalsDb[size_t (MixBus::Vocals)] < 0.0f);      // ... and BGV sits under it
+
+    // THE BACKING GROUP IS WHAT MOVES: three voices are not one, and the rule has to see it.
+    CHECK (three.first.proposed.buses[size_t (MixBus::Vocals)].faderDb
+             != one.first.proposed.buses[size_t (MixBus::Vocals)].faderDb);
+    // ...and nothing else does. The band is the same mix in both rooms, which it was not when
+    // the reference was the voices summed together.
+    CHECK_NEAR (three.first.proposed.buses[size_t (MixBus::Drums)].faderDb,
+                one.first.proposed.buses[size_t (MixBus::Drums)].faderDb, 0.01f);
+    CHECK_NEAR (three.first.proposed.buses[size_t (MixBus::Bass)].faderDb,
+                one.first.proposed.buses[size_t (MixBus::Bass)].faderDb, 0.01f);
+    CHECK_NEAR (three.first.proposed.buses[size_t (MixBus::Music)].faderDb,
+                one.first.proposed.buses[size_t (MixBus::Music)].faderDb, 0.01f);
+
     bool saidSo = false;
     for (const auto& r : three.first.relationships) if (r.what.find ("Groups set against") != std::string::npos) saidSo = true;
     CHECK (saidSo);
@@ -1003,7 +1021,7 @@ TEST_CASE ("MixPlanner: the groups are set against the voices, whatever the chur
         const float moveA = three.first.proposed.buses[size_t (b)].faderDb - three.first.before.buses[size_t (b)].faderDb;
         CHECK (std::fabs (moveA) <= R.maxBusFaderMoveDb + 0.01f);
     }
-    CHECK (three.first.proposed.buses[size_t (MixBus::Vocals)].faderDb == three.first.before.buses[size_t (MixBus::Vocals)].faderDb);
+    CHECK (three.first.proposed.buses[size_t (MixBus::Lead)].faderDb == three.first.before.buses[size_t (MixBus::Lead)].faderDb);
 
     // ... and planning the same listen again moves nothing, group faders included.
     auto ctx2 = three.second;

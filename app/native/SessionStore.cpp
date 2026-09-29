@@ -270,18 +270,19 @@ namespace
     }
 
     // Every group bus DLIVE has added went in immediately before MASTER - SPEECH in version 3,
-    // AMBIENCE in version 4 - because everything that walks the groups uses `b < Master`. That
-    // moves the master's stored index each time and nothing else's, which is the whole of the
-    // migration: a stored slot is the same group it always was, except the last one, which was
-    // the master then and is the master now.
+    // AMBIENCE in version 4, LEAD in version 6 - because everything that walks the groups uses
+    // `b < Master`. That moves the master's stored index each time and nothing else's, which is
+    // the whole of the migration: a stored slot is the same group it always was, except the
+    // last one, which was the master then and is the master now.
     //
     // A session saved before a group existed opens with that group empty and everything else
     // exactly where it was. Nothing is guessed and nothing is dropped.
     constexpr int storedBusCount (int fileVersion) noexcept
     {
-        if (fileVersion >= 4) return int (MixBus::Count);       // ... DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE MASTER
-        if (fileVersion == 3) return int (MixBus::Count) - 1;   // no AMBIENCE
-        return int (MixBus::Count) - 2;                         // no SPEECH either
+        if (fileVersion >= 6) return int (MixBus::Count);       // ... VOCALS SPEECH AMBIENCE LEAD MASTER
+        if (fileVersion >= 4) return int (MixBus::Count) - 1;   // no LEAD
+        if (fileVersion == 3) return int (MixBus::Count) - 2;   // no AMBIENCE either
+        return int (MixBus::Count) - 3;                         // no SPEECH either
     }
 
     MixBus busFromStoredIndex (int stored, int storedCount) noexcept

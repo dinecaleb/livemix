@@ -115,8 +115,11 @@ TEST_CASE ("MixCapture: waits for the band, listens to every strip at once, and 
     CHECK (r.processed[2].peakDb > -30.0f);
     CHECK (r.processed[3].peakDb < -60.0f);
 
-    // Bus inputs (what each bus chain receives) were captured for the buses in use.
-    CHECK (r.buses[size_t (MixBus::Vocals)].valid);
+    // Bus inputs (what each bus chain receives) were captured for the buses in use. The lead
+    // is on LEAD since 2026-09-28; nothing on this console is a backing voice, so BGV is not
+    // in use at all.
+    CHECK (r.buses[size_t (MixBus::Lead)].valid);
+    CHECK (! r.buses[size_t (MixBus::Vocals)].valid);
     CHECK (r.buses[size_t (MixBus::Master)].valid);
     CHECK (r.buses[size_t (MixBus::Master)].peakDb > -30.0f);
     CHECK (! r.buses[size_t (MixBus::Bass)].valid);          // nothing was routed there

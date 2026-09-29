@@ -63,7 +63,8 @@ namespace
         { "busDrums",    "Groups",   "The DRUMS group." },
         { "busBass",     "Groups",   "The BASS group." },
         { "busMusic",    "Groups",   "The MUSIC group." },
-        { "busVocals",   "Groups",   "The VOCALS group." },
+        { "busVocals",   "Groups",   "The BGV group - the backing voices." },
+        { "busLead",     "Groups",   "The LEAD group - the one voice the mix is built around." },
         { "busSpeech",   "Groups",   "The SPEECH group." },
         { "busAmbience", "Groups",   "The AMBIENCE group." },
         { "busMaster",   "Groups",   "The MASTER." },
@@ -104,6 +105,7 @@ namespace
             { "keyMute", 0xffe0a85c }, { "keySolo", 0xff6db8a8 }, { "keyRec", 0xffe06a64 }, { "keyMon", 0xff6eafff },
             { "busDrums", 0xffe09a4b }, { "busBass", 0xff8e80ff }, { "busMusic", 0xff6eafff }, { "busVocals", 0xff57b98d },
             { "busSpeech", 0xffc98fb0 }, { "busAmbience", 0xffa8b0bc }, { "busMaster", 0xffa8b0bc },
+            { "busLead", 0xfff07f8f },
         });
     }
 
@@ -126,6 +128,7 @@ namespace
             { "keyMute", 0xffe6a85a }, { "keySolo", 0xffd6f54c }, { "keyRec", 0xffe8735f }, { "keyMon", 0xff7ab4ff },
             { "busDrums", 0xffe0a25a }, { "busBass", 0xff9a8cff }, { "busMusic", 0xff7ab4ff }, { "busVocals", 0xffd6f54c },
             { "busSpeech", 0xffcf98b8 }, { "busAmbience", 0xffa3a3a3 }, { "busMaster", 0xffa3a3a3 },
+            { "busLead", 0xfff08a78 },
         });
     }
 
@@ -164,6 +167,7 @@ namespace
             { "focusRing", 0xfff0a650 },
             { "hot", 0xffe6d05a }, { "warn", 0xffe9c35c }, { "keyMute", 0xffe9c35c }, { "keySolo", 0xfff0a650 },
             { "busDrums", 0xffe6c35c }, { "busVocals", 0xff6dc19a }, { "busMusic", 0xff8fb8f0 },
+            { "busLead", 0xffe08a72 },
         });
     }
 
@@ -188,6 +192,7 @@ namespace
             { "keyMute", 0xffc47f1e }, { "keySolo", 0xff1f8f7a }, { "keyRec", 0xffcf3f38 }, { "keyMon", 0xff2b78d6 },
             { "busDrums", 0xffc47a1e }, { "busBass", 0xff6a5ce0 }, { "busMusic", 0xff2b78d6 }, { "busVocals", 0xff2f9a68 },
             { "busSpeech", 0xffb0508f }, { "busAmbience", 0xff6b7380 }, { "busMaster", 0xff4a5260 },
+            { "busLead", 0xffd1435b },
         });
     }
 

@@ -14,14 +14,18 @@ namespace
     constexpr int kGroupBuses = int (MixBus::Master);
     constexpr int kGroupTiles = kGroupBuses + 1;
 
+    // A tile's position is the console's order, not the enum's: LEAD sits with the voices
+    // where an engineer looks for it, rather than at the end where it was appended.
+    MixBus groupBus (int tile) noexcept { return mixBusInDisplayOrder (tile); }
+
     juce::String groupName (int i)
     {
-        return i < kGroupBuses ? juce::String (mixBusName (MixBus (i))).toUpperCase() : juce::String ("FX RETURNS");
+        return i < kGroupBuses ? juce::String (mixBusName (groupBus (i))).toUpperCase() : juce::String ("FX RETURNS");
     }
 
     juce::Colour groupColour (int i) noexcept
     {
-        return i >= 0 && i < kGroupBuses ? Dine::busTint (MixBus (i)) : Dine::ink2;
+        return i >= 0 && i < kGroupBuses ? Dine::busTint (groupBus (i)) : Dine::ink2;
     }
 
     constexpr int kGroupsH = 210;
@@ -70,7 +74,7 @@ public:
         {
             if (updating) return;
             if (isFx()) controller.setFxReturn (float (fader.getValue()));
-            else        controller.setBusFader (MixBus (group), float (fader.getValue()));
+            else        controller.setBusFader (groupBus (group), float (fader.getValue()));
             repaint (readout);
         };
     }
@@ -1307,7 +1311,7 @@ MixPage::MixPage (MixController& c) : controller (c)
         if (i < kGroupBuses)
             groups[size_t (i)]->onTune = [this, i]
             {
-                controller.startTuneBus (MixBus (i));
+                controller.startTuneBus (groupBus (i));
                 if (onToast) onToast ("Listening to " + groupName (i) + " alone. Every other group, and the master, stay where they are.");
             };
         addAndMakeVisible (*groups[size_t (i)]);
@@ -1663,7 +1667,7 @@ void MixPage::refresh()
     const auto& kept = controller.getBase();
     for (int i = 0; i < kGroupBuses; ++i)
     {
-        const MixBus bus = MixBus (i);
+        const MixBus bus = groupBus (i);
         const bool used = controller.isPrepared() && engine.isBusUsed (bus);
         const auto& m = engine.getBus (bus).getOutputMeter();
         groups[size_t (i)]->set (used, used ? m.consumeMaxPeakDb() : -120.0f, used ? m.getMaxRmsDb() : -120.0f, used && m.hasClipped(),

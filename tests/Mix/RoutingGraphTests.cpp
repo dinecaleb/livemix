@@ -42,9 +42,12 @@ TEST_CASE ("RoutingGraph: every source lands on its bus without the user buildin
     CHECK (g.stripsOnBus (MixBus::Drums) == 6);
     CHECK (g.stripsOnBus (MixBus::Bass) == 1);
     CHECK (g.stripsOnBus (MixBus::Music) == 1);
-    // The pastor is not one of the singers: the four voices are on VOCALS, the speaking
+    // The lead is its own group - it is what the mix is built around, not one of four voices
+    // in a texture - and the three backing singers are BGV. The pastor is neither: a speaking
     // microphone has the SPEECH group to itself.
-    CHECK (g.stripsOnBus (MixBus::Vocals) == 4);
+    CHECK (g.stripsOnBus (MixBus::Lead) == 1);
+    CHECK (g.strips[8].bus == MixBus::Lead);
+    CHECK (g.stripsOnBus (MixBus::Vocals) == 3);
     CHECK (g.stripsOnBus (MixBus::Speech) == 1);
     CHECK (g.strips[12].bus == MixBus::Speech);
     // A microphone on the congregation is not a room microphone on the drum kit and not a

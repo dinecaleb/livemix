@@ -22,7 +22,7 @@ struct MixMacroValues
 
 namespace MixMacros
 {
-    const char* name (MixMacro m) noexcept;        // "VOCALS"
+    const char* name (MixMacro m) noexcept;        // "VOICES"
     const char* lowLabel (MixMacro m) noexcept;    // "Warm"
     const char* highLabel (MixMacro m) noexcept;   // "Bright"
     const char* tooltip (MixMacro m) noexcept;     // one or two plain sentences

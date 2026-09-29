@@ -95,6 +95,24 @@ Read `CLAUDE.md`, `docs/SESSION-STATE.md`, `docs/DLIVE-MIX-ENGINEER.md`,
 `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md`. New state goes through `SessionState` and appears in the round-trip
 test; each change that alters the sound creates a Mix history checkpoint.
 
+1. ✅ **Lead and BGV as their own buses.** *(2026-09-28.* `MixBus` is DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE
+   LEAD MASTER; VOCALS is BGV on screen; `mixBusInDisplayOrder` is the console's order; `SessionStore::kVersion`
+   6. The group balance is set against the lead, so adding a backing singer no longer moves the band.*)
+
+   **MUSIC was not split into KEYS / GUITAR / OTHER, and here is what it would cost.** The split itself is
+   cheap - the same four edits LEAD needed. What it costs is everything downstream of it. Three group faders
+   where there was one means three rows in `busBelowVocalsDb` for each of the six profiles, and those numbers
+   cannot be reasoned out: they are what a keyboard sits at against a guitar in a gospel mix, which is a thing
+   you find by listening to a real service on a real desk. Every profile that has not been listened to with
+   them would be guessing, and this file's own rule is that a profile has to be tunable by listening. It also
+   costs the console two more strips in a rail that is already tight at 1180 px, and it costs an operator the
+   one thing MUSIC is good at: "the band is too loud" is one fader today. **The case for it is real but
+   narrower than LEAD's**: LEAD fixed a hierarchy rule that could not be expressed at all, while KEYS / GUITAR
+   is a convenience for churches with a big band. Recommendation: defer until there is a multitrack of a church
+   with three keyboard players and two guitarists to tune the numbers against - the same way the QUEENSVIEW
+   recording settled the spill and master-bound work.
+
+   The original note:
 1. **Lead and BGV as their own buses.** `MixBus` today is DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE MASTER; the
   lead is a role and `MixPlanner`'s `focal`, but it is summed with the backing vocals. Add LEAD (keep VOCALS
    as BGV, renamed on screen only if that is safe for stored IDs). New groups go before MASTER,

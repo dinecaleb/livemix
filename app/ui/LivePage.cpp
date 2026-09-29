@@ -203,7 +203,8 @@ public:
 private:
     bool isFx() const noexcept { return group == kFxTile; }
     bool isMaster() const noexcept { return group == kMasterTile; }
-    MixBus bus() const noexcept { return isMaster() ? MixBus::Master : MixBus (group); }
+    // A tile's position is the console's order, not the enum's: LEAD sits with the voices.
+    MixBus bus() const noexcept { return isMaster() ? MixBus::Master : mixBusInDisplayOrder (group); }
     juce::Colour tint() const { return isFx() ? Dine::ink2 : isMaster() ? Dine::ink : Dine::busTint (bus()); }
     juce::String name() const { return isFx() ? "FX RETURNS" : isMaster() ? "MASTER" : juce::String (mixBusName (bus())).toUpperCase(); }
 

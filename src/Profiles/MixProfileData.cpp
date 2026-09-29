@@ -288,9 +288,14 @@ const Relationships& relationships (StyleProfileId profile)
         r.busBelowVocalsDb[size_t (MixBus::Drums)]  = -1.0f;
         r.busBelowVocalsDb[size_t (MixBus::Bass)]   = -3.0f;
         r.busBelowVocalsDb[size_t (MixBus::Music)]  = -5.0f;
-        r.busBelowVocalsDb[size_t (MixBus::Vocals)] = 0.0f;
+        // THE LEAD IS THE REFERENCE, so it is the zero every other group is set against - the
+        // group balance never moves it. BGV sits under it by the same number the individual
+        // backing voices are held under the lead by (`backingGroupBelowLeadDb`), because N
+        // voices add up and a group of six is not a group of two.
+        r.busBelowVocalsDb[size_t (MixBus::Lead)]   = 0.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Vocals)] = -3.0f;
         // The spoken word is the reason the room is there: when the pastor is on, the speech
-        // group sits level with the singing group, never under it.
+        // group sits level with the lead, never under it.
         r.busBelowVocalsDb[size_t (MixBus::Speech)] = 0.0f;
         // The room sits well under the singing: audible, never a competitor. This is the
         // number that decides whether a broadcast sounds like a service or like a crowd.
@@ -314,6 +319,7 @@ const Relationships& relationships (StyleProfileId profile)
         r.busBelowVocalsDb[size_t (MixBus::Music)] = -3.0f;     // the guitars are the song
         r.busBelowVocalsDb[size_t (MixBus::Ambience)] = -14.0f;
         r.backingBelowLeadDb = 6.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Vocals)] = -4.0f;      // ... and the group with them
         r.vocalPocketMaxCutDb = 3.0f;                            // the guitars have to make room, or nobody hears the words
         return r;
     }();
@@ -337,6 +343,7 @@ const Relationships& relationships (StyleProfileId profile)
         r.busBelowVocalsDb[size_t (MixBus::Music)] = -2.0f;     // the band is the point
         r.busBelowVocalsDb[size_t (MixBus::Ambience)] = -9.0f;  // the room is welcome
         r.backingBelowLeadDb = 3.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Vocals)] = -2.0f;    // the backing voices are part of the arrangement
         r.vocalPocketMaxCutDb = 1.5f;                            // the piano keeps its tone
         r.tomGateMaxRangeWithOverheadsDb = 0.0f;                 // no gates on a jazz kit (the profile says so; this keeps a hand-set one gentle)
         return r;
@@ -351,6 +358,7 @@ const Relationships& relationships (StyleProfileId profile)
         r.busBelowVocalsDb[size_t (MixBus::Ambience)] = -12.0f;
         r.vocalPocketMaxCutDb = 3.0f;
         r.backingBelowLeadDb = 2.0f;                             // on a panel every voice is a lead
+        r.busBelowVocalsDb[size_t (MixBus::Vocals)] = -2.0f;     // ... so the group is barely under it either
         return r;
     }();
     switch (profile)

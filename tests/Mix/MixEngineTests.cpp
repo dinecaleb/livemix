@@ -256,7 +256,9 @@ TEST_CASE ("MixEngine: the listening tap sees every strip raw and processed, eve
     d.run (e, 64);
     CHECK (tap.inputs == 6 * 10);
     CHECK (tap.processed == 6 * 10);
-    CHECK (tap.buses == 4 * 10);
+    // DRUMS, BASS, MUSIC, LEAD and BGV: five groups on this console since the lead became
+    // its own (2026-09-28).
+    CHECK (tap.buses == 5 * 10);
     CHECK (tap.masters == 10);
     CHECK (tap.outputs == 10);
     tap.active = false;

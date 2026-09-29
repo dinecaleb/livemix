@@ -3123,3 +3123,104 @@ TEST_CASE ("Percussion and brass: the stored enum only grew, the names are guess
                < profile.targets[int (RoleFamily::Tom)].gateMaxRangeDb);
 }
 
+
+TEST_CASE ("SessionStore: a session saved before LEAD existed opens with its master on the master")
+{
+    // A version 5 document: seven bus slots - DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE MASTER -
+    // the last of which was the master. LEAD went in before MASTER on 2026-09-28, so the
+    // master's stored index moved and nothing else's did.
+    auto* mix = new juce::DynamicObject();
+    mix->setProperty ("numStrips", 2);
+    juce::Array<juce::var> strips;
+    for (int i = 0; i < 2; ++i)
+    {
+        auto* strip = new juce::DynamicObject();
+        strip->setProperty ("faderDb", -2.0 - double (i));
+        strips.add (juce::var (strip));
+    }
+    mix->setProperty ("strips", strips);
+    juce::Array<juce::var> buses;
+    for (int b = 0; b < 7; ++b)
+    {
+        auto* bo = new juce::DynamicObject();
+        bo->setProperty ("faderDb", double (b));      // 6 = the old master
+        buses.add (juce::var (bo));
+    }
+    mix->setProperty ("buses", buses);
+
+    auto* doc = new juce::DynamicObject();
+    doc->setProperty ("app", "DLIVE");
+    doc->setProperty ("version", 5);
+    doc->setProperty ("name", "Last Sunday");
+    doc->setProperty ("purpose", int (MixPurpose::ChurchBroadcast));
+    juce::Array<juce::var> inputs;
+    const struct { const char* name; ChannelRole role; int in; } band[2] = {
+        { "Lead", ChannelRole::LeadVocal, 0 }, { "BGV 1", ChannelRole::BackingVocal, 1 }
+    };
+    for (const auto& b : band)
+    {
+        auto* in = new juce::DynamicObject();
+        in->setProperty ("name", b.name);
+        in->setProperty ("role", int (b.role));
+        in->setProperty ("inputA", b.in);
+        in->setProperty ("inputB", -1);
+        in->setProperty ("enabled", true);
+        inputs.add (juce::var (in));
+    }
+    doc->setProperty ("inputs", inputs);
+    doc->setProperty ("hasMix", true);
+    doc->setProperty ("mix", juce::var (mix));
+    juce::Array<juce::var> feeds;
+    auto* feed = new juce::DynamicObject();
+    feed->setProperty ("left", 0);
+    feed->setProperty ("right", 1);
+    feed->setProperty ("source", 6);          // the old master index
+    feeds.add (juce::var (feed));
+    doc->setProperty ("outputs", feeds);
+
+    const auto file = scratchFolder().getChildFile ("v5.dlive.json");
+    file.replaceWithText (juce::JSON::toString (juce::var (doc), false));
+
+    SessionStore::Document back;
+    REQUIRE (SessionStore::load (file, back));
+    // Every group kept its own fader...
+    CHECK_NEAR (back.mix.buses[size_t (MixBus::Drums)].faderDb, 0.0f, 0.01);
+    CHECK_NEAR (back.mix.buses[size_t (MixBus::Vocals)].faderDb, 3.0f, 0.01);
+    CHECK_NEAR (back.mix.buses[size_t (MixBus::Ambience)].faderDb, 5.0f, 0.01);
+    // ...the old master's fader is on the master, not on the new LEAD group...
+    CHECK_NEAR (back.mix.master().faderDb, 6.0f, 0.01);
+    CHECK_NEAR (back.mix.buses[size_t (MixBus::Lead)].faderDb, 0.0f, 0.01);
+    // ...and the output feed still carries the main mix rather than the lead.
+    CHECK (back.outputs.feeds[0].source == MixBus::Master);
+
+    // THE ROUTING IS BUILT, NOT STORED, so the lead is on LEAD the moment the session opens -
+    // there is no migration to do for it and nothing to guess.
+    const auto graph = RoutingGraph::build (back.session);
+    REQUIRE (graph.numStrips() == 2);
+    CHECK (graph.strips[0].bus == MixBus::Lead);
+    CHECK (graph.strips[1].bus == MixBus::Vocals);
+    file.deleteFile();
+}
+
+TEST_CASE ("SessionStore: LEAD and BGV survive the round trip as two groups")
+{
+    FullSession s (false);
+    s.daw.setLiveSafe (false);          // a bus fader is only a trim under LIVE SAFE
+    s.controller.setBusFader (MixBus::Lead, -1.5f);
+    s.controller.setBusFader (MixBus::Vocals, -4.5f);
+    s.controller.setBusMute (MixBus::Vocals, true);
+
+    const auto file = scratchFolder().getChildFile ("lead.dlive.json");
+    file.deleteFile();
+    REQUIRE (SessionStore::save (captureSession (s.controller, s.daw, kDevices, 0), file));
+    SessionStore::Document back;
+    REQUIRE (SessionStore::load (file, back));
+    CHECK_NEAR (back.mix.buses[size_t (MixBus::Lead)].faderDb, -1.5f, 0.01);
+    CHECK_NEAR (back.mix.buses[size_t (MixBus::Vocals)].faderDb, -4.5f, 0.01);
+    CHECK (back.mix.buses[size_t (MixBus::Vocals)].mute);
+    CHECK (! back.mix.buses[size_t (MixBus::Lead)].mute);
+    // The file says version 6, which is what says the stored bus layout has eight slots.
+    CHECK (file.loadFileAsString().contains ("\"version\": " + juce::String (SessionStore::kVersion))
+             || file.loadFileAsString().contains ("\"version\":" + juce::String (SessionStore::kVersion)));
+    file.deleteFile();
+}

@@ -1168,9 +1168,11 @@ void MixerPage::rebuild()
         strips.push_back (std::move (s));
     };
 
+    // The console's order, not the enum's: a bank reads DRUMS BASS MUSIC LEAD BGV SPEECH
+    // AMBIENCE, which is where an engineer looks for each of them.
     for (int b = 0; b < int (MixBus::Master); ++b)
     {
-        const auto bus = MixBus (b);
+        const auto bus = mixBusInDisplayOrder (b);
         if (graph.stripsOnBus (bus) == 0) continue;
 
         for (int i = 0; i < graph.numStrips(); ++i)
@@ -1421,7 +1423,7 @@ void MixerPage::layoutStrips()
         {
             for (auto& s : strips)
             {
-                if (s->getKind() != Strip::Kind::Bus || s->getBus() != MixBus (b)) continue;
+                if (s->getKind() != Strip::Kind::Bus || s->getBus() != mixBusInDisplayOrder (b)) continue;
                 // The filter is about the bank. "Only the inputs" means show me the channels
                 // rather than every bus strip among them - it is not a request to lose the
                 // groups, which is the one thing the rail is for.
@@ -1445,7 +1447,7 @@ void MixerPage::layoutStrips()
     int x = 0;
     for (int b = 0; b <= int (MixBus::Master); ++b)
     {
-        const auto bus = MixBus (b);
+        const auto bus = b < int (MixBus::Master) ? mixBusInDisplayOrder (b) : MixBus::Master;
         for (auto& s : strips)
         {
             if (s->getBus() != bus || s.get() == master) continue;
@@ -1482,7 +1484,7 @@ void MixerPage::layoutList()
     int y = kListHeadH;
     for (int b = 0; b <= int (MixBus::Master); ++b)
     {
-        const auto bus = MixBus (b);
+        const auto bus = b < int (MixBus::Master) ? mixBusInDisplayOrder (b) : MixBus::Master;
         for (auto& s : strips)
         {
             if (s->getBus() != bus) continue;

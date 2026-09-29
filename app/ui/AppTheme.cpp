@@ -450,6 +450,7 @@ juce::Colour Dine::busTint (MixBus b) noexcept
         case MixBus::Bass:     return busBass;
         case MixBus::Music:    return busMusic;
         case MixBus::Vocals:   return busVocals;
+        case MixBus::Lead:     return busLead;
         case MixBus::Speech:   return busSpeech;
         case MixBus::Ambience: return busAmbience;
         case MixBus::Master:   return busMaster;
@@ -490,6 +491,7 @@ const std::vector<Dine::ThemeBinding>& Dine::themeBindings()
         { "ok", &ok }, { "hot", &hot }, { "warn", &warn }, { "crit", &crit }, { "monitor", &monitor },
         { "keyMute", &keyMute }, { "keySolo", &keySolo }, { "keyRec", &keyRec }, { "keyMon", &keyMon },
         { "busDrums", &busDrums }, { "busBass", &busBass }, { "busMusic", &busMusic }, { "busVocals", &busVocals },
+        { "busLead", &busLead },
         { "busSpeech", &busSpeech }, { "busAmbience", &busAmbience }, { "busMaster", &busMaster },
     };
     return table;

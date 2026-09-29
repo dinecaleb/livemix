@@ -65,6 +65,28 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   can be tuned during the song and the pastor during the sermon without either moving the other or the
   master. KEEP applies exactly what AFTER was playing: `getBase()` is the one place that decides what is
   heard and `compose()` reads it.
+- **LEAD AND BGV ARE TWO GROUPS (2026-09-28).** `MixBus` gained `Lead` before `Master` (stored layout 8 slots,
+  `SessionStore::kVersion` 6; an older file remaps by the bus count it actually has, as it did for SPEECH and
+  AMBIENCE, and nothing but the master's index moves). A lead microphone routes to LEAD, everything else that
+  sings - the backing voices, the choir, a vocal subgroup off the desk - to VOCALS, which is **called BGV on
+  screen**: the enum name and the stored index are untouched, and "VOCALS" beside "LEAD" read as though one of
+  them contained the other. The console shows the groups in `mixBusInDisplayOrder` (DRUMS BASS MUSIC LEAD BGV
+  SPEECH AMBIENCE) rather than in enum order, because the enum is the storage and the display is not.
+
+  **What it buys is the group balance.** The groups are set against a reference and the reference is now the
+  lead - the thing the mix is *built around* - instead of the voices summed together. Before, adding two
+  backing singers changed the VOCALS sum and moved the drums, the bass and the band with it, which is not a
+  thing a mix engineer would ever do; now the band is the same mix in both rooms and the only thing that moves
+  is the backing group, held under the lead by `busBelowVocalsDb[Vocals]` (-3 dB in Modern Gospel, per profile).
+  `MixPlannerTests` asserts exactly that, in both directions. With nobody singing lead the backing group is the
+  reference, and a sermon has only speech - the fallback chain is Lead, then BGV, then SPEECH.
+
+  LEAD is glued like a vocal group (`busRole` gives it `VocalBus`), not processed like a vocal channel: the
+  de-essing, the boom cut and the presence lift were already done on the microphone itself. The VOICE macro
+  moves both vocal groups together, because a pad that brightened the lead and left the backing voices where
+  they were would change the blend rather than the tone - and the blend is what the hierarchy rules own. Mix
+  Buddy hears "the vocals", "the voices" and "the singers" as the lead, and "BGV", "backing" and "choir" as the
+  backing group.
 - **THE SCOPE PICKER (2026-09-28).** TUNE always asked the same question and never asked it out loud: the verb
   meant the whole mix, `startTuneBus` was reachable only from a small word inside a group tile, and nothing at
   all offered "these three microphones". Pressing TUNE (the button, the Mix menu, the keyboard) now opens

@@ -27,7 +27,9 @@ const char* name (MixMacro m) noexcept
 {
     switch (m)
     {
-        case MixMacro::Vocals: return "VOCALS";
+        // VOICES, not VOCALS: since 2026-09-28 VOCALS is the name of a group (the backing
+        // voices), and this pad moves the tone of both vocal groups together.
+        case MixMacro::Vocals: return "VOICES";
         case MixMacro::Drums:  return "DRUMS";
         case MixMacro::Bass:   return "BASS";
         case MixMacro::Space:  return "SPACE";
@@ -80,13 +82,18 @@ MixParameters apply (const MixParameters& base, const MixMacroValues& values, co
     MixParameters p = base;
     const auto& R = MixProfile::macroRanges (profile);
 
-    // VOCALS: Warm <-> Bright on the vocal bus shelves.
+    // VOICE: Warm <-> Bright on the voices. Both vocal groups, because a pad that made the
+    // lead brighter and left the backing voices where they were would change the blend rather
+    // than the tone - and the blend is what the hierarchy rules own.
     if (const float t = bipolar (values.get (MixMacro::Vocals)); t != 0.0f)
     {
-        auto& c = p.buses[size_t (MixBus::Vocals)].channel;
-        c.toneEqEnabled = true;
-        shelf (c.toneBands[0], FilterType::LowShelf, R.vocalLowShelfHz, t < 0.0f ? -t * R.vocalWarmLowDb : t * R.vocalBrightLowDb);
-        shelf (c.toneBands[3], FilterType::HighShelf, R.vocalHighShelfHz, t > 0.0f ? t * R.vocalBrightHighDb : -t * R.vocalWarmHighDb);
+        for (const MixBus voice : { MixBus::Lead, MixBus::Vocals })
+        {
+            auto& c = p.buses[size_t (voice)].channel;
+            c.toneEqEnabled = true;
+            shelf (c.toneBands[0], FilterType::LowShelf, R.vocalLowShelfHz, t < 0.0f ? -t * R.vocalWarmLowDb : t * R.vocalBrightLowDb);
+            shelf (c.toneBands[3], FilterType::HighShelf, R.vocalHighShelfHz, t > 0.0f ? t * R.vocalBrightHighDb : -t * R.vocalWarmHighDb);
+        }
     }
 
     // DRUMS: Tight <-> Big on the drum bus.

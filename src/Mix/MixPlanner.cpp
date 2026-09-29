@@ -1157,8 +1157,13 @@ MixPlan plan (const MixPlanContext& ctx)
     // BASS -3, MUSIC -5, SPEECH level, AMBIENCE -12 in Modern Gospel) - using what each bus
     // is predicted to actually put out under the plan.
     {
-        const MixBus ref = busPlayed[size_t (MixBus::Vocals)] && ctx.graph.busUsed[size_t (MixBus::Vocals)] ? MixBus::Vocals
-                         : busPlayed[size_t (MixBus::Speech)] && ctx.graph.busUsed[size_t (MixBus::Speech)] ? MixBus::Speech
+        // THE LEAD IS WHAT THE MIX IS BUILT AROUND, so it is what the groups are set against.
+        // Backing voices are a texture under it and cannot be the reference; with no lead
+        // singing the backing group is the nearest thing to one, and a sermon has only speech.
+        const auto playing = [&] (MixBus b) { return busPlayed[size_t (b)] && ctx.graph.busUsed[size_t (b)]; };
+        const MixBus ref = playing (MixBus::Lead)   ? MixBus::Lead
+                         : playing (MixBus::Vocals) ? MixBus::Vocals
+                         : playing (MixBus::Speech) ? MixBus::Speech
                          : MixBus::Count;
         // What a group puts out with its fader at zero, under this plan's chains and strip
         // levels: a function of the listen alone, so a fader set here is the same number
@@ -1202,7 +1207,7 @@ MixPlan plan (const MixPlanContext& ctx)
                 plan.relationships.push_back (info (Recommendation::Kind::MixGain, "Groups set against the " + std::string (mixBusName (ref)) + ": " + names,
                                                      "Each source is at the level its own kind sits at, but how loud a group ends up also depends on how many "
                                                      "microphones are in it - six backing voices are not two, and eight drum microphones are not four. The groups "
-                                                     "are set against the voices so a " + std::string (styleProfileName (profile)) + " mix sounds like one whatever "
+                                                     "are set against the lead so a " + std::string (styleProfileName (profile)) + " mix sounds like one whatever "
                                                      "this church happens to have on the stage.", Confidence::Medium));
             }
         }
