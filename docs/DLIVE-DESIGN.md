@@ -16,6 +16,16 @@ The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizab
   and 1920x1080 - the three screens a booth actually has - so a layout that only holds together at the
   developer's window is caught before a Sunday. `dlive_ui_snapshots <dir>` (no flag) is still the full set of
   states, and `21`-`25` are the smallest window DLIVE allows.
+- **Text that did not fit.** `dlive_ui_snapshots <dir>` walks every workspace with the clipping audit on
+  (`Dine::beginTextClipAudit` / `textClipReport`, `app/ui/AppTheme.cpp`) and ends with a **TEXT CLIPPING**
+  report: one line per string that lost characters, with the screen it was on, the room it had and the room it
+  wanted, widest shortfall first. A cell is only too small once the face, the Text size and the string meet each
+  other, so reasoning about the layout never finds one - "CLOSE" drawn as "Clo..." in a 28 pt cell did not show
+  up in a single review. **The report is expected to be empty**; a finding is either a cell to widen or a word to
+  shorten. Note what it does *not* see: `Dine::drawFittedText` squeezes rather than cutting, which is the house
+  rule for a name on a narrow strip (`MixerPage` squeezes to 0.78 and drops the channel number before it drops a
+  letter), and a control that picks a shorter form for itself - `DinePopup::setBriefValue`, the master card's
+  numbers, the solo pill's count - has already made the choice by the time it draws.
 - **UI frame budget.** `build/app/dlive_ui_snapshots --frames [channels=48] [frames=120]` builds a realistically
   large console and reports, per workspace, the cost of one `refresh()` and the cost of a full repaint. A full
   repaint is 30-130 ms at 48 channels, so **no page may call `repaint()` on itself from its 30 Hz tick** - that

@@ -1,4 +1,5 @@
 #include "AppTheme.h"
+#include <algorithm>
 #include <map>
 #include <tuple>
 #include <cmath>
@@ -209,8 +210,41 @@ namespace
         return lock;
     }
 
+    // The clipping audit. Off by default and free when it is off: one bool on the way into
+    // every laid-out string. On, it measures the string the way the ellipsis path would and
+    // keeps the ones that lost characters, deduplicated by text and cell width.
+    struct ClipAudit
+    {
+        bool on = false;
+        juce::String scope;
+        std::vector<Dine::ClippedText> found;
+    };
+
+    ClipAudit& clipAudit()
+    {
+        static ClipAudit audit;
+        return audit;
+    }
+
+    void noteIfClipped (const TextLayoutKey& key)
+    {
+        auto& audit = clipAudit();
+        if (! audit.on || key.fitted || ! key.ellipses || key.width <= 0.0f || key.text.isEmpty()) return;
+        const float wanted = juce::GlyphArrangement::getStringWidth (key.font, key.text);
+        if (wanted <= key.width + 0.5f) return;
+        for (auto& c : audit.found)
+            if (c.text == key.text && std::abs (c.available - key.width) < 0.5f)
+            {
+                c.wanted = juce::jmax (c.wanted, wanted);
+                return;
+            }
+        audit.found.push_back ({ key.text, audit.scope, key.width, wanted });
+    }
+
     void drawLayout (juce::Graphics& g, const TextLayoutKey& key, juce::Point<float> at)
     {
+        noteIfClipped (key);
+
         const auto build = [&key]
         {
             juce::GlyphArrangement a;
@@ -317,6 +351,58 @@ void Dine::clearTextCache()
 {
     const juce::ScopedLock lock (textLayoutLock());
     if (auto* cache = TextLayoutCache::getInstance()) cache->clear();
+}
+
+void Dine::beginTextClipAudit()
+{
+    auto& audit = clipAudit();
+    audit.found.clear();
+    audit.on = true;
+    // Every string already laid out would be drawn from the cache and never measured again,
+    // so the audit would see a page it had not walked as clean.
+    clearTextCache();
+}
+
+void Dine::endTextClipAudit()
+{
+    clipAudit().on = false;
+}
+
+void Dine::setTextClipScope (const juce::String& where)
+{
+    clipAudit().scope = where;
+}
+
+juce::String Dine::shortPath (const juce::File& file, const juce::Font& font, int width)
+{
+    static const juce::String ellipsis (juce::CharPointer_UTF8 ("\xe2\x80\xa6"));
+    const auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory).getFullPathName();
+    auto full = file.getFullPathName();
+    if (home.isNotEmpty() && full.startsWith (home)) full = "~" + full.substring (home.length());
+    if (width <= 0 || textWidth (font, full) <= width) return full;
+
+    auto parts = juce::StringArray::fromTokens (full, juce::File::getSeparatorString(), {});
+    parts.removeEmptyStrings();
+    if (parts.isEmpty()) return full;
+    juce::String kept = parts[parts.size() - 1];
+    for (int i = parts.size() - 2; i >= 0; --i)
+    {
+        const auto next = parts[i] + juce::File::getSeparatorString() + kept;
+        if (textWidth (font, ellipsis + juce::File::getSeparatorString() + next) > width) break;
+        kept = next;
+    }
+    return ellipsis + juce::File::getSeparatorString() + kept;
+}
+
+std::vector<Dine::ClippedText> Dine::textClipReport()
+{
+    auto out = clipAudit().found;
+    std::sort (out.begin(), out.end(), [] (const ClippedText& a, const ClippedText& b)
+    {
+        const float sa = a.wanted - a.available, sb = b.wanted - b.available;
+        return juce::exactlyEqual (sa, sb) ? a.text < b.text : sa > sb;
+    });
+    return out;
 }
 
 // ============================================================================ surfaces
@@ -1149,8 +1235,12 @@ int DineButton::idealWidth() const
 {
     auto font = Dine::text (fontPx, caps || style == Style::Filled ? 600 : 500);
     if (caps) font = font.withExtraKerningFactor (0.04f);
-    return Dine::textWidth (font, caps ? getButtonText().toUpperCase() : getButtonText())
-           + padX * 2 + (icon != Dine::Icon::None ? 21 : 0);
+    // An icon on its own is a button too - the sheets' close cross - and it wants the glyph
+    // and its padding, not the glyph plus the gap before a word that is not there.
+    const bool hasLabel = getButtonText().isNotEmpty();
+    const int iconW = icon == Dine::Icon::None ? 0 : hasLabel ? 21 : 15;
+    return (hasLabel ? Dine::textWidth (font, caps ? getButtonText().toUpperCase() : getButtonText()) : 0)
+           + padX * 2 + iconW;
 }
 
 void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
@@ -1193,7 +1283,8 @@ void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
 
     const juce::String label = caps ? getButtonText().toUpperCase() : getButtonText();
     const int weight = filled || caps ? 600 : 500;
-    const int iconW = icon != Dine::Icon::None ? 21 : 0;
+    const bool hasLabel = label.isNotEmpty();
+    const int iconW = icon == Dine::Icon::None ? 0 : hasLabel ? 21 : 15;
     const auto faceAt = [&] (float px)
     {
         auto f = Dine::text (px, weight);
@@ -1206,7 +1297,7 @@ void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
     // first, then its type size - down to 9 px on the screen, whatever Text size is set to -
     // and only then a letter. At Standard with room to spare none of this does anything.
     auto font = faceAt (fontPx);
-    int textW = Dine::textWidth (font, label);
+    int textW = hasLabel ? Dine::textWidth (font, label) : 0;
     int pad = padX;
     if (textW + iconW > getWidth() - padX * 2)
     {
@@ -1228,6 +1319,7 @@ void DineButton::paintButton (juce::Graphics& g, bool over, bool down)
     auto block = content.withSizeKeepingCentre (juce::jmin (content.getWidth(), textW + iconW), content.getHeight());
     if (icon != Dine::Icon::None)
         Dine::drawIcon (g, icon, block.removeFromLeft (15).toFloat().withSizeKeepingCentre (15.0f, 15.0f), fg);
+    if (! hasLabel) return;
     if (iconW > 0) block.removeFromLeft (6);
     g.setColour (fg);
     g.setFont (font);
@@ -1261,8 +1353,10 @@ void DinePopup::paintButton (juce::Graphics& g, bool over, bool down)
         inner.removeFromLeft (8);
     }
     g.setColour (! isEnabled() ? Dine::ink4 : over ? Dine::ink : Dine::ink2);
-    g.setFont (Dine::text (12.0f, 500));
-    Dine::drawText (g, value, inner, juce::Justification::centredLeft, true);
+    const auto font = Dine::text (12.0f, 500);
+    g.setFont (font);
+    Dine::drawText (g, brief.isNotEmpty() && Dine::textWidth (font, value) > inner.getWidth() ? brief : value,
+                    inner, juce::Justification::centredLeft, true);
 }
 
 void DineSegmentRow::paint (juce::Graphics& g)

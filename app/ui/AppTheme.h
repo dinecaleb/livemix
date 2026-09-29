@@ -237,6 +237,25 @@ namespace Dine
     // themselves should throw them away.
     void clearTextCache();
 
+    // TEXT THAT DID NOT FIT. A name is data and is ellipsised on purpose; CLOSE cut to
+    // "Clo..." is a layout bug, and no amount of reading the layout code finds one - the cell
+    // is only too small once the face, the Text size and the string meet each other. So the
+    // drawing keeps the list: while the audit is on, every curtailed string is recorded with
+    // the width it had and the width it wanted. `dlive_ui_snapshots` walks every workspace
+    // with it on and prints what came back, widest shortfall first.
+    struct ClippedText { juce::String text, where; float available = 0.0f, wanted = 0.0f; };
+    void beginTextClipAudit();                     // on, and empty
+    void endTextClipAudit();                       // off; the report survives until the next begin
+    // What is being drawn right now, so a finding names the screen it is on rather than
+    // leaving somebody to grep for the string. The snapshot walk sets it per shot.
+    void setTextClipScope (const juce::String&);
+    std::vector<ClippedText> textClipReport();
+
+    // A FILE PATH IS READ FROM THE RIGHT. A path cut at the left-hand end keeps the one part
+    // nobody needs and loses the file - so a path too long for its cell drops folders off the
+    // front, under the home folder's own tilde, and keeps the name whatever happens.
+    juce::String shortPath (const juce::File&, const juce::Font&, int width);
+
     // Surfaces -------------------------------------------------------------
     void fillRounded (juce::Graphics&, juce::Rectangle<float>, juce::Colour, float radius);
     void hairlineRounded (juce::Graphics&, juce::Rectangle<float>, juce::Colour, float radius);
@@ -382,7 +401,11 @@ class DinePopup : public juce::Button
 {
 public:
     DinePopup();
-    void setValue (const juce::String& v) { if (v != value) { value = v; repaint(); } }
+    void setValue (const juce::String& v) { if (v != value) { value = v; brief = {}; repaint(); } }
+    // The same choice said in fewer words, for when the popup is not as wide as it wants to
+    // be. A picker cut to "From the purpo..." has stopped naming the thing it is set to, so
+    // the paint falls back to this rather than to an ellipsis. Set it after setValue.
+    void setBriefValue (const juce::String& v) { if (v != brief) { brief = v; repaint(); } }
     const juce::String& getValue() const  { return value; }
     // A colour dot before the value (the Outputs sheet's source picker).
     void setDot (juce::Colour c)          { dot = c; repaint(); }
@@ -393,7 +416,7 @@ public:
     void paintButton (juce::Graphics&, bool over, bool down) override;
 
 private:
-    juce::String value;
+    juce::String value, brief;
     juce::Colour dot { juce::Colours::transparentBlack };
     bool flat = false;
 };

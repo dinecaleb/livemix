@@ -266,3 +266,67 @@ TEST_CASE ("Text size: every role grows with it, no metric does, and the layouts
     Dine::setTextScale (0.1f);
     CHECK_NEAR (Dine::textScale(), 1.0f, 0.0001);
 }
+
+// THE CLIPPING AUDIT: the tool that found the sloppiness.
+//
+// A name is data and is ellipsised on purpose; a fixed word cut to "Clo..." is a cell that is
+// too small, and no amount of reading layout code finds one - the cell is only too small once
+// the face, the Text size and the string meet each other. So the drawing keeps the list, and
+// `dlive_ui_snapshots` walks every workspace with it on. This is the audit's own test.
+TEST_CASE ("Text: the clipping audit reports what was cut and nothing that fitted")
+{
+    Dine::setTextScale (1.0f);
+    Dine::beginTextClipAudit();
+    Dine::setTextClipScope ("a test");
+    {
+        juce::Image image (juce::Image::ARGB, 300, 40, true);
+        juce::Graphics g (image);
+        g.setFont (Dine::text (13.0f));
+        // Room to spare, exactly the ellipsis path, and nowhere near enough room.
+        Dine::drawText (g, "Kick", juce::Rectangle<int> (0, 0, 200, 18), juce::Justification::centredLeft, true);
+        Dine::drawText (g, "Close", juce::Rectangle<int> (0, 18, 28, 18), juce::Justification::centredLeft, true);
+        // Fitted text squeezes rather than cutting, so it is not the audit's business.
+        Dine::drawFittedText (g, "A sentence that will be squeezed to fit", juce::Rectangle<int> (0, 0, 60, 18),
+                              juce::Justification::centredLeft, 1, 0.5f);
+    }
+    Dine::endTextClipAudit();
+    const auto report = Dine::textClipReport();
+    REQUIRE (report.size() == 1);
+    CHECK (report[0].text == "Close");
+    CHECK (report[0].where == "a test");
+    CHECK (report[0].wanted > report[0].available);
+
+    // Off again, and the next run starts from nothing.
+    {
+        juce::Image image (juce::Image::ARGB, 300, 40, true);
+        juce::Graphics g (image);
+        g.setFont (Dine::text (13.0f));
+        Dine::drawText (g, "Another one that does not fit", juce::Rectangle<int> (0, 0, 20, 18), juce::Justification::centredLeft, true);
+    }
+    CHECK (Dine::textClipReport().size() == 1);
+    Dine::beginTextClipAudit();
+    CHECK (Dine::textClipReport().empty());
+    Dine::endTextClipAudit();
+}
+
+// A PATH IS READ FROM THE RIGHT. Cutting one at the left-hand end keeps the part nobody needs
+// and loses the file, so a path too long for its cell drops folders off the front instead.
+TEST_CASE ("Text: a path too long for its cell keeps its file name")
+{
+    const auto font = Dine::mono (11.0f, 500);
+    const auto home = juce::File::getSpecialLocation (juce::File::userHomeDirectory);
+    const auto file = home.getChildFile ("Documents").getChildFile ("A church with a long name")
+                          .getChildFile ("Sunday 09:30").getChildFile ("Exports").getChildFile ("Sunday.wav");
+
+    // Room for all of it: the home folder is still written as a tilde, and nothing is dropped.
+    const auto whole = Dine::shortPath (file, font, 4000);
+    CHECK (whole.startsWith ("~"));
+    CHECK (whole.endsWith ("Sunday.wav"));
+    CHECK (Dine::textWidth (font, whole) <= 4000);
+
+    // No room: the name survives, the front is dropped, and what is left fits the cell.
+    const auto cut = Dine::shortPath (file, font, 160);
+    CHECK (cut.endsWith ("Sunday.wav"));
+    CHECK (cut.startsWith (juce::String (juce::CharPointer_UTF8 ("\xe2\x80\xa6"))));
+    CHECK (Dine::textWidth (font, cut) <= 160 + 2);
+}

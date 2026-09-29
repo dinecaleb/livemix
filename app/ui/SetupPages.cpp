@@ -2069,8 +2069,10 @@ public:
         const int headingW = Dine::textWidth (Dine::text (15.0f), heading);
         if (tag.isNotEmpty())
         {
-            const int w = juce::jmin (Dine::textWidth (Dine::text (11.0f), tag), top.getWidth() - headingW - 12);
-            if (w >= 40)
+            // Whole, or not at all: half a hint is not a hint, and the card's own sentence
+            // below says the same thing in full.
+            const int w = Dine::textWidth (Dine::text (11.0f), tag);
+            if (w <= top.getWidth() - headingW - 12)
             {
                 g.setColour (Dine::ink4);
                 g.setFont (Dine::text (11.0f));

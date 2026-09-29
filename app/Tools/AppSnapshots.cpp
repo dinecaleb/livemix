@@ -359,6 +359,7 @@ namespace
 
         void snap (const juce::File& dir, const juce::String& name)
         {
+            Dine::setTextClipScope (name);
             pump (80);
             auto img = view->createComponentSnapshot (view->getLocalBounds(), false, 2.0f);
             juce::PNGImageFormat png;
@@ -863,6 +864,10 @@ int main (int argc, char** argv)
 
     Rig rig;
     auto& view = *rig.view;
+    // Every string this walk draws is measured on the way out, so a word cut to "Clo..." is
+    // found by the tool rather than by somebody squinting at a PNG. Names are data and are
+    // ellipsised on purpose; the report says which is which by what the string is.
+    Dine::beginTextClipAudit();
     if (themeName.isNotEmpty())
     {
         Dine::applyTheme (ThemeStore::find (themeName));
@@ -1564,6 +1569,23 @@ int main (int argc, char** argv)
     }
 
     std::printf ("stage %d, health %d%%\n", int (rig.controller.getStage()), rig.controller.getMixHealthPercent());
+
+    // ---- TEXT THAT DID NOT FIT. One line per string that lost characters, widest shortfall
+    // first. A channel name or a session name in this list is the ellipsis doing its job; a
+    // fixed word - a button, a caption, a unit - is a cell that is too small, and is a bug.
+    Dine::endTextClipAudit();
+    const auto clipped = Dine::textClipReport();
+    if (clipped.empty())
+        std::printf ("\nTEXT CLIPPING  nothing was cut off.\n");
+    else
+    {
+        std::printf ("\nTEXT CLIPPING  %d strings lost characters (widest shortfall first)\n", int (clipped.size()));
+        for (const auto& c : clipped)
+            std::printf ("  %6.1f pt short  in %6.1f pt  %-24s \"%s\"\n",
+                         c.wanted - c.available, c.available,
+                         c.where.isEmpty() ? "(before the first shot)" : c.where.toRawUTF8(), c.text.toRawUTF8());
+    }
+
     rig.view.reset();
     return 0;
 }

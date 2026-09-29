@@ -275,8 +275,14 @@ public:
         auto cross = inner.removeFromRight (18.0f).withSizeKeepingCentre (18.0f, 18.0f);
         inner.removeFromRight (10.0f);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (12.0f, 500));
-        Dine::drawText (g, names, inner.toNearestInt(), juce::Justification::centredLeft, true);
+        const auto font = Dine::text (12.0f, 500);
+        g.setFont (font);
+        // The toolbar gives the pill what it can spare, which on a narrow window is not every
+        // name. "BGV 2, DR..." says less than "3 soloed" does, so past that it counts instead.
+        auto label = names;
+        if (items.size() > 1 && Dine::textWidth (font, label) > inner.getWidth())
+            label = juce::String (int (items.size())) + " soloed";
+        Dine::drawText (g, label, inner.toNearestInt(), juce::Justification::centredLeft, true);
         Dine::fillRounded (g, cross, crossOver ? Dine::accentHover : Dine::accent, Dine::Radius::key);
         Dine::drawIcon (g, Dine::Icon::Close, cross.reduced (4.0f), Dine::onAccent);
         crossBox = cross.toNearestInt();
@@ -2692,9 +2698,14 @@ void MainView::resized()
                                   .withSizeKeepingCentre (28, 28));
 
     auto right = bar.withTrimmedRight (12);
+    // NOTHING IN THE CLUSTER CROSSES THE WORDMARK. The row is measured in from the right, and
+    // with no floor a window narrower than the whole cluster laid DIM and TUNE LIVE MIX over
+    // the product's own name. A control with no room is given no bounds: it paints nothing and
+    // catches nothing, and it comes back the moment the window is wide enough for it.
     auto place = [&right] (juce::Component& c, int w, int h, int gapAfter)
     {
         if (! c.isVisible()) return;
+        if (w <= 0 || right.getRight() - w < kToolbarLeft) { c.setBounds ({}); return; }
         c.setBounds (right.removeFromRight (w).withSizeKeepingCentre (w, h));
         right.removeFromRight (gapAfter);
     };
@@ -2706,13 +2717,24 @@ void MainView::resized()
     }
     place (*liveSafeButton, liveSafeButton->idealWidth(), 30, 16);
     // DIM MUTE BYPASS AUTOPILOT, in that order left to right, so they are laid out backwards.
-    place (*autopilotButton, autopilotButton->idealWidth(), 28, 2);
-    place (*bypassButton, bypassButton->idealWidth(), 28, 2);
-    place (*muteButton, muteButton->idealWidth(), 28, 2);
-    place (*dimButton, dimButton->idealWidth(), 28, 10);
-    dividerX = (dimButton->isVisible() || bypassButton->isVisible()) ? right.getRight() : 0;
+    // They go together or not at all: three of the four is a row with a hole in it, and the
+    // one that survives is whichever happens to be furthest right rather than the one wanted.
+    {
+        int need = 0;
+        for (auto* b : { autopilotButton.get(), bypassButton.get(), muteButton.get(), dimButton.get() })
+            if (b->isVisible()) need += b->idealWidth() + 2;
+        const bool room = need == 0 || right.getRight() - need - 8 >= kToolbarLeft;
+        const auto key = [&] (ToolbarToggle& b) { if (room) place (b, b.idealWidth(), 28, 2); else b.setBounds ({}); };
+        key (*autopilotButton);
+        key (*bypassButton);
+        key (*muteButton);
+        if (room) place (*dimButton, dimButton->idealWidth(), 28, 10); else dimButton->setBounds ({});
+    }
+    dividerX = (dimButton->getWidth() > 0 || bypassButton->getWidth() > 0) ? right.getRight() : 0;
     if (dividerX > 0) right.removeFromRight (11);
     place (*tuneLiveButton, tuneLiveButton->idealWidth(), 28, 12);
+    // A divider with nothing on one side of it is a line for its own sake.
+    if (tuneLiveButton->getWidth() == 0) dividerX = 0;
 
     // The transport, and the solo pill beside it. They start at the workspace column's left
     // edge and give way rather than run under the cluster when the window is narrow.
@@ -2732,9 +2754,15 @@ void MainView::resized()
         int want = transportBar->idealWidth();
         if (left.getWidth() - pillNeed < want) want = transportBar->minimumWidth();
         if (left.getWidth() - pillNeed < want) want = transportBar->keysOnlyWidth();
-        const int w = juce::jmin (want, juce::jmax (transportBar->keysOnlyWidth(), left.getWidth()));
-        transportBar->setBounds (left.removeFromLeft (w).withSizeKeepingCentre (w, TransportBar::height));
-        left.removeFromLeft (12);
+        // Past its keys-only width the well has nowhere to stand. It used to be centred in
+        // what was left anyway, which put the transport on top of the product's own name.
+        if (left.getWidth() < transportBar->keysOnlyWidth()) transportBar->setBounds ({});
+        else
+        {
+            const int w = juce::jmin (want, left.getWidth());
+            transportBar->setBounds (left.removeFromLeft (w).withSizeKeepingCentre (w, TransportBar::height));
+            left.removeFromLeft (12);
+        }
     }
     if (soloPill != nullptr && soloPill->isVisible())
     {

@@ -94,6 +94,12 @@ file under `docs/` — read the one for the area you are touching before changin
   workspace cycles straight through, so every paint re-shapes every string. Same arguments, same pixels
   (`app/Tests/TextCacheTests.cpp` asserts they are identical); `dlive_ui_snapshots --frames` prints the
   layout count per workspace, and that count is the figure a frame-budget regression shows up in.
+  **A fixed word is never ellipsised.** A name is data and is cut when it will not fit; CLOSE drawn as
+  "Clo..." is a cell that is too small. `dlive_ui_snapshots <dir>` ends with a TEXT CLIPPING report naming
+  every string that lost characters and the screen it was on, and **that report is expected to be empty** -
+  widen the cell, or let the control say the same thing in fewer words (`DinePopup::setBriefValue`, a brief
+  form beside the long one, `Dine::shortPath` for a file path). `Dine::drawFittedText` squeezes instead of
+  cutting and is the right call for a name on a narrow strip.
 - **LIVE SAFE is a policy in `MixController`**, not a menu guard; **BYPASS never touches the kept mix**;
   **solo never changes what the room hears**.
 

@@ -260,7 +260,7 @@ void ChatSheet::paint (juce::Graphics& g)
     Dine::drawText (g, "Mix Buddy", head.withTrimmedRight (70), juce::Justification::centredLeft);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (11.5f));
-    Dine::drawText (g, "DLIVE's mix engineer, in plain words", head.withTrimmedLeft (86).withTrimmedRight (70), juce::Justification::centredLeft, true);
+    Dine::drawText (g, "The mix engineer, in plain words", head.withTrimmedLeft (86).withTrimmedRight (70), juce::Justification::centredLeft, true);
 
     // What it is for and what it is not, always on screen - so nobody types a request it cannot honour.
     {

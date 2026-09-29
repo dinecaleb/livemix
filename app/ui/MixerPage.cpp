@@ -22,6 +22,55 @@ namespace
     constexpr int kMasterW   = 150;     // the pinned master column
     constexpr int kMaxStripH = 900;
 
+    // ---- THE LIST'S GRID, in one place.
+    // The row, the header above it and the controls on it all read this, so a column cannot
+    // be in two places at once. And when the window is narrower than the whole grid the cells
+    // are given up in a fixed order - the group, then the balance, then gain staging - rather
+    // than every cell shuffling left until the last one is 7 pt wide and its number is "L...".
+    struct RowGrid
+    {
+        juce::Rectangle<int> band, number, name, gain, meter, fader, value, pan, panRead, keys, out;
+        bool hasGain = false, hasPan = false, hasOut = false;
+    };
+
+    RowGrid rowGrid (juce::Rectangle<int> bounds)
+    {
+        constexpr int gap = 12, kNum = 24, kName = 132, kGain = 92, kValue = 58, kPan = 78, kPanRead = 32;
+        constexpr int kKeys = 104 + 4 + 30, kOut = 92;
+        constexpr int kMeterMax = 150, kMeterMin = 80, kFaderMax = 96, kFaderMin = 64, kNameMin = 74;
+
+        RowGrid g;
+        auto r = bounds.reduced (12, 0);
+        int spare = r.getWidth() - (3 + gap + kNum + gap + kName + gap
+                                    + kMeterMin + gap + kFaderMin + gap + kValue + gap + kKeys);
+        g.hasGain = spare >= kGain + gap;                  if (g.hasGain) spare -= kGain + gap;
+        g.hasPan  = spare >= kPan + gap + kPanRead + gap;  if (g.hasPan)  spare -= kPan + gap + kPanRead + gap;
+        g.hasOut  = spare >= kOut + gap;                   if (g.hasOut)  spare -= kOut + gap;
+
+        // Past the last thing that can be dropped, the name gives ground; below that the row
+        // simply runs out and the console is telling the truth about being too narrow.
+        const int nameW = juce::jlimit (kNameMin, kName, kName + juce::jmin (0, spare));
+        const int grow = juce::jmax (0, spare);
+        const int meterW = kMeterMin + juce::jmin (kMeterMax - kMeterMin, grow * 3 / 5);
+        const int faderW = kFaderMin + juce::jmin (kFaderMax - kFaderMin, grow - (meterW - kMeterMin));
+
+        g.band   = r.removeFromLeft (3);      r.removeFromLeft (gap);
+        g.number = r.removeFromLeft (kNum);   r.removeFromLeft (gap);
+        g.name   = r.removeFromLeft (nameW);  r.removeFromLeft (gap);
+        if (g.hasGain) { g.gain = r.removeFromLeft (kGain); r.removeFromLeft (gap); }
+        g.meter  = r.removeFromLeft (meterW); r.removeFromLeft (gap);
+        g.fader  = r.removeFromLeft (faderW); r.removeFromLeft (gap);
+        g.value  = r.removeFromLeft (kValue); r.removeFromLeft (gap);
+        if (g.hasPan)
+        {
+            g.pan = r.removeFromLeft (kPan);         r.removeFromLeft (gap);
+            g.panRead = r.removeFromLeft (kPanRead); r.removeFromLeft (gap);
+        }
+        g.keys   = r.removeFromLeft (kKeys);
+        g.out    = r;
+        return g;
+    }
+
     int columnWidthFor (MixerPage::Size s) noexcept
     {
         // The design's strip is 70 pt (`Channel Strip`, 63:9488); S and L are either side of it.
@@ -417,10 +466,11 @@ public:
             juce::String gr = m.limiterReductionDb < 0.1f ? Glyph::dash() : juce::String (-m.limiterReductionDb, 1);
             juce::String target = juce::String (m.targetLufs, 0) + " LUFS";
             const bool onTarget = m.known && m.onTarget();
-            const juce::String note = ! m.known || m.integratedLufs <= -60.0f ? juce::String ("not measured yet")
+            // Short enough to sit beside LUFS-I in the master column at any console width.
+            const juce::String note = ! m.known || m.integratedLufs <= -60.0f ? juce::String ("not measured")
                                     : onTarget ? juce::String ("on target")
-                                    : m.integratedLufs > m.targetLufs ? juce::String ("louder than the target")
-                                                                      : juce::String ("under the target");
+                                    : m.integratedLufs > m.targetLufs ? juce::String ("over target")
+                                                                      : juce::String ("under target");
             if (i != integratedText || st != shortTermText || tp != truePeakText || gr != grText || target != targetText
                 || onTarget != loudnessOnTarget || note != loudnessNote)
             {
@@ -497,8 +547,13 @@ public:
             const int markW = link != 0 ? 16 : 0;
             const int numFullW = Dine::textWidth (numFont, numberText);
             const int nameFullW = Dine::textWidth (nameFont, name);
+            // What the name needs once it has been squeezed as far as it is allowed to go
+            // below. The number stays only while the name still has room after that: it was
+            // measured against 30 pt of name before, which is how a 74 pt strip kept its "03"
+            // and wrote "Rack T...".
+            const int nameNeeds = int (std::ceil (float (nameFullW) * 0.78f));
             const int avail = col.name.getWidth() - markW;
-            const bool showNumber = avail - numFullW - 5 >= juce::jmin (nameFullW, 30);
+            const bool showNumber = avail - numFullW - 5 >= nameNeeds;
             const int numW = showNumber ? numFullW + 5 : 0;
             const int nameW = juce::jmax (0, juce::jmin (avail - numW, nameFullW));
             auto head = col.name.withTrimmedRight (markW).withSizeKeepingCentre (numW + nameW, col.name.getHeight());
@@ -511,7 +566,9 @@ public:
             }
             g.setColour (mute ? Dine::ink3 : Dine::ink);
             g.setFont (nameFont);
-            Dine::drawText (g, name, head, juce::Justification::centredLeft, true);
+            // A strip is 74 pt wide and a name is what the strip is for: it is squeezed a
+            // little before it is ever cut off, the way the group tiles on TUNE squeeze theirs.
+            Dine::drawFittedText (g, name, head, juce::Justification::centredLeft, 1, 0.78f);
             if (mute)
             {
                 g.setColour (Dine::ink3);
@@ -594,7 +651,7 @@ public:
                 area.removeFromLeft (5);
                 g.setColour (Dine::ink2);
                 g.setFont (Dine::text (10.5f, 500));
-                Dine::drawText (g, sentenceCase (insertList[i].label), area, juce::Justification::centredLeft, true);
+                Dine::drawFittedText (g, sentenceCase (insertList[i].label), area, juce::Justification::centredLeft, 1, 0.78f);
             }
         }
 
@@ -613,7 +670,7 @@ public:
                 if (! used) continue;
                 g.setColour (Dine::ink2);
                 g.setFont (Dine::text (10.5f, 500));
-                Dine::drawText (g, sendList[i].label, area, juce::Justification::centredLeft, true);
+                Dine::drawFittedText (g, sendList[i].label, area, juce::Justification::centredLeft, 1, 0.78f);
                 Dine::fillRounded (g, bar.toFloat(), Dine::control, 1.5f);
                 const float amount = juce::jlimit (0.0f, 1.0f, float (sendPercent (sendList[i].db)) / 100.0f);
                 if (amount > 0.01f)
@@ -681,21 +738,18 @@ public:
     {
         auto r = getLocalBounds();
         Dine::fillRounded (g, r.toFloat(), selected ? Dine::selected : Dine::raised, Dine::Radius::control);
-        auto inner = r.reduced (12, 0);
+        const auto grid = rowGrid (getLocalBounds());
 
         // the band, the number and the name
         if (kind != Kind::Master)
         {
             g.setColour (tint().withAlpha (mute ? 0.4f : 1.0f));
-            g.fillRoundedRectangle (inner.removeFromLeft (3).reduced (0, 8).toFloat(), 1.5f);
+            g.fillRoundedRectangle (grid.band.reduced (0, 8).toFloat(), 1.5f);
         }
-        else inner.removeFromLeft (3);
-        inner.removeFromLeft (12);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (11.0f, 500));
-        Dine::drawText (g, numberText, inner.removeFromLeft (24), juce::Justification::centredLeft);
-        inner.removeFromLeft (12);
-        auto nameCell = inner.removeFromLeft (132);
+        Dine::drawText (g, numberText, grid.number, juce::Justification::centredLeft);
+        auto nameCell = grid.name;
         if (link != 0)
         {
             // The link mark right after the name, where the eye already is.
@@ -711,37 +765,38 @@ public:
             g.setColour (Dine::ink3);
             g.fillRect (nameCell.getX(), nameCell.getCentreY(), w, 1);
         }
-        inner.removeFromLeft (12);
         // gain staging
-        auto gainCell = inner.removeFromLeft (92);
-        if (kind == Kind::Channel && advice.known)
-            Dine::drawStatusChip (g, gainCell.withSizeKeepingCentre (gainCell.getWidth(), 17).toFloat(),
-                                  gainAdviceChip (advice), gainAdviceColour (advice.level));
-        else if (kind == Kind::Master)
+        if (grid.hasGain)
         {
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::mono (10.5f, 500));
-            Dine::drawText (g, integratedText + " LUFS", gainCell, juce::Justification::centredLeft);
+            if (kind == Kind::Channel && advice.known)
+                Dine::drawStatusChip (g, grid.gain.withSizeKeepingCentre (grid.gain.getWidth(), 17).toFloat(),
+                                      gainAdviceChip (advice), gainAdviceColour (advice.level));
+            else if (kind == Kind::Master)
+            {
+                g.setColour (Dine::ink3);
+                g.setFont (Dine::mono (10.5f, 500));
+                Dine::drawText (g, integratedText + " LUFS", grid.gain, juce::Justification::centredLeft);
+            }
         }
 
         // level and pan readouts beside their controls
         g.setColour (mute ? Dine::ink4 : Dine::ink2);
         g.setFont (Dine::mono (12.0f, 500));
-        Dine::drawText (g, levelText, valueRect, juce::Justification::centredRight);
-        if (kind == Kind::Channel)
+        Dine::drawText (g, levelText, grid.value, juce::Justification::centredRight);
+        if (kind == Kind::Channel && grid.hasPan)
         {
             const auto text = panText (pan.getValue());
             g.setColour (text == "C" ? Dine::ink4 : Dine::ink3);
             g.setFont (Dine::mono (10.0f, 500));
-            Dine::drawText (g, text, panReadRect, juce::Justification::centredRight);
+            Dine::drawText (g, text, grid.panRead, juce::Justification::centredRight);
         }
 
         // where it goes
-        if (outText.isNotEmpty())
+        if (outText.isNotEmpty() && grid.hasOut)
         {
             g.setColour (tint().withAlpha (mute ? 0.5f : 0.9f));
             g.setFont (Dine::text (11.0f, 500));
-            Dine::drawText (g, sentenceCase (outText), r.reduced (12, 0), juce::Justification::centredRight, true);
+            Dine::drawText (g, sentenceCase (outText), grid.out, juce::Justification::centredRight, true);
         }
     }
 
@@ -907,27 +962,19 @@ public:
 
     void layoutRow()
     {
-        auto r = getLocalBounds().reduced (12, 0);
-        r.removeFromLeft (3 + 12 + 24 + 12 + 132 + 12 + 92 + 12);
+        const auto grid = rowGrid (getLocalBounds());
         // LEVEL ARRIVING: the meter, lying down
-        meter.setBounds (r.removeFromLeft (150).withSizeKeepingCentre (150, 7));
-        r.removeFromLeft (12);
-        fader.setBounds (r.removeFromLeft (96).withSizeKeepingCentre (96, 16));
-        r.removeFromLeft (12);
-        valueRect = r.removeFromLeft (58);
-        r.removeFromLeft (12);
-        auto panCell = r.removeFromLeft (78);
+        meter.setBounds (grid.meter.withSizeKeepingCentre (grid.meter.getWidth(), 7));
+        fader.setBounds (grid.fader.withSizeKeepingCentre (grid.fader.getWidth(), 16));
+        valueRect = grid.value;
         pan.setStyle (PanBar::Style::Bar);
-        pan.setVisible (kind == Kind::Channel);
-        pan.setBounds (panCell.withSizeKeepingCentre (78, 16));
-        r.removeFromLeft (12);
-        panReadRect = r.removeFromLeft (32);
-        r.removeFromLeft (12);
+        pan.setVisible (kind == Kind::Channel && grid.hasPan);
+        pan.setBounds (grid.pan.withSizeKeepingCentre (grid.pan.getWidth(), 16));
+        panReadRect = grid.panRead;
         // The FX cell is reserved on every row whether or not this channel has the key, because
         // a console whose M and S do not line up across the rows is worse than a gap.
         const bool hasFxKey = kind == Kind::Channel && controller.stripCanHaveEffects (strip);
-        const int keysW = 104 + 4 + 30;
-        auto keys = r.removeFromLeft (keysW).withSizeKeepingCentre (keysW, 22);
+        auto keys = grid.keys.withSizeKeepingCentre (grid.keys.getWidth(), 22);
         const int w = 23;
         if (kind == Kind::Channel)
         {
@@ -1116,28 +1163,21 @@ public:
         // rows are separated by their own hairlines and not by air.
         g.fillAll (list ? Dine::window : Dine::menubar);
         if (! list) return;
-        auto r = getLocalBounds().withHeight (kListHeadH).reduced (12, 0);
+        // The same grid the rows are laid out on, so a heading is always over its column.
+        const auto grid = rowGrid (getLocalBounds().withHeight (kListHeadH));
         // Sentence case: the only capitals in this product are its verbs.
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (11.0f, 500));
-        r.removeFromLeft (3 + 12);
-        Dine::drawText (g, "#", r.removeFromLeft (24), juce::Justification::centredLeft);
-        r.removeFromLeft (12);
-        Dine::drawText (g, "Name", r.removeFromLeft (132), juce::Justification::centredLeft);
-        r.removeFromLeft (12);
-        Dine::drawText (g, "Gain staging", r.removeFromLeft (92), juce::Justification::centredLeft);
-        r.removeFromLeft (12);
-        Dine::drawText (g, "Level arriving", r.removeFromLeft (150), juce::Justification::centredLeft);
-        r.removeFromLeft (12);
-        Dine::drawText (g, "Fader", r.removeFromLeft (96), juce::Justification::centredLeft);
-        r.removeFromLeft (12);
-        Dine::drawText (g, "dB", r.removeFromLeft (58), juce::Justification::centredRight);
-        r.removeFromLeft (12);
-        Dine::drawText (g, "Balance", r.removeFromLeft (78), juce::Justification::centred);
-        r.removeFromLeft (12 + 32 + 12);
+        Dine::drawText (g, "#", grid.number, juce::Justification::centredLeft);
+        Dine::drawText (g, "Name", grid.name, juce::Justification::centredLeft, true);
+        if (grid.hasGain) Dine::drawText (g, "Gain staging", grid.gain, juce::Justification::centredLeft, true);
+        Dine::drawText (g, "Level arriving", grid.meter, juce::Justification::centredLeft, true);
+        Dine::drawText (g, "Fader", grid.fader, juce::Justification::centredLeft, true);
+        Dine::drawText (g, "dB", grid.value, juce::Justification::centredRight);
+        if (grid.hasPan) Dine::drawText (g, "Balance", grid.pan, juce::Justification::centred, true);
         Dine::drawText (g, "R " + Glyph::dot() + " A " + Glyph::dot() + " M " + Glyph::dot() + " S " + Glyph::dot() + " FX",
-                        r.removeFromLeft (104 + 4 + 30), juce::Justification::centred);
-        Dine::drawText (g, "Group", r, juce::Justification::centredRight);
+                        grid.keys, juce::Justification::centred);
+        if (grid.hasOut) Dine::drawText (g, "Group", grid.out, juce::Justification::centredRight, true);
     }
 
 private:
@@ -1589,7 +1629,10 @@ void MixerPage::layoutList()
             bank->addAndMakeVisible (*s);
     viewport.setBounds (getLocalBounds().withTrimmedTop (kHeaderH).withTrimmedBottom (footHeight()).reduced (kPadX, 0));
 
-    const int w = juce::jmax (760, viewport.getMaximumVisibleWidth());
+    // The narrowest a row can be and still be a row: the grid above gives its cells up in
+    // order down to this, and below it the console is honestly too narrow. It used to be 760,
+    // which ran the keys and the group off the right-hand edge of a 720 pt window.
+    const int w = juce::jmax (540, viewport.getMaximumVisibleWidth());
     int y = kListHeadH;
     for (int b = 0; b <= int (MixBus::Master); ++b)
     {

@@ -298,8 +298,10 @@ void ExportSheet::paint (juce::Graphics& g)
         auto row = r.removeFromTop (20);
         row.removeFromRight (folderButton.getWidth() + 14);
         g.setColour (Dine::ink2);
-        g.setFont (Dine::mono (11.0f, 500));
-        Dine::drawText (g, destination().getFullPathName(), row, juce::Justification::centredLeft, true);
+        const auto pathFont = Dine::mono (11.0f, 500);
+        g.setFont (pathFont);
+        Dine::drawText (g, Dine::shortPath (destination(), pathFont, row.getWidth()), row,
+                        juce::Justification::centredLeft, true);
         r.removeFromTop (kRowGap);
     }
 

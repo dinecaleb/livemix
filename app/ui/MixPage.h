@@ -142,6 +142,7 @@ private:
     juce::String masterNote;
     // The three numbers on the master's card, and what they mean.
     juce::String masterLevelText { "0.0 dB" }, masterLoudText { "not measured yet" }, masterPeakText;
+    juce::String masterLoudBrief { "not yet" }, masterPeakBrief;   // the same numbers for a narrow card
     bool masterOnTarget = true, masterPeakOver = false;
     bool raisePossible = false;
     static constexpr int kMasterCardH = 66;

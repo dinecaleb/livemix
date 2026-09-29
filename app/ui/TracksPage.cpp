@@ -1557,10 +1557,26 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
     const auto chip = gainChipFor (track < int (advice.size()) ? advice[size_t (track)] : MixController::InputAdvice {});
     const bool wrongName = nameMismatch (track);
     const float pan = inRange ? params.strips[size_t (track)].pan : 0.0f;
-    juce::String note;
-    if (chip.text == "DIGITAL") note = "The level works only because DLIVE raised it digitally. Raise the console gain instead.";
-    else if (std::fabs (pan) >= 0.005f) note = "Balance " + juce::String (pan < 0.0f ? "L" : "R") + juce::String (juce::roundToInt (std::fabs (pan) * 100.0f));
-    else if (wrongName) note = "Named differently from its clips - right-click to fix";
+    // A track header is a narrow cell, and the sentence that fits a 1520 pt window does not
+    // fit a 1180 pt one. Each note carries the short way of saying the same thing, and the
+    // draw below picks whichever the row really has room for - rather than cutting the long
+    // one off in the middle of a word.
+    juce::String note, briefNote;
+    if (chip.text == "DIGITAL")
+    {
+        note = "The level works only because DLIVE raised it digitally. Raise the console gain instead.";
+        briefNote = "Raise the console gain";
+    }
+    else if (std::fabs (pan) >= 0.005f)
+    {
+        note = "Balance " + juce::String (pan < 0.0f ? "L" : "R") + juce::String (juce::roundToInt (std::fabs (pan) * 100.0f));
+        briefNote = note;
+    }
+    else if (wrongName)
+    {
+        note = "Named differently from its clips - right-click to fix";
+        briefNote = "Right-click to rename";
+    }
 
     auto lines = text;
     auto nameLine = compact || note.isEmpty() ? lines.withSizeKeepingCentre (lines.getWidth(), 18)
@@ -1588,9 +1604,11 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
     if (! compact && note.isNotEmpty())
     {
         auto noteLine = lines.withSizeKeepingCentre (lines.getWidth(), 34).removeFromBottom (14);
+        const auto noteFont = Dine::text (10.0f);
         g.setColour (Dine::ink4);
-        g.setFont (Dine::text (10.0f));
-        Dine::drawText (g, note, noteLine, juce::Justification::centredLeft, true);
+        g.setFont (noteFont);
+        Dine::drawText (g, Dine::textWidth (noteFont, note) <= noteLine.getWidth() ? note : briefNote,
+                        noteLine, juce::Justification::centredLeft, true);
     }
 
     // ---- TUNE: the chip beside the keys, in the accent, the verb the whole app uses

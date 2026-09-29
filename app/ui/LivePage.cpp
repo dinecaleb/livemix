@@ -158,7 +158,7 @@ public:
             g.fillRect (r.removeFromTop (3));
         }
 
-        auto inner = getLocalBounds().reduced (14, 14);
+        auto inner = getLocalBounds().reduced (paddingX(), 14);
         auto head = inner.removeFromTop (20);
         g.setColour (! used ? Dine::ink4 : muted ? Dine::ink3 : Dine::ink);
         g.setFont (Dine::text (13.0f, 600));
@@ -188,7 +188,7 @@ public:
 
     void resized() override
     {
-        auto inner = getLocalBounds().reduced (14, 14);
+        auto inner = getLocalBounds().reduced (paddingX(), 14);
         inner.removeFromTop (20 + 16 + 10);
         auto keys = inner.removeFromBottom (20);
         inner.removeFromBottom (12);
@@ -208,6 +208,10 @@ public:
     }
 
 private:
+    // Nine tiles across a 1180 pt window leave a tile 92 pt wide, and 28 pt of that was
+    // padding - which is how "FX returns" became "FX retur..." and the master's loudness
+    // lost its unit. The padding goes first.
+    int paddingX() const noexcept { return getWidth() >= 110 ? 14 : 10; }
     bool isFx() const noexcept { return group == kFxTile; }
     bool isMaster() const noexcept { return group == kMasterTile; }
     // A tile's position is the console's order, not the enum's: LEAD sits with the voices.
@@ -492,10 +496,12 @@ void LivePage::refresh()
     }
     else
     {
-        next.recording = "Not recording";
+        next.recording = "Stopped";
+        // RECORD stands on this card, so the note beside it is narrow: what is armed, and
+        // nothing else. How much disk is left is on the card while a take is running, which
+        // is when it matters.
         next.recordingNote = armed == 0 ? "No tracks are set to record - press the red R on the ones you want"
-                                        : juce::String (armed) + (armed == 1 ? " track set to record" : " tracks set to record")
-                                              + (room.isEmpty() ? juce::String() : "  " + Glyph::dot() + "  " + room);
+                                        : juce::String (armed) + (armed == 1 ? " track set to record" : " tracks set to record");
     }
     next.output = running ? "On air" : "Off";
     next.outputNote = ! running ? juce::String ("No audio device open")
@@ -535,7 +541,7 @@ void LivePage::refresh()
     next.routed = controller.hasMonitorOutput();
     next.monitorDb = float (monitorLevel.getValue());
     next.monitorNote = next.inPlace ? "Careful: pressing S is heard by the room and the stream too."
-                     : ! next.routed ? "Solo has nowhere to go yet. Pick the device you listen on, at the right of the row above."
+                     : ! next.routed ? "Solo has nowhere to go yet. Pick the device you listen on, above."
                      : next.soloCount > 0 ? juce::String (next.soloCount) + (next.soloCount == 1 ? " channel soloed. Only you hear it." : " channels soloed. Only you hear it.")
                                           : "Press S on any channel to hear it. Only you hear it.";
     if (next.soloCount != look.soloCount || next.inPlace != look.inPlace) refreshMonitor();
@@ -605,7 +611,7 @@ void LivePage::paint (juce::Graphics& g)
         auto row = l.status;
         const int w = (row.getWidth() - 3 * 12) / 4;
         auto card = [&] (juce::Rectangle<int> area, const juce::String& label, const juce::String& value, const juce::String& note,
-                         juce::Colour ground, juce::Colour valueInk, bool monoValue, int trimRight = 0)
+                         juce::Colour ground, juce::Colour valueInk, bool monoValue, int trimRight = 0, int trimNote = 0)
         {
             Dine::fillRounded (g, area.toFloat(), ground, Dine::Radius::card);
             auto inner = area.reduced (16, 14);
@@ -622,13 +628,14 @@ void LivePage::paint (juce::Graphics& g)
             g.setFont (monoValue ? Dine::mono (21.0f, 500) : Dine::text (22.0f, 600));
             Dine::drawText (g, value, inner.removeFromTop (28), juce::Justification::topLeft, true);
             inner.removeFromTop (2);
+            inner.removeFromRight (trimNote);
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (12.0f));
             Dine::drawFittedText (g, note, inner, juce::Justification::topLeft, 2, 1.0f);
         };
         card (row.removeFromLeft (w), "Recording", look.recording, look.recordingNote,
               look.isRecording ? Dine::recGround : Dine::card, look.isRecording ? Dine::crit : Dine::ink3, true,
-              recordButton->getWidth() + 10);
+              0, recordButton->getWidth() + 10);
         row.removeFromLeft (12);
         card (row.removeFromLeft (w), "Output", look.output, look.outputNote, Dine::card, look.running ? Dine::ink : Dine::ink3, false);
         row.removeFromLeft (12);
@@ -682,8 +689,10 @@ void LivePage::paint (juce::Graphics& g)
         head.removeFromLeft (liveSafeButton.getWidth() + 14);
         g.setColour (look.safe ? Dine::ink : Dine::ink2);
         g.setFont (Dine::text (15.0f, 600));
+        // One line, and the three columns below carry the detail: the long form of this
+        // sentence is word for word the "Nothing is locked" column.
         Dine::drawText (g, look.safe ? "On. Lock the sound for the service."
-                                     : "Off. Every setting is editable, including the ones that restart the engine.",
+                                     : "Off. Nothing is locked.",
                         head, juce::Justification::centredLeft, true);
         inner.removeFromTop (14);
 
@@ -767,9 +776,11 @@ void LivePage::resized()
 {
     const auto l = layout();
     {
+        // RECORD sits on the foot of the first card, not across its middle. Centred, it took
+        // the width the card's own number needed and left "Not r..." above it.
         auto first = l.status.withWidth ((l.status.getWidth() - 36) / 4).reduced (16, 14);
         const int w = juce::jmax (96, recordButton->idealWidth());
-        recordButton->setBounds (first.removeFromRight (w).withSizeKeepingCentre (w, 30));
+        recordButton->setBounds (first.removeFromRight (w).removeFromBottom (30));
     }
     {
         auto row = l.tiles;

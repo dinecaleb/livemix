@@ -91,7 +91,7 @@ namespace
     // is the floor every other theme resolves down to.
     Theme studioTeal()
     {
-        return make ("Studio Teal", "The DLIVE desktop, v3: flat neutral planes and one teal spent where it matters.", "", {
+        return make ("Studio Teal", "Flat neutral planes, one teal accent.", "", {
             { "desk", 0xff0b0b0c }, { "window", 0xff161719 }, { "toolbar", 0xff1d1e21 }, { "title", 0xff1d1e21 },
             { "menubar", 0xff111214 }, { "sidebar", 0xff1a1b1e }, { "rail", 0xff18191c }, { "pageBar", 0xff161719 },
             { "console", 0xff18191c }, { "tile", 0xff18191c }, { "card", 0xff202226 }, { "raised", 0xff202226 },
@@ -118,7 +118,7 @@ namespace
     // "lime is the signal" look, for the booth that mixes in the dark.
     Theme limeDesk()
     {
-        return make ("Lime Desk", "A black desk, grey planes and a lime that is the only colour on it.", "Studio Teal", {
+        return make ("Lime Desk", "A black desk and one lime accent.", "Studio Teal", {
             { "desk", 0xff0a0a0a }, { "window", 0xff111111 }, { "toolbar", 0xff151515 }, { "title", 0xff0f0f0f },
             { "menubar", 0xff0c0c0c }, { "sidebar", 0xff0f0f0f }, { "rail", 0xff151515 }, { "pageBar", 0xff131313 },
             { "console", 0xff161616 }, { "tile", 0xff131313 }, { "card", 0xff191919 }, { "raised", 0xff1d1d1d },
@@ -141,7 +141,7 @@ namespace
     // Cooler and a shade lighter than the default, with a sky-blue accent: for a bright booth.
     Theme slate()
     {
-        return make ("Slate", "Blue-grey planes a shade lighter than the default, and a sky-blue accent.", "Studio Teal", {
+        return make ("Slate", "Lighter blue-grey, a sky-blue accent.", "Studio Teal", {
             { "desk", 0xff0c1015 }, { "window", 0xff151b23 }, { "toolbar", 0xff1b232d }, { "title", 0xff121820 },
             { "menubar", 0xff10151c }, { "sidebar", 0xff121820 }, { "rail", 0xff1b232d }, { "pageBar", 0xff18202a },
             { "console", 0xff1b232d }, { "tile", 0xff18202a }, { "card", 0xff222c38 }, { "raised", 0xff25303d },
@@ -161,7 +161,7 @@ namespace
     // Warm browns and an amber accent - the colour of a tape machine's meters.
     Theme tape()
     {
-        return make ("Tape", "Warm dark browns and an amber accent, like a tape machine's meters.", "Studio Teal", {
+        return make ("Tape", "Warm browns, an amber accent.", "Studio Teal", {
             { "desk", 0xff0b0908 }, { "window", 0xff141110 }, { "toolbar", 0xff1a1614 }, { "title", 0xff110e0d },
             { "menubar", 0xff0e0c0b }, { "sidebar", 0xff110e0d }, { "rail", 0xff1a1614 }, { "pageBar", 0xff171412 },
             { "console", 0xff1a1614 }, { "tile", 0xff171412 }, { "card", 0xff221d1a }, { "raised", 0xff26201c },

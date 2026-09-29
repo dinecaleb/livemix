@@ -331,7 +331,10 @@ void MacroPad::paint (juce::Graphics& g)
         {
             g.setColour (dragging ? Dine::ink : Dine::ink2);
             g.setFont (Dine::mono (11.0f, 500));
-            Dine::drawText (g, describeValues(), in.withTrimmedTop (16).removeFromTop (14), juce::Justification::centred);
+            // Both names and both numbers, squeezed a little on a narrow pad rather than the
+            // second one cut off: "BASS 62 - VOI..." is not a reading of anything.
+            Dine::drawFittedText (g, describeValues(), in.withTrimmedTop (16).removeFromTop (14),
+                                  juce::Justification::centred, 1, 0.7f);
         }
 
         // the puck

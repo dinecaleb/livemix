@@ -28,6 +28,13 @@ namespace
                                  : raw.substring (0, 1).toUpperCase() + raw.substring (1).toLowerCase();
     }
 
+    // The same group named in as few letters as it can be, for a tile too narrow for the
+    // whole word. Every other group is already one short word.
+    juce::String groupNameBrief (int i)
+    {
+        return i >= kGroupBuses ? juce::String ("FX") : groupName (i);
+    }
+
     juce::Colour groupColour (int i) noexcept
     {
         return i >= 0 && i < kGroupBuses ? Dine::busTint (groupBus (i)) : Dine::ink2;
@@ -63,7 +70,9 @@ namespace
 class MixPage::GroupTile : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    static constexpr int width = 140, height = 246;
+    // `minWidth` is the narrowest a tile can be and still be a tile: the fader, its meter
+    // and the space between them, plus the tighter padding `paddingX` gives back below it.
+    static constexpr int width = 140, height = 246, minWidth = 52;
 
     GroupTile (MixController& c, int index)
         : controller (c), group (index),
@@ -155,7 +164,7 @@ public:
             g.fillRect (r.removeFromTop (3));
         }
 
-        auto inner = getLocalBounds().reduced (12, 12);
+        auto inner = getLocalBounds().reduced (paddingX(), 12);
         auto head = inner.removeFromTop (18);
         // The lamp that says this group is being listened to, beside its name.
         if (heard != 0)
@@ -167,14 +176,26 @@ public:
         g.setColour (! used ? Dine::ink4 : muted ? Dine::ink3 : Dine::ink);
         g.setFont (Dine::text (13.0f, 600));
         // A column is narrow, and a group's name is the one thing on it that must be readable:
-        // it is squeezed a little before it is ever cut off.
-        Dine::drawFittedText (g, groupName (group), head, juce::Justification::centredLeft, 1, 0.78f);
+        // it is squeezed a little, then said in fewer letters, and it is never cut off.
+        {
+            const auto nameFont = Dine::text (13.0f, 600);
+            const auto full = groupName (group);
+            const bool squeezable = float (Dine::textWidth (nameFont, full)) * 0.78f <= float (head.getWidth());
+            Dine::drawFittedText (g, squeezable ? full : groupNameBrief (group), head,
+                                  juce::Justification::centredLeft, 1, 0.78f);
+        }
 
         auto sub = inner.removeFromTop (16);
         g.setColour (! used ? Dine::ink4 : muted ? Dine::warn : soloed ? Dine::accent : Dine::ink3);
-        g.setFont (! used || muted ? Dine::caps (10.0f, 0.04f, 600) : Dine::mono (11.0f, 500));
-        Dine::drawText (g, ! used ? "NOT USED" : muted ? "NOT HEARD" : dbText (float (fader.getValue())),
-                    sub, juce::Justification::centredLeft, true);
+        const auto subFont = ! used || muted ? Dine::caps (10.0f, 0.04f, 600) : Dine::mono (11.0f, 500);
+        g.setFont (subFont);
+        {
+            // The state in words, and the one-word form of it for a tile too narrow for two.
+            const juce::String full = ! used ? "NOT USED" : muted ? "NOT HEARD" : dbText (float (fader.getValue()));
+            const juce::String brief = ! used ? "OFF" : muted ? "MUTED" : full;
+            Dine::drawText (g, Dine::textWidth (subFont, full) <= sub.getWidth() ? full : brief,
+                            sub, juce::Justification::centredLeft, true);
+        }
 
         if (canTune())
         {
@@ -188,7 +209,7 @@ public:
 
     void resized() override
     {
-        auto inner = getLocalBounds().reduced (12, 12);
+        auto inner = getLocalBounds().reduced (paddingX(), 12);
         inner.removeFromTop (18 + 16 + 10);
         auto keys = inner.removeFromBottom (20);
         inner.removeFromBottom (8);
@@ -212,6 +233,8 @@ public:
     }
 
 private:
+    // A narrow console gives its padding up before anything on the tile gives up a letter.
+    int paddingX() const noexcept { return getWidth() >= 96 ? 12 : getWidth() >= 64 ? 8 : 6; }
     bool isFx() const noexcept { return group >= kGroupBuses; }
     // The returns are not a group of sources, so there is nothing to listen to and tune.
     bool canTune() const noexcept { return used && ! isFx(); }
@@ -1151,29 +1174,42 @@ public:
         {
             auto steps = r.removeFromTop (16);
             const auto font = Dine::text (12.0f, 500);
-            auto lamp = [&g] (juce::Rectangle<int>& row, const juce::String& label, juce::Colour c, const juce::Font& f)
+            // EIGHT STEPS IN ONE ROW. At 22 pt between them the last two ran off the card and
+            // the seventh was drawn as "Veri..." - a step nobody can read is not a step. The
+            // spacing is what is left over once every word has the room it needs.
+            const auto spacing = [&] (const juce::StringArray& labels)
             {
+                int words = 0;
+                for (const auto& l : labels) words += 14 + Dine::textWidth (font, l);
+                return juce::jlimit (8, 22, (steps.getWidth() - words) / juce::jmax (1, labels.size() - 1));
+            };
+            auto lamp = [&g] (juce::Rectangle<int>& row, const juce::String& label, juce::Colour c, const juce::Font& f, int gap)
+            {
+                const int w = Dine::textWidth (f, label);
+                if (row.getWidth() < 14 + w) { row = row.withWidth (0); return; }
                 g.setColour (c);
                 g.fillEllipse (row.removeFromLeft (7).withSizeKeepingCentre (6, 6).toFloat());
                 row.removeFromLeft (7);
                 g.setFont (f);
-                const int w = Dine::textWidth (f, label);
                 Dine::drawText (g, label, row.removeFromLeft (w), juce::Justification::centredLeft);
-                row.removeFromLeft (22);
+                row.removeFromLeft (gap);
             };
             if (live)
             {
+                juce::StringArray labels;
+                for (const auto& step : kLiveSteps) labels.add (Dine::sectionCase (step.label));
+                const int gap = spacing (labels);
                 const int at = liveStepFor (liveState);
                 for (int i = 0; i < kNumLiveSteps; ++i)
-                    lamp (steps, Dine::sectionCase (kLiveSteps[i].label),
-                          at > i ? Dine::accent : at == i ? Dine::ink : Dine::ink4, font);
+                    lamp (steps, labels[i], at > i ? Dine::accent : at == i ? Dine::ink : Dine::ink4, font, gap);
             }
             else
             {
-                const char* labels[3] = { "Listen", "Analyse", "Decide" };
+                const juce::StringArray labels { "Listen", "Analyse", "Decide" };
+                const int gap = spacing (labels);
                 const int at = planning ? 2 : waiting ? -1 : 0;
                 for (int i = 0; i < 3; ++i)
-                    lamp (steps, labels[i], at > i ? Dine::accent : at == i ? Dine::accent : Dine::ink4, font);
+                    lamp (steps, labels[i], at > i ? Dine::accent : at == i ? Dine::accent : Dine::ink4, font, gap);
             }
         }
         r.removeFromTop (14);
@@ -1285,7 +1321,10 @@ public:
             if (page.onToast) page.onToast ("Closed without keeping: the mix is as it was. TUNE MIX again to propose it again.");
         };
         review.setFontPx (12.5f);
-        closeButton.setFontPx (13.0f);
+        // The cross, not the word: a 28 pt cell has never had room for CLOSE, and a button
+        // that says "Clo..." says nothing. The sentence lives in the tooltip.
+        closeButton.setIcon (Dine::Icon::Close);
+        closeButton.setTooltip ("Close without keeping: the mix goes back to what it was before this run.");
         setInterceptsMouseClicks (true, true);
     }
 
@@ -1383,7 +1422,33 @@ public:
     static constexpr int kPadX = 30, kPadY = 26;
     static constexpr int kSheetW = 620, kValueW = 92;
 
-    int bulletWidth() const { return juce::jmin (kSheetW, getWidth() - 80) - kPadX * 2 - kValueW - 18 - 17; }
+    // EVERY WORD IN THE FOOTER IS A VERB, and a verb cut to "Revie..." is not a word. So the
+    // row is measured and the sheet is at least as wide as the row it has to carry; only a
+    // window too narrow for that makes the row give anything up, and what it gives up is the
+    // Inspector link's sentence rather than any letter of it.
+    int footerWidth() const
+    {
+        return juce::jmax (74, before.idealWidth()) + 4 + juce::jmax (74, after.idealWidth())
+             + 10 + review.idealWidth() + 16
+             + juce::jmax (116, another.idealWidth()) + 8
+             + juce::jmax (82, revert.idealWidth()) + 8
+             + juce::jmax (74, keep.idealWidth());
+    }
+
+    int sheetWidth() const { return juce::jmin (juce::jmax (kSheetW, footerWidth() + kPadX * 2), getWidth() - 80); }
+
+    // A VALUE THAT IS CUT IS A WRONG VALUE. "EQ 2.8 kHz - -2.5 dB - Q 1.2" in a 92 pt column
+    // reads as an EQ at 2.8 kHz and nothing else, so the column is as wide as the widest
+    // value in this proposal - bounded, because the sentence beside it has to stay readable.
+    int valueWidth() const
+    {
+        int w = kValueW;
+        for (const auto& b : bullets())
+            if (b.value.isNotEmpty()) w = juce::jmax (w, Dine::textWidth (Dine::mono (11.0f, 500), b.value));
+        return juce::jmin (w, 230);
+    }
+
+    int bulletWidth() const { return sheetWidth() - kPadX * 2 - valueWidth() - 18 - 17; }
 
     static int linesNeeded (const juce::Font& font, const juce::String& text, int width)
     {
@@ -1417,7 +1482,7 @@ public:
 
     juce::Rectangle<int> sheetBounds() const
     {
-        const int w = juce::jmin (kSheetW, getWidth() - 80);
+        const int w = sheetWidth();
         const int content = kPadY + 28 + 2 + 18 + 18 + chipRowHeight() + listHeight() + 18 + Dine::Metric::button + kPadY;
         const int h = juce::jlimit (240, juce::jmax (240, getHeight() - 40), content);
         return juce::Rectangle<int> (w, h).withCentre (getLocalBounds().getCentre());
@@ -1509,7 +1574,7 @@ public:
             g.fillEllipse (lamp.toFloat());
             row.removeFromLeft (10);
 
-            auto value = row.removeFromRight (kValueW);
+            auto value = row.removeFromRight (valueWidth());
             row.removeFromRight (18);
             if (b.value.isNotEmpty())
             {
@@ -1553,9 +1618,15 @@ public:
         revert.setBounds (row.removeFromRight (juce::jmax (82, revert.idealWidth())));
         row.removeFromRight (8);
         another.setBounds (row.removeFromRight (juce::jmax (116, another.idealWidth())));
-        row.removeFromRight (8);
-        review.setBounds (row.removeFromRight (juce::jmin (juce::jmax (0, row.getWidth()),
-                                                           juce::jmax (140, review.idealWidth()))));
+        row.removeFromRight (16);
+        // The one thing in the row that can give ground. It says the whole sentence when the
+        // row has space for it, the short form when it does not, and steps out altogether
+        // when even that would be cut - the Inspector is in the sidebar either way.
+        row.removeFromLeft (10);
+        review.setButtonText ("Review in the Inspector");
+        if (review.idealWidth() > row.getWidth()) review.setButtonText ("Inspector");
+        review.setVisible (review.idealWidth() <= row.getWidth());
+        if (review.isVisible()) review.setBounds (row.removeFromLeft (review.idealWidth()));
         r.removeFromBottom (18);
         r.removeFromTop (2 + 18 + 18);
 
@@ -1586,7 +1657,7 @@ private:
     DineButton keep { "Keep", DineButton::Style::Filled }, revert { "Revert", DineButton::Style::Standard };
     DineButton another { "Try another mix", DineButton::Style::Standard };
     DineButton review { "Review in the Inspector", DineButton::Style::Ghost };
-    DineButton closeButton { "Close", DineButton::Style::Ghost };
+    DineButton closeButton { juce::String(), DineButton::Style::Ghost };
 };
 
 // ------------------------------------------------------------------ MixPage
@@ -2134,11 +2205,16 @@ void MixPage::refreshMaster()
     const auto lufs = [] (float v) { return juce::String (std::round (v * 10.0f) / 10.0f, 1) + " LUFS"; };
     const auto delivery = controller.getDelivery();
     const float target = controller.getMasterLoudness().targetLufs;
-    loudnessTargetButton.setValue ((delivery == DeliveryLoudness::FromPurpose ? juce::String ("From the purpose")
-                                                                              : juce::String (deliveryLoudnessName (delivery)))
-                                   + "  " + Glyph::dot() + "  " + lufs (target));
-    voicingButton.setValue (controller.getVoicing() == MasterVoicing::Neutral ? juce::String ("Sound: as tuned")
-                                                                              : "Sound: " + juce::String (masterVoicingName (controller.getVoicing())));
+    const auto deliveryName = delivery == DeliveryLoudness::FromPurpose ? juce::String ("From the purpose")
+                                                                       : juce::String (deliveryLoudnessName (delivery));
+    loudnessTargetButton.setValue (deliveryName + "  " + Glyph::dot() + "  " + lufs (target));
+    // A narrow window drops the name of the target rather than half of it: the number is
+    // the part that has to be right.
+    loudnessTargetButton.setBriefValue (lufs (target));
+    const auto voicingName = controller.getVoicing() == MasterVoicing::Neutral ? juce::String ("as tuned")
+                                                                              : juce::String (masterVoicingName (controller.getVoicing()));
+    voicingButton.setValue ("Sound: " + voicingName);
+    voicingButton.setBriefValue (voicingName);
     const auto move = controller.previewLoudnessMove();
     raisePossible = move.possible;
     raiseButton.setEnabled (move.possible && ! controller.isLiveSafe());
@@ -2161,8 +2237,13 @@ void MixPage::refreshMaster()
     masterLoudText   = known ? juce::String (loud.integratedLufs, 1) + " now  " + Glyph::dot() + "  "
                                    + juce::String (loud.targetLufs, 0) + " target"
                              : juce::String ("not measured yet");
+    // The narrowest form of each number: the cell is labelled, so the unit and the target it
+    // is being read against are already on the card.
+    masterLoudBrief  = known ? juce::String (loud.integratedLufs, 1) : juce::String ("not yet");
     masterPeakText   = loud.truePeakDb <= -100.0f ? juce::String (Glyph::dash())
                                                   : juce::String (loud.truePeakDb, 1) + " dBTP";
+    masterPeakBrief  = loud.truePeakDb <= -100.0f ? juce::String (Glyph::dash())
+                                                  : juce::String (loud.truePeakDb, 1);
     masterOnTarget   = ! known || loud.onTarget();
     masterPeakOver   = loud.truePeakDb > loud.ceilingDb + 0.1f;
 }
@@ -2249,20 +2330,28 @@ void MixPage::paint (juce::Graphics& g)
         Dine::fillRounded (g, card.toFloat(), Dine::card, Dine::Radius::card);
         auto inner = card.reduced (20, 14);
         inner.removeFromRight (raiseButton.isVisible() ? raiseButton.getWidth() + 20 : 0);
-        const int cellW = juce::jmax (110, inner.getWidth() / 3);
-        auto cell = [&] (juce::Rectangle<int> area, const juce::String& label, const juce::String& value, juce::Colour ink)
+        // THREE CELLS, OR IT IS NOT THREE NUMBERS. They used to be given 110 pt each whether
+        // the card had 330 pt or not, so a 1180 pt window pushed True peak off the card and
+        // cut the loudness in half. They share what there is, and each number says itself
+        // the short way when its own cell is too small for the long way.
+        const int cellW = juce::jmax (72, inner.getWidth() / 3);
+        auto cell = [&] (juce::Rectangle<int> area, const juce::String& label, const juce::String& value,
+                         const juce::String& brief, juce::Colour ink)
         {
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (11.0f, 500));
             Dine::drawText (g, label, area.removeFromTop (16), juce::Justification::centredLeft, true);
             area.removeFromTop (2);
             g.setColour (ink);
-            g.setFont (Dine::mono (12.0f, 500));
-            Dine::drawText (g, value, area, juce::Justification::centredLeft, true);
+            const auto valueFont = Dine::mono (12.0f, 500);
+            g.setFont (valueFont);
+            Dine::drawText (g, brief.isNotEmpty() && Dine::textWidth (valueFont, value) > area.getWidth() ? brief : value,
+                            area, juce::Justification::centredLeft, true);
         };
-        cell (inner.removeFromLeft (cellW), "Level", masterLevelText, Dine::ink);
-        cell (inner.removeFromLeft (cellW), "Loudness", masterLoudText, masterOnTarget ? Dine::ink : Dine::warn);
-        cell (inner, "True peak", masterPeakText, masterPeakOver ? Dine::crit : Dine::ink);
+        cell (inner.removeFromLeft (juce::jmin (cellW, inner.getWidth())), "Level", masterLevelText, {}, Dine::ink);
+        cell (inner.removeFromLeft (juce::jmin (cellW, inner.getWidth())), "Loudness", masterLoudText, masterLoudBrief,
+              masterOnTarget ? Dine::ink : Dine::warn);
+        cell (inner, "True peak", masterPeakText, masterPeakBrief, masterPeakOver ? Dine::crit : Dine::ink);
     }
 
     // ---- the input rail
@@ -2320,12 +2409,18 @@ void MixPage::resized()
         // rather than squeezing, and the window is too narrow for TUNE anyway.
         auto groupRow = l.groups;
         const int gap = 8;
-        const int w = juce::jmax (72, juce::jmin (GroupTile::width, (groupRow.getWidth() - gap * (kGroupTiles - 1)) / kGroupTiles));
-        const int block = w * kGroupTiles + gap * (kGroupTiles - 1);
-        groupRow = groupRow.withWidth (juce::jmin (groupRow.getWidth(), block));
-        for (auto& t : groups)
+        const int w = juce::jmax (GroupTile::minWidth,
+                                  juce::jmin (GroupTile::width, (groupRow.getWidth() - gap * (kGroupTiles - 1)) / kGroupTiles));
+        // A TILE IS WHOLE OR IT IS NOT THERE. `removeFromLeft` past the end hands back
+        // whatever is left of the row, which is how the console used to end in a 30 pt
+        // sliver of a group - its name an ellipsis, its level "+0...", its verb "T...".
+        int fits = kGroupTiles;
+        while (fits > 1 && fits * w + gap * (fits - 1) > groupRow.getWidth()) --fits;
+        for (int i = 0; i < kGroupTiles; ++i)
         {
-            t->setBounds (groupRow.removeFromLeft (w));
+            groups[size_t (i)]->setVisible (i < fits);
+            if (i >= fits) continue;
+            groups[size_t (i)]->setBounds (groupRow.removeFromLeft (w));
             groupRow.removeFromLeft (gap);
         }
     }
