@@ -83,8 +83,9 @@ public:
         updating = true;
         feed = f;
         levelSlider.setValue (f.gainDb, juce::dontSendNotification);
-        sourceButton.setValue (f.monitor ? juce::String ("MONITOR BUS")
-                                         : (f.source == MixBus::Master ? juce::String ("MASTER") : juce::String (mixBusName (f.source)).toUpperCase()));
+        sourceButton.setValue (f.monitor ? juce::String ("My headphones")
+                                         : (f.source == MixBus::Master ? juce::String ("Main mix")
+                                                                       : Dine::sectionCase (mixBusName (f.source))));
         sourceButton.setDot (f.monitor ? Dine::monitor : Dine::busTint (f.source));
         pairButton.setValue (sheet.pairName (f.left < 0 ? -1 : f.left / 2));
         monoButton.setStyle (DineButton::Style::Toggle);

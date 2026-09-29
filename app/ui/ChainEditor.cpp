@@ -1877,10 +1877,11 @@ void ChainEditor::refresh()
     edited = stageEdited (selected);
     const bool live = ! bypassed && (stageOn || ! s.isOn);
 
-    if (edited)                 { badge = "HAND-EDITED";   badgeTint = Dine::warn; }
-    else if (! stageOn)         { badge = "LEFT OUT";      badgeTint = Dine::ink3; }
-    else if (controller.getPlan() != nullptr) { badge = "TUNED BY DINE"; badgeTint = Dine::accent; }
-    else                        { badge = "BASELINE";      badgeTint = Dine::ink3; }
+    // Who set this stage, in words rather than in capitals - and it is DLIVE that set it.
+    if (edited)                 { badge = "Hand-edited";     badgeTint = Dine::warn; }
+    else if (! stageOn)         { badge = "Left out";        badgeTint = Dine::ink3; }
+    else if (controller.getPlan() != nullptr) { badge = "Set by TUNE MIX"; badgeTint = Dine::accent; }
+    else                        { badge = "The baseline";    badgeTint = Dine::ink3; }
 
     if (power != nullptr)
     {
