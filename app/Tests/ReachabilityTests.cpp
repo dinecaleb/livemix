@@ -499,13 +499,13 @@ TEST_CASE ("Reachability: anything soloed says so from every workspace, and one 
     CHECK (controller.getSoloed().empty());
 }
 
-// ------------------------------------------------------------------- the group rail
-// A group bus is not one more channel: it is what an engineer reaches for when something is
-// wrong with a whole section, and on a thirty-two channel console it used to be seven screens
-// to the right of wherever the pointer was. So the groups are pinned beside the master, and
-// this says they are still there - on a console big enough for it to matter, at the smallest
-// window the application allows.
-TEST_CASE ("Reachability: the group buses are pinned beside the master, on a console of any size")
+// ------------------------------------------------------------------- the group buses
+// A group bus is what an engineer reaches for when something is wrong with a whole section,
+// so it has to be on the console however the console is set up. It sits at the end of the
+// family that feeds it and scrolls with the channels - there is no fixed rail of groups - and
+// this says every used group has a strip, on a console big enough for it to matter, at the
+// smallest window the application allows, at every width and under every filter.
+TEST_CASE ("Reachability: every group bus has a strip on the console, at any size")
 {
     Window window;
     auto& view = *window.view;
@@ -536,38 +536,37 @@ TEST_CASE ("Reachability: the group buses are pinned beside the master, on a con
     for (int b = 0; b < int (MixBus::Master); ++b)
         if (controller.getEngine().isBusUsed (MixBus (b))) ++used;
     REQUIRE (used >= 4);
-    CHECK_MESSAGE (mixer.pinnedGroupCount() == used,
-                   "the console pins " + std::to_string (mixer.pinnedGroupCount()) + " of "
+    CHECK_MESSAGE (mixer.busStripCount() == used,
+                   "the console shows " + std::to_string (mixer.busStripCount()) + " of "
                        + std::to_string (used) + " group buses");
 
     // Folding the sidebar, resizing, and the narrow and wide strip widths do not lose them.
     view.setSidebarShown (false);
     window.pump (10);
-    CHECK (mixer.pinnedGroupCount() == used);
+    CHECK (mixer.busStripCount() == used);
     mixer.setStripSize (MixerPage::Size::Wide);
     window.pump (10);
-    CHECK (mixer.pinnedGroupCount() == used);
+    CHECK (mixer.busStripCount() == used);
     mixer.setStripSize (MixerPage::Size::Narrow);
     view.setSidebarShown (true);
     window.pump (10);
-    CHECK (mixer.pinnedGroupCount() == used);
+    CHECK (mixer.busStripCount() == used);
 
-    // "Only the inputs" is about the channels, so the groups stay pinned; "only the groups and
-    // the master" is a request to look at them, so they go back into the bank at full width.
+    // "Only the inputs" hides them; "only the groups and the master" is a request to look at
+    // them on their own; the list shows them among the channels the same way the console does.
     mixer.setShow (MixerPage::Show::Inputs);
     window.pump (10);
-    CHECK (mixer.pinnedGroupCount() == used);
+    CHECK (mixer.busStripCount() == 0);
     mixer.setShow (MixerPage::Show::Groups);
     window.pump (10);
-    CHECK (mixer.pinnedGroupCount() == 0);
-    // ...and the list has no rail at all.
+    CHECK (mixer.busStripCount() == used);
     mixer.setShow (MixerPage::Show::All);
     mixer.setView (MixerPage::View::List);
     window.pump (10);
-    CHECK (mixer.pinnedGroupCount() == 0);
+    CHECK (mixer.busStripCount() == used);
     mixer.setView (MixerPage::View::Strips);
     window.pump (10);
-    CHECK (mixer.pinnedGroupCount() == used);
+    CHECK (mixer.busStripCount() == used);
 }
 
 // ---------------------------------------------------------------------- routing
