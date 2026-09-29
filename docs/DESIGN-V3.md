@@ -100,14 +100,18 @@ Mix Buddy. Everything is flat until it is on.
 **Sidebar**, 208 pt, `sidebar` ground, a seam down its right edge, sentence case throughout:
 
 ```
-Library      Sessions · Favourite mixes
+Setup        Routing · (Inputs) · (Outputs) · Purpose and sound
 Workspace    Tracks · Mixer · Tune · Live · Inspector
 Safety       Mix history · Scenes
-Setup        Routing · Purpose and sound
+Library      Sessions · Favourite mixes
              ───────────────────────────
              MOTU 16A
              48 kHz · 0 dropped buffers
 ```
+
+The design orders the sections Library, Workspace, Safety, Setup; the code runs them the
+other way up, and puts ROUTING's two busiest sections under it as indented child rows. Both
+are in §5 with the reason.
 
 Caption 11 pt `ink3` at x = 16; rows 28 pt at x = 8, width 192, 10 pt left padding, 10 pt
 between icon and label, 30 pt pitch; a caption sits 12 pt under the previous row and its first
@@ -194,6 +198,8 @@ places the brief and the product's own rules met.
 | **The Mixer's LIST layout, the three track heights, the timeline's menus** | Not drawn | Unchanged | The design drew the STRIPS console only. Everything else is in the inventory and is where it was. |
 | **TUNE's right column** | TUNE MIX, Match to reference, Check inputs | ... then a quiet row of TUNE LIVE MIX, Mix Buddy, Undo, Redo, Mix history, Inspector | All six are one press elsewhere (the toolbar, the sidebar, the Mix menu), so nothing was at risk; keeping them on the panel costs one row and saves a journey during a service. |
 | **The Mixer's group rail** | `Groups - always on the mixer`: the buses pinned at full width beside the master | No rail; a group bus sits at the end of the family that feeds it and scrolls with the channels. Only the master is a fixed column | A console is read left to right, and a second fixed column turned the one run of strips into two lists with a seam between them. The GROUPS filter is what shows the buses on their own, and `busStripCount` is what the reachability test asks about. |
+| **The sidebar's order** | Library, Workspace, Safety, Setup | Setup, Workspace, Safety, Library | It is the order of a Sunday: set the console up, work on the mix, then the two things that keep it safe. The library is last because opening a session is the one thing somebody does before any of that and never again during it - and the top of a list is where the eye starts. |
+| **Inputs and Outputs in the sidebar** | Not drawn: ROUTING is one row | Two indented child rows under ROUTING | The patch and the output feeds are what a soundcheck goes back and forth to, and reaching them was a workspace and then a tab. As children they are one press, they light their own row, and they fold away with the sidebar - the icon rail keeps ROUTING's icon alone, because a section of a workspace has no icon of its own. |
 | **The Inspector's channel rail** | A flat list of sixteen inputs | The same rows, under a quiet caption per group, with the bus strips and the master at the end | The design's frame is one sixteen-input service. A real console has group buses and a master to open, and they have to be somewhere; the caption is the only thing added. |
 | **An EQ band** | A gain knob per band under the curve | ... and, for the band you picked, its frequency, Q and shape underneath | A band with no frequency or Q is not a band an engineer can use, and the Inspector is the one place those live. Picking is all that changes; the sound never does. |
 | **The Inspector's head, rail and path** | Name, one line, Simple / Advanced, RE-TUNE; a rail of names and dots; a chip of a lamp and a name | The same, exactly | Implemented as drawn, which means the v2 Inspector lost: the head's IN / OUT meters, input gain, pan, level, MUTE, SOLO and EFFECTS; the rail's per-row level bar and the engine's rate / buffer / latency along its foot; and the path chip's number, icon, value and work bar. Every one of them is on MIXER, on the strip, on the chain foot, in the sidebar's device line or in the status bar - none is more than one press away, and the room the Inspector got back is spent on the thing it is actually for. |

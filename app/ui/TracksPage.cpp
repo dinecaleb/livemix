@@ -127,11 +127,16 @@ TracksPage::TracksPage (MixController& c, AppServices& s) : controller (c), serv
     make (recordAllButton, "All to record",
           "Set every track to record, and click again to set none. Nothing is captured until you press Record.",
           [this] { setAllToRecord (! allSetToRecord()); });
+    make (monitorAllButton, "All to input",
+          "Hear every input through DLIVE - what a soundcheck is. Click again to put them all back to Auto: "
+          "the recording while it rolls, the input while it is stopped and set to record.",
+          [this] { setAllToInput (! allSetToInput()); });
     make (loopButton, "Loop",
           "Play the marked part round and round. Drag along the top of the ruler to mark it; "
           "drag its ends to change it, drag its middle to move it, click it to switch it on or off.",
           [this] { toggleLoop(); });
-    for (auto* b : { zoomOutButton.get(), zoomInButton.get(), zoomFitButton.get(), splitButton.get(), markerButton.get(), recordAllButton.get(), loopButton.get() })
+    for (auto* b : { zoomOutButton.get(), zoomInButton.get(), zoomFitButton.get(), splitButton.get(),
+                     markerButton.get(), recordAllButton.get(), monitorAllButton.get(), loopButton.get() })
     {
         b->setQuiet (true);
         b->setFontPx (12.0f);
@@ -456,6 +461,7 @@ void TracksPage::refresh()
     // The R keys can be changed from a header, from the Track menu or from the toolbar itself,
     // so the button follows the session rather than its own last click.
     if (const bool all = allSetToRecord(); all != recordAllOn) { recordAllOn = all; updateToolbar(); }
+    if (const bool all = allSetToInput(); all != monitorAllOn) { monitorAllOn = all; updateToolbar(); }
     {
         const auto& project = services.daw().getProject();
         const bool on = project.loopEnabled && project.loopEnd > project.loopStart;
@@ -1120,6 +1126,28 @@ void TracksPage::headerMenu (int track)
 // Every track at once. A volunteer setting up before a service should not have to press R
 // twenty-four times, and the one thing this must never read as is "start recording": it is a
 // setting, it fills when it is on, and the transport is still the only thing that records.
+bool TracksPage::allSetToInput() const
+{
+    const auto& tracks = services.daw().getProject().tracks;
+    if (tracks.empty()) return false;
+    for (const auto& t : tracks) if (t.monitor != MonitorMode::Input) return false;
+    return true;
+}
+
+void TracksPage::setAllToInput (bool on)
+{
+    if (locked()) return;
+    auto& project = services.daw().getProject();
+    if (project.tracks.empty()) return;
+    for (auto& t : project.tracks) t.monitor = on ? MonitorMode::Input : MonitorMode::Auto;
+    services.daw().refresh();
+    services.touchSession();
+    if (onToast) onToast (on ? "Every track is listening to its input."
+                             : "Every track is back on Auto: the recording while it rolls, the input while it is not.");
+    updateToolbar();
+    repaint();
+}
+
 bool TracksPage::allSetToRecord() const
 {
     const auto& tracks = services.daw().getProject().tracks;
@@ -1373,9 +1401,11 @@ void TracksPage::paintToolbar (juce::Graphics& g)
         Dine::drawSegmentTrack (g, snapButton->getBounds().getUnion (followButton->getBounds()).expanded (2, 2));
 
     // ---- what is picked out, then the zoom, from the right
-    if (recordAllButton != nullptr && zoomOutButton != nullptr)
+    if (loopButton != nullptr && zoomOutButton != nullptr)
     {
-        auto row = toolbarArea().withTrimmedLeft (recordAllButton->getRight() + 14)
+        // From the last button on the left, whichever that is: the row is right-aligned, so
+        // its left edge only has to clear the buttons it must not be drawn over.
+        auto row = toolbarArea().withTrimmedLeft (loopButton->getRight() + 14)
                                 .withRight (zoomOutButton->getX() - 60);
         if (row.getWidth() > 60)
         {
@@ -1696,6 +1726,10 @@ void TracksPage::updateToolbar()
     recordAllButton->setStyle (DineButton::Style::Toggle);
     recordAllButton->setQuiet (true);
     recordAllButton->setToggleState (allSetToRecord(), juce::dontSendNotification);
+    monitorAllButton->setStyle (DineButton::Style::Toggle);
+    monitorAllButton->setQuiet (true);
+    monitorAllButton->setTint (Dine::keyMon);     // the same blue the A key on a track header is
+    monitorAllButton->setToggleState (allSetToInput(), juce::dontSendNotification);
     {
         const auto& project = services.daw().getProject();
         const bool marked = project.loopEnd > project.loopStart;
@@ -1736,6 +1770,7 @@ void TracksPage::resized()
     fromLeft (*splitButton, 60);
     fromLeft (*markerButton, 60);
     fromLeft (*recordAllButton, 60);
+    fromLeft (*monitorAllButton, 60);
     fromLeft (*loopButton, 60);
 
     auto fromRight = [&row] (DineButton& b, int minWidth)

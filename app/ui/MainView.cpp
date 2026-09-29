@@ -450,22 +450,30 @@ public:
     // What a row does: go to a page, or ask the window for something (a sheet).
     enum class Action { None = 0, MixHistory, Scenes };
 
-    struct Def { const char* label; Page page; Dine::Icon icon; Action action; const char* shortcut; };
+    // `child` is a row that belongs to the one above it: ROUTING's own two sections, indented
+    // and without an icon of their own, so the patch and the output feeds are one press away
+    // during a soundcheck instead of a workspace and then a tab.
+    struct Def { const char* label; Page page; Dine::Icon icon; Action action; const char* shortcut; bool child; };
 
+    // THE ORDER OF THE SECTIONS IS THE ORDER OF A SUNDAY. Set the console up, work on the mix,
+    // then the two things that keep it safe; the library is last because opening a session is
+    // the one thing somebody does before any of this and never again during it.
     static const Def* rowDefs() noexcept
     {
         static const Def defs[kRows] = {
-            { "Sessions",          Page::Sessions,   Dine::Icon::Sessions,      Action::None,       "" },
-            { "Favourite mixes",   Page::Favourites, Dine::Icon::Purpose,       Action::None,       "" },
-            { "Tracks",            Page::Tracks,     Dine::Icon::TracksNav,     Action::None,       "\u23181" },
-            { "Mixer",             Page::Mixer,      Dine::Icon::MixerNav,      Action::None,       "\u23182" },
-            { "Tune",              Page::Tune,       Dine::Icon::TuneNav,       Action::None,       "\u23183" },
-            { "Live",              Page::Live,       Dine::Icon::LiveNav,       Action::None,       "\u23184" },
-            { "Inspector",         Page::Inspector,  Dine::Icon::InspectorNav,  Action::None,       "\u23185" },
-            { "Mix history",       Page::Tracks,     Dine::Icon::WindowNav,     Action::MixHistory, "" },
-            { "Scenes",            Page::Live,       Dine::Icon::LiveNav,       Action::Scenes,     "" },
-            { "Routing",           Page::Routing,    Dine::Icon::DeviceNav,     Action::None,       "" },
-            { "Purpose and sound", Page::Purpose,    Dine::Icon::Purpose,       Action::None,       "" },
+            { "Routing",           Page::Routing,    Dine::Icon::DeviceNav,     Action::None,       "",       false },
+            { "Inputs",            Page::Assign,     Dine::Icon::None,          Action::None,       "",       true  },
+            { "Outputs",           Page::Outputs,    Dine::Icon::None,          Action::None,       "",       true  },
+            { "Purpose and sound", Page::Purpose,    Dine::Icon::Purpose,       Action::None,       "",       false },
+            { "Tracks",            Page::Tracks,     Dine::Icon::TracksNav,     Action::None,       "\u23181", false },
+            { "Mixer",             Page::Mixer,      Dine::Icon::MixerNav,      Action::None,       "\u23182", false },
+            { "Tune",              Page::Tune,       Dine::Icon::TuneNav,       Action::None,       "\u23183", false },
+            { "Live",              Page::Live,       Dine::Icon::LiveNav,       Action::None,       "\u23184", false },
+            { "Inspector",         Page::Inspector,  Dine::Icon::InspectorNav,  Action::None,       "\u23185", false },
+            { "Mix history",       Page::Tracks,     Dine::Icon::WindowNav,     Action::MixHistory, "",       false },
+            { "Scenes",            Page::Live,       Dine::Icon::LiveNav,       Action::Scenes,     "",       false },
+            { "Sessions",          Page::Sessions,   Dine::Icon::Sessions,      Action::None,       "",       false },
+            { "Favourite mixes",   Page::Favourites, Dine::Icon::Purpose,       Action::None,       "",       false },
         };
         return defs;
     }
@@ -480,14 +488,18 @@ public:
             items[size_t (i)]->onClick = [go, act, d] { if (d.action != Action::None) act (d.action); else go (d.page); };
             addAndMakeVisible (*items[size_t (i)]);
 
+            // A folded sidebar is a rail of icons, and a section of a workspace has none: the
+            // two children are reached from ROUTING's own icon, which is right above them.
             rail[size_t (i)] = std::make_unique<DineNavItem> ("", d.icon);
             rail[size_t (i)]->onClick = items[size_t (i)]->onClick;
             rail[size_t (i)]->setTooltip (juce::String (d.label)
                                           + (juce::String (d.shortcut).isNotEmpty() ? "  " + juce::String (d.shortcut) : juce::String()));
             addChildComponent (*rail[size_t (i)]);
         }
-        items[9]->setTooltip ("The device, the inputs and the output feeds. Under LIVE SAFE nothing there can be "
+        items[0]->setTooltip ("The device, the inputs and the output feeds. Under LIVE SAFE nothing there can be "
                               "changed until you say you mean it.");
+        items[1]->setTooltip ("The patch: what is plugged into every input, and what each one is.");
+        items[2]->setTooltip ("The output feeds: where the mix, or one group, is sent as well as the main pair.");
         setOpaque (true);
     }
 
@@ -508,7 +520,7 @@ public:
         if (c == collapsed) return;
         collapsed = c;
         for (auto& i : items) i->setVisible (! c);
-        for (auto& i : rail)  i->setVisible (c);
+        for (int i = 0; i < kRows; ++i) rail[size_t (i)]->setVisible (c && ! rowDefs()[i].child);
         resized();
         repaint();
     }
@@ -600,31 +612,37 @@ public:
         {
             for (int i = from; i < to; ++i)
             {
-                items[size_t (i)]->setBounds (8, y, getWidth() - 17, Dine::Metric::row);
-                y += 30;
+                // A child is stepped in and sits closer to the row above it: it is part of that
+                // row, not another one beside it.
+                const bool child = rowDefs()[i].child;
+                items[size_t (i)]->setBounds (child ? 22 : 8, y, getWidth() - (child ? 31 : 17), Dine::Metric::row);
+                y += child ? 28 : 30;
             }
             y += 12 - 2;
         };
-        caption ("Library");   rows (0, 2);
-        caption ("Workspace"); rows (2, 7);
-        caption ("Safety");    rows (7, 9);
-        caption ("Setup");     rows (9, kRows);
+        caption ("Setup");     rows (0, 4);
+        caption ("Workspace"); rows (4, 9);
+        caption ("Safety");    rows (9, 11);
+        caption ("Library");   rows (11, kRows);
     }
 
 private:
-    static constexpr int kRows = 11;
+    static constexpr int kRows = 13;
     static constexpr int kFootH = 72;
     static int indexOf (Page p) noexcept
     {
         switch (p)
         {
-            case Page::Sessions: return 0;
-            case Page::Favourites: return 1;
-            case Page::Tracks: return 2; case Page::Mixer: return 3; case Page::Tune: return 4;
-            case Page::Live: return 5; case Page::Inspector: return 6;
-            case Page::Routing: case Page::Device: case Page::Assign:
-            case Page::Outputs: case Page::Maps: return 9;
-            case Page::Purpose: return 10;
+            // ROUTING's own two sections light their own row; the device and the saved patches
+            // light ROUTING, because they have no row of their own.
+            case Page::Routing: case Page::Device: case Page::Maps: return 0;
+            case Page::Assign: return 1;
+            case Page::Outputs: return 2;
+            case Page::Purpose: return 3;
+            case Page::Tracks: return 4; case Page::Mixer: return 5; case Page::Tune: return 6;
+            case Page::Live: return 7; case Page::Inspector: return 8;
+            case Page::Sessions: return 11;
+            case Page::Favourites: return 12;
         }
         return 0;
     }
@@ -1307,12 +1325,14 @@ void MainView::updateChrome()
     const auto& project = services.daw().getProject();
 
     // ---- the sidebar's rows
-    const Page all[8] = { Page::Sessions, Page::Favourites, Page::Routing, Page::Purpose,
-                          Page::Tracks, Page::Mixer, Page::Tune, Page::Live };
+    const Page all[10] = { Page::Sessions, Page::Favourites, Page::Routing, Page::Assign, Page::Outputs,
+                           Page::Purpose, Page::Tracks, Page::Mixer, Page::Tune, Page::Live };
     for (const Page p : all)
         sidebar->item (p).setEnabled (isSetupPage (p) || mixable);
     sidebar->item (Page::Inspector).setEnabled (mixable);
-    sidebar->setSelected (isRoutingPage (page) ? Page::Routing : page);
+    // ROUTING's sections light their own rows now, so the page is handed over as it is: the
+    // device and the saved patches still light ROUTING, because `indexOf` puts them there.
+    sidebar->setSelected (page);
     sidebar->item (Page::Sessions).setMeta (juce::String (services.listSessions().size()));
     sidebar->item (Page::Favourites).setMeta (controller.numFavourites() > 0 ? juce::String (controller.numFavourites()) : juce::String());
     sidebar->item (Page::Routing).setMeta (hasInputs ? juce::String (int (session.inputs.size())) + " in" : juce::String());

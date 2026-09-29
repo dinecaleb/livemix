@@ -175,6 +175,12 @@ private:
     // Track menu offers, on the page where the R keys actually are.
     bool allSetToRecord() const;
     void setAllToRecord (bool on);
+    // INPUT MONITORING, on every track at once. A soundcheck is "let me hear what is coming
+    // in", and doing it one track at a time on a thirty-two channel console is thirty-two
+    // clicks. On sets every track to Input; off puts them all back to Auto, which is what a
+    // track is born with - playback while it rolls, the input while it is stopped and armed.
+    bool allSetToInput() const;
+    void setAllToInput (bool on);
     void markerMenu (int index);
     // Putting a track right without leaving the timeline. A track and its input can drift
     // apart - an input dropped or added on the ASSIGN page used to leave the clips behind -
@@ -248,8 +254,10 @@ private:
     int footHeight() const noexcept { return footShown ? ChainStrip::height : 0; }
     std::array<std::unique_ptr<DineButton>, 3> rowTabs;      // S / M / L row height
     std::unique_ptr<DineButton> zoomOutButton, zoomFitButton, zoomInButton;
-    std::unique_ptr<DineButton> snapButton, followButton, splitButton, markerButton, recordAllButton, loopButton;
+    std::unique_ptr<DineButton> snapButton, followButton, splitButton, markerButton, recordAllButton,
+                                monitorAllButton, loopButton;
     bool recordAllOn = false;          // what the All-to-record button is showing
+    bool monitorAllOn = false;         // ... and the All-to-input one
 };
 
 } // namespace livemix
