@@ -2504,6 +2504,74 @@ namespace
     }
 }
 
+MixController::InputAdvice MixController::liveCaptureAdvice (ChannelRole role, float peakHoldDb) const
+{
+    InputAdvice a;
+    a.known = true;
+    a.capturePeakDb = peakHoldDb;
+
+    auto move = [] (float db)
+    {
+        char buf[32];
+        std::snprintf (buf, sizeof (buf), "%.0f", std::fabs (db));
+        return std::string (buf);
+    };
+
+    if (peakHoldDb <= -70.0f)
+    {
+        a.level = InputAdvice::Level::NotHeard;
+        a.headline = "NO SIGNAL";
+        a.detail = "Nothing has arrived on this input. Check that it is plugged in where you think it is, that the "
+                   "channel is not muted at the desk, and that phantom power is on if the microphone needs it.";
+        return a;
+    }
+
+    // The same band Tune measures against, for this source, out of the profile.
+    const auto t = Profiles::targets (session.profile, role);
+    const float centre = 0.5f * (t.capturePeakMinDb + t.capturePeakMaxDb);
+    const float step = t.captureGainMaxStepDb;
+    const float wanted = std::max (-step, std::min (step, std::round (centre - peakHoldDb)));
+    a.consoleMoveDb = wanted;
+
+    if (peakHoldDb > -0.5f)
+    {
+        a.level = InputAdvice::Level::Clipping;
+        a.headline = "CLIPPING - PREAMP DOWN " + move (wanted) + " dB";
+        a.detail = "This input has already reached full scale. Digital clipping cannot be repaired after the "
+                   "converter, so it has to come down at the desk before anything else is worth doing.";
+    }
+    else if (peakHoldDb > t.capturePeakMaxDb)
+    {
+        a.level = InputAdvice::Level::Hot;
+        a.headline = "PREAMP DOWN " + move (wanted) + " dB";
+        a.detail = "It is louder than this source's safe range and has no room left for the loudest moment of the "
+                   "service. Turn the preamp down at the desk.";
+    }
+    else if (peakHoldDb < -55.0f)
+    {
+        a.level = InputAdvice::Level::Faint;
+        a.headline = "CHECK THIS INPUT";
+        a.detail = "Something is arriving, but far too quietly to be a source that is really playing. Check the "
+                   "microphone, the cable and the preamp before turning anything up.";
+        a.consoleMoveDb = 0.0f;
+    }
+    else if (peakHoldDb < t.capturePeakMinDb)
+    {
+        a.level = InputAdvice::Level::Low;
+        a.headline = "PREAMP UP " + move (wanted) + " dB";
+        a.detail = "It is quieter than this source's safe range. Turn the preamp up at the desk rather than here: "
+                   "gain added after the converter lifts the preamp's own noise with the source.";
+    }
+    else
+    {
+        a.level = InputAdvice::Level::Healthy;
+        a.headline = "OK";
+        a.consoleMoveDb = 0.0f;
+        a.detail = "This input is arriving at a level the processing can work with.";
+    }
+    return a;
+}
+
 MixController::InputAdvice MixController::getInputAdvice (int strip) const
 {
     InputAdvice a;

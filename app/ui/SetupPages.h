@@ -163,6 +163,11 @@ public:
     std::function<void()> onContinue, onBack;
     std::function<void()> onSaveMapping, onApplyMapping;   // the patch: saved, or a saved one applied
     void refresh();                       // rebuild rows from the controller's session and the device's channel count
+    // The meters and the gain-staging verdict, at the window's rate. Nothing is rebuilt here;
+    // a page of live numbers that only moves when somebody types is worse than no numbers.
+    void tick();
+    // How many assigned inputs want the preamp moved right now, for the foot of the page.
+    int inputsNeedingGain() const;
     void paint (juce::Graphics&) override;
     void resized() override;
     void lookAndFeelChanged() override;
@@ -189,6 +194,11 @@ private:
         ChannelRole role = ChannelRole::KickIn;
         bool linkedToNext = false, linkedFromPrevious = false;
         bool selected = false;
+        // THE LOUDEST THIS INPUT HAS BEEN, held. Gain staging is about the loudest moment of a
+        // service, not about where the needle is at the instant somebody looks at it - a snare
+        // between hits reads as silence. The hold falls slowly so a soundcheck can be walked:
+        // hit the drum, walk to the desk, and the reading is still there.
+        float peakHoldDb = -120.0f;
     };
     struct Group { juce::String name; juce::Colour colour; int bus = -1; std::vector<int> inputs; };
 

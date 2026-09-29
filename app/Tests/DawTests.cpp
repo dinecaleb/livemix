@@ -3338,6 +3338,87 @@ TEST_CASE ("Percussion and brass: the stored enum only grew, the names are guess
                < profile.targets[int (RoleFamily::Tom)].gateMaxRangeDb);
 }
 
+// GAIN STAGING, FLAGGED WHILE THE PATCH IS BEING MADE. A preamp that is wrong is the one
+// thing no amount of tuning can put right, and the moment somebody is standing at the desk
+// with a hand on it is while they are naming the inputs - long before any TUNE MIX has run.
+// So the verdict has to come from a live meter, and it has to be the same verdict Tune would
+// reach from a finished listen: the same band, out of the same profile, for that source.
+TEST_CASE ("Gain staging: the live verdict uses the source's own safe range and names the move")
+{
+    using Level = MixController::InputAdvice::Level;
+    MixController controller;
+    MixSession session;
+    controller.setSession (session);
+
+    const auto role = ChannelRole::LeadVocal;
+    const auto t = Profiles::targets (controller.getSession().profile, role);
+    REQUIRE (t.capturePeakMaxDb > t.capturePeakMinDb);
+    const float centre = 0.5f * (t.capturePeakMinDb + t.capturePeakMaxDb);
+
+    // Inside the band is the one answer with nothing to do.
+    {
+        const auto a = controller.liveCaptureAdvice (role, centre);
+        CHECK (a.known);
+        CHECK (a.level == Level::Healthy);
+        CHECK (std::fabs (a.consoleMoveDb) < 0.01f);
+        CHECK (! a.needsAttention());
+    }
+    // Above the band: down, by however far it is from the middle of it.
+    {
+        const auto a = controller.liveCaptureAdvice (role, t.capturePeakMaxDb + 4.0f);
+        CHECK (a.level == Level::Hot);
+        CHECK (a.consoleMoveDb < 0.0f);
+        CHECK (juce::String (a.headline).contains ("DOWN"));
+        CHECK (a.needsAttention());
+    }
+    // At full scale it is damage, not a level: the word changes and so does the colour it asks for.
+    {
+        const auto a = controller.liveCaptureAdvice (role, -0.2f);
+        CHECK (a.level == Level::Clipping);
+        CHECK (a.consoleMoveDb < 0.0f);
+        CHECK (juce::String (a.headline).contains ("CLIPPING"));
+    }
+    // Below the band: up.
+    {
+        const auto a = controller.liveCaptureAdvice (role, t.capturePeakMinDb - 6.0f);
+        CHECK (a.level == Level::Low);
+        CHECK (a.consoleMoveDb > 0.0f);
+        CHECK (juce::String (a.headline).contains ("UP"));
+    }
+    // Far below it is not a gain problem, and turning the preamp up is the wrong first move.
+    {
+        const auto a = controller.liveCaptureAdvice (role, -62.0f);
+        CHECK (a.level == Level::Faint);
+        CHECK (std::fabs (a.consoleMoveDb) < 0.01f);
+    }
+    // Nothing at all says so, and asks for nothing.
+    {
+        const auto a = controller.liveCaptureAdvice (role, -120.0f);
+        CHECK (a.level == Level::NotHeard);
+        CHECK (std::fabs (a.consoleMoveDb) < 0.01f);
+        CHECK (juce::String (a.headline) == "NO SIGNAL");
+    }
+    // A move is never more than the profile says one step may be.
+    {
+        const auto a = controller.liveCaptureAdvice (role, -100.0f + 45.0f);   // well under the band
+        CHECK (std::fabs (a.consoleMoveDb) <= t.captureGainMaxStepDb + 0.01f);
+    }
+
+    // It is the *source's* band, not one number for everything: a role whose safe range differs
+    // reaches a different verdict at the same reading. Every role has a band and a verdict.
+    for (int r = 0; r < int (ChannelRole::Count); ++r)
+    {
+        const auto each = ChannelRole (r);
+        const auto band = Profiles::targets (controller.getSession().profile, each);
+        CHECK_MESSAGE (band.capturePeakMaxDb > band.capturePeakMinDb,
+                       juce::String (channelRoleName (each)).toStdString() + " has no capture range");
+        const auto ok = controller.liveCaptureAdvice (each, 0.5f * (band.capturePeakMinDb + band.capturePeakMaxDb));
+        CHECK_MESSAGE (ok.level == Level::Healthy,
+                       juce::String (channelRoleName (each)).toStdString() + " is not healthy in the middle of its own range");
+        CHECK (! juce::String (ok.detail).isEmpty());
+    }
+}
+
 // THE SPOKEN WORD, BY WHAT IT IS SPOKEN INTO. Four microphones a church actually patches,
 // which are not the same instrument: a lapel is on the chest, a headset is at the mouth, a
 // handheld moves, and a lectern gooseneck is a foot away with the room behind it.

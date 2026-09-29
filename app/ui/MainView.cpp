@@ -2551,6 +2551,9 @@ void MainView::timerCallback()
 
     if (page == Page::Tracks) tracksPage->refresh();
     else if (page == Page::Mixer) mixerPage->refresh();
+    // The patch is where the preamps are set, so its meters and its gain-staging verdicts move
+    // while the band plays - it is the one set-up page with live numbers on it.
+    else if (page == Page::Assign && assignPage->isVisible()) assignPage->tick();
     else if (page == Page::Tune) mixPage->refresh();
     else if (page == Page::Live) livePage->refresh();
     else if (page == Page::Inspector) advancedPage->refresh();

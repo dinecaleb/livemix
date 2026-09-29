@@ -70,6 +70,23 @@ namespace
         }
     }
 
+    // What a gain-staging verdict looks like. The same three colours the console and the
+    // Inspector use for the same words, so an input that is hot is hot everywhere.
+    juce::Colour gainVerdictColour (MixController::InputAdvice::Level level) noexcept
+    {
+        using Level = MixController::InputAdvice::Level;
+        switch (level)
+        {
+            case Level::Clipping:
+            case Level::Faint:    return Dine::crit;
+            case Level::Low:
+            case Level::Hot:
+            case Level::Digital:  return Dine::warn;
+            case Level::NotHeard: return Dine::ink4;
+            default:              return Dine::ok;
+        }
+    }
+
     // A kit is a run of sources laid down a selection in order, so a drum kit patched
     // 1-9 is named and placed in one click rather than nine.
     struct Kit { const char* label; MixBus bus; std::vector<ChannelRole> roles; };
@@ -1061,10 +1078,35 @@ public:
         Dine::drawText (g, e.linkedToNext ? juce::String (input + 1) + Glyph::minus() + juce::String (input + 2) : juce::String (input + 1),
                         r.removeFromLeft (kNumW), juce::Justification::centredLeft);
 
-        // the signal column: what is arriving on this channel right now
+        // THE SIGNAL COLUMN, AND WHAT TO DO ABOUT IT AT THE DESK.
+        //
+        // The needle is where it is at this instant; the gain stage is about the loudest moment
+        // of a service, so the bar is the held peak and the verdict is read from it. The move
+        // is named in decibels because the preamp it is about has a number on it.
         const float db = page.services.isAudioRunning() ? page.services.daw().inputPeakDb (input) : -120.0f;
-        auto meter = r.removeFromRight (kSignalW).withSizeKeepingCentre (kSignalW, 4);
-        Dine::fillMeter (g, meter.toFloat(), DineMeter::norm (db), false, ! e.assigned, 2.0f);
+        auto column = r.removeFromRight (kSignalW);
+        auto verdict = column.removeFromRight (kVerdictW);
+        auto meter = column.withTrimmedRight (kGap).withSizeKeepingCentre (column.getWidth() - kGap, 4);
+        Dine::fillMeter (g, meter.toFloat(), DineMeter::norm (e.peakHoldDb), false, ! e.assigned, 2.0f);
+        // Where it is right now, as a mark on the held bar: the hold is the decision, the mark
+        // is the reassurance that something is still arriving.
+        if (db > -70.0f)
+        {
+            const float x = meter.getX() + meter.getWidth() * DineMeter::norm (db);
+            g.setColour (Dine::ink.withAlpha (0.7f));
+            g.fillRect (x - 0.5f, float (meter.getY()) - 2.0f, 1.0f, float (meter.getHeight()) + 4.0f);
+        }
+        if (e.assigned && ! e.linkedFromPrevious)
+        {
+            const auto advice = page.controller.liveCaptureAdvice (e.role, e.peakHoldDb);
+            const juce::String text = advice.level == MixController::InputAdvice::Level::Healthy
+                                          ? juce::String ("OK")
+                                          : juce::String (advice.headline);
+            const auto colour = gainVerdictColour (advice.level);
+            g.setColour (colour);
+            g.setFont (Dine::caps (9.5f, 0.04f, 600));
+            Dine::drawText (g, text, verdict, juce::Justification::centredLeft, true);
+        }
         r.removeFromRight (kGap);
         r.removeFromRight (pairWidth() + kGap);
 
@@ -1115,7 +1157,9 @@ public:
         link.setBounds (r.removeFromRight (pw).withSizeKeepingCentre (pw, 20));
     }
 
-    static constexpr int kNumW = 52, kGap = 20, kNameW = 200, kSignalW = 200, kPairW = 56, kBusW = 140;
+    static constexpr int kNumW = 52, kGap = 20, kNameW = 200, kSignalW = 260, kPairW = 56, kBusW = 140;
+    // Wide enough for the longest thing the verdict says: "CLIPPING - PREAMP DOWN 10 dB".
+    static constexpr int kVerdictW = 168;
 
     AssignPage& page;
     int input;
@@ -1346,6 +1390,48 @@ AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), serv
 
 AssignPage::~AssignPage() = default;
 
+// THE LEVELS MOVE WHILE THE BAND PLAYS. This page had no tick at all: its meters only
+// redrew when somebody typed, which is the opposite of what a soundcheck needs from the one
+// screen where the preamps are being set.
+void AssignPage::tick()
+{
+    if (entries.empty()) return;
+    const bool running = services.isAudioRunning();
+    bool moved = false;
+    for (int i = 0; i < numInputs && i < int (entries.size()); ++i)
+    {
+        const float now = running ? services.daw().inputPeakDb (i) : -120.0f;
+        auto& hold = entries[size_t (i)].peakHoldDb;
+        // Up instantly, down at 3 dB a second: the loudest moment stays on screen long enough
+        // to walk from the stage to the desk and read it.
+        const float next = juce::jmax (now, hold - 0.1f);
+        if (std::fabs (next - hold) > 0.05f) { hold = next; moved = true; }
+        else hold = next;
+    }
+    if (moved) repaint();
+}
+
+// How many assigned inputs want the preamp moved right now.
+int AssignPage::inputsNeedingGain() const
+{
+    int n = 0;
+    for (int i = 0; i < numInputs && i < int (entries.size()); ++i)
+    {
+        const auto& e = entries[size_t (i)];
+        if (! e.assigned || e.linkedFromPrevious) continue;
+        // Only the ones with a move to make. "Nothing has arrived here yet" is true of every
+        // input before the band plays, and a page that says twelve inputs need the preamp
+        // when nothing is plugged in has taught somebody to ignore it by the second Sunday.
+        using Level = MixController::InputAdvice::Level;
+        switch (controller.liveCaptureAdvice (e.role, e.peakHoldDb).level)
+        {
+            case Level::Clipping: case Level::Hot: case Level::Low: case Level::Faint: ++n; break;
+            default: break;
+        }
+    }
+    return n;
+}
+
 void AssignPage::refresh()
 {
     // Every channel the device brings in, and never fewer than the session already uses: an
@@ -1353,7 +1439,12 @@ void AssignPage::refresh()
     numInputs = juce::jlimit (0, kMaxInputs, services.numInputChannels());
     for (const auto& in : controller.getSession().inputs)
         numInputs = juce::jlimit (0, kMaxInputs, juce::jmax (numInputs, in.inputA + 1, in.inputB + 1));
+    // The held peaks survive a refresh: renaming an input is not a reason to forget how loud
+    // it has been, and refresh() runs on every edit.
+    std::vector<float> heldPeaks (size_t (numInputs), -120.0f);
+    for (size_t i = 0; i < heldPeaks.size() && i < entries.size(); ++i) heldPeaks[i] = entries[i].peakHoldDb;
     entries.assign (size_t (numInputs), Entry {});
+    for (size_t i = 0; i < heldPeaks.size(); ++i) entries[i].peakHoldDb = heldPeaks[i];
     for (const auto& in : controller.getSession().inputs)
     {
         if (in.inputA < 0 || in.inputA >= numInputs) continue;
@@ -1791,12 +1882,14 @@ void AssignPage::paint (juce::Graphics& g)
         cell (Row::kNameW + 22, "Name");
         head.removeFromLeft (Row::kGap - 6);
         auto signal = head.removeFromRight (Row::kSignalW);
+        auto verdict = signal.removeFromRight (Row::kVerdictW);
         head.removeFromRight (Row::kGap);
         head.removeFromRight (Row::kPairW + Row::kGap);
         auto group = head.removeFromRight (Row::kBusW);
         Dine::drawText (g, "What it is", head, juce::Justification::centredLeft, true);
         Dine::drawText (g, "Group", group, juce::Justification::centredLeft, true);
-        Dine::drawText (g, "Signal here", signal, juce::Justification::centredLeft, true);
+        Dine::drawText (g, "Loudest so far", signal, juce::Justification::centredLeft, true);
+        Dine::drawText (g, "At the desk", verdict, juce::Justification::centredLeft, true);
     }
 
     if (rows.empty())
@@ -1829,10 +1922,24 @@ void AssignPage::paint (juce::Graphics& g)
         g.setFont (Dine::text (12.0f, 500));
         const int w = Dine::textWidth (Dine::text (12.0f, 500), left);
         Dine::drawText (g, left, foot.removeFromLeft (w), juce::Justification::centredLeft);
-        if (live > 0)
+        // THE PREAMPS COME FIRST. A gain stage that is wrong is the one thing no amount of
+        // tuning can put right, and this is the screen somebody is on with a hand on the desk -
+        // so the count of inputs that want a preamp move is said here, before Continue.
+        if (const int gain = inputsNeedingGain(); gain > 0)
         {
             foot.removeFromLeft (16);
             g.setColour (Dine::warn);
+            g.setFont (Dine::text (12.0f, 500));
+            const juce::String note = juce::String (gain) + (gain == 1 ? " input wants" : " inputs want")
+                                    + " the preamp moved at the desk.";
+            const int gw = Dine::textWidth (Dine::text (12.0f, 500), note);
+            Dine::drawText (g, note, foot.removeFromLeft (juce::jmin (foot.getWidth(), gw)),
+                        juce::Justification::centredLeft, true);
+        }
+        if (live > 0)
+        {
+            foot.removeFromLeft (16);
+            g.setColour (Dine::ink3);
             g.setFont (Dine::text (12.0f));
             Dine::drawText (g, juce::String (live) + " unassigned " + (live == 1 ? "input is" : "inputs are")
                                 + " carrying signal right now.",

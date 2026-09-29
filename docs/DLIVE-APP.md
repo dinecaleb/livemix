@@ -42,6 +42,16 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
     are the engineer's and stay), and is refused with a sentence on a different set of inputs. `MixScene` in
     `app/native/MixHistory.h`; saved in the session document (`scenes`); each recall is a record in every
     changed channel's history ("Scene: Band").
+  - GAIN STAGING, ON THE PATCH ITSELF (`AssignPage`, 2026-09-29). ROUTING > Inputs is the one screen somebody is
+    on with a hand on the preamps, and it now says what each of them should do: a held peak per input ("Loudest so
+    far" - up instantly, down at 3 dB a second, so a hit can be walked from the stage to the desk), a live mark for
+    where the level is this instant, and the verdict beside it ("At the desk": OK, PREAMP UP 8 dB, PREAMP DOWN 6 dB,
+    CLIPPING - PREAMP DOWN 10 dB, CHECK THIS INPUT, NO SIGNAL). The foot counts the ones with a move to make, before
+    Continue. The verdict is `MixController::liveCaptureAdvice`, which reads the held peak against **the same
+    capture range Tune uses for that source**, out of the same profile - a soundcheck and a tune must never disagree
+    about whether an input is hot - and needs no plan, no engine and no strip. This page is also the one set-up page
+    the window ticks (`MainView::timerCallback`), because a page of live numbers that only moves when somebody types
+    is worse than no numbers.
   - CHECK INPUTS (View > Check Inputs..., `app/ui/CheckSheet`): every assigned input with its level now, its peak
     since the sheet opened, and one word - OK, SILENT (nothing above -60 dBFS for three seconds), LOW (never above
     -30), HOT (over -6), CLIP - under a headline that counts them ("13 inputs · 11 OK · 2 silent"). Reading only.

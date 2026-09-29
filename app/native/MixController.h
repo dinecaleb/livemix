@@ -677,6 +677,19 @@ public:
     };
     InputAdvice getInputAdvice (int strip) const;
 
+    // THE GAIN STAGE, LIVE, BEFORE ANYTHING HAS BEEN TUNED.
+    //
+    // `getInputAdvice` is the verdict from a finished listen, and it needs a plan. This is the
+    // same verdict for the moment the plan does not exist yet: patching the inputs with the
+    // band playing, which is the one moment somebody is standing at the desk with a hand on
+    // the preamps. It reads one number - the loudest this input has been over the last few
+    // seconds - against the same safe range from the same profile that Tune would use for that
+    // source, and says the same sentence. A soundcheck and a tune must never disagree about
+    // whether an input is hot.
+    //
+    // No plan, no engine, no strip: a role and a held peak. Message thread.
+    InputAdvice liveCaptureAdvice (ChannelRole role, float peakHoldDb) const;
+
     // ---- The master, metered properly ----
     // Everything anyone needs to answer "is this mix loud enough, and is it safe" from one
     // place, so the mixer, LIVE, the Inspector and the export dialog can never disagree.
