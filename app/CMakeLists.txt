@@ -36,6 +36,7 @@ set(DLIVE_APP_SOURCES
     ${CMAKE_SOURCE_DIR}/src/Intelligence/HttpJson.cpp
     native/SessionAutosave.cpp
     native/SessionState.cpp
+    native/Telemetry.cpp
     native/SessionStore.cpp
     native/InputMapStore.cpp
     native/ThemeStore.cpp
@@ -100,7 +101,13 @@ juce_add_gui_app(DLive
     MICROPHONE_PERMISSION_TEXT "DLIVE mixes the inputs of your audio device.")
 target_sources(DLive PRIVATE Main.cpp native/AudioHost.cpp native/MonitorDevice.cpp native/MicPermission.mm native/WindowChrome.mm ${DLIVE_UI_SOURCES})
 target_include_directories(DLive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
+# The Supabase project the usage events go to (docs/ANALYTICS.md). Empty: nothing is sent.
+# The anon key is public by design - the table lets it insert and nothing else.
+set(DLIVE_SUPABASE_URL "" CACHE STRING "Supabase project URL for DLIVE usage events (empty = off)")
+set(DLIVE_SUPABASE_ANON_KEY "" CACHE STRING "Supabase anon key for DLIVE usage events")
 target_compile_definitions(DLive PRIVATE ${DLIVE_DEFINES}
+    DLIVE_SUPABASE_URL="${DLIVE_SUPABASE_URL}"
+    DLIVE_SUPABASE_ANON_KEY="${DLIVE_SUPABASE_ANON_KEY}"
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:DLive,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:DLive,JUCE_VERSION>")
 if (APPLE)
@@ -128,6 +135,7 @@ if (LIVEMIX_BUILD_TESTS)
         Tests/AppTests.cpp
         Tests/DawTests.cpp
         Tests/ThemeTests.cpp
+        Tests/TelemetryTests.cpp
         ${DLIVE_APP_SOURCES}
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp)
     target_include_directories(dlive_app_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)

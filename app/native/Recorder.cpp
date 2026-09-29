@@ -309,6 +309,13 @@ juce::String Recorder::getError() const
     return {};
 }
 
+const char* Recorder::getErrorCode() const noexcept
+{
+    if (oversized.load (std::memory_order_relaxed)) return "buffer_too_large";
+    if (failed.load (std::memory_order_relaxed)) return "disk_too_slow";
+    return "";
+}
+
 double Recorder::bytesPerSecond() const noexcept
 {
     int channels = 0;

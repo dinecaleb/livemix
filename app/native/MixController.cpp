@@ -2,6 +2,7 @@
 #include "MixAI/RelationshipEngine.h"
 #include "Core/DbUtils.h"
 #include "Profiles/MixProfileData.h"
+#include "UsageIds.h"
 #include <cmath>
 #include <algorithm>
 #include <chrono>
@@ -190,6 +191,7 @@ void MixController::setSpeechPriority (bool on)
 {
     if (session.speechPriority == on) return;
     session.speechPriority = on;
+    usage ({ "speech_priority", { { "on", on ? "true" : "false" } }, {} });
     publish();
     if (onMessage)
         onMessage (on ? "Speech priority is on: the band steps back " + std::to_string (int (std::round (MixProfile::speechPriority (session.profile).depthDb)))
@@ -515,6 +517,7 @@ void MixController::keepScene (int slot)
     s.macros = macros;
     s.inputs = inputNamesNow();
     if (onMessage) onMessage ("Kept as " + s.name + ". One press on it brings this whole mix back.");
+    usage ({ "preset_saved", { { "kind", "scene" } }, {} });
     mark ("Scene kept: " + s.name);
 }
 
@@ -551,6 +554,7 @@ bool MixController::recallScene (int slot)
     for (int i = 0; i < kept.numStrips && i < was.numStrips; ++i)
         recordStripTune (i, "Scene: " + s.name, was.strips[size_t (i)], kept.strips[size_t (i)]);
     publish();
+    usage ({ "preset_applied", { { "kind", s.favourite ? "favourite" : "scene" } }, {} });
     if (onMessage) onMessage (s.name + " is back.");
     mark ("Scene: " + s.name);
     return true;
@@ -665,6 +669,7 @@ bool MixController::markFavourite (const std::string& name)
                                   "aimed at it the way it is aimed at a record."
                        : s.name + " is a favourite. Nothing has been listened to yet, so the mix is kept but what "
                                   "it sounds like is not measured - TUNE MIX once and mark it again to aim at it.");
+    usage ({ "preset_saved", { { "kind", "favourite" } }, {} });
     mark ("Favourite: " + s.name);
     return true;
 }
@@ -851,12 +856,14 @@ bool MixController::setAutopilot (bool on)
         autopilot = AutopilotState {};
         autopilotTarget = AutopilotTarget {};
         autopilotSinceHistoryDb.fill (0.0f);
+        usage ({ "autopilot", { { "state", "off" } }, {} });
         if (onMessage) onMessage ("Autopilot off. Every fader is where it is; nothing goes back.");
         mark ("Autopilot off");
         return false;
     }
     if (! built || ! prepared)
     {
+        usage ({ "autopilot", { { "state", "refused" }, { "reason", "no_mix" } }, {} });
         if (onMessage) onMessage ("There is no mix running for Autopilot to hold yet.");
         return false;
     }
@@ -866,6 +873,7 @@ bool MixController::setAutopilot (bool on)
     const auto now = readAutopilotMeters();
     if (now.masterRmsDb <= -100.0f)
     {
+        usage ({ "autopilot", { { "state", "refused" }, { "reason", "silent" } }, {} });
         if (onMessage)
             onMessage ("Nothing is playing, so there is no mix to hold. Engage Autopilot while the band is going "
                        "and it will keep that mix.");
@@ -891,6 +899,7 @@ bool MixController::setAutopilot (bool on)
         onMessage ("Autopilot is holding this mix. It moves group faders only, by the smallest step, and never "
                    "more than " + std::to_string (int (autopilotLimits.maxTotalDb)) + " dB from here. Touch a fader "
                    "and that group is yours again.");
+    usage ({ "autopilot", { { "state", "on" } }, {} });
     mark ("Autopilot on");
     return true;
 }
@@ -1128,6 +1137,23 @@ std::string MixController::getTuningName() const
     return session.inputs[size_t (tuningStrip)].name;
 }
 
+void MixController::addTuneScope (UsageEvent& e) const
+{
+    const char* scope = chatRun ? "mix_buddy" : liveRun || liveKept ? "live"
+                      : tuningStrip >= 0 ? "channel" : tuningBus >= 0 ? "group"
+                      : ! tuningStrips.empty() ? "channels" : "mix";
+    e.words.push_back ({ "scope", scope });
+    if (tuningStrip >= 0 && tuningStrip < int (session.inputs.size()))
+    {
+        const auto family = roleFamily (session.inputs[size_t (tuningStrip)].role);
+        e.words.push_back ({ "family", roleFamilyId (family) });
+        e.words.push_back ({ "kind", roleKindId (family) });
+    }
+    if (tuningBus >= 0 && tuningBus < int (MixBus::Master)) e.words.push_back ({ "group", mixBusName (MixBus (tuningBus)) });
+    if (! tuningStrips.empty()) e.numbers.push_back ({ "channels", double (tuningStrips.size()) });
+    e.numbers.push_back ({ "inputs", double (session.inputs.size()) });
+}
+
 // The scope in the words the Tune card says it in. One place, so the picker, the listen card
 // and the result card can never disagree about what a tune was about.
 std::string MixController::scopeWords() const
@@ -1220,7 +1246,7 @@ void MixController::abortTuneMix()
         endTuneLive ("TUNE LIVE MIX was stopped. " + std::string (tuneLive.hasProposal()
                          ? "The mix it had built is still on BEFORE / AFTER - keep it or revert it."
                          : "Your mix has not been changed."),
-                     tuneLive.hasProposal());
+                     tuneLive.hasProposal(), "cancelled");
         return;
     }
     if (stage != Stage::Listening && stage != Stage::Planning) return;
@@ -1279,7 +1305,7 @@ void MixController::startTuneLiveMix (const LiveTuneSettings& s)
             const std::string headline = plan ? plan->headline : std::string ("MIX: NO SIGNAL");
             plan.reset();
             tuneLive.cancel();
-            endTuneLive (headline + " Nothing was changed.", false);
+            endTuneLive (headline + " Nothing was changed.", false, "no_signal");
             return;
         }
         ++tuneCount;
@@ -1339,8 +1365,14 @@ void MixController::applyLiveProposal()
     tuneLive.onApplied();
 }
 
-void MixController::endTuneLive (const std::string& message, bool keepProposal)
+void MixController::endTuneLive (const std::string& message, bool keepProposal, const char* outcome)
 {
+    {
+        UsageEvent e { "tune_result", { { "outcome", outcome } }, {} };
+        addTuneScope (e);
+        if (plan && keepProposal) e.numbers.push_back ({ "changes", double (plan->parametersChanged) });
+        usage (std::move (e));
+    }
     liveRun = false;
     liveVerifying = false;
     if (! keepProposal)
@@ -1420,7 +1452,8 @@ void MixController::pollTuneLive()
             endTuneLive (p.countApplied() > 0 || tuneLive.hasProposal()
                              ? headline
                              : "LIVE MIX READY - the mix was already right; nothing was changed.",
-                         tuneLive.hasProposal());
+                         tuneLive.hasProposal(),
+                         p.countApplied() > 0 || tuneLive.hasProposal() ? "proposal" : "no_change");
             break;
         }
 
@@ -1428,11 +1461,11 @@ void MixController::pollTuneLive()
             // The reasoning layer failed. The deterministic mix from the same listen is
             // already sitting in `plan`, so the user is left with a professional mix and a
             // sentence saying what happened - never with a stopped mix and never with nothing.
-            endTuneLive (tuneLive.getFailure(), plan.has_value());
+            endTuneLive (tuneLive.getFailure(), plan.has_value(), "failed");
             break;
 
         case State::Cancelled:
-            endTuneLive ("TUNE LIVE MIX was stopped. Your mix has not been changed.", tuneLive.hasProposal());
+            endTuneLive ("TUNE LIVE MIX was stopped. Your mix has not been changed.", tuneLive.hasProposal(), "cancelled");
             break;
 
         default: break;
@@ -1511,7 +1544,7 @@ void MixController::poll()
                 const std::string headline = plan ? plan->headline : std::string ("MIX: NO SIGNAL");
                 plan.reset();
                 tuneLive.cancel();
-                endTuneLive (headline + " Nothing was changed.", false);
+                endTuneLive (headline + " Nothing was changed.", false, "no_signal");
                 return;
             }
             ++tuneCount;
@@ -1551,6 +1584,14 @@ void MixController::poll()
         const bool heardIt = plan->valid && (! tuningStrips.empty() ? heardOneOfTheSet
                                              : channel < 0 ? plan->stripsHeard > 0
                                                            : channel < int (plan->strips.size()) && plan->strips[size_t (channel)].heard);
+        {
+            UsageEvent e { "tune_result", { { "outcome", heardIt ? (plan->noChangeRequired ? "no_change" : "proposal")
+                                                     : isTuningPart() && plan->valid ? "nothing_heard" : "no_signal" } }, {} };
+            addTuneScope (e);
+            if (heardIt) e.numbers.push_back ({ "changes", double (plan->parametersChanged) });
+            e.numbers.push_back ({ "heard", double (plan->stripsHeard) });
+            usage (std::move (e));
+        }
         if (heardIt)
         {
             ++tuneCount;
@@ -1581,8 +1622,13 @@ void MixController::poll()
         {
             tuneLive.cancel();
             endTuneLive ("The listen was too short to measure. TUNE LIVE MIX again while the band plays. "
-                         "Your mix has not been changed.", liveVerifying && plan.has_value());
+                         "Your mix has not been changed.", liveVerifying && plan.has_value(), "too_short");
             return;
+        }
+        {
+            UsageEvent e { "tune_result", { { "outcome", "too_short" } }, {} };
+            addTuneScope (e);
+            usage (std::move (e));
         }
         if (onMessage) onMessage ("The listen was too short to measure. Tune Mix again while the band plays.");
         stage = restingStage();
@@ -1650,6 +1696,18 @@ void MixController::keepPlan()
         for (int i = 0; i < n; ++i)
             recordStripTune (i, what, plan->before.strips[size_t (i)], taking.strips[size_t (i)]);
     }
+    {
+        UsageEvent e { "tune_decision", { { "decision", planSelection ? "kept_some" : "kept" } }, {} };
+        addTuneScope (e);
+        e.numbers.push_back ({ "changes", double (plan->parametersChanged) });
+        usage (std::move (e));
+        // Tune can turn a drum's sample replacement on; that is the feature being used too.
+        const int n = std::min (plan->before.numStrips, taking.numStrips);
+        for (int i = 0; i < n && i < int (session.inputs.size()); ++i)
+            if (! plan->before.strips[size_t (i)].channel.replaceEnabled && taking.strips[size_t (i)].channel.replaceEnabled)
+                usage ({ "sample_replacement_on", { { "instrument", roleFamilyId (roleFamily (session.inputs[size_t (i)].role)) },
+                                                    { "by", "tune" } }, {} });
+    }
     liveKept = false;
     kept = taking;
     // The proposal is kept for the Inspector to read "what DLIVE set" from; the selection
@@ -1703,6 +1761,12 @@ void MixController::revertPlan()
 {
     if (! plan || stage != Stage::Preview) return;
     if (liveSafeRefuses (LiveAction::RevertPlan)) return;
+    {
+        UsageEvent e { "tune_decision", { { "decision", "reverted" } }, {} };
+        addTuneScope (e);
+        e.numbers.push_back ({ "changes", double (plan->parametersChanged) });
+        usage (std::move (e));
+    }
     kept = plan->before;
     plan.reset();
     clearTuningScope();
@@ -1831,6 +1895,7 @@ bool MixController::sendChatRequest (const std::string& text)
     chatRun = true;
     markMixChange (text);
     startTuneLiveMix (s);
+    if (liveRun) usage ({ "mix_buddy_used", {}, {} });
     if (! liveRun)
     {
         // startTuneLiveMix refused (LIVE SAFE, or nothing heard): take the history entry back
@@ -1854,6 +1919,7 @@ void MixController::setLiveSafe (bool on)
 {
     if (safety.on == on) return;
     safety.on = on;
+    usage ({ "live_safe", { { "on", on ? "true" : "false" } }, {} });
     if (on)
     {
         // Going safe never changes the sound. It does end anything mid-flight that would
@@ -2323,6 +2389,9 @@ void MixController::setStripChannel (int strip, const ChannelParameters& c)
     if (! validStrip (kept, strip)) return;
     markMixChange ("a processing change");
     const StripParameters was = kept.strips[size_t (strip)];
+    if (! was.channel.replaceEnabled && c.replaceEnabled && strip < int (session.inputs.size()))
+        usage ({ "sample_replacement_on", { { "instrument", roleFamilyId (roleFamily (session.inputs[size_t (strip)].role)) },
+                                            { "by", "hand" } }, {} });
     kept.strips[size_t (strip)].channel = c;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].channel = c;
     recordStripTune (strip, "Inspector edit", was, kept.strips[size_t (strip)]);

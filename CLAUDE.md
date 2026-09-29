@@ -156,6 +156,7 @@ tests/                      engine + integration tests, benchmark, reference ren
 | The v3 design: the Figma file, every frame, and where each one landed | `docs/DESIGN-V3.md` |
 | The desktop design, macro pads, themes, tutorial, frame budget | `docs/DLIVE-DESIGN.md`, `docs/THEMES.md` |
 | RealtimeSanitizer: wiring, findings, suppressions | `docs/REALTIME-SANITIZER.md` |
+| Usage events, stability reports, milestones: every event and the question it answers | `docs/ANALYTICS.md` |
 | Drum sample replacement: the scope and what was built | `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md` |
 | Milestone reports and the QA notes | `docs/MILESTONE-1..7.md`, `docs/QA-*.md` |
 

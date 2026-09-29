@@ -761,7 +761,22 @@ public:
 
     std::function<void (const std::string&)> onMessage;   // one-line notices for a toast
 
+    // What happened, for the usage events (app/native/Telemetry, docs/ANALYTICS.md): a fixed
+    // event name and a few fixed-vocabulary fields - a scope, an instrument, a count - never a
+    // channel name, a sentence, a chat request or a file. Message thread, like every call here.
+    struct UsageEvent
+    {
+        std::string name;
+        std::vector<std::pair<std::string, std::string>> words;
+        std::vector<std::pair<std::string, double>> numbers;
+    };
+    std::function<void (const UsageEvent&)> onUsage;
+
 private:
+    void usage (UsageEvent e) const { if (onUsage) onUsage (e); }
+    // The scope of the listen or proposal in hand, in the usage events' words, with the
+    // instrument or group it was about added to `e`.
+    void addTuneScope (UsageEvent& e) const;
     void publish();
     MixParameters compose() const;
     // -1, -1, {} = the whole mix. Exactly one of the three is ever set.
@@ -866,7 +881,7 @@ private:
     bool liveVerifying = false;
     void pollTuneLive();
     void applyLiveProposal();
-    void endTuneLive (const std::string& message, bool keepProposal);
+    void endTuneLive (const std::string& message, bool keepProposal, const char* outcome);   // outcome: the usage word
     Stage restingStage() const noexcept { return mixed ? Stage::Mixed : Stage::Ready; }
 };
 

@@ -63,6 +63,8 @@ public:
     juce::int64 getFramesWritten() const noexcept { return frames.load (std::memory_order_relaxed); }
     // Non-empty once a write failed (a full or too-slow disk). Recording should be stopped and the user told.
     juce::String getError() const;
+    // The same, as a fixed word for the stability events: "buffer_too_large", "disk_too_slow" or "".
+    const char* getErrorCode() const noexcept;
 
     // How fast a take fills the disk, and how long the volume would last at that rate.
     // Message thread only (getBytesFreeOnVolume is a syscall): the UI polls it a few times

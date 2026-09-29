@@ -2226,3 +2226,49 @@ TEST_CASE ("MixController: Autopilot holds the mix it was given, and hands a fad
     c.setBypass (false);
     c.setAutopilot (false);
 }
+
+TEST_CASE ("MixController: a tune says what it was about in fixed words, and never with a channel's name")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    std::vector<MixController::UsageEvent> seen;
+    c.onUsage = [&seen] (const MixController::UsageEvent& e) { seen.push_back (e); };
+    const auto word = [] (const MixController::UsageEvent& e, const std::string& k)
+    {
+        for (const auto& [key, v] : e.words) if (key == k) return v;
+        return std::string();
+    };
+
+    c.startTuneChannel (1, { 2.0f, -200.0f, 0.0f });       // the bass
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    REQUIRE (! seen.empty());
+    const auto result = seen.back();
+    CHECK (result.name == "tune_result");
+    CHECK (word (result, "scope") == "channel");
+    CHECK (word (result, "family") == "bass");
+    CHECK (word (result, "kind") == "bass");
+    CHECK (word (result, "outcome") == "proposal");
+    c.keepPlan();
+    CHECK (seen.back().name == "tune_decision");
+    CHECK (word (seen.back(), "decision") == "kept");
+
+    c.startTuneBus (MixBus::Drums, { 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    CHECK (word (seen.back(), "scope") == "group");
+    CHECK (word (seen.back(), "group") == "DRUMS");
+    c.revertPlan();
+    CHECK (word (seen.back(), "decision") == "reverted");
+
+    c.keepScene (0);
+    CHECK (seen.back().name == "preset_saved");
+    CHECK (word (seen.back(), "kind") == "scene");
+
+    // Nothing the user named ever rides along.
+    for (const auto& e : seen)
+        for (const auto& [k, v] : e.words)
+            for (const auto& input : band().inputs) CHECK (v != input.name);
+}

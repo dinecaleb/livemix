@@ -2,6 +2,7 @@
 #include "native/InputMapStore.h"
 #include "native/MultitrackImport.h"
 #include "native/OpenAiMixProvider.h"
+#include "native/Telemetry.h"
 
 namespace livemix
 {
@@ -909,6 +910,9 @@ public:
                 m.addItem (701, "Getting started");
                 m.addItem (702, "Show the guides again");
                 m.addSeparator();
+                // docs/ANALYTICS.md: what is sent, and what never is.
+                if (auto* t = Telemetry::instance(); t != nullptr && t->isConfigured())
+                    m.addItem (703, "Share anonymous usage data", true, t->isSharing());
                 m.addItem (700, "About DLIVE");
                 break;
         }
@@ -1278,6 +1282,7 @@ void MainView::showPage (Page p)
     // Leaving the routing workspace locks it again: a confirmation is for one visit.
     if (isRoutingPage (page) && ! isRoutingPage (p)) routingPage->resetConfirmation();
 
+    if (p == Page::Live && page != Page::Live) trackEvent ("live_view_opened", { { "audio_running", services.isAudioRunning() } });
     page = p;
     sessionsPage->setVisible (p == Page::Sessions);
     favouritesPage->setVisible (p == Page::Favourites);
@@ -1872,8 +1877,11 @@ void MainView::saveInputMapping()
                                                services.numInputChannels(), true);
         map.note = note;
         if (InputMapStore::save (map))
+        {
+            trackEvent ("preset_saved", { { "kind", "input_map" }, { "inputs", int (map.inputs.size()) } });
             showToast ("Patch saved as \"" + name + "\": " + juce::String (map.inputs.size()) + " inputs across "
                        + juce::String (map.channelsNeeded()) + " channels.");
+        }
         else
             showToast ("That mapping could not be saved.");
     }), false);
@@ -1993,6 +2001,7 @@ void MainView::applyInputMapping (const juce::File& file)
     if (liveSafeBlocks ("changing the routing")) return;
     InputMap map;
     if (! InputMapStore::load (file, map)) { showToast ("That mapping could not be read."); return; }
+    trackEvent ("preset_applied", { { "kind", "input_map" } });
 
     const auto result = InputMapStore::apply (map, controller.getSession(), services.numInputChannels(),
                                               services.currentInputDevice(), map.hasSound);
@@ -2264,6 +2273,15 @@ void MainView::handleCommand (int id)
             resized();
             repaint();
             showToast ("Every workspace will explain itself once more.");
+            break;
+        case 703:
+            if (auto* t = Telemetry::instance())
+            {
+                t->setSharing (! t->isSharing());
+                showToast (t->isSharing() ? "DLIVE will share anonymous usage data: which features are used and what went "
+                                            "wrong. Never audio, names, files or anything you type."
+                                          : "Nothing more will be shared. Milestones still work; they live on this Mac.");
+            }
             break;
         case 700:
             showToast ("DLIVE - the live recording and broadcast DAW. Connect. Record. Mix. Tune. Broadcast.");

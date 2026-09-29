@@ -17,6 +17,8 @@
 #include "native/DevicePlan.h"
 #include "native/MicPermission.h"
 #include "native/MonitorDevice.h"
+#include "native/Telemetry.h"
+#include "native/UsageIds.h"
 #include "ui/MainView.h"
 #include <optional>
 
@@ -25,6 +27,15 @@ using namespace livemix;
 #if JUCE_MAC
 // app/native/WindowChrome.mm: the three macOS window buttons, put inside DLIVE's own toolbar.
 namespace livemix { void putWindowButtonsInTheToolbar (juce::Component&); }
+#endif
+
+// The Supabase project the usage events go to, from the build (-DDLIVE_SUPABASE_URL=...) or,
+// for a developer, the environment. Neither set: nothing leaves the Mac. docs/ANALYTICS.md.
+#ifndef DLIVE_SUPABASE_URL
+ #define DLIVE_SUPABASE_URL ""
+#endif
+#ifndef DLIVE_SUPABASE_ANON_KEY
+ #define DLIVE_SUPABASE_ANON_KEY ""
 #endif
 
 namespace
@@ -60,7 +71,11 @@ namespace
             samples->setSessionFolder (dawEngine.getProject().folder);
             juce::String problem;
             const auto name = samples->importSound (family, file, problem);
-            if (name.isEmpty()) return problem;
+            if (name.isEmpty())
+            {
+                trackError ("samples", "import_failed", true, { { "instrument", roleFamilyId (family) } });
+                return problem;
+            }
             controller.setSampleBanks (samples->table());
             touchSession();
             return "\"" + name + "\" is in this session's sounds"
@@ -211,6 +226,7 @@ namespace
             SessionState fresh;
             fresh.session.name = "Untitled";
             applySession (fresh, controller, dawEngine);
+            trackEvent ("session_created");
             panelWidth = 0;
             dawEngine.locate (0);
             if (host.isOpen()) host.reconfigure();
@@ -238,7 +254,7 @@ namespace
             // Anything the autosave still owes goes first, so the document is never written
             // from behind an autosave that is about to land on top of it.
             autosave.flush();
-            writeDocument (documentFileOrDefault());
+            if (! writeDocument (documentFileOrDefault())) trackError ("session", "save_failed", false);
         }
 
         juce::String saveSessionAs (const juce::String& name) override
@@ -255,14 +271,22 @@ namespace
                         if (! juce::File::isAbsolutePath (clip.file))
                             clip.file = oldFolder.getChildFile ("Audio Files").getChildFile (clip.file).getFullPathName();
             dawEngine.getProject().folder = file.getParentDirectory();
-            if (! writeDocument (file)) return "Could not save the session.";
+            if (! writeDocument (file))
+            {
+                trackError ("session", "save_failed", false, { { "save_as", true } });
+                return "Could not save the session.";
+            }
             return {};
         }
 
         juce::String loadSession (const juce::File& file) override
         {
             SessionState state;
-            if (! SessionStore::load (file, state)) return "That file is not a DLIVE session.";
+            if (! SessionStore::load (file, state))
+            {
+                trackError ("session", "load_failed", true);
+                return "That file is not a DLIVE session.";
+            }
             openState (state);
             lastSessionPointer().replaceWithText (file.getFullPathName());
             return {};
@@ -272,7 +296,7 @@ namespace
         // drum sounds resolved by name, then whatever devices this Mac has. In that order,
         // because the session is the document and the device is a preference - which is why it
         // opens at all with the console unplugged, and why saving it then cannot lose anything.
-        void openState (const SessionState& state)
+        void openState (const SessionState& state, const char* source = "user")
         {
             // Whatever was open is closed cleanly first: its marker and its autosave go, so a
             // session that was left properly is never offered back as unsaved work.
@@ -292,10 +316,19 @@ namespace
             // whole point of a recording is to be able to open it somewhere else.
             const auto err = openDevicesFor (state);
             restoreSolo (state, err);
+            int takes = 0;
             for (const auto& take : dawEngine.recoverUnfinishedTakes())
+            {
                 recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + take.note;
+                ++takes;
+            }
             dawEngine.locate (0);
             autosave.open (documentFileOrDefault());
+            trackEvent ("session_opened", { { "source", source },
+                                            { "inputs", int (state.session.inputs.size()) },
+                                            { "tracks", int (dawEngine.getProject().tracks.size()) },
+                                            { "takes_repaired", takes },
+                                            { "device_fallback", err.isNotEmpty() } });
         }
 
         // Opens the devices a session asks for, or the nearest thing this Mac has (DevicePlan.h),
@@ -637,6 +670,22 @@ public:
 
     void initialise (const juce::String&) override
     {
+        // First, so a run that ends badly from here on is one the next launch can report.
+        {
+            Telemetry::Config tc;
+            const auto env = [] (const char* name, const char* fallback)
+            {
+                const auto v = juce::SystemStats::getEnvironmentVariable (name, {});
+                return v.isNotEmpty() ? v : juce::String (fallback);
+            };
+            tc.url = env ("DLIVE_SUPABASE_URL", DLIVE_SUPABASE_URL);
+            tc.anonKey = env ("DLIVE_SUPABASE_ANON_KEY", DLIVE_SUPABASE_ANON_KEY);
+            tc.folder = lastSessionPointer().getParentDirectory();
+            tc.appVersion = getApplicationVersion();
+            telemetry = std::make_unique<Telemetry> (std::move (tc));
+            telemetry->start();
+        }
+
         controller = std::make_unique<MixController>();
         // The drum sounds, decoded once. The library outlives the controller (declared before
         // it), so the engine never reads a bank that has gone.
@@ -653,7 +702,10 @@ public:
         const juce::File lastDocument = pointer.existsAsFile() ? juce::File (pointer.loadFileAsString().trim()) : juce::File();
         const bool restored = lastDocument != juce::File() && SessionStore::load (lastDocument, state);
 
+        if (lastDocument != juce::File() && ! restored) trackError ("session", "restore_failed", true);
+
         window = std::make_unique<MainWindow> (getApplicationName(), *controller, *services);
+        wireTelemetry();
 
         // HOT-PLUG. A console pulled out in the middle of a service is a sentence, not silence:
         // AudioHost notices, says so, and opens it again by itself the moment it comes back -
@@ -685,7 +737,7 @@ public:
         {
             // Exactly the same path as opening it from the library, so there is one way a
             // session comes back: the document first, then whatever devices this Mac has.
-            services->openState (state);
+            services->openState (state, "launch");
             window->view().showPage (controller->getSession().inputs.empty() ? MainView::Page::Assign
                                                                              : MainView::Page::Tracks);
             const auto note = services->takeRecoveryNote();
@@ -696,7 +748,89 @@ public:
         // does not. Asked once, after the window is up, in the words of what was lost rather
         // than in the words of what went wrong.
         if (const auto found = SessionAutosave::check (lastDocument); found.offer)
+        {
+            trackEvent ("recovery_offered", { { "after_crash", telemetry->previousRunEndedBadly() } });
             juce::MessageManager::callAsync ([this, found, lastDocument] { offerRecovery (found, lastDocument); });
+        }
+    }
+
+    // What the usage events and the stability reports read, and the one thing they say back:
+    // a milestone, as a toast, the moment it is earned. docs/ANALYTICS.md.
+    void wireTelemetry()
+    {
+        controller->onUsage = [] (const MixController::UsageEvent& e)
+        {
+            juce::NamedValueSet p;
+            for (const auto& [k, v] : e.words)
+                p.set (juce::Identifier (k), v == "true" ? juce::var (true) : v == "false" ? juce::var (false) : juce::var (juce::String (v)));
+            for (const auto& [k, v] : e.numbers)
+                p.set (juce::Identifier (k), v == std::floor (v) && std::abs (v) < 1.0e9 ? juce::var (int (v)) : juce::var (v));
+            trackEvent (e.name, p);
+        };
+        telemetry->onMilestone = [this] (const Telemetry::Milestone& m)
+        {
+            if (window != nullptr) window->view().showToast ("Milestone: " + juce::String (m.title) + ". " + m.sentence);
+        };
+        telemetry->probe = [this]
+        {
+            Telemetry::Probe p;
+            if (host == nullptr || controller == nullptr || dawEngine == nullptr) return p;
+            p.audioRunning = host->isOpen();
+            p.deviceStopped = host->deviceStoppedUnexpectedly();
+            p.sampleRate = host->getSampleRate();
+            p.bufferSize = host->getBufferSize();
+            p.xruns = host->getXRunCount();
+            p.cpu = p.audioRunning ? host->getDeviceManager().getCpuUsage() : -1.0;
+            p.deviceInputs = host->getNumInputChannels();
+            p.deviceOutputs = host->getNumOutputChannels();
+            p.inputs = int (controller->getSession().inputs.size());
+            p.tracks = int (dawEngine->getProject().tracks.size());
+            // What kind of device, from CoreAudio's transport type, looked up once per device.
+            // The model is only kept for hardware whose name the maker gave it: an aggregate or
+            // a pair of headphones is often called after its owner.
+            const auto device = host->state();
+            const auto name = device.input.isNotEmpty() ? device.input : device.output;
+            if (name != probedDevice)
+            {
+                probedDevice = name;
+                probedKind.clear();
+                probedModel.clear();
+                if (name.isNotEmpty() && MonitorDevice::available())
+                {
+                    const auto d = MonitorDevice::findDevice (name);
+                    using Kind = MonitorDevice::Device::Kind;
+                    probedKind = d.uid.isEmpty() ? "unknown"
+                               : d.isAggregate ? "aggregate"
+                               : d.kind == Kind::Interface ? "interface"
+                               : d.kind == Kind::BuiltIn ? "builtin"
+                               : d.kind == Kind::Bluetooth ? "bluetooth"
+                               : d.kind == Kind::Display ? "display" : "virtual";
+                    if (probedKind == "interface" || probedKind == "builtin") probedModel = name;
+                }
+            }
+            p.deviceKind = probedKind;
+            p.deviceModel = probedModel;
+            p.recording = dawEngine->isRecording();
+            p.armed = dawEngine->getProject().numArmed();
+            p.recordingSeconds = p.recording ? dawEngine->getRecordingSeconds() : 0.0;
+            p.recordError = dawEngine->getRecorder().getErrorCode();
+            const auto stage = controller->getStage();
+            p.activity = p.recording ? "recording"
+                       : controller->isTuningLive() ? "tune_live"
+                       : stage == MixController::Stage::Listening || stage == MixController::Stage::Planning ? "tuning"
+                       : controller->isAutopilotOn() ? "autopilot"
+                       : p.audioRunning ? "mixing" : "idle";
+            return p;
+        };
+    }
+
+    // An exception the message loop caught and carried on from. The type and where, never
+    // what(): its words can be anything, a file name included.
+    void unhandledException (const std::exception* e, const juce::String& sourceFile, int line) override
+    {
+        trackError ("app", "unhandled_exception", true,
+                    { { "type", e != nullptr ? juce::String (typeid (*e).name()) : juce::String ("unknown") },
+                      { "where", sourceFile.fromLastOccurrenceOf ("/", false, false) + ":" + juce::String (line) } });
     }
 
     // Recover / Open last saved / Keep both. Nothing is deleted by any of the three: "keep
@@ -736,28 +870,39 @@ public:
         auto* view = &window->view();
         auto* srv = services.get();
 
-        offer.onOpenSaved = [document] { SessionAutosave::discard (document); };
-        offer.onRecover = [this, view, srv, autosave, document, when]
+        const bool afterCrash = telemetry != nullptr && telemetry->previousRunEndedBadly();
+        offer.onOpenSaved = [document, afterCrash]
+        {
+            trackEvent ("session_recovery", { { "choice", "open_saved" }, { "ok", true }, { "after_crash", afterCrash } });
+            SessionAutosave::discard (document);
+        };
+        offer.onRecover = [this, view, srv, autosave, document, when, afterCrash]
         {
             SessionState recovered;
-            if (! SessionStore::load (autosave, recovered))
+            const bool ok = SessionStore::load (autosave, recovered);
+            trackEvent ("session_recovery", { { "choice", "recover" }, { "ok", ok }, { "after_crash", afterCrash } });
+            if (! ok)
             {
+                trackError ("session", "autosave_unreadable", false);
                 view->showToast ("That autosave could not be read, so the session on disk is the one you have.");
                 SessionAutosave::discard (document);
                 return;
             }
             SessionAutosave::discard (document);
-            srv->openState (recovered);
+            srv->openState (recovered, "recovery");
             srv->saveSession();                  // the recovery is committed, not left in a sidecar
             view->sessionReplaced();
             view->showToast ("Recovered. The work from " + when.toString (false, true, false, true)
                              + " is back, and the session has been saved.");
         };
-        offer.onKeepBoth = [this, view, srv, autosave, document]
+        offer.onKeepBoth = [this, view, srv, autosave, document, afterCrash]
         {
             SessionState recovered;
-            if (! SessionStore::load (autosave, recovered))
+            const bool ok = SessionStore::load (autosave, recovered);
+            trackEvent ("session_recovery", { { "choice", "keep_both" }, { "ok", ok }, { "after_crash", afterCrash } });
+            if (! ok)
             {
+                trackError ("session", "autosave_unreadable", false);
                 view->showToast ("That autosave could not be read, so the session on disk is the one you have.");
                 SessionAutosave::discard (document);
                 return;
@@ -767,7 +912,7 @@ public:
             // was saved, and the takes stay where they are (saveSessionAs makes their clips
             // absolute for exactly this).
             const auto name = juce::String (recovered.session.name) + " (recovered)";
-            srv->openState (recovered);
+            srv->openState (recovered, "recovery");
             const auto err = srv->saveSessionAs (name);
             view->sessionReplaced();
             view->showToast (err.isEmpty()
@@ -784,11 +929,14 @@ public:
         // it. One that is still there on the next launch is how DLIVE knows it was killed.
         if (services != nullptr && controller != nullptr && ! controller->getSession().inputs.empty()) services->saveSession();
         if (services != nullptr) services->autosaveWriter().closeCleanly();
+        if (telemetry != nullptr) telemetry->end();
+        if (controller != nullptr) controller->onUsage = nullptr;
         window.reset();
         host.reset();
         services.reset();
         dawEngine.reset();
         controller.reset();
+        telemetry.reset();
     }
 
     // Quitting mid-take would end the service's recording without a word. The take is
@@ -812,6 +960,8 @@ public:
     }
 
 private:
+    std::unique_ptr<Telemetry> telemetry;        // first in, last out: it sees the whole run
+    juce::String probedDevice, probedKind, probedModel;
     std::unique_ptr<SampleLibrary> samples;      // before the controller: destroyed after it
     std::unique_ptr<MixController> controller;
     std::unique_ptr<DawEngine> dawEngine;
