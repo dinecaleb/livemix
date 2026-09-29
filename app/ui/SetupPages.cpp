@@ -1061,7 +1061,7 @@ public:
         auto meter = r.removeFromRight (kSignalW).withSizeKeepingCentre (kSignalW, 4);
         Dine::fillMeter (g, meter.toFloat(), DineMeter::norm (db), false, ! e.assigned, 2.0f);
         r.removeFromRight (kGap);
-        r.removeFromRight (kPairW + kGap);
+        r.removeFromRight (pairWidth() + kGap);
 
         // the group, in its colour, with a lamp before it
         auto busCell = r.removeFromRight (kBusW);
@@ -1084,6 +1084,18 @@ public:
         }
     }
 
+    // What it is, and what group it lands in, are read together - so the source popup takes the
+    // whole run between the name and the group rather than stopping at a fixed width and
+    // leaving a hand's width of nothing in the middle of the row.
+    int pairWidth() const { return juce::jmax (kPairW, link.idealWidth()); }
+
+    int sourceWidth() const
+    {
+        auto r = getLocalBounds().reduced (10, 0);
+        const int taken = kNumW + kNameW + 22 + (kGap - 6) + kBusW + pairWidth() + kSignalW + 3 * kGap;
+        return juce::jmax (120, r.getWidth() - taken);
+    }
+
     void resized() override
     {
         auto r = getLocalBounds().withTrimmedBottom (1).reduced (10, 0);
@@ -1091,13 +1103,14 @@ public:
         name.setBounds (r.removeFromLeft (kNameW).withSizeKeepingCentre (kNameW, 30));
         suggest.setBounds (r.removeFromLeft (22).withSizeKeepingCentre (20, 20));
         r.removeFromLeft (kGap - 6);
-        source.setBounds (r.removeFromLeft (juce::jmin (kSourceW, juce::jmax (100, r.getWidth() - kBusW - kPairW - kSignalW - 3 * kGap)))
-                              .withSizeKeepingCentre (juce::jmin (kSourceW, juce::jmax (100, r.getWidth() - kBusW - kPairW - kSignalW - 3 * kGap)), 30));
+        const int sw = sourceWidth();
+        source.setBounds (r.removeFromLeft (sw).withSizeKeepingCentre (sw, 30));
         r.removeFromRight (kSignalW + kGap);
-        link.setBounds (r.removeFromRight (kPairW).withSizeKeepingCentre (kPairW, 20));
+        const int pw = pairWidth();
+        link.setBounds (r.removeFromRight (pw).withSizeKeepingCentre (pw, 20));
     }
 
-    static constexpr int kNumW = 52, kGap = 20, kNameW = 200, kSignalW = 200, kSourceW = 210, kPairW = 56, kBusW = 140;
+    static constexpr int kNumW = 52, kGap = 20, kNameW = 200, kSignalW = 200, kPairW = 56, kBusW = 140;
 
     AssignPage& page;
     int input;

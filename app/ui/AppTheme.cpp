@@ -1399,6 +1399,12 @@ DineSwitch::DineSwitch (const juce::String& on, const juce::String& off) : juce:
     setWantsKeyboardFocus (false);
 }
 
+int DineSwitch::idealWidth() const
+{
+    const auto font = Dine::text (11.5f);
+    return 28 + 7 + juce::jmax (Dine::textWidth (font, onText), Dine::textWidth (font, offText)) + 2;
+}
+
 void DineSwitch::paintButton (juce::Graphics& g, bool over, bool)
 {
     const bool on = getToggleState();

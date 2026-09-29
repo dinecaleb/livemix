@@ -485,6 +485,9 @@ class DineSwitch : public juce::Button
 {
 public:
     explicit DineSwitch (const juce::String& onText, const juce::String& offText);
+    // The track, the gap and the longer of the two words: a switch whose word is cut off is a
+    // switch nobody can read, and the word grows with Text size while the track does not.
+    int idealWidth() const;
     void paintButton (juce::Graphics&, bool over, bool down) override;
 
 private:

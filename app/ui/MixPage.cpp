@@ -52,15 +52,18 @@ namespace
 }
 
 // ------------------------------------------------------------------ GroupTile
-// One group bus: its name in its colour, a fader and a meter side by side, and its level.
-// A group, as the design lays it out (`05 - Tune`, 71:12025): a bar in the group's colour, the
-// name with what its fader is set to under it, one horizontal fader with the group's meter
-// behind it, and the M and S keys at the right. A row, not a tile: seven of them read down the
-// page as a list of relationships, which is what a mix is.
+// ONE GROUP, AS A COLUMN.
+//
+// A group is a fader, and a fader stands up. TUNE used to draw its seven groups as horizontal
+// rows, which reads as a list of settings; LIVE has always drawn them as columns, which reads
+// as a console - and the two workspaces are looking at exactly the same faders. So they are
+// the same shape in both: the group's colour across the top, its name and what it is set to,
+// a standing fader with its meter beside it, TUNE for this group alone, and M and S along the
+// foot. Nothing about the sound changed with the shape.
 class MixPage::GroupTile : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    static constexpr int height = 48;
+    static constexpr int width = 140, height = 246;
 
     GroupTile (MixController& c, int index)
         : controller (c), group (index),
@@ -71,15 +74,13 @@ public:
                         + " alone: its channels and its group chain. Nothing else in the mix, and not the master, moves.");
         addAndMakeVisible (meter);
         addAndMakeVisible (fader);
-        fader.setSliderStyle (juce::Slider::LinearHorizontal);
+        fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
         Dine::dragOnly (fader);
         fader.setRange (-60.0, 12.0, 0.1);
         fader.setSkewFactorFromMidPoint (-12.0);
         fader.setDoubleClickReturnValue (true, 0.0);
-        // One bar, the way the design draws it: the meter behind, the fader's thumb on top of
-        // it, so a group row says where it is set and what is actually coming out of it at once.
-        fader.getProperties().set ("dineOverlay", true);
+        fader.getProperties().set ("dineFader", true);
         fader.setTooltip (isFx() ? "Level for every effect return together. Double-click for 0.0 dB, which is what TUNE MIX set."
                                  : "Level for the whole group. Double-click for 0.0 dB.");
         fader.onValueChange = [this]
@@ -87,7 +88,7 @@ public:
             if (updating) return;
             if (isFx()) controller.setFxReturn (float (fader.getValue()));
             else        controller.setBusFader (groupBus (group), float (fader.getValue()));
-            repaint (readout);
+            repaint();
         };
 
         addAndMakeVisible (muteButton);
@@ -116,10 +117,10 @@ public:
         if (wasUsed != used) resized();
         meter.setLevels (peakDb, holdDb, clipped);
         meter.setMuted (isMuted || ! used);
-        if (std::fabs (faderDb - float (fader.getValue())) > 0.01f) { fader.setValue (faderDb, juce::dontSendNotification); repaint (readout); }
+        if (std::fabs (faderDb - float (fader.getValue())) > 0.01f) { fader.setValue (faderDb, juce::dontSendNotification); body = true; }
         fader.setEnabled (used);
         muteButton.setOn (isMuted);
-        if (! isFx()) soloButton.setOn (controller.getBase().buses[size_t (groupBus (group))].solo);
+        if (! isFx()) { const bool s = controller.getBase().buses[size_t (groupBus (group))].solo; if (s != soloed) { soloed = s; body = true; } soloButton.setOn (s); }
         updating = false;
         if (body) repaint();
     }
@@ -131,6 +132,11 @@ public:
 
     void mouseEnter (const juce::MouseEvent&) override { if (! verbRect.isEmpty()) repaint (verbRect); }
     void mouseExit  (const juce::MouseEvent&) override { if (! verbRect.isEmpty()) repaint (verbRect); }
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        setMouseCursor (canTune() && verbRect.contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor
+                                                                        : juce::MouseCursor::NormalCursor);
+    }
     void mouseUp (const juce::MouseEvent& e) override
     {
         if (e.mouseWasDraggedSinceMouseDown() || ! verbRect.contains (e.getPosition())) return;
@@ -140,55 +146,70 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds();
-        g.setColour (Dine::hair);
-        g.fillRect (r.removeFromBottom (1));
+        Dine::fillRounded (g, r.toFloat(), muted ? Dine::refuse : soloed ? Dine::soloGround : Dine::card, Dine::Radius::card);
+        {
+            juce::Graphics::ScopedSaveState clip (g);
+            juce::Path round; round.addRoundedRectangle (r.toFloat(), Dine::Radius::card);
+            g.reduceClipRegion (round);
+            g.setColour (used ? groupColour (group) : Dine::ink4);
+            g.fillRect (r.removeFromTop (3));
+        }
 
-        // the bar in the group's colour, down the left of the row
-        auto bar = r.removeFromLeft (3).withSizeKeepingCentre (3, 28);
-        g.setColour (used ? groupColour (group) : Dine::ink4);
-        g.fillRoundedRectangle (bar.toFloat(), 1.5f);
-
-        auto text = juce::Rectangle<int> (r.getX() + 13, r.getY(), kNameW, r.getHeight()).withSizeKeepingCentre (kNameW, 34);
-        g.setColour (! used ? Dine::ink4 : muted ? Dine::ink3 : Dine::ink);
-        g.setFont (Dine::text (13.0f, 600));
-        Dine::drawText (g, groupName (group), text.removeFromTop (18), juce::Justification::centredLeft, true);
-        g.setColour (! used ? Dine::ink4 : muted ? Dine::warn : Dine::ink3);
-        g.setFont (Dine::mono (11.0f, 500));
-        Dine::drawText (g, ! used ? "not in this mix" : muted ? "not heard" : dbText (float (fader.getValue())),
-                        text, juce::Justification::centredLeft, true);
-
+        auto inner = getLocalBounds().reduced (12, 12);
+        auto head = inner.removeFromTop (18);
+        // The lamp that says this group is being listened to, beside its name.
         if (heard != 0)
         {
             g.setColour (heard == 2 ? Dine::ok : Dine::warn);
-            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre ({ float (kNameW + 13 + 10), float (r.getCentreY()) }));
+            g.fillEllipse (head.removeFromRight (6).withSizeKeepingCentre (5, 5).toFloat());
+            head.removeFromRight (5);
         }
+        g.setColour (! used ? Dine::ink4 : muted ? Dine::ink3 : Dine::ink);
+        g.setFont (Dine::text (13.0f, 600));
+        // A column is narrow, and a group's name is the one thing on it that must be readable:
+        // it is squeezed a little before it is ever cut off.
+        Dine::drawFittedText (g, groupName (group), head, juce::Justification::centredLeft, 1, 0.78f);
+
+        auto sub = inner.removeFromTop (16);
+        g.setColour (! used ? Dine::ink4 : muted ? Dine::warn : soloed ? Dine::accent : Dine::ink3);
+        g.setFont (! used || muted ? Dine::caps (10.0f, 0.04f, 600) : Dine::mono (11.0f, 500));
+        Dine::drawText (g, ! used ? "NOT USED" : muted ? "NOT HEARD" : dbText (float (fader.getValue())),
+                    sub, juce::Justification::centredLeft, true);
 
         if (canTune())
         {
-            g.setColour (isMouseOver (true) ? Dine::accent : Dine::ink4);
-            g.setFont (Dine::caps (9.5f, 0.04f, 600));
+            const bool over = isMouseOver (true) && verbRect.contains (getMouseXYRelative());
+            Dine::fillRounded (g, verbRect.toFloat(), over ? Dine::controlHot : Dine::control, Dine::Radius::control);
+            g.setColour (over ? Dine::accent : Dine::ink3);
+            g.setFont (Dine::caps (10.0f, 0.06f, 600));
             Dine::drawText (g, "TUNE", verbRect, juce::Justification::centred);
         }
     }
 
     void resized() override
     {
-        auto r = getLocalBounds().withTrimmedBottom (1);
-        r.removeFromLeft (3 + 13 + kNameW + 18);
+        auto inner = getLocalBounds().reduced (12, 12);
+        inner.removeFromTop (18 + 16 + 10);
+        auto keys = inner.removeFromBottom (20);
+        inner.removeFromBottom (8);
+        // The verb's row is taken out of every tile, not only the ones that have one: eight
+        // faders that are the same length read as one console, and one that is longer because
+        // its group happens not to be tunable reads as a mistake.
+        auto verb = inner.removeFromBottom (20);
+        inner.removeFromBottom (10);
+        verbRect = canTune() ? verb : juce::Rectangle<int>();
 
-        auto keys = r.removeFromRight (2 * 30 + 4);
-        muteButton.setBounds (keys.removeFromLeft (30).withSizeKeepingCentre (29, 20));
-        keys.removeFromLeft (4);
-        soloButton.setBounds (keys.removeFromLeft (30).withSizeKeepingCentre (29, 20));
-        r.removeFromRight (14);
-        verbRect = canTune() ? r.removeFromRight (40) : juce::Rectangle<int>();
-        if (canTune()) r.removeFromRight (10);
+        // the throw: the fader standing, its meter beside it
+        const int faderW = 22, meterW = 6;
+        auto pair = inner.withSizeKeepingCentre (faderW + 10 + meterW, juce::jmax (40, inner.getHeight()));
+        fader.setBounds (pair.removeFromLeft (faderW));
+        pair.removeFromLeft (10);
+        meter.setBounds (pair);
 
-        meter.setBounds (r.withSizeKeepingCentre (r.getWidth(), 5));
-        fader.setBounds (r.withSizeKeepingCentre (r.getWidth(), 22));
+        const int each = soloButton.isVisible() ? (keys.getWidth() - 4) / 2 : keys.getWidth();
+        muteButton.setBounds (keys.removeFromLeft (each).withSizeKeepingCentre (each, 20));
+        if (soloButton.isVisible()) { keys.removeFromLeft (4); soloButton.setBounds (keys.withSizeKeepingCentre (each, 20)); }
     }
-
-    static constexpr int kNameW = 110;
 
 private:
     bool isFx() const noexcept { return group >= kGroupBuses; }
@@ -197,9 +218,9 @@ private:
 
     MixController& controller;
     int group;
-    bool used = false, muted = false, updating = false;
+    bool used = false, muted = false, soloed = false, updating = false;
     int heard = 0;
-    juce::Rectangle<int> readout, verbRect;
+    juce::Rectangle<int> verbRect;
     DineMeter meter { DineMeter::Style::Bar };
     juce::Slider fader;
     DineKey muteButton, soloButton;
@@ -2120,8 +2141,9 @@ MixPage::Layout MixPage::layout() const
     // rows first. What is spare goes to the pads (up to their 214) before the groups.
     // A heading is 20 and its gap 10; the master card is 66 under its own heading.
     const int fixed = (20 + 10) + 24 + (20 + 10 + kMasterCardH) + 26;
-    const int groupsFloor = 3 * GroupTile::height;
-    const int groupsWant = kGroupTiles * GroupTile::height;
+    // The groups are one row of columns now, so the block is one tile tall rather than nine.
+    const int groupsFloor = 168;
+    const int groupsWant = GroupTile::height;
     l.compact = main.getHeight() < fixed + MacroPad::heightFor (MacroPad::kMinPad, false) + groupsFloor;
     // The groups take what they need first - they are the mix - and the pads take the rest,
     // down to their floor. Nothing here may add up to more than the column: the ENERGY ribbon
@@ -2252,9 +2274,19 @@ void MixPage::resized()
 
     // The groups are rows, one under the next, the way the design reads them.
     {
-        auto groupRows = l.groups;
-        const int h = juce::jmin (GroupTile::height, juce::jmax (30, groupRows.getHeight() / kGroupTiles));
-        for (auto& t : groups) t->setBounds (groupRows.removeFromTop (h));
+        // One column per group, left to right in console order. They share the width, down to
+        // the width below which a fader stops being a fader - past that the row scrolls off
+        // rather than squeezing, and the window is too narrow for TUNE anyway.
+        auto groupRow = l.groups;
+        const int gap = 8;
+        const int w = juce::jmax (72, juce::jmin (GroupTile::width, (groupRow.getWidth() - gap * (kGroupTiles - 1)) / kGroupTiles));
+        const int block = w * kGroupTiles + gap * (kGroupTiles - 1);
+        groupRow = groupRow.withWidth (juce::jmin (groupRow.getWidth(), block));
+        for (auto& t : groups)
+        {
+            t->setBounds (groupRow.removeFromLeft (w));
+            groupRow.removeFromLeft (gap);
+        }
     }
 
     {

@@ -2543,6 +2543,19 @@ void MainView::paint (juce::Graphics& g)
     g.setColour (Dine::hair);
     g.fillRect (bar.removeFromBottom (1));
 
+    // THE PRODUCT'S NAME, once, where a Mac application puts it: after the window's own
+    // buttons and the sidebar switch, before the transport. It is a verb-weight wordmark in the
+    // caps face, and it is the only place the product says its own name on a workspace.
+    {
+        auto mark = juce::Rectangle<int> (kTrafficLights + 38, 0, kToolbarLeft - kTrafficLights - 54, Dine::Metric::toolbar);
+        if (mark.getWidth() >= 44)
+        {
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::caps (13.0f, 0.14f, 600));
+            Dine::drawText (g, "DLIVE", mark, juce::Justification::centredLeft, true);
+        }
+    }
+
     // The divider between TUNE LIVE MIX and the broadcast keys: 1 x 20, centred in the row.
     if (dividerX > 0)
     {
@@ -2587,7 +2600,10 @@ void MainView::resized()
 
     // The transport, and the solo pill beside it. They start at the workspace column's left
     // edge and give way rather than run under the cluster when the window is narrow.
-    auto left = bar.withX (sidebar != nullptr && sidebar->isVisible() ? sidebar->width() + 16 : kTrafficLights + 44)
+    // The transport lines up with the workspace column when there is room for it, and never
+    // before the wordmark: a sidebar folded to its 52 pt rail is narrower than the window's own
+    // buttons and the name beside them, and the well used to slide under both of them.
+    auto left = bar.withX (juce::jmax (kToolbarLeft, sidebar != nullptr && sidebar->isVisible() ? sidebar->width() + 16 : 0))
                    .withRight (juce::jmax (0, right.getRight() - 16));
     // What is soloed takes its room before the clock's second cell does: the session's length
     // is a convenience, and an S left down is the thing that ruins a service.

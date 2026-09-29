@@ -163,6 +163,9 @@ private:
     // What macOS draws at the left of the toolbar: three 12 pt buttons at 16 / 36 / 56, so the
     // first thing this window may put there starts at 86 (design: `Toolbar v3.4`).
     static constexpr int kTrafficLights = 86;
+    // Where the toolbar's own left cluster ends: the window buttons, the sidebar switch and the
+    // wordmark. Nothing else in the row may start before it, whatever the sidebar is doing.
+    static constexpr int kToolbarLeft   = 224;
     class SidebarButton;
     class MixerWindow;
     class StatusBar;
