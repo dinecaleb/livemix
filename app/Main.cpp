@@ -193,10 +193,17 @@ namespace
             MixBounce::Options options;
             options.from = job->from;
             options.to = job->to;
+            options.what = job->what == ExportWhat::GroupStems ? MixBounce::What::GroupStems
+                         : job->what == ExportWhat::RawMultitrack ? MixBounce::What::RawMultitrack
+                                                                  : MixBounce::What::StereoMix;
+            options.loudness = job->loudness == ExportLoudness::Stream14 ? MixBounce::Loudness::Stream14
+                             : job->loudness == ExportLoudness::Podcast16 ? MixBounce::Loudness::Podcast16
+                                                                          : MixBounce::Loudness::AsMixed;
             options.onProgress = std::move (progress);
-            return MixBounce::renderProject (job->session, job->params, job->project, dest,
-                                             format == ExportFormat::Mp3 ? MixBounce::Format::Mp3 : MixBounce::Format::Wav,
-                                             options);
+            const auto bounceFormat = format == ExportFormat::Mp3 ? MixBounce::Format::Mp3
+                                    : format == ExportFormat::Aiff ? MixBounce::Format::Aiff
+                                                                   : MixBounce::Format::Wav;
+            return MixBounce::renderProject (job->session, job->params, job->project, dest, bounceFormat, options);
         }
 
         void newSession() override

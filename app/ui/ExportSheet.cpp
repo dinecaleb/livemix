@@ -19,6 +19,37 @@ namespace
 
 ExportSheet::ExportSheet (MixController& c, AppServices& s) : controller (c), services (s)
 {
+    const char* whats[3] = { "Stereo mix", "Group stems", "Raw multitrack" };
+    for (int i = 0; i < 3; ++i)
+    {
+        whatTabs[size_t (i)] = std::make_unique<DineButton> (whats[i], DineButton::Style::Segment);
+        whatTabs[size_t (i)]->setFontPx (12.0f);
+        whatTabs[size_t (i)]->onClick = [this, i] { what = i; updateControls(); repaint(); };
+        whatTrack.addAndMakeVisible (*whatTabs[size_t (i)]);
+    }
+    whatTabs[0]->setTooltip ("One file: the kept mix, exactly as the room and the stream hear it.");
+    whatTabs[1]->setTooltip ("A folder: one stereo file per group, each at its fader, so the set of them is the mix "
+                             "in the parts you would re-balance it from.");
+    whatTabs[2]->setTooltip ("A folder: one file per input, straight off the disk. No trim, no chain, no fader - "
+                             "what the microphones heard, for somebody who wants to mix it themselves.");
+    addAndMakeVisible (whatTrack);
+
+    const juce::String louds[3] = { "As mixed", "Stream " + juce::String (Glyph::minus()) + "14",
+                                    "Podcast " + juce::String (Glyph::minus()) + "16" };
+    for (int i = 0; i < 3; ++i)
+    {
+        loudnessTabs[size_t (i)] = std::make_unique<DineButton> (louds[i], DineButton::Style::Segment);
+        loudnessTabs[size_t (i)]->setFontPx (12.0f);
+        loudnessTabs[size_t (i)]->onClick = [this, i] { loudness = i; updateControls(); repaint(); };
+        loudnessTrack.addAndMakeVisible (*loudnessTabs[size_t (i)]);
+    }
+    loudnessTabs[0]->setTooltip ("Where the mix already sits. It was built to the target Purpose and sound was given, "
+                                 "and it carries it.");
+    loudnessTabs[1]->setTooltip ("Measured, then one gain over the whole render so it lands at -14 LUFS. Nothing is "
+                                 "compressed or limited on the way out.");
+    loudnessTabs[2]->setTooltip ("The same, at -16 LUFS.");
+    addAndMakeVisible (loudnessTrack);
+
     const char* ranges[3] = { "Whole session", "Loop", "Between markers" };
     for (int i = 0; i < 3; ++i)
     {
@@ -27,8 +58,8 @@ ExportSheet::ExportSheet (MixController& c, AppServices& s) : controller (c), se
         rangeTabs[size_t (i)]->onClick = [this, i] { range = Range (i); updateControls(); repaint(); };
         rangeTrack.addAndMakeVisible (*rangeTabs[size_t (i)]);
     }
-    const char* formats[2] = { "WAV", "MP3 320" };
-    for (int i = 0; i < 2; ++i)
+    const char* formats[3] = { "WAV", "AIFF", "MP3 320" };
+    for (int i = 0; i < 3; ++i)
     {
         formatTabs[size_t (i)] = std::make_unique<DineButton> (formats[i], DineButton::Style::Segment);
         formatTabs[size_t (i)]->setFontPx (12.0f);
@@ -64,8 +95,23 @@ ExportSheet::ExportSheet (MixController& c, AppServices& s) : controller (c), se
     exportButton.setFontPx (12.5f);
     exportButton.onClick = [this]
     {
-        if (onExport) onExport (destination(), format == 1 ? AppServices::ExportFormat::Mp3 : AppServices::ExportFormat::Wav,
-                                fromSample(), toSample());
+        if (onExport)
+        {
+            Request req;
+            req.dest = destination();
+            req.format = format == 2 ? AppServices::ExportFormat::Mp3
+                       : format == 1 ? AppServices::ExportFormat::Aiff
+                                     : AppServices::ExportFormat::Wav;
+            req.what = what == 1 ? AppServices::ExportWhat::GroupStems
+                     : what == 2 ? AppServices::ExportWhat::RawMultitrack
+                                 : AppServices::ExportWhat::StereoMix;
+            req.loudness = loudness == 1 ? AppServices::ExportLoudness::Stream14
+                         : loudness == 2 ? AppServices::ExportLoudness::Podcast16
+                                         : AppServices::ExportLoudness::AsMixed;
+            req.from = fromSample();
+            req.to = toSample();
+            onExport (req);
+        }
         if (onClose) onClose();
     };
     addAndMakeVisible (exportButton);
@@ -89,10 +135,11 @@ bool ExportSheet::keyPressed (const juce::KeyPress& key)
 juce::Rectangle<int> ExportSheet::cardBounds() const
 {
     const int w = juce::jmin (kCardW, getWidth() - 60);
+    // What / Range / Format / Loudness, then Save to, then the estimate and the two buttons.
     const int h = kPadY + 28 + 2 + 18 + 22
-                + (kCapH + kCapGap + Dine::Metric::control + kRowGap) * 2
+                + (kCapH + kCapGap + Dine::Metric::control + kRowGap) * 4
                 + kCapH + kCapGap + 20 + kRowGap
-                + 18 + Dine::Metric::button + kPadY;
+                + 18 + 14 + Dine::Metric::button + kPadY;
     return juce::Rectangle<int> (w, juce::jmin (h, getHeight() - 40)).withCentre (getLocalBounds().getCentre());
 }
 
@@ -137,6 +184,20 @@ juce::String ExportSheet::rangeNote() const
     return "Everything that was recorded";
 }
 
+// What the export will actually leave on the disk, said before it is pressed: a file, or a
+// folder with a count of what goes in it.
+juce::String ExportSheet::whatNote() const
+{
+    if (what == 0) return {};
+    if (what == 2)
+        return juce::String (int (controller.getSession().inputs.size())) + " files, one per input";
+    int groups = 0;
+    if (controller.isPrepared())
+        for (int b = 0; b < int (MixBus::Master); ++b)
+            if (controller.getEngine().isBusUsed (MixBus (b))) ++groups;
+    return juce::String (groups) + (groups == 1 ? " file, one per group" : " files, one per group");
+}
+
 juce::File ExportSheet::destination() const
 {
     juce::String name = services.currentSessionName().isNotEmpty() ? services.currentSessionName() : "DLIVE mix";
@@ -150,13 +211,27 @@ juce::File ExportSheet::destination() const
             name = juce::String (sorted.front().name);
         }
     }
-    return folder.getChildFile (juce::File::createLegalFileName (name)).withFileExtension (format == 1 ? "mp3" : "wav");
+    // Stems and a multitrack are a folder named after this, made beside it; MixBounce does it.
+    const char* ext = format == 2 ? "mp3" : format == 1 ? "aiff" : "wav";
+    return folder.getChildFile (juce::File::createLegalFileName (name)).withFileExtension (ext);
 }
 
 void ExportSheet::updateControls()
 {
+    for (int i = 0; i < 3; ++i) whatTabs[size_t (i)]->setToggleState (what == i, juce::dontSendNotification);
     for (int i = 0; i < 3; ++i) rangeTabs[size_t (i)]->setToggleState (int (range) == i, juce::dontSendNotification);
-    for (int i = 0; i < 2; ++i) formatTabs[size_t (i)]->setToggleState (format == i, juce::dontSendNotification);
+    for (int i = 0; i < 3; ++i) formatTabs[size_t (i)]->setToggleState (format == i, juce::dontSendNotification);
+    for (int i = 0; i < 3; ++i) loudnessTabs[size_t (i)]->setToggleState (loudness == i, juce::dontSendNotification);
+
+    // A set of parts is written as audio, and its levels are left where the mix put them: MP3
+    // is a delivery format for a finished mix, and moving stems apart from each other would
+    // stop them being parts of the same thing.
+    formatTabs[2]->setEnabled (! writesFolder());
+    if (writesFolder() && format == 2) format = 0;
+    for (int i = 1; i < 3; ++i) loudnessTabs[size_t (i)]->setEnabled (! writesFolder());
+    if (writesFolder() && loudness != 0) loudness = 0;
+    for (int i = 0; i < 3; ++i) formatTabs[size_t (i)]->setToggleState (format == i, juce::dontSendNotification);
+    for (int i = 0; i < 3; ++i) loudnessTabs[size_t (i)]->setToggleState (loudness == i, juce::dontSendNotification);
 
     const auto& project = services.daw().getProject();
     rangeTabs[1]->setEnabled (project.loopEnd > project.loopStart);
@@ -195,19 +270,28 @@ void ExportSheet::paint (juce::Graphics& g)
         Dine::drawText (g, text, r.removeFromTop (kCapH), juce::Justification::centredLeft, true);
         r.removeFromTop (kCapGap);
     };
-
-    caption ("Range");
+    // The note beside a segment row: what the answer above means, in a sentence.
+    auto note = [&g, &r] (const juce::Component& track, const juce::String& text)
     {
         auto row = r.removeFromTop (Dine::Metric::control);
-        row.removeFromLeft (rangeTrack.getWidth() + 16);
+        row.removeFromLeft (track.getWidth() + 16);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.0f, 500));
-        Dine::drawText (g, rangeNote(), row, juce::Justification::centredLeft, true);
+        Dine::drawText (g, text, row, juce::Justification::centredLeft, true);
         r.removeFromTop (kRowGap);
-    }
+    };
+
+    caption ("What");
+    note (whatTrack, whatNote());
+
+    caption ("Range");
+    note (rangeTrack, rangeNote());
 
     caption ("Format");
     r.removeFromTop (Dine::Metric::control + kRowGap);
+
+    caption ("Loudness");
+    note (loudnessTrack, writesFolder() ? "Parts keep the levels the mix gave them" : juce::String());
 
     caption ("Save to");
     {
@@ -227,13 +311,34 @@ void ExportSheet::paint (juce::Graphics& g)
         const auto length = toSample() > fromSample() ? toSample() - fromSample()
                                                       : juce::jmax ((juce::int64) 0, project.lengthSamples() - fromSample());
         const double seconds = double (length) / rate;
+        // Stems and a multitrack write N files from the same walk, so they take about N times
+        // as long to put on the disk; the loudness choice adds a second pass over the render.
+        int files = 1;
+        if (what == 2) files = juce::jmax (1, int (controller.getSession().inputs.size()));
+        else if (what == 1)
+        {
+            files = 0;
+            if (controller.isPrepared())
+                for (int b = 0; b < int (MixBus::Master); ++b)
+                    if (controller.getEngine().isBusUsed (MixBus (b))) ++files;
+            files = juce::jmax (1, files);
+        }
+        const double per = seconds / 12.0;
+        const int estimate = juce::jmax (1, int (std::ceil (per * (0.35 + 0.65 * files) * (loudness != 0 ? 1.4 : 1.0))));
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.0f));
         Dine::drawText (g, length <= 0 ? juce::String ("There is nothing recorded in that range.")
                                        : clock (seconds) + " of audio  " + Glyph::dot() + "  about "
-                                             + juce::String (juce::jmax (1, int (std::ceil (seconds / 12.0))))
-                                             + (juce::jmax (1, int (std::ceil (seconds / 12.0))) == 1 ? " second" : " seconds"),
+                                             + juce::String (estimate) + (estimate == 1 ? " second" : " seconds"),
                         r.removeFromTop (18), juce::Justification::centredLeft, true);
+        // A folder is a different thing from a file, and it is worth saying before it is made.
+        if (writesFolder() && length > 0)
+        {
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::text (11.5f));
+            Dine::drawText (g, "A folder is made beside the name above, with the files inside it.",
+                            r.removeFromTop (14), juce::Justification::centredLeft, true);
+        }
     }
 }
 
@@ -243,27 +348,23 @@ void ExportSheet::resized()
     auto r = card.reduced (kPadX, kPadY);
     r.removeFromTop (28 + 2 + 18 + 22);
 
-    r.removeFromTop (kCapH + kCapGap);
+    // One segment row: its track sized to the segments, the rest of the line left for a note.
+    auto segments = [&r] (DineSegmentRow& track, std::array<std::unique_ptr<DineButton>, 3>& tabs, int least)
     {
+        r.removeFromTop (kCapH + kCapGap);
         auto row = r.removeFromTop (Dine::Metric::control);
         int total = 0, widths[3] {};
-        for (int i = 0; i < 3; ++i) { widths[i] = juce::jmax (104, rangeTabs[size_t (i)]->idealWidth()); total += widths[i]; }
-        rangeTrack.setBounds (row.removeFromLeft (total + 4).expanded (0, 2));
-        auto track = rangeTrack.getLocalBounds().reduced (2, 2);
-        for (int i = 0; i < 3; ++i) rangeTabs[size_t (i)]->setBounds (track.removeFromLeft (widths[i]));
+        for (int i = 0; i < 3; ++i) { widths[i] = juce::jmax (least, tabs[size_t (i)]->idealWidth()); total += widths[i]; }
+        track.setBounds (row.removeFromLeft (juce::jmin (row.getWidth(), total + 4)).expanded (0, 2));
+        auto inner = track.getLocalBounds().reduced (2, 2);
+        for (int i = 0; i < 3; ++i) tabs[size_t (i)]->setBounds (inner.removeFromLeft (widths[i]));
         r.removeFromTop (kRowGap);
-    }
+    };
 
-    r.removeFromTop (kCapH + kCapGap);
-    {
-        auto row = r.removeFromTop (Dine::Metric::control);
-        int total = 0, widths[2] {};
-        for (int i = 0; i < 2; ++i) { widths[i] = juce::jmax (80, formatTabs[size_t (i)]->idealWidth()); total += widths[i]; }
-        formatTrack.setBounds (row.removeFromLeft (total + 4).expanded (0, 2));
-        auto track = formatTrack.getLocalBounds().reduced (2, 2);
-        for (int i = 0; i < 2; ++i) formatTabs[size_t (i)]->setBounds (track.removeFromLeft (widths[i]));
-        r.removeFromTop (kRowGap);
-    }
+    segments (whatTrack, whatTabs, 96);
+    segments (rangeTrack, rangeTabs, 104);
+    segments (formatTrack, formatTabs, 72);
+    segments (loudnessTrack, loudnessTabs, 84);
 
     r.removeFromTop (kCapH + kCapGap);
     {

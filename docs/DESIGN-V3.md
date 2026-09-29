@@ -202,12 +202,10 @@ places the brief and the product's own rules met.
 
 ### The gaps: what the design draws that DLIVE does not do yet
 
-- **EXPORT's Group stems and Raw multitrack, and its loudness choice.** DLIVE bounces the master
-  bus; rendering per-group or per-input, and normalising on the way out, is engine work in
-  `app/native/MixBounce`. The sheet offers what exists rather than controls that do nothing, and
-  the loudness a mix lands at is still chosen once, in Purpose and sound.
-- **EXPORT's AIFF.** Same place, same reason; WAV and MP3 are what `AppServices::ExportFormat`
-  carries.
+*(EXPORT's Group stems, Raw multitrack, AIFF and its loudness choice were on this list and are
+not any more: `app/native/MixBounce` writes all four, and `dlive_app_tests` measures the
+loudness one back out of the file it made.)*
+
 - **The Appearance sheet's swatch grid.** The design shows the palette as unlabelled squares;
   the code keeps its labelled, hex-bearing cards, because that sheet is where a theme is
   *edited* and a square with no name cannot be.

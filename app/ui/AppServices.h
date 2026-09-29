@@ -121,14 +121,18 @@ public:
     // A folder of stems becomes tracks and clips: assign, TUNE MIX, mix and export without a console.
     virtual juce::String importMultitrack (const juce::File& folder) = 0;
 
-    // Bounce the recorded timeline through the current mix to stereo WAV or MP3. "" on success.
+    // Bounce the recorded timeline through the current mix: the stereo mix as one file, or a
+    // folder of group stems or of the raw multitrack. "" on success.
     //
     // An export reads the session, the running mix and every clip for as long as it takes to
     // render - minutes, for a service - while the message thread is still free to move a
     // fader, rename an input or record another take. So the render works from a *copy* taken
     // on the message thread (snapshotExport), never from the live document: `exportMix` is
     // the only thing the worker touches. `progress` returns false to cancel.
-    enum class ExportFormat { Wav = 0, Mp3 };
+    enum class ExportFormat { Wav = 0, Aiff, Mp3 };
+    // What to write, and where it should land. `MixBounce` holds what each one means.
+    enum class ExportWhat { StereoMix = 0, GroupStems, RawMultitrack };
+    enum class ExportLoudness { AsMixed = 0, Stream14, Podcast16 };
     struct ExportJob
     {
         MixSession session;
@@ -137,6 +141,8 @@ public:
         // Which part of the recording to render. `to` of 0 means "to the end of it", which is
         // what every export did before there was a way to ask for anything else.
         juce::int64 from = 0, to = 0;
+        ExportWhat what = ExportWhat::StereoMix;
+        ExportLoudness loudness = ExportLoudness::AsMixed;
     };
     virtual std::shared_ptr<const ExportJob> snapshotExport() = 0;   // message thread
     virtual juce::String exportMix (std::shared_ptr<const ExportJob>, const juce::File& dest,

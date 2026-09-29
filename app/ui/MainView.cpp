@@ -2303,30 +2303,42 @@ void MainView::exportMix (AppServices::ExportFormat format)
     exportSheet = std::make_unique<ExportSheet> (controller, services);
     exportSheet->onClose = [this] { exportSheet.reset(); resized(); repaint(); grabKeyboardFocus(); };
     exportSheet->onToast = [this] (const juce::String& t) { showToast (t); };
-    exportSheet->onExport = [this] (const juce::File& dest, AppServices::ExportFormat fmt, juce::int64 from, juce::int64 to)
+    exportSheet->onExport = [this] (const ExportSheet::Request& req)
     {
         if (exporting) { showToast ("An export is already running. It will say when it is done."); return; }
+        const auto dest = req.dest;
         dest.getParentDirectory().createDirectory();
         auto job = services.snapshotExport();
         if (job != nullptr)
         {
-            auto ranged = std::make_shared<AppServices::ExportJob> (*job);
-            ranged->from = from;
-            ranged->to = to;
-            job = ranged;
+            auto asked = std::make_shared<AppServices::ExportJob> (*job);
+            asked->from = req.from;
+            asked->to = req.to;
+            asked->what = req.what;
+            asked->loudness = req.loudness;
+            job = asked;
         }
+        // A folder of parts says so while it is being made, and says so again when it is done:
+        // "Exported Sunday.wav" is not the truth about sixteen files.
+        const bool folder = req.what != AppServices::ExportWhat::StereoMix;
+        const juce::String what = folder ? (req.what == AppServices::ExportWhat::GroupStems ? "the group stems"
+                                                                                           : "the raw multitrack")
+                                         : dest.getFileName();
         exporting = true;
-        showToast ("Exporting " + dest.getFileName() + Glyph::ellip());
+        showToast ("Exporting " + what + Glyph::ellip());
         juce::Component::SafePointer<MainView> safe (this);
         auto& srv = services;
-        juce::Thread::launch ([safe, &srv, job, dest, fmt]
+        const auto fmt = req.format;
+        juce::Thread::launch ([safe, &srv, job, dest, fmt, what, folder]
         {
             const auto err = srv.exportMix (job, dest, fmt, {});
-            juce::MessageManager::callAsync ([safe, err, dest]
+            juce::MessageManager::callAsync ([safe, err, what, folder]
             {
                 if (safe == nullptr) return;
                 safe->exporting = false;
-                safe->showToast (err.isNotEmpty() ? err : "Exported " + dest.getFileName() + ".");
+                safe->showToast (err.isNotEmpty() ? err
+                                                  : folder ? "Exported " + what + " into a folder beside the session."
+                                                           : "Exported " + what + ".");
             });
         });
     };

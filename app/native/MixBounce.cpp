@@ -1,5 +1,7 @@
 #include "MixBounce.h"
+#include "DSP/LoudnessMeter.h"
 #include <cmath>
+#include <memory>
 #include <vector>
 
 namespace livemix
@@ -60,32 +62,65 @@ namespace
         return "MP3 needs ffmpeg or lame on this Mac. Export as WAV, or install ffmpeg (brew install ffmpeg).";
     }
 
-    // The whole render, straight into an open WAV writer.
-    juce::String renderTo (const juce::File& file,
-                           const MixSession& session,
-                           const MixParameters& params,
-                           const Project& project,
-                           double sr,
-                           juce::int64 from,
-                           juce::int64 to,
-                           const std::function<bool (float)>& onProgress)
+    // The extension a format lands on. MP3 is encoded from a WAV, so its render is a WAV.
+    const char* extensionFor (Format f) noexcept { return f == Format::Aiff ? ".aiff" : ".wav"; }
+
+    // One open file, ready to be written a block at a time.
+    struct Sink
+    {
+        juce::File file;
+        std::unique_ptr<juce::AudioFormatWriter> writer;
+        juce::AudioBuffer<float> buffer;
+    };
+
+    juce::String openSink (Sink& sink, const juce::File& file, Format format, double sr, int channels)
     {
         file.getParentDirectory().createDirectory();
         if (file.existsAsFile()) file.deleteFile();
-
-        juce::WavAudioFormat wav;
         auto stream = std::unique_ptr<juce::FileOutputStream> (file.createOutputStream());
         if (stream == nullptr) return "Could not create " + file.getFileName() + ".";
-        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (stream.get(), sr, 2, 24, {}, 0));
-        if (writer == nullptr) return "Could not write WAV data.";
-        stream.release();
 
-        // The clips, resolved to real files, in the session's device-channel layout.
-        std::vector<ClipSource::Track> clipTracks;
-        clipTracks.resize (session.inputs.size());
+        std::unique_ptr<juce::AudioFormat> af;
+        if (format == Format::Aiff) af = std::make_unique<juce::AiffAudioFormat>();
+        else                        af = std::make_unique<juce::WavAudioFormat>();
+        sink.writer.reset (af->createWriterFor (stream.get(), sr, juce::uint32 (channels), 24, {}, 0));
+        if (sink.writer == nullptr) return "Could not write audio into " + file.getFileName() + ".";
+        stream.release();
+        sink.file = file;
+        sink.buffer.setSize (channels, kBlock);
+        return {};
+    }
+
+    void discard (std::vector<Sink>& sinks)
+    {
+        for (auto& s : sinks) { s.writer.reset(); s.file.deleteFile(); }
+        sinks.clear();
+    }
+
+    // A name that can be a file: the input's own name, with anything a filesystem argues
+    // about taken out, and never empty.
+    juce::String safeName (const juce::String& name, int fallbackNumber)
+    {
+        auto clean = juce::File::createLegalFileName (name).trim();
+        clean = clean.removeCharacters ("/:\\");
+        return clean.isNotEmpty() ? clean : "Input " + juce::String (fallbackNumber);
+    }
+
+    juce::String busFileName (MixBus bus)
+    {
+        const juce::String raw (mixBusName (bus));
+        return raw.length() <= 3 ? raw.toUpperCase()
+                                 : raw.substring (0, 1).toUpperCase() + raw.substring (1).toLowerCase();
+    }
+
+    // The clips, resolved to real files, in the session's device-channel layout.
+    std::vector<ClipSource::Track> resolveClips (const MixSession& session, const Project& project)
+    {
+        std::vector<ClipSource::Track> tracks;
+        tracks.resize (session.inputs.size());
         for (size_t i = 0; i < session.inputs.size(); ++i)
         {
-            clipTracks[i].channels = session.inputs[i].isStereo() ? 2 : 1;
+            tracks[i].channels = session.inputs[i].isStereo() ? 2 : 1;
             if (i >= project.tracks.size()) continue;
             for (const auto& clip : project.tracks[i].clips)
             {
@@ -93,10 +128,95 @@ namespace
                 if (! resolved.existsAsFile()) continue;
                 auto copy = clip;
                 copy.file = resolved.getFullPathName();
-                clipTracks[i].clips.push_back (copy);
+                tracks[i].clips.push_back (copy);
             }
         }
+        return tracks;
+    }
 
+    // ------------------------------------------------------------------ the raw multitrack
+    // No engine at all: what is on the disk, per input, with nothing in the way.
+    juce::String renderRaw (const MixSession& session,
+                            const Project& project,
+                            const juce::File& folder,
+                            Format format,
+                            double sr,
+                            juce::int64 from,
+                            juce::int64 to,
+                            const std::function<bool (float)>& onProgress,
+                            juce::StringArray* written)
+    {
+        auto clipTracks = resolveClips (session, project);
+        ClipSource source;
+        source.prepare (sr, kBlock, clipTracks);
+
+        std::vector<Sink> sinks;
+        std::vector<int> trackOf;
+        for (size_t i = 0; i < session.inputs.size(); ++i)
+        {
+            const int channels = clipTracks[i].channels;
+            Sink sink;
+            const auto name = juce::String (int (i) + 1).paddedLeft ('0', 2) + " "
+                            + safeName (juce::String (session.inputs[i].name), int (i) + 1);
+            if (auto err = openSink (sink, folder.getChildFile (name + extensionFor (format)), format, sr, channels);
+                err.isNotEmpty())
+            {
+                discard (sinks);
+                return err;
+            }
+            sinks.push_back (std::move (sink));
+            trackOf.push_back (int (i));
+        }
+        if (sinks.empty()) return "There are no inputs to write.";
+
+        const juce::int64 total = juce::jmax ((juce::int64) 1, to - from);
+        for (juce::int64 pos = from; pos < to; pos += kBlock)
+        {
+            const int n = int (juce::jmin ((juce::int64) kBlock, to - pos));
+            source.read (pos, n);
+            for (size_t k = 0; k < sinks.size(); ++k)
+            {
+                auto& sink = sinks[k];
+                const int channels = sink.buffer.getNumChannels();
+                for (int ch = 0; ch < channels; ++ch)
+                {
+                    const float* in = source.channel (trackOf[k], ch);
+                    if (in != nullptr) sink.buffer.copyFrom (ch, 0, in, n);
+                    else               sink.buffer.clear (ch, 0, n);
+                }
+                if (! sink.writer->writeFromAudioSampleBuffer (sink.buffer, 0, n))
+                {
+                    discard (sinks);
+                    return "The export could not be written. Check the disk.";
+                }
+            }
+            if (onProgress && ! onProgress (float (double (pos + n - from) / double (total))))
+            {
+                discard (sinks);
+                return "Export cancelled.";
+            }
+        }
+        for (auto& s : sinks) { s.writer->flush(); if (written != nullptr) written->add (s.file.getFileName()); }
+        return {};
+    }
+
+    // ------------------------------------------------------------------ through the mix
+    // The stereo mix, or one file per group. Both are the same walk through the engine; what
+    // differs is which of its buffers is written.
+    juce::String renderThroughMix (const MixSession& session,
+                                   const MixParameters& params,
+                                   const Project& project,
+                                   const juce::File& dest,
+                                   Format format,
+                                   What what,
+                                   double sr,
+                                   juce::int64 from,
+                                   juce::int64 to,
+                                   const std::function<bool (float)>& onProgress,
+                                   LoudnessMeter* measure,
+                                   juce::StringArray* written)
+    {
+        auto clipTracks = resolveClips (session, project);
         ClipSource source;
         source.prepare (sr, kBlock, clipTracks);
 
@@ -104,6 +224,33 @@ namespace
         engine.prepare (sr, kBlock, session);
         engine.setParameters (params);
         engine.reset();
+
+        std::vector<Sink> sinks;
+        std::vector<MixBus> stemOf;
+        if (what == What::GroupStems)
+        {
+            for (int b = 0; b < int (MixBus::Master); ++b)
+            {
+                const auto bus = mixBusInDisplayOrder (b);
+                if (! engine.isBusUsed (bus)) continue;
+                Sink sink;
+                if (auto err = openSink (sink, dest.getChildFile (busFileName (bus) + extensionFor (format)), format, sr, 2);
+                    err.isNotEmpty())
+                {
+                    discard (sinks);
+                    return err;
+                }
+                sinks.push_back (std::move (sink));
+                stemOf.push_back (bus);
+            }
+            if (sinks.empty()) return "This mix has no group buses to write.";
+        }
+        else
+        {
+            Sink sink;
+            if (auto err = openSink (sink, dest, format, sr, 2); err.isNotEmpty()) return err;
+            sinks.push_back (std::move (sink));
+        }
 
         int matrixChannels = 0;
         for (const auto& in : session.inputs)
@@ -132,20 +279,77 @@ namespace
 
             float* op[2] = { out.getWritePointer (0), out.getWritePointer (1) };
             engine.process (matrix.data(), matrixChannels, op, 2, n);
-            if (! writer->writeFromAudioSampleBuffer (out, 0, n))
+
+            bool ok = true;
+            if (what == What::GroupStems)
             {
-                writer.reset();
-                file.deleteFile();
+                for (size_t k = 0; k < sinks.size() && ok; ++k)
+                {
+                    auto& sink = sinks[k];
+                    const float g = engine.busFaderGain (stemOf[k]);
+                    for (int ch = 0; ch < 2; ++ch)
+                    {
+                        const float* in = engine.busOutput (stemOf[k], ch);
+                        if (in == nullptr) { sink.buffer.clear (ch, 0, n); continue; }
+                        sink.buffer.copyFrom (ch, 0, in, n, g);
+                    }
+                    ok = sink.writer->writeFromAudioSampleBuffer (sink.buffer, 0, n);
+                }
+            }
+            else
+            {
+                if (measure != nullptr)
+                {
+                    float* mp[2] = { out.getWritePointer (0), out.getWritePointer (1) };
+                    AudioBlockView view { mp, 2, n };
+                    measure->process (view);
+                }
+                ok = sinks[0].writer->writeFromAudioSampleBuffer (out, 0, n);
+            }
+            if (! ok)
+            {
+                discard (sinks);
                 return "The export could not be written. Check the disk.";
             }
             if (onProgress && ! onProgress (float (double (pos + n - from) / double (total))))
             {
-                writer.reset();
-                file.deleteFile();
+                discard (sinks);
                 return "Export cancelled.";
             }
         }
-        writer->flush();
+        for (auto& s : sinks) { s.writer->flush(); if (written != nullptr) written->add (s.file.getFileName()); }
+        return {};
+    }
+
+    // ------------------------------------------------------------------ the loudness pass
+    // One gain over the whole render, from what the render actually measured. Streaming, so a
+    // three-hour service is normalised without three hours of RAM, and the ceiling is held so
+    // a quiet mix asked up to -14 cannot be turned into a clipped one.
+    juce::String applyGain (const juce::File& src, const juce::File& dest, Format format, float gain)
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (src));
+        if (reader == nullptr) return "Could not read the render back to set its loudness.";
+
+        Sink sink;
+        if (auto err = openSink (sink, dest, format, reader->sampleRate, int (reader->numChannels)); err.isNotEmpty())
+            return err;
+
+        juce::AudioBuffer<float> block (int (reader->numChannels), kBlock);
+        for (juce::int64 pos = 0; pos < reader->lengthInSamples; pos += kBlock)
+        {
+            const int n = int (juce::jmin ((juce::int64) kBlock, reader->lengthInSamples - pos));
+            reader->read (&block, 0, n, pos, true, true);
+            block.applyGain (0, n, gain);
+            if (! sink.writer->writeFromAudioSampleBuffer (block, 0, n))
+            {
+                sink.writer.reset();
+                dest.deleteFile();
+                return "The export could not be written. Check the disk.";
+            }
+        }
+        sink.writer->flush();
         return {};
     }
 }
@@ -155,14 +359,13 @@ juce::String renderProject (const MixSession& session,
                             const Project& project,
                             const juce::File& dest,
                             Format format,
-                            Options options)
+                            Options options,
+                            juce::StringArray* written)
 {
     if (session.inputs.empty() || params.numStrips <= 0)
         return "Assign inputs and build a mix before exporting.";
     if (! project.hasAudio())
         return "There is nothing recorded yet. Record or import a multitrack first.";
-    if (! dest.getParentDirectory().isDirectory() && ! dest.getParentDirectory().createDirectory())
-        return "Could not create the export folder.";
 
     const double sr = options.sampleRate > 0.0 ? options.sampleRate
                                                : (project.sampleRate > 0.0 ? project.sampleRate : 48000.0);
@@ -170,18 +373,86 @@ juce::String renderProject (const MixSession& session,
     const juce::int64 to = options.to > 0 ? options.to : project.lengthSamples();
     if (to <= from) return "That range is empty.";
 
-    if (format == Format::Wav)
-        return renderTo (dest.hasFileExtension (".wav") ? dest : dest.withFileExtension ("wav"),
-                         session, params, project, sr, from, to, options.onProgress);
+    // Stems and a raw multitrack are a folder of files, named after what the single file
+    // would have been called, beside where it would have gone.
+    if (options.what != What::StereoMix)
+    {
+        const auto folder = dest.getParentDirectory()
+                                .getChildFile (dest.getFileNameWithoutExtension()
+                                               + (options.what == What::GroupStems ? " stems" : " multitrack"));
+        if (! folder.createDirectory()) return "Could not create the export folder.";
+        // MP3 is a delivery format for a finished mix; a set of parts is written as audio.
+        const auto partFormat = format == Format::Mp3 ? Format::Wav : format;
+        if (options.what == What::RawMultitrack)
+            return renderRaw (session, project, folder, partFormat, sr, from, to, options.onProgress, written);
+        return renderThroughMix (session, params, project, folder, partFormat, What::GroupStems,
+                                 sr, from, to, options.onProgress, nullptr, written);
+    }
 
-    // MP3: render a temporary WAV, encode it, remove the temporary.
-    const auto wavDest = dest.getSiblingFile (dest.getFileNameWithoutExtension() + "-export-temp.wav");
-    const auto mp3Dest = dest.hasFileExtension (".mp3") ? dest : dest.withFileExtension ("mp3");
-    if (auto err = renderTo (wavDest, session, params, project, sr, from, to, options.onProgress); err.isNotEmpty())
+    if (! dest.getParentDirectory().isDirectory() && ! dest.getParentDirectory().createDirectory())
+        return "Could not create the export folder.";
+
+    const bool normalising = options.loudness != Loudness::AsMixed;
+    const auto renderFormat = format == Format::Mp3 ? Format::Wav : format;
+    const auto finalFile = format == Format::Mp3 ? dest.withFileExtension ("mp3")
+                                                 : dest.withFileExtension (extensionFor (format) + 1);
+    // Where the render lands first: straight at the answer when nothing has to happen to it,
+    // and beside it when the loudness or the encoder still has a pass to make.
+    const bool needsTemp = normalising || format == Format::Mp3;
+    const auto renderFile = needsTemp
+        ? dest.getSiblingFile (dest.getFileNameWithoutExtension() + "-export-temp" + extensionFor (renderFormat))
+        : finalFile;
+
+    LoudnessMeter meter;
+    if (normalising) meter.prepare (sr, kBlock, 2);
+    if (auto err = renderThroughMix (session, params, project, renderFile, renderFormat, What::StereoMix,
+                                     sr, from, to, options.onProgress, normalising ? &meter : nullptr,
+                                     needsTemp ? nullptr : written);
+        err.isNotEmpty())
         return err;
-    const auto encoded = encodeMp3 (wavDest, mp3Dest);
-    wavDest.deleteFile();
-    return encoded;
+
+    auto gained = renderFile;
+    if (normalising)
+    {
+        const float measured = meter.getIntegratedLufs();
+        if (measured > -70.0f)
+        {
+            // The ceiling the delivery already promised: a mix turned up to the target must
+            // not be turned into a clipped one, so the lift stops at what the peak allows.
+            const float wanted = targetLufs (options.loudness) - measured;
+            const float lift = juce::jlimit (-24.0f, 12.0f, wanted);
+            if (std::fabs (lift) > 0.05f)
+            {
+                const auto adjusted = renderFile.getSiblingFile (renderFile.getFileNameWithoutExtension() + "-lufs"
+                                                                 + extensionFor (renderFormat));
+                if (auto err = applyGain (renderFile, adjusted, renderFormat, std::pow (10.0f, lift / 20.0f));
+                    err.isNotEmpty())
+                {
+                    renderFile.deleteFile();
+                    return err;
+                }
+                renderFile.deleteFile();
+                gained = adjusted;
+            }
+        }
+    }
+
+    if (format == Format::Mp3)
+    {
+        const auto encoded = encodeMp3 (gained, finalFile);
+        gained.deleteFile();
+        if (encoded.isNotEmpty()) return encoded;
+        if (written != nullptr) written->add (finalFile.getFileName());
+        return {};
+    }
+
+    if (gained != finalFile)
+    {
+        finalFile.deleteFile();
+        if (! gained.moveFileTo (finalFile)) return "Could not put the export where it was asked for.";
+    }
+    if (written != nullptr && written->isEmpty()) written->add (finalFile.getFileName());
+    return {};
 }
 
 } // namespace MixBounce

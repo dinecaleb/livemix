@@ -4,6 +4,7 @@
 #include "TestFramework.h"
 #include "native/DawEngine.h"
 #include "native/MixBounce.h"
+#include "DSP/LoudnessMeter.h"
 #include "native/MultitrackImport.h"
 #include "native/StemNames.h"
 #include "native/SessionStore.h"
@@ -1234,6 +1235,169 @@ TEST_CASE ("MixBounce: the timeline renders offline to a stereo WAV of the right
     Project empty;
     empty.syncTracks (session);
     CHECK (MixBounce::renderProject (session, controller.getKept(), empty, dest, MixBounce::Format::Wav).isNotEmpty());
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("MixBounce: group stems and a raw multitrack are folders of files, and a stereo mix is one")
+{
+    const auto folder = scratchFolder().getChildFile ("bounce-parts");
+    folder.deleteRecursively();
+    const auto kick = writeTone (folder, "Kick.wav", 1.0, 0.5f, 80.0f);
+    const auto vocal = writeTone (folder, "Lead.wav", 1.0, 0.4f, 440.0f);
+
+    MixController controller;
+    const auto session = band();
+    controller.setSession (session);
+    controller.prepare (kSr, kBlock);
+
+    Project project;
+    project.sampleRate = kSr;
+    project.syncTracks (session);
+    REQUIRE (project.tracks.size() >= 2);
+    auto place = [&project] (int track, const juce::File& f)
+    {
+        AudioClip clip;
+        clip.file = f.getFullPathName();
+        clip.start = 0;
+        clip.length = juce::int64 (kSr);
+        clip.fileSampleRate = kSr;
+        project.tracks[size_t (track)].clips.push_back (clip);
+    };
+    place (0, kick);
+    place (1, vocal);
+
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    auto lengthOf = [&formats] (const juce::File& f) -> juce::int64
+    {
+        std::unique_ptr<juce::AudioFormatReader> r (formats.createReaderFor (f));
+        return r != nullptr ? r->lengthInSamples : -1;
+    };
+
+    // ---- group stems: one stereo file per group that is used, in a folder of their own.
+    {
+        MixBounce::Options options;
+        options.what = MixBounce::What::GroupStems;
+        juce::StringArray written;
+        const auto dest = folder.getChildFile ("Sunday.wav");
+        const auto err = MixBounce::renderProject (session, controller.getKept(), project, dest,
+                                                   MixBounce::Format::Wav, options, &written);
+        CHECK (err.isEmpty());
+        const auto stems = folder.getChildFile ("Sunday stems");
+        REQUIRE (stems.isDirectory());
+        CHECK (! dest.existsAsFile());                       // a folder of parts, not a file
+        CHECK (written.size() >= 2);
+        int used = 0;
+        for (int b = 0; b < int (MixBus::Master); ++b)
+            if (controller.getEngine().isBusUsed (MixBus (b))) ++used;
+        CHECK (written.size() == used);
+        for (const auto& name : written)
+        {
+            const auto f = stems.getChildFile (name);
+            REQUIRE (f.existsAsFile());
+            CHECK (lengthOf (f) == juce::int64 (kSr));
+        }
+    }
+
+    // ---- the raw multitrack: one file per assigned input, whatever the mix is doing.
+    {
+        MixBounce::Options options;
+        options.what = MixBounce::What::RawMultitrack;
+        juce::StringArray written;
+        const auto err = MixBounce::renderProject (session, controller.getKept(), project,
+                                                   folder.getChildFile ("Sunday.wav"),
+                                                   MixBounce::Format::Wav, options, &written);
+        CHECK (err.isEmpty());
+        const auto raw = folder.getChildFile ("Sunday multitrack");
+        REQUIRE (raw.isDirectory());
+        CHECK (written.size() == int (session.inputs.size()));
+        // The first input is the kick, and it comes out as what was on the disk: mono, and
+        // nothing in the way of it.
+        REQUIRE (! written.isEmpty());
+        const auto first = raw.getChildFile (written[0]);
+        REQUIRE (first.existsAsFile());
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (first));
+        REQUIRE (reader != nullptr);
+        CHECK (reader->numChannels == 1);
+        CHECK (reader->lengthInSamples == juce::int64 (kSr));
+        juce::AudioBuffer<float> audio (1, int (reader->lengthInSamples));
+        reader->read (&audio, 0, int (reader->lengthInSamples), 0, true, true);
+        CHECK (audio.getMagnitude (0, audio.getNumSamples()) > 0.001f);
+    }
+
+    // ---- AIFF is a stereo mix in another container, and it is still one file.
+    {
+        MixBounce::Options options;
+        const auto dest = folder.getChildFile ("Sunday.aiff");
+        CHECK (MixBounce::renderProject (session, controller.getKept(), project, dest,
+                                         MixBounce::Format::Aiff, options).isEmpty());
+        REQUIRE (dest.existsAsFile());
+        CHECK (lengthOf (dest) == juce::int64 (kSr));
+    }
+
+    folder.deleteRecursively();
+}
+
+// A mix asked for a platform's number lands on it. The render is measured and one gain is
+// applied to all of it - nothing is compressed or limited on the way out, so the shape of the
+// mix that comes back is the shape that went in.
+TEST_CASE ("MixBounce: a loudness target is measured from the render and met by one gain")
+{
+    const auto folder = scratchFolder().getChildFile ("bounce-lufs");
+    folder.deleteRecursively();
+    const auto tone = writeTone (folder, "Kick.wav", 4.0, 0.25f, 200.0f);
+
+    MixController controller;
+    const auto session = band();
+    controller.setSession (session);
+    controller.prepare (kSr, kBlock);
+
+    Project project;
+    project.sampleRate = kSr;
+    project.syncTracks (session);
+    AudioClip clip;
+    clip.file = tone.getFullPathName();
+    clip.start = 0;
+    clip.length = juce::int64 (kSr * 4);
+    clip.fileSampleRate = kSr;
+    project.tracks[0].clips.push_back (clip);
+
+    auto measure = [] (const juce::File& f) -> float
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (f));
+        if (reader == nullptr) return -120.0f;
+        LoudnessMeter meter;
+        meter.prepare (reader->sampleRate, 1024, int (reader->numChannels));
+        juce::AudioBuffer<float> block (int (reader->numChannels), 1024);
+        for (juce::int64 pos = 0; pos < reader->lengthInSamples; pos += 1024)
+        {
+            const int n = int (juce::jmin ((juce::int64) 1024, reader->lengthInSamples - pos));
+            reader->read (&block, 0, n, pos, true, true);
+            float* ptrs[2] = { block.getWritePointer (0), block.getNumChannels() > 1 ? block.getWritePointer (1) : block.getWritePointer (0) };
+            AudioBlockView view { ptrs, int (reader->numChannels), n };
+            meter.process (view);
+        }
+        return meter.getIntegratedLufs();
+    };
+
+    const auto asMixed = folder.getChildFile ("as-mixed.wav");
+    CHECK (MixBounce::renderProject (session, controller.getKept(), project, asMixed, MixBounce::Format::Wav).isEmpty());
+    const float before = measure (asMixed);
+    REQUIRE (before > -70.0f);
+
+    MixBounce::Options options;
+    options.loudness = MixBounce::Loudness::Stream14;
+    const auto streamed = folder.getChildFile ("stream.wav");
+    CHECK (MixBounce::renderProject (session, controller.getKept(), project, streamed,
+                                     MixBounce::Format::Wav, options).isEmpty());
+    REQUIRE (streamed.existsAsFile());
+    const float after = measure (streamed);
+    CHECK (std::fabs (after - (-14.0f)) < 1.0f);
+    // It moved on purpose: a mix that was already at the target is the only one left alone.
+    if (std::fabs (before - (-14.0f)) > 1.5f) CHECK (std::fabs (after - before) > 0.5f);
+
     folder.deleteRecursively();
 }
 

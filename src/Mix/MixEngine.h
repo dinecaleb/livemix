@@ -118,6 +118,20 @@ public:
     const ChannelProcessor& getBus (MixBus bus) const noexcept { return buses[size_t (bus)].processor; }
     ChannelProcessor& getBus (MixBus bus) noexcept { return buses[size_t (bus)].processor; }
     const FxChain& getFx (FxSlot slot) const noexcept { return fx[size_t (slot)].chain; }
+
+    // A READ-ONLY TAP ON A GROUP, for the offline bounce.
+    //
+    // After `process` returns, a group bus's accumulator still holds that block's stereo
+    // output, post its own chain and pre its fader; `busFaderGain` is the fader that was
+    // applied into the master. Together they are one stem. Nothing on the audio thread reads
+    // either of them and `process` does not change because they exist - they are a way of
+    // looking at what it already computed, in a render that is nobody's audio callback.
+    const float* busOutput (MixBus bus, int channel) const noexcept
+    {
+        if (channel < 0 || channel > 1) return nullptr;
+        return buses[size_t (bus)].ptrs[size_t (channel)];
+    }
+    float busFaderGain (MixBus bus) const noexcept { return buses[size_t (bus)].gain.getCurrent(); }
     bool isBusUsed (MixBus b) const noexcept { return graph.busUsed[size_t (b)]; }
     // Is anything soloed into the engineer's listen? (Audio-thread view; display only.)
     bool isMonitorSoloActive() const noexcept { return monitorSoloActive; }
