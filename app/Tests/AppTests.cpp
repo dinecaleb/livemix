@@ -1682,3 +1682,94 @@ TEST_CASE ("Scenes: KEEP holds the whole mix under a name, RECALL brings it back
     CHECK (! c2.recallScene (0));
     CHECK (messages.back().find ("different set of inputs") != std::string::npos);
 }
+
+TEST_CASE ("MixController: RESET TO RAW takes back everything DLIVE decided and nothing else")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+
+    const MixParameters raw = c.getKept();      // the session's own baseline, before anything was heard
+
+    // A real mix: a tune kept, a hand edit on top, a macro leaned, a scene, a reference and a
+    // per-channel record - every kind of thing a reset has to decide about.
+    c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    c.keepPlan();
+    CHECK (c.getTuneCount() == 1);
+    CHECK (c.hasKeptMix());
+    c.setStripFader (1, -7.5f);
+    c.setStripMute (2, true);
+    c.setStripSolo (3, true);
+    c.setMacro (MixMacro::Drums, 72.0f);
+    c.keepScene (1);
+    ReferenceProfile ref;
+    ref.valid = true;
+    ref.name = "Take Me To The King";
+    c.setReference (ref);
+    const auto recordsBefore = c.getStripHistory (1).size();
+    const auto scenesBefore = c.getScene (1).kept;
+    const auto checkpointsBefore = c.getCheckpoints().size();
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), raw) > 0);
+
+    REQUIRE (c.resetMixToRaw());
+
+    // Everything DLIVE decided is gone: every chain, every level, every send, the macros, and
+    // the count of tunes that produced them.
+    for (int i = 0; i < c.getKept().numStrips; ++i)
+    {
+        CHECK (diffParameters (c.getKept().strips[size_t (i)].channel, raw.strips[size_t (i)].channel).empty());
+        CHECK_NEAR (c.getKept().strips[size_t (i)].faderDb, raw.strips[size_t (i)].faderDb, 0.001f);
+        CHECK_NEAR (c.getKept().strips[size_t (i)].inputGainDb, raw.strips[size_t (i)].inputGainDb, 0.001f);
+    }
+    for (int b = 0; b < int (MixBus::Count); ++b)
+    {
+        CHECK (diffParameters (c.getKept().buses[size_t (b)].channel, raw.buses[size_t (b)].channel).empty());
+        CHECK_NEAR (c.getKept().buses[size_t (b)].faderDb, raw.buses[size_t (b)].faderDb, 0.001f);
+    }
+    CHECK (c.getTuneCount() == 0);
+    CHECK (! c.hasKeptMix());
+    CHECK (! c.hasPlan());
+    CHECK_NEAR (c.getMacros().get (MixMacro::Drums), 50.0f, 0.001f);
+
+    // The engineer's listening state is not a mix decision and survives, as it does through
+    // BYPASS. So does everything that is not the mix at all.
+    CHECK (c.getKept().strips[2].mute);
+    CHECK (c.getKept().strips[3].solo);
+    CHECK (c.getScene (1).kept == scenesBefore);
+    CHECK (c.hasReference());
+    CHECK (c.getReference().name == std::string ("Take Me To The King"));
+    CHECK (c.getStripHistory (1).size() == recordsBefore);
+    CHECK (c.getSession().inputs.size() == band().inputs.size());
+
+    // IT IS NEVER A ONE-WAY DOOR. A checkpoint was taken first, and UNDO takes it back.
+    CHECK (c.getCheckpoints().size() > checkpointsBefore);
+    bool named = false;
+    for (const auto& cp : c.getCheckpoints()) if (cp.what.find ("Before reset") != std::string::npos) named = true;
+    CHECK (named);
+    REQUIRE (c.canUndoMix());
+    c.undoMix();
+    CHECK_NEAR (c.getKept().strips[1].faderDb, -7.5f, 0.01f);
+    CHECK (MixPlanner::countParameterChanges (c.getKept(), raw) > 0);
+
+    // ...and BYPASS is a different thing entirely: it is a way of listening, and a reset does
+    // not touch it.
+    c.setBypass (true);
+    CHECK (c.isBypassed());
+    REQUIRE (c.resetMixToRaw());
+    CHECK (c.isBypassed());
+    c.setBypass (false);
+
+    // LIVE SAFE refuses it with a sentence: putting the whole mix back to where it started is
+    // exactly what must not happen in the middle of a service.
+    c.setLiveSafe (true);
+    c.setStripFader (1, -3.0f);
+    std::string said;
+    c.onMessage = [&said] (const std::string& m) { said = m; };
+    CHECK (! c.resetMixToRaw());
+    CHECK (said.find ("LIVE SAFE") != std::string::npos);
+    CHECK_NEAR (c.getKept().strips[1].faderDb, -3.0f, 0.01f);
+    c.setLiveSafe (false);
+}

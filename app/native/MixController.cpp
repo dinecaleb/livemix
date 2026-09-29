@@ -593,6 +593,51 @@ void MixController::setBypass (bool on)
     publish();                       // the kept mix is not touched, so there is nothing to save
 }
 
+bool MixController::resetMixToRaw()
+{
+    if (! built) return false;
+    if (liveSafeRefuses (LiveAction::ResetMix)) return false;
+
+    // A place to come back to, first: this is the one change in DLIVE that throws away
+    // everything it has decided, so it is never a one-way door.
+    checkpoint ("Before reset to raw", false);
+    markMixChange ("reset the mix to raw");
+
+    const MixParameters raw = startingPoint (session, graph);
+    auto next = raw;
+    // The engineer's listening state is not a mix decision and does not belong to the reset,
+    // exactly as it does not belong to BYPASS.
+    for (int i = 0; i < next.numStrips && i < kept.numStrips; ++i)
+    {
+        next.strips[size_t (i)].mute = kept.strips[size_t (i)].mute;
+        next.strips[size_t (i)].solo = kept.strips[size_t (i)].solo;
+    }
+    for (int b = 0; b < int (MixBus::Count); ++b)
+    {
+        next.buses[size_t (b)].mute = kept.buses[size_t (b)].mute;
+        next.buses[size_t (b)].solo = kept.buses[size_t (b)].solo;
+    }
+    for (int f = 0; f < int (FxSlot::Count); ++f) next.fx[size_t (f)].solo = kept.fx[size_t (f)].solo;
+    next.monitor = kept.monitor;
+
+    kept = next;
+    macros = MixMacroValues {};
+    plan.reset();
+    planSelection.reset();
+    clearTuningScope();
+    compare = Compare::After;
+    liveKept = false;
+    mixed = false;
+    tuneCount = 0;
+    stage = restingStage();
+    publish();
+    mark ("Reset to raw");
+    if (onMessage)
+        onMessage ("The mix is back to where the session started. Your takes, your names, your routing, your "
+                   "scenes and the whole mix history are untouched - UNDO, or Mix history, brings the mix back.");
+    return true;
+}
+
 void MixController::publish()
 {
     if (! prepared) return;

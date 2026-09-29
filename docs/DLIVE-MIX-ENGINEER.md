@@ -87,6 +87,17 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   they were would change the blend rather than the tone - and the blend is what the hierarchy rules own. Mix
   Buddy hears "the vocals", "the voices" and "the singers" as the lead, and "BGV", "backing" and "choir" as the
   backing group.
+- **RESET MIX TO RAW (2026-09-28, `MixController::resetMixToRaw`).** Everything DLIVE has decided about the
+  sound, taken back: every strip's chain, gain, fader, pan and sends, every group's chain and fader, the
+  returns, the master, the macros and the sample replacement, all the way to `startingPoint (session, graph)` -
+  the mix a service starts from before anything has been listened to. **It is not BYPASS.** Bypass is a way of
+  *listening*: it leaves the kept mix alone and switching it off puts everything back. This throws the kept mix
+  away and is meant to, which is why it is asked for out loud.
+  What it keeps is everything that is not a mix decision: the audio on disk, the clips, the names, the
+  assignments, the routing, the scenes, the reference, the per-channel records and the whole mix history - plus
+  a "Before reset to raw" checkpoint taken first, and an UNDO entry, so it is never a one-way door. Mutes and
+  solos survive because they are the engineer's listening state, exactly as they do through BYPASS. Refused
+  under LIVE SAFE (`LiveAction::ResetMix`) with the sentence that says why.
 - **THE SCOPE PICKER (2026-09-28).** TUNE always asked the same question and never asked it out loud: the verb
   meant the whole mix, `startTuneBus` was reachable only from a small word inside a group tile, and nothing at
   all offered "these three microphones". Pressing TUNE (the button, the Mix menu, the keyboard) now opens

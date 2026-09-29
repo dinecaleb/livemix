@@ -170,6 +170,7 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
         { 407, "MATCH TO REFERENCE" }, { 408, "Reference" },
         { 413, "Speech Priority" }, { 409, "Mix Buddy" }, { 410, "Try Another Mix" },
         { 411, "Undo" }, { 412, "Redo" }, { 420, "Loudness" },
+        { 414, "Reset Mix to Raw" },
         { 401, "Centre Macro Pads" }, { 402, "Clear Solo" }, { 403, "Bypass" },
         { 406, "Cloud Model" },
         // Transport

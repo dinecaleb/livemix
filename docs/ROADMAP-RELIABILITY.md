@@ -122,6 +122,8 @@ test; each change that alters the sound creates a Mix history checkpoint.
 2. **Speaking / Singing on voice channels.** One-press starting points for pastor, host, MC, lead and guest
   mics. Tune starting points from profile data (`VocalStrategies` already has Lead and Speech), not frozen
    presets: everything stays editable and a Re-tune respects the choice.
+3. ✅ **Reset Mix to Raw.** *(2026-09-28. `MixController::resetMixToRaw`, Mix > Reset Mix to Raw, asked out
+   loud and answered with what it keeps.)* The original note:
 3. **Reset Mix to Raw.** Every strip, bus, FX and the master back to the session's baseline; clears Tune
   results and sample replacement; keeps audio, clips, names, assignments, routing, scenes, reference and
    history. Takes a "Before reset" checkpoint first. Different from BYPASS, which stays untouched.

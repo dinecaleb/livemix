@@ -55,6 +55,7 @@ enum class LiveAction : int
     KeepPlan,
     RevertPlan,
     Bypass,             // BYPASS drops every chain at once: the mix changes completely
+    ResetMix,           // RESET TO RAW: every chain, level and send back to the baseline
     Routing,            // assignments, source changes, re-ordering: the graph is rebuilt and audio stops
     OutputRouting,      // moving the broadcast to a different pair of outputs
     DeviceChange,
@@ -130,6 +131,7 @@ namespace liveSafe
             case LiveAction::KeepPlan:          return "KEEP";
             case LiveAction::RevertPlan:        return "REVERT";
             case LiveAction::Bypass:            return "BYPASS";
+            case LiveAction::ResetMix:          return "RESET TO RAW";
             case LiveAction::Routing:           return "changing the routing";
             case LiveAction::OutputRouting:     return "changing the outputs";
             case LiveAction::DeviceChange:      return "changing the audio device";
@@ -153,6 +155,7 @@ namespace liveSafe
             case LiveAction::KeepPlan:
             case LiveAction::RevertPlan:
             case LiveAction::Bypass:
+            case LiveAction::ResetMix:
             case LiveAction::Routing:
             case LiveAction::OutputRouting:
             case LiveAction::DeviceChange:
@@ -179,6 +182,7 @@ namespace liveSafe
             case LiveAction::KeepPlan:      return "it would swap the whole mix at once";
             case LiveAction::RevertPlan:    return "it would throw the running mix away at once";
             case LiveAction::Bypass:        return "it would drop every channel's processing at once";
+            case LiveAction::ResetMix:      return "it would put the whole mix back to where it started";
             case LiveAction::Routing:       return "rebuilding the routing stops the audio for a moment";
             case LiveAction::OutputRouting: return "the broadcast would move to different outputs";
             case LiveAction::DeviceChange:  return "the audio device would have to be re-opened";

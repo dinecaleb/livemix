@@ -690,6 +690,8 @@ public:
                     m.addSubMenu ("Master Sound", sound);
                 }
                 m.addSeparator();
+                m.addItem (414, "Reset Mix to Raw" + juce::String (Glyph::ellip()), ! view.controller.isLiveSafe());
+                m.addSeparator();
                 m.addItem (401, "Centre Macro Pads");
                 m.addItem (402, view.controller.numSoloed() > 0
                                     ? "Clear Solo (" + juce::String (view.controller.numSoloed()) + ")"
@@ -1468,6 +1470,35 @@ void MainView::applyTextSize (float scale, const juce::String& name)
     showToast ("Text size: " + name);
 }
 
+// RESET MIX TO RAW. Everything DLIVE decided about the sound, taken back to the session's
+// baseline. It is asked for out loud because it throws a service's mixing away - and answered
+// with what it keeps, because the list of things it does *not* touch is the reassuring part.
+void MainView::resetMixToRaw()
+{
+    if (liveSafeBlocks ("resetting the mix")) return;
+    auto* alert = new juce::AlertWindow ("Reset the mix to raw?",
+                                         "Every channel, group, effect return and the master goes back to where this "
+                                         "session started, before DLIVE had listened to anything. Sample replacement "
+                                         "goes with it.\n\n"
+                                         "Your recordings, your clips, the names, the routing, the scenes, the reference "
+                                         "and the whole mix history are untouched, and a \"Before reset to raw\" point is "
+                                         "kept first - so UNDO, or Mix history, brings this mix straight back.",
+                                         juce::MessageBoxIconType::NoIcon);
+    alert->addButton ("Reset to raw", 1);
+    alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    alert->enterModalState (true, juce::ModalCallbackFunction::create ([this, alert] (int result)
+    {
+        std::unique_ptr<juce::AlertWindow> closer (alert);
+        if (result != 1) return;
+        if (! controller.resetMixToRaw()) return;
+        mixerPage->rebuild();
+        if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+        advancedPage->rebuild();
+        livePage->rebuild();
+        updateChrome();
+    }), false);
+}
+
 void MainView::showCheck()
 {
     if (checkSheet != nullptr) { checkSheet->refresh(); return; }
@@ -1899,6 +1930,7 @@ void MainView::handleCommand (int id)
             showPage (Page::Tracks);
             tracksPage->moveSelectedTrack (id == 305 ? -1 : 1);
             break;
+        case 414: resetMixToRaw(); break;
         case 401: mixPage->centreMacroPads(); showToast ("Both pads and the ENERGY ribbon are back to the plan."); break;
         case 420: showToast (juce::String (controller.raiseLoudnessToTarget())); break;
         case 430: case 431: case 432: case 433: case 434: case 435: case 436:

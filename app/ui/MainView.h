@@ -100,6 +100,8 @@ public:
     void showOutputs();                        // the ROUTING workspace, at its Outputs section
     void showHistory();                       // MIX HISTORY: the whole mix as it was, hours ago, by name
     void showCheck();                       // CHECK INPUTS: every assigned input, its level and one word about it
+    // RESET MIX TO RAW: everything DLIVE decided, taken back. Asked out loud; never a one-way door.
+    void resetMixToRaw();
     void updateChromeForSnapshot() { updateChrome(); }   // the snapshot tool: the toolbar re-reads the controller now
     void closeSheetsForSnapshot() { closeSheets(); }
     void showChat();

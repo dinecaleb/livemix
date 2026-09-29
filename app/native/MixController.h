@@ -382,6 +382,27 @@ public:
     void setBypass (bool on);
     bool isBypassed() const noexcept { return bypassed; }
 
+    // ---- RESET MIX TO RAW ----
+    //
+    // Everything DLIVE has decided about the sound, taken back: every strip's chain, gain,
+    // fader, pan and sends, every group's chain and fader, the returns, the master and the
+    // macros, all the way back to the session's own baseline - the mix a service starts from,
+    // before anything has been listened to. Sample replacement goes with it, because a
+    // replaced kick is something DLIVE decided.
+    //
+    // NOT BYPASS. Bypass is a way of *listening*: it leaves the kept mix alone and switching it
+    // off puts everything back. This throws the kept mix away and is meant to.
+    //
+    // What it keeps is everything that is not a mix decision: the audio on disk and the clips
+    // on the timeline, the names and the assignments and the routing, the scenes, the
+    // reference, the per-channel records, and the whole mix history - including a "Before
+    // reset" checkpoint taken first, so it is never a one-way door. UNDO takes it back too.
+    // Mutes and solos are the engineer's listening state and survive, as they do through BYPASS.
+    //
+    // Refused under LIVE SAFE with a sentence: putting the whole mix back to where it started
+    // is exactly what should not happen mid-service. Returns false when it was refused.
+    bool resetMixToRaw();
+
     // ---- LIVE SAFE: the lock for the twenty minutes when a mistake is public ----
     // The policy itself is src/Mix/LiveSafe.h - what is refused, what is only made smaller,
     // and what is never touched because an operator must be able to act in an emergency. It
