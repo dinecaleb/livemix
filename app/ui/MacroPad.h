@@ -119,6 +119,10 @@ public:
     ~MacroRibbon() override;
 
     static constexpr int kHeight = 26;
+    // Stacked: the name and the value on one line with the track across the next, for a column
+    // too narrow to write ENERGY, NATURAL, the track and POLISHED across (design `05 - Tune`).
+    static constexpr int kStackedHeight = 16 + 8 + 22;
+    void setStacked (bool);
 
     void setValue (float);                             // the controller's value: instant
     void settleTo (float);                             // written at once, the cap eases there
@@ -139,6 +143,7 @@ public:
 
 private:
     class Value;
+    bool stacked = false;
     void apply (float);
     void refreshTooltip();
     void announce();

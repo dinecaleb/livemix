@@ -471,8 +471,27 @@ void MacroRibbon::timerCallback()
     repaint();
 }
 
+void MacroRibbon::setStacked (bool s)
+{
+    if (s == stacked) return;
+    stacked = s;
+    resized();
+    repaint();
+}
+
 void MacroRibbon::resized()
 {
+    if (stacked)
+    {
+        auto r = getLocalBounds();
+        auto head = r.removeFromTop (16);
+        readout = head.removeFromRight (30);
+        label = head;
+        low = high = {};
+        r.removeFromTop (8);
+        track = r.reduced (7, 0);
+        return;
+    }
     auto r = getLocalBounds();
     label = r.removeFromLeft (juce::jmax (56, Dine::textWidth (Dine::caps (10.5f, 0.10f), MixMacros::name (macro)) + 4));
     r.removeFromLeft (10);
@@ -494,13 +513,17 @@ void MacroRibbon::paint (juce::Graphics& g)
     Dine::drawText (g, MixMacros::name (macro), label, juce::Justification::centredLeft);
 
     // The two ends, as quiet as the pads' corner words; the one the value leans to lights up.
-    g.setFont (Dine::caps (9.5f, 0.08f, 500));
-    g.setColour (value < 49.5f ? Dine::ink2 : Dine::ink4);
-    Dine::drawText (g, juce::String (MixMacros::lowLabel (macro)).toUpperCase(), low, juce::Justification::centredLeft);
-    g.setColour (value > 50.5f ? Dine::ink2 : Dine::ink4);
-    Dine::drawText (g, juce::String (MixMacros::highLabel (macro)).toUpperCase(), high, juce::Justification::centredRight);
+    // A stacked ribbon has no room for them, and they are on its tooltip.
+    if (! low.isEmpty())
+    {
+        g.setFont (Dine::caps (9.5f, 0.08f, 500));
+        g.setColour (value < 49.5f ? Dine::ink2 : Dine::ink4);
+        Dine::drawText (g, juce::String (MixMacros::lowLabel (macro)).toUpperCase(), low, juce::Justification::centredLeft);
+        g.setColour (value > 50.5f ? Dine::ink2 : Dine::ink4);
+        Dine::drawText (g, juce::String (MixMacros::highLabel (macro)).toUpperCase(), high, juce::Justification::centredRight);
+    }
 
-    if (moved || dragging)
+    if (moved || dragging || stacked)
     {
         g.setColour (Dine::ink2);
         g.setFont (Dine::mono (11.0f, 500));

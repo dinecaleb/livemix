@@ -363,8 +363,7 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         scenePads[size_t (i)]->onClick = [this, i] { controller.recallScene (i); refreshScenes(); };
         addAndMakeVisible (*scenePads[size_t (i)]);
         sceneKeeps[size_t (i)] = std::make_unique<DineButton> ("Keep", DineButton::Style::Ghost);
-        sceneKeeps[size_t (i)]->setFontPx (11.0f);
-        sceneKeeps[size_t (i)]->setCaps (true);
+        sceneKeeps[size_t (i)]->setFontPx (11.5f);
         sceneKeeps[size_t (i)]->setTooltip ("Keep the mix as it is now under this name.");
         sceneKeeps[size_t (i)]->onClick = [this, i] { controller.keepScene (i); refreshScenes(); };
         addAndMakeVisible (*sceneKeeps[size_t (i)]);
@@ -687,7 +686,6 @@ void LivePage::paint (juce::Graphics& g)
                                      : "Off. Every setting is editable, including the ones that restart the engine.",
                         head, juce::Justification::centredLeft, true);
         inner.removeFromTop (14);
-        inner.removeFromBottom (Dine::Metric::button + 10);
 
         struct Rule { juce::String what, why; juce::Colour tint; };
         std::vector<Rule> rules;
@@ -829,10 +827,10 @@ void LivePage::resized()
         auto inner = l.safe.reduced (18, 16);
         const int w = juce::jmax (110, liveSafeButton.idealWidth());
         liveSafeButton.setBounds (inner.removeFromTop (Dine::Metric::button).removeFromLeft (w));
-        // Under the rules, where an engineer already is when something has gone wrong: the
-        // list of every mix this session has had, with the time and the name of each.
-        const int hw = juce::jmax (110, historyButton.idealWidth());
-        historyButton.setBounds (inner.removeFromBottom (Dine::Metric::button).removeFromLeft (hw));
+        // MIX HISTORY has a row of its own in the sidebar's Safety group - which is where the
+        // design puts it - so this card is the three columns and nothing else.
+        historyButton.setBounds (0, 0, 0, 0);
+        historyButton.setVisible (false);
     }
     {
         auto inner = l.autopilot.reduced (18, 16);

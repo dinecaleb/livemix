@@ -438,8 +438,10 @@ void SessionsPage::paint (juce::Graphics& g)
         return;
     }
 
-    // the note under the list
-    auto note = juce::Rectangle<int> (r.getX(), viewport.getBottom() + 14, r.getWidth(), 18);
+    // The note sits under the last row rather than at the foot of the page: it is about
+    // starting a new session, and it belongs beside the list it is about.
+    const int listEnd = juce::jmin (viewport.getBottom(), viewport.getY() + int (rows.size()) * 56);
+    auto note = juce::Rectangle<int> (r.getX(), listEnd + 14, r.getWidth(), 18);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (13.0f));
     Dine::drawText (g, "Start from nothing: pick the device, name the inputs, then tune.", note,

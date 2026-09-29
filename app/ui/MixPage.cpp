@@ -32,7 +32,6 @@ namespace
     {
         return i >= 0 && i < kGroupBuses ? Dine::busTint (groupBus (i)) : Dine::ink2;
     }
-    constexpr int kRibbonGap = 22;      // the ENERGY ribbon sits clear of the snap rows above it
 
     // WHAT A TUNE IS ABOUT, in one place. The listen card and the result card both say it, and
     // saying it twice in two ways is how they come to disagree.
@@ -78,7 +77,9 @@ public:
         fader.setRange (-60.0, 12.0, 0.1);
         fader.setSkewFactorFromMidPoint (-12.0);
         fader.setDoubleClickReturnValue (true, 0.0);
-        fader.getProperties().set ("dineFader", true);
+        // One bar, the way the design draws it: the meter behind, the fader's thumb on top of
+        // it, so a group row says where it is set and what is actually coming out of it at once.
+        fader.getProperties().set ("dineOverlay", true);
         fader.setTooltip (isFx() ? "Level for every effect return together. Double-click for 0.0 dB, which is what TUNE MIX set."
                                  : "Level for the whole group. Double-click for 0.0 dB.");
         fader.onValueChange = [this]
@@ -183,10 +184,8 @@ public:
         verbRect = canTune() ? r.removeFromRight (40) : juce::Rectangle<int>();
         if (canTune()) r.removeFromRight (10);
 
-        // The meter lies behind the fader, the way the design draws it: one bar that says both
-        // where the group is set and what is actually coming out of it.
-        meter.setBounds (r.withSizeKeepingCentre (r.getWidth(), 4).translated (0, -6));
-        fader.setBounds (r.withSizeKeepingCentre (r.getWidth(), 22).translated (0, 6));
+        meter.setBounds (r.withSizeKeepingCentre (r.getWidth(), 5));
+        fader.setBounds (r.withSizeKeepingCentre (r.getWidth(), 22));
     }
 
     static constexpr int kNameW = 110;
@@ -2120,7 +2119,7 @@ MixPage::Layout MixPage::layout() const
     // the pads, down to a floor of 150; when even that does not fit, the pads drop their snap
     // rows first. What is spare goes to the pads (up to their 214) before the groups.
     // A heading is 20 and its gap 10; the master card is 66 under its own heading.
-    const int fixed = (20 + 10) + 24 + (20 + 10 + kMasterCardH) + 26 + kRibbonGap + MacroRibbon::kHeight;
+    const int fixed = (20 + 10) + 24 + (20 + 10 + kMasterCardH) + 26;
     const int groupsFloor = 3 * GroupTile::height;
     const int groupsWant = kGroupTiles * GroupTile::height;
     l.compact = main.getHeight() < fixed + MacroPad::heightFor (MacroPad::kMinPad, false) + groupsFloor;
@@ -2143,16 +2142,18 @@ MixPage::Layout MixPage::layout() const
     l.master = main.removeFromTop (20 + 10 + kMasterCardH);
     main.removeFromTop (26);
     l.macrosCaption = juce::Rectangle<int>();
-    // The two pads and the ribbon are one block, centred in the column rather than parked at its left.
+    // BODY x VOICE, DRIVE x ROOM and ENERGY sit side by side, the way the design sets them:
+    // three controls in a row rather than two and one underneath.
     auto padRow = main.removeFromTop (padsH);
-    const int compW = juce::jmin (l.padSize + 40, (padRow.getWidth() - 24) / 2);
-    const int block = compW * 2 + 24;
+    const int compW = juce::jmin (l.padSize + 40, (padRow.getWidth() - 2 * 24) / 3);
+    const int block = juce::jmin (padRow.getWidth(), compW * 3 + 2 * 24);
     padRow = padRow.withSizeKeepingCentre (block, padRow.getHeight());
     l.pads[0] = padRow.removeFromLeft (compW);
     padRow.removeFromLeft (24);
     l.pads[1] = padRow.removeFromLeft (compW);
-    main.removeFromTop (kRibbonGap);
-    l.ribbon = main.removeFromTop (MacroRibbon::kHeight).withSizeKeepingCentre (block, MacroRibbon::kHeight);
+    padRow.removeFromLeft (24);
+    // The ribbon is one row high; it sits at the top of its column, level with the pads' words.
+    l.ribbon = padRow.withHeight (MacroRibbon::kStackedHeight + 22).withTrimmedTop (22);
     return l;
 }
 
@@ -2274,13 +2275,14 @@ void MixPage::resized()
 
     {
         const int w = juce::jmax (90, resetMacrosButton.idealWidth());
-        resetMacrosButton.setBounds (juce::Rectangle<int> (l.ribbon.getRight() - w, l.ribbon.getY() - 26, w, 22));
+        resetMacrosButton.setBounds (juce::Rectangle<int> (l.ribbon.getRight() - w, l.ribbon.getBottom() + 14, w, 22));
         for (size_t i = 0; i < pads.size(); ++i)
         {
             pads[i]->setCompact (l.compact);
             pads[i]->setPadSize (l.padSize);
             pads[i]->setBounds (l.pads[i]);
         }
+        ribbon->setStacked (true);
         ribbon->setBounds (l.ribbon);
     }
 

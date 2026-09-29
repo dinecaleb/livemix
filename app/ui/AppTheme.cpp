@@ -1470,6 +1470,9 @@ void DineLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w, 
     const bool vertical = style == juce::Slider::LinearVertical;
     const bool bipolar = bool (s.getProperties().getWithDefault ("dineBipolar", false));
     const bool consoleFader = bool (s.getProperties().getWithDefault ("dineFader", false));
+    // An overlay slider sits on top of something that is already drawn - a meter, usually - so
+    // it draws its thumb and nothing else: no track, no fill.
+    const bool overlay = bool (s.getProperties().getWithDefault ("dineOverlay", false));
     auto full = juce::Rectangle<float> (float (x), float (y), float (w), float (h));
     const juce::Colour capColour = s.isEnabled() ? Dine::ink2 : Dine::ink4;
 
@@ -1513,6 +1516,30 @@ void DineLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w, 
             g.fillRoundedRectangle (cap, 3.0f);
             g.setColour (juce::Colour (0xff5a5d63));
             g.fillRect (cap.getCentreX() - 0.5f, cap.getY() + 3.0f, 1.0f, cap.getHeight() - 6.0f);
+        }
+        return;
+    }
+
+    if (overlay)
+    {
+        const auto ring = s.isEnabled() ? Dine::ink : Dine::ink4;
+        if (vertical)
+        {
+            const float cy = juce::jlimit (full.getY() + 7.0f, full.getBottom() - 7.0f, sliderPos);
+            auto knob = juce::Rectangle<float> (13.0f, 13.0f).withCentre ({ full.getCentreX(), cy });
+            g.setColour (juce::Colours::black.withAlpha (0.5f));
+            g.fillEllipse (knob.translated (0.0f, 1.0f));
+            g.setColour (ring);
+            g.fillEllipse (knob);
+        }
+        else
+        {
+            const float cx = juce::jlimit (full.getX() + 7.0f, full.getRight() - 7.0f, sliderPos);
+            auto knob = juce::Rectangle<float> (13.0f, 13.0f).withCentre ({ cx, full.getCentreY() });
+            g.setColour (juce::Colours::black.withAlpha (0.5f));
+            g.fillEllipse (knob.translated (0.0f, 1.0f));
+            g.setColour (ring);
+            g.fillEllipse (knob);
         }
         return;
     }
