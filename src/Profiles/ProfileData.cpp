@@ -39,7 +39,10 @@ namespace
         t.transientMaxAttack = 0.5f; t.transientMaxSustainCut = 0.3f; t.transientRiseLowDb = 14.0f;
         t.bleedGateThreshold = 0.35f; t.gateMaxRangeDb = 30.0f; t.gateDetectorHpfHz = 30.0f;
         t.sampleAppropriate = true; t.sampleDetHpfHz = 30.0f; t.sampleDetLpfHz = 250.0f; t.sampleMaskMs = 40.0f; t.sampleRiseDb = 6.0f;
-        t.sampleBlend = 0.4f; t.sampleSound = "Tight kick";
+        // 100 %: the kick is the one drum a sample carries outright. Found by listening to a
+        // real service (2026-09-28) - at anything less the microphone's own inconsistency comes
+        // back with it, which is the thing the sample was brought in to replace.
+        t.sampleBlend = 1.0f; t.sampleSound = "Tight kick";
         t.satMaxDrive = 0.25f;
         t.mixPeakTargetDb = -10.0f; t.kitBalanceRelDb = 0.0f;
         return t;
@@ -63,7 +66,9 @@ namespace
         t.transientMaxAttack = 0.5f; t.transientMaxSustainCut = 0.3f; t.transientRiseLowDb = 15.0f;
         t.bleedGateThreshold = 0.35f; t.gateMaxRangeDb = 25.0f; t.gateDetectorHpfHz = 150.0f;
         t.sampleAppropriate = true; t.sampleDetHpfHz = 150.0f; t.sampleDetLpfHz = 4000.0f; t.sampleMaskMs = 30.0f; t.sampleRiseDb = 8.0f;
-        t.sampleBlend = 0.3f; t.sampleSound = "Tight snare";
+        // 45 %: enough body from the sample to be even, enough microphone left for the room and
+        // the player's own dynamics. Found by listening (2026-09-28); 40-50 % both worked.
+        t.sampleBlend = 0.45f; t.sampleSound = "Tight snare";
         t.satMaxDrive = 0.25f;
         t.mixPeakTargetDb = -10.0f; t.kitBalanceRelDb = 0.0f;
         return t;
@@ -112,6 +117,7 @@ namespace
         t.transientMaxAttack = 0.45f; t.transientMaxSustainCut = 0.35f; t.transientRiseLowDb = 14.0f;
         t.bleedGateThreshold = 0.3f; t.gateMaxRangeDb = 30.0f; t.gateDetectorHpfHz = 80.0f;
         t.sampleAppropriate = true; t.sampleDetHpfHz = 60.0f; t.sampleDetLpfHz = 1000.0f; t.sampleMaskMs = 60.0f; t.sampleRiseDb = 6.0f;
+        // 50 %, which listening agreed with: a tom keeps its own ring and gets its body back.
         t.sampleBlend = 0.5f; t.sampleSound = "Mid tom"; t.sampleFollowDrum = false;   // as recorded until the engineer has heard it follow the drum
         t.satMaxDrive = 0.2f;
         t.mixPeakTargetDb = -13.0f; t.kitBalanceRelDb = -3.0f;

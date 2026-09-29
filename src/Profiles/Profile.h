@@ -64,8 +64,9 @@ struct SourceTargets
 
     // ---- Sample replacement (DLIVE, kick / snare / toms) ----
     // The detector's band and mask for this family, the rise a close hit shows, and the blend
-    // TUNE proposes when the engineer switches the stage on. TUNE fits the threshold and the
-    // sample's level from the listen; it never switches the stage on by itself.
+    // TUNE sets. TUNE fits the threshold and the sample's level from the listen, and since
+    // 2026-09-28 it also switches the stage on for the kick, the snare and the toms when the
+    // listen could tell the hits from the bleed - the hi-hat's stage stays the engineer's.
     bool sampleAppropriate = false;
     float sampleDetHpfHz = 40.0f;
     float sampleDetLpfHz = 8000.0f;

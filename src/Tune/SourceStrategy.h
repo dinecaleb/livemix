@@ -61,6 +61,20 @@ namespace tune
     };
     Levels levels (const TuneContext& ctx);
 
+    // WHAT THE SAMPLE STAGE HANDS THE REST OF THE CHAIN. The stage crossfades
+    // `mic * (1 - blend) + sample * blend` and sits ahead of the compressor, so on a sampled
+    // drum this - not the microphone the listen measured - is what the compressor, the gate
+    // and the fader have to be fitted to. MixPlanner predicts levels through the same two
+    // functions, so a threshold and a fader can never be fitted to two different signals.
+    float sampledHitDb (const ChannelParameters&, float micHitDb) noexcept;
+    float sampledFloorDb (const ChannelParameters&, float micFloorDb) noexcept;
+
+    // WILL THIS DRUM BE SAMPLED once this tune has run? A pure function of the listen and what
+    // the channel is already set to, so `setSampleReplacement` and MixPlanner's kit-wide rules
+    // answer it identically - and so the answer is the same on the second pass over the same
+    // listen as it was on the first, which is what keeps a re-tune saying NO CHANGE REQUIRED.
+    bool willSample (ChannelRole, const AnalysisResult&, const SourceTargets&, const ChannelParameters& current) noexcept;
+
     // Capture health and the preamp recommendation. Returns false when there is no usable signal.
     bool evaluateInput (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, RecommendationResult& report);
 

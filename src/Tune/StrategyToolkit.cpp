@@ -128,13 +128,78 @@ namespace
     std::string capital (std::string s) { if (! s.empty()) s[0] = char (std::toupper (static_cast<unsigned char> (s[0]))); return s; }
 }
 
+// THE LEVEL OF A LOUD EVENT, not a percentile of everything.
+//
+// `hitLevelDb` is the 95th percentile of 10 ms frame levels. On a close drum microphone the
+// hits occupy a few per cent of the frames - a snare at 130 bpm is sounding for about four
+// frames in a hundred - so that percentile lands in the decay tails and the bleed rather than
+// on a hit. AnalysisResult.h has said so since it was written, and says what to use instead:
+// `eventLevelDb`, the median peak of the hits the detector actually found, which is -120 when
+// there were too few of them to be sure.
+//
+// Nothing read it. Measured on a real service (QUEENSVIEW, 2026-09-28): the snare's percentile
+// said -40 dBFS and its 104 detected hits said -24; the compressor threshold was fitted to
+// -40, which asked the static curve for 30 dB of reduction on every hit, and the same
+// understated level told the operator to turn a perfectly healthy microphone up at the desk.
+// The sample trigger already used `eventLevelDb`; now everything does.
 Levels levels (const TuneContext& ctx)
 {
     Levels l;
-    l.hitDb = ctx.analysis.hitLevelDb + ctx.current.inputTrimDb;
-    l.floorDb = ctx.analysis.noiseFloorDb + ctx.current.inputTrimDb;
-    l.sparse = ctx.analysis.silencePercent > 60.0f;
+    const auto& a = ctx.analysis;
+    l.hitDb = (a.eventLevelDb > -119.0f ? a.eventLevelDb : a.hitLevelDb) + ctx.current.inputTrimDb;
+    l.floorDb = a.noiseFloorDb + ctx.current.inputTrimDb;
+    l.sparse = a.silencePercent > 60.0f;
     return l;
+}
+
+// ---------------------------------------------------------------------------
+// WHAT THE SAMPLE STAGE HANDS THE REST OF THE CHAIN
+//
+// The stage crossfades: `mic * (1 - blend) + sample * blend`. At blend 1 the microphone is
+// gone entirely and what every stage after it sees is the sample alone - a consistent,
+// full-level one-shot with silence between hits, which is nothing whatever like the
+// microphone the listen measured.
+//
+// So a compressor fitted to the microphone is the wrong compressor for a sampled drum, and
+// that is audible: it was reported from a real weekend of testing as "it compresses hard
+// based on the original signal, not the sampled design". These two functions are how the rest
+// of the chain is fitted to what will actually arrive at it.
+//
+// Hits are aligned in time (the offset is zero unless somebody sets it), so their amplitudes
+// add; between hits only the microphone contributes, scaled down by the crossfade.
+float sampledHitDb (const ChannelParameters& p, float micHitDb) noexcept
+{
+    if (! p.replaceEnabled) return micHitDb;
+    const float blend = clamp (p.replaceBlend, 0.0f, 1.0f);
+    const float mic = (1.0f - blend) * dbToGain (micHitDb);
+    const float sample = blend * dbToGain (p.replaceGainDb);
+    const float sum = mic + sample;
+    return sum > 1.0e-9f ? gainToDb (sum) : micHitDb;
+}
+
+// The one rule for "is this drum sampled", so the channel and the kit around it never disagree.
+bool willSample (ChannelRole role, const AnalysisResult& a, const SourceTargets& t, const ChannelParameters& current) noexcept
+{
+    if (current.replaceEnabled) return true;          // already on: the engineer's choice, or an earlier tune's
+    if (! t.sampleAppropriate) return false;
+    // One trigger per drum: the inside / top microphone, never the outside or the bottom.
+    if (role == ChannelRole::KickOut || role == ChannelRole::SnareBottom) return false;
+    const RoleFamily f = roleFamily (role);
+    // The hat keeps its stage and keeps it off: a hat sample is a taste, not a repair.
+    if (! (f == RoleFamily::Kick || f == RoleFamily::Snare || f == RoleFamily::Tom)) return false;
+    // Only where the listen could actually tell the hits from the rest of the kit, and found
+    // enough of them to be sure what a hit is worth. Anything less and the trigger is a guess.
+    return a.bleedLevelDb > -119.0f && a.eventLevelDb > -119.0f && a.eventCount >= 8;
+}
+
+float sampledFloorDb (const ChannelParameters& p, float micFloorDb) noexcept
+{
+    if (! p.replaceEnabled) return micFloorDb;
+    const float blend = clamp (p.replaceBlend, 0.0f, 1.0f);
+    // The sample is silent between hits, so what is left between them is the microphone alone,
+    // turned down by the crossfade. At blend 1 there is nothing between the hits at all, which
+    // is the whole reason a sampled drum needs no gate to speak of.
+    return blend >= 0.999f ? -120.0f : micFloorDb + gainToDb (1.0f - blend);
 }
 
 float captureGainToHealthyDb (const AnalysisResult& a, const SourceTargets& t)
@@ -548,9 +613,21 @@ void setCompression (const TuneContext& ctx, const SourceTargets& t, TuneDecisio
 {
     if (! t.compressionAppropriate) return;
     const auto& a = ctx.analysis;
-    const Levels L = levels (ctx);
-    const float crest = a.crestFactorDb;
+    const Levels raw = levels (ctx);
     const auto& cur = d.proposed;
+
+    // WHAT WILL ACTUALLY ARRIVE HERE. The sample stage sits ahead of the compressor, and on a
+    // sampled drum it is most of what the compressor hears: `setSampleReplacement` has already
+    // run, so `cur` carries the blend and the sample's own level and this is the signal to fit
+    // to, not the microphone the listen measured. On everything else the two are identical.
+    Levels L = raw;
+    L.hitDb = sampledHitDb (cur, raw.hitDb);
+    L.floorDb = std::min (sampledFloorDb (cur, raw.floorDb), L.hitDb - 3.0f);
+    // How much of what arrives is sample rather than microphone. The crest factor itself is
+    // left as measured: it describes the *source*, and it is what decides whether control is
+    // wanted at all. What the blend changes is how much control is wanted, below.
+    const float sampled = cur.replaceEnabled ? clamp (cur.replaceBlend, 0.0f, 1.0f) : 0.0f;
+    const float crest = a.crestFactorDb;
 
     if (crest < t.crestFactorMinDb)
     {
@@ -577,7 +654,13 @@ void setCompression (const TuneContext& ctx, const SourceTargets& t, TuneDecisio
     // Inside the profile range the current (template or user) character is kept and only the
     // threshold is fitted to the measured level; above it, ratio/attack/release scale with severity.
     const float ratio = needsControl ? lerp (t.compRatioMin, t.compRatioMax, severity) : clamp (cur.compRatio, t.compRatioMin, t.compRatioMax);
-    const float grDb = needsControl ? lerp (0.8f * t.compTargetGrDb, 1.3f * t.compTargetGrDb, severity) : 0.7f * t.compTargetGrDb;
+    float grDb = needsControl ? lerp (0.8f * t.compTargetGrDb, 1.3f * t.compTargetGrDb, severity) : 0.7f * t.compTargetGrDb;
+    // A SAMPLED DRUM NEEDS LESS CONTROL, in proportion to how much of it is sample: a one-shot
+    // plays at the same level every time and has nothing between the hits, so the thing a
+    // compressor is for on a microphone - taming the hit that came in twice as hard, holding
+    // the bleed down - is already done. At a full blend the compressor is doing shaping and
+    // nothing else, so it asks for 40 % of what a microphone would.
+    grDb *= lerp (1.0f, 0.4f, sampled);
     const float threshold = roundDb (clamp (L.hitDb - grDb * ratio / (ratio - 1.0f), -60.0f, -3.0f));
     const float attack = needsControl ? std::round (lerp (t.compAttackMaxMs, t.compAttackMinMs, severity)) : clamp (cur.compAttackMs, t.compAttackMinMs, t.compAttackMaxMs);
     const float rate = clamp ((a.transientsPerSecond - 1.0f) / 6.0f, 0.0f, 1.0f);
@@ -616,6 +699,7 @@ void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneD
     if (ctx.role == ChannelRole::KickOut || ctx.role == ChannelRole::SnareBottom) return;
     const auto& a = ctx.analysis;
     const auto& cur = d.proposed;
+    const RoleFamily family = roleFamily (ctx.role);
     const Levels L = levels (ctx);
     if (L.hitDb < -70.0f) return;                        // nothing was heard: nothing to fit
 
@@ -648,7 +732,25 @@ void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneD
 
     // The drum's own pitch, for a sample that follows it (toms). Kept when the listen found none.
     const float drumHz = fundamentalHz > 0.0f ? std::round (fundamentalHz * 10.0f) * 0.1f : cur.replaceDrumHz;
-    const bool same = std::fabs (cur.replaceThresholdDb - threshold) < 0.5f && std::fabs (cur.replaceGainDb - level) < 0.5f
+
+    // ---- SWITCHING IT ON (2026-09-28)
+    //
+    // TUNE used to fit every number here and then leave the stage off, with a sentence asking
+    // the engineer to go and find it. On a real service that means six drum channels measured,
+    // fitted, and silent - which is not a feature, it is homework.
+    //
+    // So it is switched on where the fit is trustworthy and the sound is wanted: the kick, the
+    // snare and the toms, when the listen could actually tell the hits from the bleed
+    // (`bleedKnown`) and found enough of them to be sure of their level. The hi-hat keeps its
+    // stage and keeps it off - a hat sample is a taste, not a repair, and the profile has
+    // always said so. A drum that was already sampled is left exactly as the engineer set it,
+    // blend included: this only ever turns a stage on, never off, and never moves a blend
+    // somebody chose.
+    const bool turnOn = ! cur.replaceEnabled && willSample (ctx.role, a, t, cur);
+    const float blend = turnOn ? clamp (t.sampleBlend, 0.0f, 1.0f) : cur.replaceBlend;
+
+    const bool same = ! turnOn
+                   && std::fabs (cur.replaceThresholdDb - threshold) < 0.5f && std::fabs (cur.replaceGainDb - level) < 0.5f
                    && std::fabs (cur.replaceDetHpfHz - detHpf) < 0.5f && std::fabs (cur.replaceDetLpfHz - detLpf) < 0.5f
                    && std::fabs (cur.replaceMaskMs - mask) < 0.5f && std::fabs (cur.replaceRiseDb - rise) < 0.5f
                    && std::fabs (cur.replaceDrumHz - drumHz) < 0.05f;
@@ -663,8 +765,19 @@ void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneD
           + num ("%.0f dBFS", double (L.floorDb)) + ") and the " + plural (eventNoun (ctx)) + " (" + num ("%.0f dBFS", double (hitDb)) + ").";
     why += " The sample's own peak is placed at the microphone's own peak (" + num ("%.0f dBFS", double (peakDb)) + "), so blending it in changes the drum's level by nothing.";
     if (fundamentalHz > 0.0f && cur.replaceFollowDrum) why += " The drum rings at " + fmtHz (fundamentalHz) + ", and a sample that follows the drum plays at that pitch.";
-    why += " It plays only while the stage is switched on";
-    why += cur.replaceEnabled ? "." : " - it is off; switch it on from the Sample stage to hear it.";
+    if (turnOn)
+    {
+        what = "Sample switched on at " + std::to_string (int (std::round (blend * 100.0f))) + "%: threshold "
+             + fmtDb (threshold, 0) + ", sample at " + fmtDb (level, 0);
+        why += " The stage is switched on: the listen could tell the "
+             + plural (eventNoun (ctx)) + " from the rest of the kit, so the trigger is trustworthy. "
+               "Turn the blend down, or the stage off, on the Sample stage if you want more of the microphone.";
+    }
+    else
+    {
+        why += " It plays only while the stage is switched on";
+        why += cur.replaceEnabled ? "." : " - it is off; switch it on from the Sample stage to hear it.";
+    }
     d.move (Recommendation::Kind::Sample, TuneSection::Bleed, what, why, bleedKnown ? Confidence::High : Confidence::Medium,
             [=] (ChannelParameters& p)
             {
@@ -672,6 +785,7 @@ void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneD
                 p.replaceDetHpfHz = detHpf; p.replaceDetLpfHz = detLpf;
                 p.replaceMaskMs = mask; p.replaceRiseDb = rise;
                 p.replaceDrumHz = drumHz;
+                if (turnOn) { p.replaceEnabled = true; p.replaceBlend = blend; }
             });
 }
 
@@ -684,7 +798,10 @@ void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, 
     // ---- a sampled microphone: the sample carries the drum's body, the microphone supplies the
     // attack, and everything the microphone hears between hits is dirt under a clean sample.
     // The gate is far harder than a profile would ever fit on a microphone that is on its own.
-    if (ctx.sampled && closeDrum)
+    // `d.proposed`, not `ctx`: the sample step has already run in this pass, so a drum TUNE has
+    // just decided to sample gets the gate that belongs under a sample rather than the one that
+    // belonged under the microphone.
+    if ((cur.replaceEnabled || ctx.sampled) && closeDrum)
     {
         const auto& a = ctx.analysis;
         const Levels L = levels (ctx);
@@ -793,7 +910,7 @@ void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, 
     // A drum microphone without a sample in a sampled kit (a kick-out, a snare-bottom, a tom on
     // its own): its bleed of the sampled drums is the dirt now, so the expander is fitted more
     // readily and closes further than the profile would ask on a kit that is all microphones.
-    const bool kitNeighbour = ctx.kitSampled && closeDrum && ! ctx.sampled;
+    const bool kitNeighbour = ctx.kitSampled && closeDrum && ! (cur.replaceEnabled || ctx.sampled);
     const float gateFrom = kitNeighbour ? 0.5f * t.bleedGateThreshold : t.bleedGateThreshold;
     const float extraRange = kitNeighbour ? 6.0f : 0.0f;
     if (bleed > gateFrom)

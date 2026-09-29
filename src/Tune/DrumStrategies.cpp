@@ -30,9 +30,11 @@ namespace
             controlLowMid (ctx, t, d);
             notchResonance (ctx, t, d, 150.0f, 800.0f, "shell ring");
             shapeAttack (ctx, t, d);
-            setCompression (ctx, t, d);
-            // The trigger before the gate: a sampled microphone's gate is fitted under it.
+            // THE SAMPLE FIRST. It sits ahead of the compressor and the gate in the chain, and
+            // on a sampled drum it is most of what they hear - so both are fitted to what will
+            // actually arrive at them rather than to the microphone the listen measured.
             setSampleReplacement (ctx, t, d, f);
+            setCompression (ctx, t, d);
             setGate (ctx, t, d, f);
         }
     };
@@ -54,9 +56,11 @@ namespace
             controlHarshness (ctx, t, d);
             shapeAttack (ctx, t, d);
             shapeAir (ctx, t, d);
-            setCompression (ctx, t, d);
-            // The trigger before the gate: a sampled microphone's gate is fitted under it.
+            // THE SAMPLE FIRST. It sits ahead of the compressor and the gate in the chain, and
+            // on a sampled drum it is most of what they hear - so both are fitted to what will
+            // actually arrive at them rather than to the microphone the listen measured.
             setSampleReplacement (ctx, t, d, f);
+            setCompression (ctx, t, d);
             setGate (ctx, t, d, f);
         }
     };
@@ -76,6 +80,9 @@ namespace
             controlLowMid (ctx, t, d);
             notchResonance (ctx, t, d, 200.0f, 900.0f, "ring");
             shapeAttack (ctx, t, d);
+            // THE SAMPLE FIRST: it is ahead of the compressor and the gate in the chain, so
+            // both are fitted to what will actually arrive at them (see KickStrategy).
+            setSampleReplacement (ctx, t, d, f);
             setCompression (ctx, t, d);
 
             // Sustain: a long ring (measured) is controlled with the transient shaper, bounded by the profile.
@@ -88,8 +95,6 @@ namespace
                             "Hits take about " + ms (decay) + " to fall 20 dB; shortening the ring keeps big toms clean under the rest of the kit.",
                             Confidence::Medium, [=] (ChannelParameters& p) { p.transientEnabled = true; p.transientSustain = cut; });
             }
-            // The trigger before the gate: a sampled microphone's gate is fitted under it.
-            setSampleReplacement (ctx, t, d, f);
             setGate (ctx, t, d, f);
         }
     };
@@ -152,8 +157,8 @@ namespace
                                ("Low and low-mid energy is " + fmtDb (low, 0) + " above the profile tolerance: snare and kick spill. The high-pass is raised.").c_str());
             controlHarshness (ctx, t, d);
             shapeAir (ctx, t, d);
-            setCompression (ctx, t, d);
             setSampleReplacement (ctx, t, d, 0.0f);
+            setCompression (ctx, t, d);
             setGate (ctx, t, d, 0.0f);
         }
     };

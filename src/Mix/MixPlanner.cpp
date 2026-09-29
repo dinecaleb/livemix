@@ -230,6 +230,15 @@ namespace
 namespace MixPlanner
 {
 
+// What the sample stage does to a peak, dB: the crossfade `mic * (1 - blend) + sample * blend`,
+// with the sample's own peak where TUNE put it. `tune::sampledHitDb` is the same arithmetic the
+// tuner fits the compressor with - one model, so the fader and the threshold cannot disagree.
+float sampleStageShiftDb (const ChannelParameters& after, const ChannelParameters& atCapture, float micPeakDb)
+{
+    if (! after.replaceEnabled && ! atCapture.replaceEnabled) return 0.0f;
+    return tune::sampledHitDb (after, micPeakDb) - tune::sampledHitDb (atCapture, micPeakDb);
+}
+
 // Where a strip's processed (pre-fader) peak lands under `strip`, predicted from what was measured under the chain that ran
 // at the listen: the input-gain change moves the chain input, and the compressor's curve says how much of that survives.
 // With the same gain and chain as at the listen this is the measurement itself, so planning again changes nothing.
@@ -240,12 +249,16 @@ float predictedProcessedPeakDb (const MixPlanContext& ctx, int i, const StripPar
     const auto& atCapture = ctx.atCapture.strips[size_t (i)];
     const float rise = MixProfile::compPeakRiseMs (ctx.session.profile, ctx.graph.strips[size_t (i)].role);
     const float gainDelta = strip.inputGainDb - atCapture.inputGainDb;
+    // Switching the sample stage on changes what the rest of the chain is handed - at a full
+    // blend it replaces the microphone outright - so the prediction starts from the processed
+    // peak the listen measured plus that change, not from the microphone alone.
+    const float sampleShift = sampleStageShiftDb (strip.channel, atCapture.channel, a.peakDb + gainDelta);
     // The raw tap sits after the input gain, so the measured raw peak is the chain input at the listen. A compressor
     // with attack `a` has reached 1 - exp(-rise / a) of its static reduction when the peak arrives.
     const float shareAfter = 1.0f - std::exp (-rise / std::max (strip.channel.compAttackMs, 0.1f));
     const float shareBefore = 1.0f - std::exp (-rise / std::max (atCapture.channel.compAttackMs, 0.1f));
-    return o.peakDb + gainDelta
-         + compressorEffectDb (strip.channel, a.peakDb + gainDelta, shareAfter)
+    return o.peakDb + gainDelta + sampleShift
+         + compressorEffectDb (strip.channel, a.peakDb + gainDelta + sampleShift, shareAfter)
          - compressorEffectDb (atCapture.channel, a.peakDb, shareBefore);
 }
 
@@ -255,8 +268,9 @@ float predictedProcessedRmsDb (const MixPlanContext& ctx, int i, const StripPara
     const auto& a = ctx.capture.strips[size_t (i)];
     const auto& atCapture = ctx.atCapture.strips[size_t (i)];
     const float gainDelta = strip.inputGainDb - atCapture.inputGainDb;
-    return o.rmsDb + gainDelta
-         + compressorAverageDeltaDb (strip.channel, atCapture.channel, a.rmsDb, a.peakDb, gainDelta,
+    const float sampleShift = sampleStageShiftDb (strip.channel, atCapture.channel, a.peakDb + gainDelta);
+    return o.rmsDb + gainDelta + sampleShift
+         + compressorAverageDeltaDb (strip.channel, atCapture.channel, a.rmsDb, a.peakDb, gainDelta + sampleShift,
                                      MixProfile::relationships (ctx.session.profile).compDetectorCrestShareStrip);
 }
 
@@ -309,17 +323,24 @@ MixPlan plan (const MixPlanContext& ctx)
 
     // ---- 1. Every source on its own: the existing Tune, unchanged ----
     plan.strips.resize (size_t (n));
-    // A sampled kit: any kick, snare or tom whose sample stage is on. The engineer's switch,
-    // read once for every strip, so the hi-hat and the overheads are tuned for the kit they
-    // are actually in.
+    // A sampled kit: any kick, snare or tom that will be carried by a sample once this tune has
+    // run - already on, or about to be. Read once for every strip, so the hi-hat and the
+    // overheads are tuned for the kit they are actually going to be in.
+    //
+    // `tune::willSample`, not `replaceEnabled`: TUNE switches the stage on itself now, so asking
+    // what is on *before* the tune would tune the hat for one kit and leave it in another - and
+    // the second pass over the same listen would then disagree with the first, which is the one
+    // thing a tune may never do. A sampled hi-hat does not make a sampled kit; the rules this
+    // feeds are about the kick and the snare being carried, which is what changes what every
+    // other drum microphone hears.
     bool kitSampled = false;
-    for (int k = 0; k < ctx.graph.numStrips() && k < ctx.current.numStrips; ++k)
+    for (int k = 0; k < ctx.graph.numStrips() && k < ctx.current.numStrips && k < int (ctx.capture.strips.size()); ++k)
     {
-        // A sampled hi-hat does not make a sampled kit: the rules below are about the kick and
-        // the snare being carried by samples, which is what changes what every other drum
-        // microphone hears. The hat's own sample only changes the hat.
-        const RoleFamily kf = roleFamily (ctx.graph.strips[size_t (k)].role);
-        if (sampleReplacementAppropriate (kf) && kf != RoleFamily::HiHat && ctx.current.strips[size_t (k)].channel.replaceEnabled) kitSampled = true;
+        const auto kRole = ctx.graph.strips[size_t (k)].role;
+        const RoleFamily kf = roleFamily (kRole);
+        if (kf == RoleFamily::HiHat) continue;
+        if (tune::willSample (kRole, ctx.capture.strips[size_t (k)], Profiles::targets (profile, kRole),
+                              ctx.current.strips[size_t (k)].channel)) kitSampled = true;
     }
     for (int i = 0; i < n; ++i)
     {

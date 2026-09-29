@@ -179,6 +179,92 @@ TEST_CASE ("Tune (dynamics): compressor threshold follows the measured hit level
     CHECK (rd.proposed.compEnabled == false);
 }
 
+TEST_CASE ("Tune (dynamics): a sparse drum is compressed from its hits, not from the silence between them")
+{
+    // A tom struck six times in a listen is silent for most of it, so the 95th percentile of
+    // its frames lands tens of dB under the hits themselves. Fitting a threshold to that
+    // number asks the compressor for twenty-odd dB on every stroke and the drum comes back
+    // flat and quiet. The events are what the compressor is for, so the events are what it
+    // is fitted to.
+    auto sparse = onTarget (ChannelRole::RackTom);
+    sparse.silencePercent = 82.0f;
+    sparse.hitLevelDb = -32.0f;          // the percentile: mostly the room between hits
+    sparse.eventLevelDb = -9.0f;         // the strokes themselves
+    sparse.eventCount = 14;
+    sparse.musicalPeakDb = -7.0f;
+    sparse.peakDb = -6.0f;
+    sparse.crestFactorDb = 22.0f;
+    sparse.noiseFloorDb = -60.0f;
+
+    auto ctx = context (ChannelRole::RackTom, sparse);
+    auto r = TuneEngine::tune (ctx);
+    REQUIRE (r.valid);
+    const auto* comp = find (r, TuneSection::Dynamics, "Compression");
+    REQUIRE (comp != nullptr);
+    const float thr = changeValue (*comp, ParamID::compThreshold);
+    const float ratio = changeValue (*comp, ParamID::compRatio, ctx.current.compRatio);
+    // The threshold is under the hits, not under the percentile: a stroke passing 23 dB over
+    // the threshold would be crushed, and that is the complaint this fixes.
+    CHECK (thr > sparse.hitLevelDb + 6.0f);
+    const float staticGr = (sparse.eventLevelDb - thr) * (1.0f - 1.0f / ratio);
+    CHECK (staticGr < 10.0f);
+}
+
+TEST_CASE ("Tune: a kick the listen supports is sampled, and its compressor is fitted to the sample, not to the microphone")
+{
+    // The sample stage sits ahead of the compressor in the chain, so on a sampled drum the
+    // compressor never sees the microphone it was fitted from. It is decided first, and the
+    // dynamics that follow it are fitted to what actually arrives.
+    auto a = onTarget (ChannelRole::KickIn);
+    a.bleedEstimate = 0.5f;
+    a.noiseFloorDb = -58.0f;
+    a.bleedLevelDb = -34.0f;
+    a.hitLevelDb = -26.0f;               // a quiet, sparse close microphone
+    a.eventLevelDb = -14.0f;
+    a.eventCount = 24;
+    a.silencePercent = 70.0f;
+    a.musicalPeakDb = -11.0f;
+    a.crestFactorDb = 20.0f;
+
+    auto ctx = context (ChannelRole::KickIn, a);
+    REQUIRE (! ctx.current.replaceEnabled);
+    auto r = TuneEngine::tune (ctx);
+    REQUIRE (r.valid);
+
+    // The stage is switched on, at the blend the profile asks for - a kick is the sample.
+    const auto t = StyleProfile::targets (ChannelRole::KickIn, StyleProfileId::ModernGospel);
+    CHECK (r.proposed.replaceEnabled);
+    CHECK_NEAR (r.proposed.replaceBlend, t.sampleBlend, 1.0e-6f);
+
+    // And the compressor is fitted to what leaves that stage. At full blend the microphone is
+    // gone, so the level the compressor meets is the sample's own, and the reduction it asks
+    // for is small: the sample is already even.
+    const auto* comp = find (r, TuneSection::Dynamics, "Compression");
+    REQUIRE (comp != nullptr);
+    const float thr = changeValue (*comp, ParamID::compThreshold);
+    const float ratio = changeValue (*comp, ParamID::compRatio, ctx.current.compRatio);
+    const float arrives = r.proposed.replaceGainDb;                  // blend 1: the sample alone
+    CHECK_NEAR (tune::sampledHitDb (r.proposed, a.eventLevelDb), arrives, 0.01f);
+    const float staticGr = (arrives - thr) * (1.0f - 1.0f / ratio);
+    CHECK (staticGr > 0.0f);
+    CHECK (staticGr < 6.0f);
+
+    // It holds: the same listen through the mix it just made asks for nothing more.
+    ctx.current = r.proposed;
+    auto again = TuneEngine::tune (ctx);
+    REQUIRE (again.valid);
+    CHECK (find (again, TuneSection::Dynamics, "Compression") == nullptr);
+    CHECK (find (again, TuneSection::Bleed, "Sample") == nullptr);
+
+    // A listen with too few strokes in it to be sure is not sampled behind anyone's back.
+    auto thin = a;
+    thin.eventCount = 3;
+    thin.eventLevelDb = -120.0f;
+    auto rt = TuneEngine::tune (context (ChannelRole::KickIn, thin));
+    REQUIRE (rt.valid);
+    CHECK (! rt.proposed.replaceEnabled);
+}
+
 TEST_CASE ("Tune (bleed): gate follows bleed and decay on close mics; overheads never get a gate")
 {
     auto a = onTarget (ChannelRole::FloorTom);
