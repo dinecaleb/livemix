@@ -67,6 +67,9 @@ namespace
         juce::Array<juce::var> sends;
         for (float db : s.sendDb) sends.add (db);
         so->setProperty ("sendDb", sends);
+        // EFFECTS OFF on one channel; absent = the effects are on, which is what every session
+        // written before the switch existed meant.
+        if (s.effectsOff) so->setProperty ("effectsOff", true);
         return juce::var (so);
     }
 
@@ -83,6 +86,7 @@ namespace
         s.linkGroup = so->hasProperty ("linkGroup") ? juce::jmax (0, int (so->getProperty ("linkGroup"))) : 0;
         if (auto* sends = so->getProperty ("sendDb").getArray())
             for (int f = 0; f < std::min (int (FxSlot::Count), sends->size()); ++f) s.sendDb[size_t (f)] = float (double (sends->getReference (f)));
+        s.effectsOff = bool (so->getProperty ("effectsOff"));
     }
 
     // The track history: one record per tune or hand edit that landed on a channel, with the

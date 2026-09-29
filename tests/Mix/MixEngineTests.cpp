@@ -531,6 +531,48 @@ TEST_CASE ("OutputFeeds: the broadcast and the engineer's listen are always a st
     CHECK (stored.feeds[1].left == 8);
 }
 
+TEST_CASE ("MixEngine: EFFECTS OFF on one channel stops feeding the returns and leaves the levels alone")
+{
+    // The lead vocal into the vocal plate, measured at the plate's own output: what arrives at
+    // the return is the only thing this asks about. EFFECTS OFF has to silence it WITHOUT
+    // touching sendDb, because the levels are what make the press back exact.
+    //
+    // The engine is warmed on silence first, deliberately. A send is a smoothed gain, so the
+    // block where it is asked to change still carries the ramp down from where prepare() left
+    // it - which is the point (the reverb rings out rather than stopping dead) - and a plate
+    // rings for seconds after it, so anything fed during the warmup would still be decaying
+    // through the measurement. Neither is what is being asked about here.
+    MixSession s = smallSession();
+    const auto graph = RoutingGraph::build (s);
+    const int lead = 4;
+    REQUIRE (graph.fxUsed[size_t (FxSlot::VocalPlate)]);
+
+    auto intoPlate = [&] (bool effectsOff)
+    {
+        MixEngine e;
+        e.prepare (kSr, 64, s);
+        auto p = startingPoint (s, graph);
+        p.strips[size_t (lead)].effectsOff = effectsOff;
+        REQUIRE (p.strips[size_t (lead)].sendDb[size_t (FxSlot::VocalPlate)] > kSilenceDb);
+        e.setParameters (p);
+
+        Device warmup (8, 4, int (kSr) / 4);         // silence in: the send settles, the plate stays empty
+        warmup.run (e, 64);
+        (void) e.getFx (FxSlot::VocalPlate).getOutputMeter().consumeMaxPeakDb();   // the ramp, discarded
+
+        Device d (8, 4, int (kSr) / 2);
+        sineOnInput (d, 5, 440.0f, 0.3f);            // the lead vocal's input
+        d.run (e, 64);
+        return e.getFx (FxSlot::VocalPlate).getOutputMeter().consumeMaxPeakDb();
+    };
+
+    const float wet = intoPlate (false);
+    const float dry = intoPlate (true);
+    REQUIRE (wet > -60.0f);                          // the plate is being fed at all
+    CHECK (dry <= kSilenceDb + 1.0f);                // ...and EFFECTS OFF feeds it nothing
+    CHECK (wet - dry > 40.0f);
+}
+
 TEST_CASE ("MixEngine: speech priority steps the band back into the broadcast, never into the engineer's listen")
 {
     // A band and a speech microphone. Off, the band is where the faders put it; on, it steps

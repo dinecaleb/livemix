@@ -693,6 +693,48 @@ TEST_CASE ("SessionStore: the FX group's fader and mute survive, and an older se
     folder.deleteRecursively();
 }
 
+TEST_CASE ("SessionStore: the effects switch on one channel is saved, and an older session has them on")
+{
+    const auto folder = scratchFolder().getChildFile ("effects-switch-session");
+    folder.deleteRecursively();
+    folder.createDirectory();
+
+    SessionStore::Document d;
+    d.session = band();
+    d.project.syncTracks (d.session);
+    d.hasMix = true;
+    d.mix.numStrips = 5;
+    d.mix.strips[3].effectsOff = true;                 // the lead, taken out of the plate
+    d.mix.strips[3].sendDb[size_t (FxSlot::VocalPlate)] = -7.5f;   // ...with its level kept
+
+    const auto file = folder.getChildFile ("effects.dlive.json");
+    CHECK (SessionStore::save (d, file));
+
+    SessionStore::Document back;
+    CHECK (SessionStore::load (file, back));
+    CHECK (back.mix.strips[3].effectsOff);
+    CHECK (! back.mix.strips[0].effectsOff);
+    // THE LEVEL IS WHAT MAKES THE PRESS BACK EXACT, so it is saved even while the gate is shut.
+    CHECK (std::fabs (back.mix.strips[3].sendDb[size_t (FxSlot::VocalPlate)] + 7.5f) < 0.001f);
+
+    // A session written before the switch existed says nothing about it, and "nothing said"
+    // has to mean the effects are on - which is how every one of them sounded.
+    auto older = juce::JSON::parse (file.loadFileAsString());
+    if (auto* obj = older.getDynamicObject())
+        if (auto* mix = obj->getProperty ("mix").getDynamicObject())
+            if (auto* strips = mix->getProperty ("strips").getArray())
+                for (auto& v : *strips)
+                    if (auto* so = v.getDynamicObject()) so->removeProperty ("effectsOff");
+    const auto olderFile = folder.getChildFile ("older.dlive.json");
+    olderFile.replaceWithText (juce::JSON::toString (older));
+
+    SessionStore::Document legacy;
+    CHECK (SessionStore::load (olderFile, legacy));
+    for (int i = 0; i < legacy.mix.numStrips; ++i) CHECK (! legacy.mix.strips[size_t (i)].effectsOff);
+
+    folder.deleteRecursively();
+}
+
 TEST_CASE ("SessionStore: a session written before the speech group keeps its master")
 {
     const auto folder = scratchFolder().getChildFile ("speech-bus-session");

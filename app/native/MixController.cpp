@@ -2192,6 +2192,57 @@ void MixController::setStripSend (int strip, FxSlot slot, float db)
     touch();
 }
 
+bool MixController::stripCanHaveEffects (int strip) const
+{
+    if (strip < 0 || strip >= graph.numStrips()) return false;
+    const auto role = graph.strips[size_t (strip)].role;
+    if (productOf (role) != Product::Vocals || isBusFamily (roleFamily (role))) return false;
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+        if (graph.fxUsed[size_t (f)]) return true;
+    return false;
+}
+
+bool MixController::stripEffectsOn (int strip) const
+{
+    if (! validStrip (kept, strip)) return false;
+    const auto& s = kept.strips[size_t (strip)];
+    if (s.effectsOff) return false;
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+        if (graph.fxUsed[size_t (f)] && s.sendDb[size_t (f)] > kSilenceDb) return true;
+    return false;
+}
+
+void MixController::setStripEffects (int strip, bool on)
+{
+    if (! validStrip (kept, strip) || ! stripCanHaveEffects (strip)) return;
+    if (stripEffectsOn (strip) == on) return;
+    auto& s = kept.strips[size_t (strip)];
+    s.effectsOff = ! on;
+
+    // ON for a channel that has never had a send: a speaking microphone is dry by profile, so
+    // there is nothing to un-gate. Seed it from what this profile gives a lead vocal - the same
+    // table TUNE plans from - and only for the returns the session actually has. From then on
+    // the levels are the engineer's and this switch only gates them.
+    if (on)
+    {
+        bool anySend = false;
+        for (int f = 0; f < int (FxSlot::Count); ++f)
+            if (graph.fxUsed[size_t (f)] && s.sendDb[size_t (f)] > kSilenceDb) anySend = true;
+        if (! anySend)
+            for (int f = 0; f < int (FxSlot::Count); ++f)
+                if (graph.fxUsed[size_t (f)])
+                    s.sendDb[size_t (f)] = MixProfile::defaultSendDb (session.profile, RoleFamily::LeadVocal, FxSlot (f));
+    }
+
+    if (plan && stage == Stage::Preview)
+    {
+        plan->proposed.strips[size_t (strip)].effectsOff = s.effectsOff;
+        plan->proposed.strips[size_t (strip)].sendDb = s.sendDb;
+    }
+    publish();
+    touch();
+}
+
 void MixController::setBusFader (MixBus bus, float db)
 {
     if (bus == MixBus::Count) return;

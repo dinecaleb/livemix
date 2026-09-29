@@ -142,6 +142,30 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   channel as what it now is. The graph is rebuilt, so the host calls `reconfigure()` afterwards and LIVE SAFE
   refuses it (`LiveAction::Routing`) with the sentence that says why. A rebuild clears UNDO, so the way back is
   a Mix history checkpoint named "Before <name> became <role>", taken first.
+- **EFFECTS ON THIS MICROPHONE (2026-09-29, `MixController::setStripEffects` / `stripEffectsOn` /
+  `stripCanHaveEffects`).** The other half of the same problem, and the half a service actually hits: the
+  pastor's handheld is the same microphone preaching and singing, and between the two the only thing that has
+  to change is whether it is in the plate. So it is one press - an `FX` key on the MIXER strip under M and S,
+  and an `EFFECTS ON` / `EFFECTS OFF` button in the Inspector's channel header beside MUTE and SOLO.
+  **It is a gate, not a set of numbers.** `StripParameters::effectsOff` holds every send at silence and
+  `sendDb` keeps the levels it had, so the press back is exact rather than approximate, a TUNE MIX in between
+  can re-plan the send levels and the switch still means the same thing, and - because the sends are
+  post-fader - what is already in the plate rings out instead of being chopped. The engine applies it in the
+  one place a send is set (`MixEngine`, the smoothed send target), so it costs nothing and cannot click.
+  **It is not `setInputRole`.** Nothing is re-routed, no graph is rebuilt, the audio never stops, the chain
+  and the tuning are untouched, and the input is still whatever it was on whatever group it was on. That is
+  why **LIVE SAFE allows it** where it refuses a role change: it is exactly the move a service needs, and one
+  press is the way back. It is saved with the session as an optional `effectsOff` property, so a session
+  written before it existed reads as "the effects are on", which is how every one of them sounded.
+  **Turning it on for a channel that has never had a send** - a speaking microphone is dry by profile, so
+  there is nothing to un-gate - seeds the sends from what the profile gives a lead vocal, the same table TUNE
+  plans from. After that the levels are the engineer's and the switch only ever gates them.
+  **The plate has to exist before anybody can be put in it**, so `RoutingGraph::build` now marks the two vocal
+  returns used wherever the session has a voice microphone, *speech included*. A sermon-only session used to
+  build no vocal returns at all, which left nothing to switch on. Nothing sends to them until somebody asks,
+  and a session with no voice in it - a drums-only capture - still builds neither.
+  The Inspector's SENDS stage says `off` with its lamp out while the switch is off, because a level that is
+  being read but not heard has to look like one.
 - **RESET MIX TO RAW (2026-09-28, `MixController::resetMixToRaw`).** Everything DLIVE has decided about the
   sound, taken back: every strip's chain, gain, fader, pan and sends, every group's chain and fader, the
   returns, the master, the macros and the sample replacement, all the way to `startingPoint (session, graph)` -

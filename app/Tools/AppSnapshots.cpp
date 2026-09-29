@@ -1171,6 +1171,28 @@ int main (int argc, char** argv)
     view.getAdvancedPage().selectStage (10); // the sends close the path where the session uses FX
     rig.feed (0.3);
     rig.snap (dir, "12b-inspector-sends");
+    {
+        // EFFECTS ON THIS MICROPHONE: the pastor's handheld, dry for preaching and then in the
+        // plate for the song he has just started, without anything being re-routed. Found by
+        // role rather than by index, because a real multitrack patches its own way.
+        int pastor = -1;
+        const auto& g = rig.controller.getGraph();
+        for (int i = 0; i < g.numStrips(); ++i)
+            if (g.strips[size_t (i)].role == ChannelRole::Speech) { pastor = i; break; }
+        if (pastor >= 0)
+        {
+            view.getAdvancedPage().selectStage (0);
+            view.getAdvancedPage().select (pastor);
+            rig.feed (0.3);
+            rig.snap (dir, "12c-inspector-effects-off");
+            rig.controller.setStripEffects (pastor, true);
+            rig.feed (0.3);
+            rig.snap (dir, "12d-inspector-effects-on");
+            rig.controller.setStripEffects (pastor, false);
+            rig.feed (0.2);
+        }
+        view.getAdvancedPage().select (1);
+    }
     view.getAdvancedPage().selectStage (0);
     view.getAdvancedPage().selectBus (MixBus::Drums);
     rig.feed (0.3);

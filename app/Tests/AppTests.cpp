@@ -6,6 +6,7 @@
 #include "native/SampleLibrary.h"
 #include "native/DevicePlan.h"
 #include "native/SessionStore.h"
+#include "Profiles/MixProfileData.h"
 #include "Mix/MixPlanner.h"
 #include "MixAI/MixReasoningProvider.h"
 #include "native/OpenAiMixProvider.h"
@@ -1772,6 +1773,116 @@ TEST_CASE ("MixController: RESET TO RAW takes back everything DLIVE decided and 
     CHECK (said.find ("LIVE SAFE") != std::string::npos);
     CHECK_NEAR (c.getKept().strips[1].faderDb, -3.0f, 0.01f);
     c.setLiveSafe (false);
+}
+
+TEST_CASE ("MixController: the effects come off one microphone and back on, and nothing else about it moves")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+
+    // band() is Kick, Bass, Keys, Lead, Vox. The lead is strip 3, the kick strip 0.
+    const int lead = 3, kick = 0;
+    CHECK (c.stripCanHaveEffects (lead));
+    CHECK (! c.stripCanHaveEffects (kick));       // a kick drum is not asked about the plate
+    CHECK (! c.stripCanHaveEffects (99));
+
+    // A lead vocal arrives wet, because that is what the profile gives one.
+    REQUIRE (c.stripEffectsOn (lead));
+    const auto wet = c.getKept().strips[size_t (lead)].sendDb;
+    CHECK (wet[size_t (FxSlot::VocalPlate)] > kSilenceDb);
+
+    // OFF: nothing reaches a return, and THE LEVELS ARE LEFT WHERE THEY WERE - that is what
+    // makes the press back exact rather than approximate.
+    const auto wasChain = c.getKept().strips[size_t (lead)].channel;
+    const float wasFader = c.getKept().strips[size_t (lead)].faderDb;
+    c.setStripEffects (lead, false);
+    CHECK (! c.stripEffectsOn (lead));
+    CHECK (c.getKept().strips[size_t (lead)].effectsOff);
+    CHECK (c.getKept().strips[size_t (lead)].sendDb == wet);
+    CHECK (diffParameters (wasChain, c.getKept().strips[size_t (lead)].channel).empty());
+    CHECK_NEAR (wasFader, c.getKept().strips[size_t (lead)].faderDb, 0.001f);
+    // ...and the routing is untouched: this is not setInputRole.
+    CHECK (c.getGraph().strips[size_t (lead)].bus == MixBus::Lead);
+    CHECK (c.getSession().inputs[size_t (lead)].role == ChannelRole::LeadVocal);
+
+    // ON again: exactly the mix it had.
+    c.setStripEffects (lead, true);
+    CHECK (c.stripEffectsOn (lead));
+    CHECK (! c.getKept().strips[size_t (lead)].effectsOff);
+    CHECK (c.getKept().strips[size_t (lead)].sendDb == wet);
+
+    // Asking for what it already is does nothing, and a kick drum cannot be asked at all.
+    c.setStripEffects (lead, true);
+    CHECK (c.getKept().strips[size_t (lead)].sendDb == wet);
+    c.setStripEffects (kick, true);
+    for (float db : c.getKept().strips[size_t (kick)].sendDb) CHECK (db <= kSilenceDb);
+
+    // IT SURVIVES A TUNE. TUNE MIX plans the send levels; whether this microphone is in the
+    // plate right now is the engineer's, and the planner never takes it back.
+    c.setStripEffects (lead, false);
+    {
+        Feeder f (c);
+        c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+        f.play (2.6);
+        REQUIRE (f.waitFor (MixController::Stage::Preview));
+        c.keepPlan();
+    }
+    CHECK (c.getKept().strips[size_t (lead)].effectsOff);
+    CHECK (! c.stripEffectsOn (lead));
+    c.setStripEffects (lead, true);
+    CHECK (c.stripEffectsOn (lead));
+
+    // LIVE SAFE ALLOWS IT. A role change is refused because it rebuilds the graph and stops the
+    // audio; this changes one gate, so it is exactly the move a service needs.
+    c.setLiveSafe (true);
+    c.setStripEffects (lead, false);
+    CHECK (! c.stripEffectsOn (lead));
+    c.setStripEffects (lead, true);
+    CHECK (c.stripEffectsOn (lead));
+    CHECK (c.getKept().strips[size_t (lead)].sendDb == wet);
+    c.setLiveSafe (false);
+}
+
+TEST_CASE ("MixController: a speaking microphone starts dry and one press puts it in the plate")
+{
+    // The pastor's handheld, set up for preaching: no send, because that is what speech gets.
+    MixSession s;
+    s.name = "Sermon";
+    s.inputs = { { "Pastor", ChannelRole::Speech, 0, -1 }, { "Lead", ChannelRole::LeadVocal, 1, -1 } };
+    MixController c;
+    c.setSession (s);
+    c.prepare (kSr, kBlock);
+
+    const int pastor = 0;
+    REQUIRE (c.stripCanHaveEffects (pastor));
+    CHECK (! c.stripEffectsOn (pastor));
+    for (float db : c.getKept().strips[size_t (pastor)].sendDb) CHECK (db <= kSilenceDb);
+
+    // HE HAS STARTED SINGING. There is nothing to un-gate, so the sends are seeded from what
+    // this profile gives a lead vocal - the same table TUNE plans from.
+    c.setStripEffects (pastor, true);
+    CHECK (c.stripEffectsOn (pastor));
+    const auto& sends = c.getKept().strips[size_t (pastor)].sendDb;
+    CHECK_NEAR (sends[size_t (FxSlot::VocalPlate)],
+                MixProfile::defaultSendDb (c.getSession().profile, RoleFamily::LeadVocal, FxSlot::VocalPlate), 0.01f);
+    // ...and he is still a speaking microphone on the SPEECH group. Only the effects changed.
+    CHECK (c.getSession().inputs[size_t (pastor)].role == ChannelRole::Speech);
+    CHECK (c.getGraph().strips[size_t (pastor)].bus == MixBus::Speech);
+
+    // BACK TO PREACHING, and back to singing again: the seeded levels are now his own and the
+    // switch only ever gates them.
+    const auto seeded = sends;
+    c.setStripEffects (pastor, false);
+    CHECK (c.getKept().strips[size_t (pastor)].sendDb == seeded);
+    c.setStripEffects (pastor, true);
+    CHECK (c.getKept().strips[size_t (pastor)].sendDb == seeded);
+
+    // An engineer's own level survives the switch untouched.
+    c.setStripEffects (pastor, false);
+    c.setStripSend (pastor, FxSlot::VocalPlate, -4.0f);
+    c.setStripEffects (pastor, true);
+    CHECK_NEAR (c.getKept().strips[size_t (pastor)].sendDb[size_t (FxSlot::VocalPlate)], -4.0f, 0.01f);
 }
 
 TEST_CASE ("MixController: a voice microphone is given a job, and the next tune plans it as that")

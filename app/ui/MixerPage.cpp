@@ -131,7 +131,8 @@ public:
           muteButton ("M", Dine::keyMute),
           soloButton ("S", Dine::keySolo),
           armButton ("R", Dine::keyRec),
-          monitorButton ("A", Dine::keyMon)
+          monitorButton ("A", Dine::keyMon),
+          fxButton ("FX", Dine::keyFx)
     {
         fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -168,6 +169,12 @@ public:
         muteButton.setTooltip (kind == Kind::Bus ? "Muted: the whole group is not heard" : "Muted: signal arrives, it is not heard");
         soloButton.setTooltip (kind == Kind::Bus ? "Soloed: this group and nothing else" : "Soloed: this and nothing else");
         armButton.setTooltip ("Set to record (the engineer's word is arm)");
+        // EFFECTS ON THIS MICROPHONE. One press for the pastor who has started singing, and one
+        // press back when he goes back to preaching. Only on a voice channel, and only where the
+        // session has the returns to send to.
+        fxButton.setVisible (kind == Kind::Channel && controller.stripCanHaveEffects (strip));
+        fxButton.setTooltip ("Effects on this microphone " + Glyph::dot() + " the reverb and the delay. Off for speaking, "
+                             "on for singing. Your levels are kept either way, so one press is the way back.");
         monitorButton.setTooltip ("Monitoring " + Glyph::dot() + " click to cycle: input (you hear the live input), auto (input while recording), off (the timeline only)");
 
         armButton.onClick = [this]
@@ -199,6 +206,10 @@ public:
             if (kind == Kind::Channel) controller.setStripSolo (strip, ! controller.getBase().strips[size_t (strip)].solo);
             else if (kind == Kind::Bus) controller.setBusSolo (bus, ! controller.getBase().buses[size_t (bus)].solo);
         };
+        fxButton.onClick = [this]
+        {
+            if (kind == Kind::Channel) controller.setStripEffects (strip, ! controller.stripEffectsOn (strip));
+        };
 
         setTooltip (name + "  " + Glyph::dot() + "  " + source);
 
@@ -218,6 +229,7 @@ public:
         addAndMakeVisible (soloButton);
         addAndMakeVisible (armButton);
         addAndMakeVisible (monitorButton);
+        addChildComponent (fxButton);
     }
 
     void setOpenHandler (std::function<void()> h) { open = std::move (h); }
@@ -339,6 +351,7 @@ public:
         }
         muteButton.setOn (mute);
         soloButton.setOn (solo);
+        if (kind == Kind::Channel) fxButton.setOn (controller.stripEffectsOn (strip));
         if (bypassed != controller.isBypassed())
         {
             bypassed = controller.isBypassed();
@@ -683,7 +696,11 @@ public:
         const int sendsH = sends > 0 ? 11 + 2 + sends * kSlotH + (sends - 1) * 2 : 0;
         const int panH = kind != Kind::Master ? 9 + 4 + 14 + 3 + 12 : 0;
         const int levelH = 14, peakH = kind == Kind::Master ? 0 : 13;
-        const int keysH = kind == Kind::Master ? 0 : 2 * 22 + 4;
+        // A third key row for FX, full width under M and S. It is RESERVED on every strip, not
+        // only the ones that show it: this one function is what makes INSERTS, SENDS, PAN and
+        // the faders line up straight across the console, and a key block that is a row taller
+        // on the voice channels would bend that line.
+        const int keysH = kind == Kind::Master ? 0 : 3 * 22 + 2 * 4;
         const int outH = kind == Kind::Master ? 0 : 12;
         const int bodyMin = 70 + 12;
 
@@ -758,18 +775,21 @@ public:
         pan.setVisible (col.hasPan && kind == Kind::Channel);
         if (pan.isVisible()) pan.setBounds (col.panBar);
 
+        const bool hasFxKey = kind == Kind::Channel && controller.stripCanHaveEffects (strip);
         if (col.keys.isEmpty())
         {
             muteButton.setVisible (false);
             soloButton.setVisible (false);
             armButton.setVisible (false);
             monitorButton.setVisible (false);
+            fxButton.setVisible (false);
             return;
         }
         muteButton.setVisible (kind != Kind::Master);
         soloButton.setVisible (kind != Kind::Master);
         armButton.setVisible (kind == Kind::Channel);
         monitorButton.setVisible (kind == Kind::Channel);
+        fxButton.setVisible (hasFxKey);
 
         auto keys = col.keys;
         const int gap = 4;
@@ -783,6 +803,11 @@ public:
             monitorButton.setBounds (top.removeFromRight (w));
             muteButton.setBounds (bottom.removeFromLeft (w));
             soloButton.setBounds (bottom.removeFromRight (w));
+            if (hasFxKey)
+            {
+                keys.removeFromTop (gap);
+                fxButton.setBounds (keys.removeFromTop (22));
+            }
         }
         else
         {
@@ -809,7 +834,11 @@ public:
         r.removeFromLeft (12);
         panReadRect = r.removeFromLeft (32);
         r.removeFromLeft (12);
-        auto keys = r.removeFromLeft (104).withSizeKeepingCentre (104, 22);
+        // The FX cell is reserved on every row whether or not this channel has the key, because
+        // a console whose M and S do not line up across the rows is worse than a gap.
+        const bool hasFxKey = kind == Kind::Channel && controller.stripCanHaveEffects (strip);
+        const int keysW = 104 + 4 + 30;
+        auto keys = r.removeFromLeft (keysW).withSizeKeepingCentre (keysW, 22);
         const int w = 23;
         if (kind == Kind::Channel)
         {
@@ -822,6 +851,8 @@ public:
             muteButton.setBounds (keys.removeFromLeft (w)); keys.removeFromLeft (4);
             soloButton.setBounds (keys.removeFromLeft (w));
         }
+        if (hasFxKey) { keys.removeFromLeft (4); fxButton.setBounds (keys.removeFromLeft (30)); }
+        fxButton.setVisible (hasFxKey);
         armButton.setVisible (kind == Kind::Channel);
         monitorButton.setVisible (kind == Kind::Channel);
         muteButton.setVisible (kind != Kind::Master);
@@ -974,7 +1005,7 @@ public:
     DineMeter meter;
     juce::Slider fader;
     PanBar pan;
-    DineKey muteButton, soloButton, armButton, monitorButton;
+    DineKey muteButton, soloButton, armButton, monitorButton, fxButton;
     std::function<void()> open, select, tune, assign;
 };
 
@@ -1009,7 +1040,8 @@ public:
         r.removeFromLeft (12);
         Dine::drawText (g, "PAN", r.removeFromLeft (78), juce::Justification::centred);
         r.removeFromLeft (12 + 32 + 12);
-        Dine::drawText (g, "R " + Glyph::dot() + " A " + Glyph::dot() + " M " + Glyph::dot() + " S", r.removeFromLeft (104), juce::Justification::centred);
+        Dine::drawText (g, "R " + Glyph::dot() + " A " + Glyph::dot() + " M " + Glyph::dot() + " S " + Glyph::dot() + " FX",
+                        r.removeFromLeft (104 + 4 + 30), juce::Justification::centred);
         Dine::drawText (g, "BUS", r, juce::Justification::centredRight);
     }
 

@@ -575,6 +575,26 @@ public:
     void setStripMute (int strip, bool mute);
     void setStripSolo (int strip, bool solo);
     void setStripSend (int strip, FxSlot slot, float db);
+
+    // ---- EFFECTS ON THIS MICROPHONE ----
+    //
+    // The pastor's handheld is the same microphone in the sermon and in the last song, and
+    // between the two the only thing that has to change is whether it is in the plate. So it is
+    // one press, on the strip and in the Inspector: EFFECTS off holds this channel's sends at
+    // silence, EFFECTS on lets them through again at exactly the levels they had.
+    //
+    // It is not `setInputRole`. Nothing is re-routed, no graph is rebuilt, the audio never
+    // stops, the chain is untouched and the tuning is kept - which is why LIVE SAFE allows it
+    // where it refuses a role change. Turning it on for a channel that has never had a send (a
+    // speaking microphone starts dry) seeds the sends from what the profile gives a lead vocal,
+    // so "he is singing now" is still one press; after that the levels are the engineer's and
+    // the switch only ever gates them.
+    void setStripEffects (int strip, bool on);
+    // Is anything reaching a return from this channel right now?
+    bool stripEffectsOn (int strip) const;
+    // Is the switch worth showing? A voice microphone in a session whose vocal returns exist. A
+    // kick drum is not asked, and neither is a channel in a session with no returns at all.
+    bool stripCanHaveEffects (int strip) const;
     void setBusFader (MixBus bus, float db);
     void setBusMute (MixBus bus, bool mute);
     void setBusSolo (MixBus bus, bool solo);

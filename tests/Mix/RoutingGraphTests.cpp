@@ -84,6 +84,20 @@ TEST_CASE ("RoutingGraph: FX returns exist only when something sends to them, an
     CHECK (d.fxUsed[size_t (FxSlot::SnarePlate)]);
     CHECK (! d.fxUsed[size_t (FxSlot::VocalPlate)]);
     CHECK (! d.fxUsed[size_t (FxSlot::BgvHall)]);
+
+    // THE PLATE HAS TO EXIST BEFORE ANYBODY CAN BE PUT IN IT. A sermon-only session is all
+    // speech and speech is dry, so it used to build no vocal returns - and then there was
+    // nothing to switch on the moment the pastor started singing, short of rebuilding the graph
+    // and stopping the audio. The two vocal returns exist wherever a voice microphone does;
+    // nothing sends to them until somebody asks.
+    MixSession sermon;
+    sermon.inputs = { { "Pastor", ChannelRole::Speech, 0, -1 } };
+    const auto sg = RoutingGraph::build (sermon);
+    CHECK (sg.fxUsed[size_t (FxSlot::VocalPlate)]);
+    CHECK (sg.fxUsed[size_t (FxSlot::VocalDelay)]);
+    CHECK (! sg.fxUsed[size_t (FxSlot::BgvHall)]);         // no backing voices, no hall
+    CHECK (! sg.fxUsed[size_t (FxSlot::DrumRoom)]);
+    for (float db : sg.strips[0].sendDb) CHECK (db <= kSilenceDb);   // still dry until asked
     CHECK (! d.busUsed[size_t (MixBus::Vocals)]);
     CHECK (! d.busUsed[size_t (MixBus::Speech)]);   // nobody is speaking: no speech group
     CHECK (d.busUsed[size_t (MixBus::Master)]);

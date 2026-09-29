@@ -178,7 +178,7 @@ public:
         pan.setTooltip ("Balance. Double-click for the centre.");
         pan.onChange = [this] (float v) { if (! updating && ! sel.isBus) controller.setStripPan (sel.strip, v); repaint(); };
 
-        for (auto* b : { &muteButton, &soloButton })
+        for (auto* b : { &muteButton, &soloButton, &effectsButton })
         {
             b->setClickingTogglesState (false);
             b->setCaps (true);
@@ -186,6 +186,17 @@ public:
             b->setPadX (6);
             addAndMakeVisible (*b);
         }
+        // WHAT THIS MICROPHONE IS DOING RIGHT NOW. The pastor's handheld is the same channel
+        // preaching and singing; the reverb and the delay are the only thing that has to change
+        // between the two. So it is one press here and one press on the strip - the send levels
+        // are kept either way, nothing is re-routed, and the way back is the same press.
+        effectsButton.setTooltip ("Effects on this microphone: the reverb and the delay. Off for speaking, on for singing. "
+                                  "Your send levels are kept either way, so one press is the way back. This is not what "
+                                  "the microphone IS - that is on the strip's own menu, and it rebuilds the routing.");
+        effectsButton.onClick = [this]
+        {
+            if (! sel.isBus) controller.setStripEffects (sel.strip, ! controller.stripEffectsOn (sel.strip));
+        };
         muteButton.onClick = [this]
         {
             if (! sel.isBus) controller.setStripMute (sel.strip, ! controller.getKept().strips[size_t (sel.strip)].mute);
@@ -213,6 +224,7 @@ public:
         pan.setVisible (strip);
         muteButton.setVisible (strip);
         soloButton.setVisible (strip || sel.bus != MixBus::Master);
+        effectsButton.setVisible (strip && controller.stripCanHaveEffects (sel.strip));
         refresh();
         resized();
     }
@@ -248,6 +260,13 @@ public:
             soloButton.setTint (Dine::keySolo);
             muteButton.setStyle (st.mute ? DineButton::Style::Filled : DineButton::Style::Standard);
             soloButton.setStyle (st.solo ? DineButton::Style::Filled : DineButton::Style::Standard);
+            if (effectsButton.isVisible())
+            {
+                const bool on = controller.stripEffectsOn (sel.strip);
+                effectsButton.setTint (Dine::keyFx);
+                effectsButton.setButtonText (on ? "EFFECTS ON" : "EFFECTS OFF");
+                effectsButton.setStyle (on ? DineButton::Style::Filled : DineButton::Style::Standard);
+            }
         }
         updating = false;
         repaint();
@@ -353,6 +372,11 @@ public:
         fader.setBounds (levelCol.removeFromTop (24));
 
         auto keys = lay.keys;
+        if (effectsButton.isVisible())
+        {
+            effectsButton.setBounds (keys.removeFromLeft (kEffectsW).withSizeKeepingCentre (kEffectsW, 44));
+            keys.removeFromLeft (8);
+        }
         if (muteButton.isVisible())
         {
             muteButton.setBounds (keys.removeFromLeft (48).withSizeKeepingCentre (48, 44));
@@ -375,7 +399,8 @@ private:
     {
         Lay l;
         auto r = getLocalBounds().reduced (kPadX, 0);
-        const int keysW = (muteButton.isVisible() ? 56 : 0) + (soloButton.isVisible() ? 48 : 0);
+        const int keysW = (effectsButton.isVisible() ? kEffectsW + 8 : 0)
+                       + (muteButton.isVisible() ? 56 : 0) + (soloButton.isVisible() ? 48 : 0);
         l.showGain = ! sel.isBus && r.getWidth() > 700;
         l.showMeters = r.getWidth() > (l.showGain ? 860 : 700);
 
@@ -441,6 +466,10 @@ private:
     PanBar pan;
     DineButton muteButton { "MUTE", DineButton::Style::Standard };
     DineButton soloButton { "SOLO", DineButton::Style::Standard };
+    DineButton effectsButton { "EFFECTS ON", DineButton::Style::Standard };
+    // Wide enough for the longer of the two words it carries, so the button does not change
+    // width as it is switched.
+    static constexpr int kEffectsW = 108;
 };
 
 // ------------------------------------------------------------------ Trail

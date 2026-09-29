@@ -117,6 +117,7 @@ namespace Dine
     inline juce::Colour keySolo     { 0xff6db8a8 };
     inline juce::Colour keyRec      { 0xffe06a64 };
     inline juce::Colour keyMon      { 0xff6eafff };
+    inline juce::Colour keyFx       { 0xffc98fb0 };
     inline juce::Colour monitor     { 0xff6eafff };   // the engineer's own ears
 
     // The group buses, in `MixBus` order; `busTint` reads them.

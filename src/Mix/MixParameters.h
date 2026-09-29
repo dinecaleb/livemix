@@ -26,6 +26,16 @@ struct StripParameters
     // and it is about level and solo: mute, pan and the chain are never linked. The engine
     // ignores it; MixController::setStripFader / setStripSolo are where a linked move is made.
     int linkGroup = 0;
+    // EFFECTS OFF: the reverbs and delays are taken off this one channel and nothing else.
+    //
+    // The pastor's handheld is the same microphone whether he is preaching or singing, and the
+    // only thing that has to change between the two is whether it is in the plate. So this is a
+    // gate, not a set of numbers: `sendDb` keeps the levels it had, the engine simply stops
+    // feeding the returns, and the press back puts the mix exactly where it was. Nothing is
+    // remembered on the side, so a TUNE MIX in between can plan the sends as it likes and the
+    // switch still means the same thing; and because the sends are post-fader, what is already
+    // in the plate rings out instead of being chopped.
+    bool effectsOff = false;
 
     StripParameters() { sendDb.fill (kSilenceDb); }
 };

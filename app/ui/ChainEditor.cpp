@@ -1831,6 +1831,17 @@ void ChainEditor::updateViews()
                     if (db > kSilenceDb + 0.01f) ++used;
             v.value = used > 0 ? juce::String (used) + (used == 1 ? " send" : " sends") : Glyph::dash();
             v.on = used > 0;
+            // EFFECTS OFF holds the sends at silence and keeps their levels, so the numbers in
+            // this stage are still the right ones and nothing is going through them. Say so,
+            // and put the lamp out: a level that is being read but not heard has to look like one.
+            if (strip >= 0 && strip < controller.getBase().numStrips
+                && controller.getBase().strips[size_t (strip)].effectsOff)
+            {
+                v.value = "off";
+                v.on = false;
+                v.why = "The effects are off on this microphone, so nothing is reaching the returns. The levels below "
+                        "are kept for when they go back on - one press, here or on the strip.  " + v.why;
+            }
         }
         else if (i < readouts.size())
         {

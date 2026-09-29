@@ -223,8 +223,12 @@ void MixEngine::applyParameters (const MixParameters& p) noexcept
         panGains (sp.pan, s.channels == 2, pl, pr);
         s.gainL.setTarget (g * pl);
         s.gainR.setTarget (g * pr);
+        // EFFECTS OFF on a channel holds every send at silence without touching the levels,
+        // so the way back is one press. It is a smoothed target like any other, so the
+        // reverb this channel was feeding rings out rather than stopping dead.
         for (int f = 0; f < int (FxSlot::Count); ++f)
-            s.send[size_t (f)].setTarget (sp.sendDb[size_t (f)] > kSilenceDb && graph.fxUsed[size_t (f)] ? dbToGain (sp.sendDb[size_t (f)]) : 0.0f);
+            s.send[size_t (f)].setTarget (! sp.effectsOff && sp.sendDb[size_t (f)] > kSilenceDb && graph.fxUsed[size_t (f)]
+                                              ? dbToGain (sp.sendDb[size_t (f)]) : 0.0f);
         if (! haveApplied)
         {
             s.inputGain.snapToTarget();

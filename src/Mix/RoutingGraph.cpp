@@ -74,6 +74,21 @@ RoutingGraph RoutingGraph::build (const MixSession& session)
         }
         g.strips.push_back (r);
     }
+
+    // THE PLATE HAS TO EXIST BEFORE ANYBODY CAN BE PUT IN IT. A speaking microphone starts dry,
+    // so a sermon-only session built no vocal returns at all - and then the moment the pastor
+    // starts singing there was nothing to switch on without rebuilding the graph, which stops
+    // the audio. So the two vocal returns exist wherever there is a voice microphone of any
+    // kind, speaking included. They cost a return's processing and nothing else: no strip sends
+    // to them until somebody asks, and a session with no voice in it (a drums-only capture)
+    // still builds neither.
+    for (const auto& r : g.strips)
+    {
+        if (productOf (r.role) != Product::Vocals || isBusFamily (roleFamily (r.role))) continue;
+        g.fxUsed[size_t (FxSlot::VocalPlate)] = true;
+        g.fxUsed[size_t (FxSlot::VocalDelay)] = true;
+        break;
+    }
     return g;
 }
 

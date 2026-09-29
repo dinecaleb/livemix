@@ -490,6 +490,7 @@ const std::vector<Dine::ThemeBinding>& Dine::themeBindings()
         { "focusRing", &focusRing },
         { "ok", &ok }, { "hot", &hot }, { "warn", &warn }, { "crit", &crit }, { "monitor", &monitor },
         { "keyMute", &keyMute }, { "keySolo", &keySolo }, { "keyRec", &keyRec }, { "keyMon", &keyMon },
+        { "keyFx", &keyFx },
         { "busDrums", &busDrums }, { "busBass", &busBass }, { "busMusic", &busMusic }, { "busVocals", &busVocals },
         { "busLead", &busLead },
         { "busSpeech", &busSpeech }, { "busAmbience", &busAmbience }, { "busMaster", &busMaster },
