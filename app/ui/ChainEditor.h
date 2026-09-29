@@ -62,6 +62,10 @@ public:
     void paint (juce::Graphics&) override;
 
     std::function<void()> onStageChanged;        // the path and the trail follow the panel
+    // ADD A SOUND: a file from this Mac becomes one of this drum's sounds, copied into the
+    // session so it travels with it. The window owns the chooser and the copying; the panel
+    // only knows which family is being asked about.
+    std::function<void (RoleFamily)> onImportSample;
 
     static constexpr int kHeaderH = 42;
 

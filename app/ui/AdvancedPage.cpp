@@ -927,6 +927,7 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
     addAndMakeVisible (*trailTab);
 
     chain->onStageChanged = [this] { path->refresh(); refresh(); };
+    chain->onImportSample = [this] (RoleFamily family) { if (onImportSample) onImportSample (family); };
     rebuild();
 }
 

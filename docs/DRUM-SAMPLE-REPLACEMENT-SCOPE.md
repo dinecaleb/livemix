@@ -337,3 +337,32 @@ per 128-sample block than with it off.
 
 Still open: velocity layers for the shipped bank (each sound is one recording; a folder of files is the way
 to add layers), and hand-marked ground truth for the detection delay and the miss rate on real drums.
+
+
+---
+
+## Finished (2026-09-28, Phase 3 item 4)
+
+Three things were left open when Phases 1 and 2 stopped, and they are done.
+
+**A sound of this church's own, imported from the strip.** The Sample stage in the Inspector carries ADD A
+SOUND beside HEAR IT. A `.wav` (or AIFF, or FLAC) from anywhere on the Mac is **decoded first and copied
+second**: a file DLIVE cannot read never reaches somebody's session folder, so a Sunday is not where they find
+out. `SampleLibrary::importSound` does both and returns the name it filed the sound under, or the sentence
+saying why not.
+
+**The session carries its own sounds, so it is portable.** `SampleLibrary::setSessionFolder` adds a third
+source after the bundle and `~/Music/DLIVE/Samples`: `<session>/Samples/<kick|snare|toms>/`. An import goes
+there whenever the session has a folder, so handing the folder to somebody else - or opening it on the booth
+Mac next Sunday - hands them the kick it was mixed with. It is a copy, never a link: deleting the original
+changes nothing. `Sound::inSession` says which sounds are the session's own. The host reloads the library with
+the session's folder set on every open, before the stored `SampleChoice`s are resolved, so a sound that
+travelled with the session is one of the ones a choice can name.
+
+**The cap is 24, not 8.** Phase 1 made the limit say so out loud rather than dropping a ninth kick in silence,
+which was the right first fix and not the answer. `SampleBankTable::kSounds` is an array of pointers read on
+the audio thread - the banks themselves are owned by `SampleLibrary` and outlive the engine - so raising it
+costs 16 pointers per family and nothing else. `whatWasLeftOut()` still says so if a folder ever passes it.
+
+Kick, snare and toms only, as before: nothing else has a Sample stage, and `importSound` refuses a family that
+does not with the sentence that says which three do.

@@ -49,6 +49,46 @@ juce::File SampleLibrary::userFolder()
     return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("DLIVE").getChildFile ("Samples");
 }
 
+void SampleLibrary::setSessionFolder (const juce::File& folder)
+{
+    session = folder == juce::File() ? juce::File() : folder.getChildFile ("Samples");
+}
+
+juce::String SampleLibrary::importSound (RoleFamily family, const juce::File& source, juce::String& problem)
+{
+    problem.clear();
+    const juce::String folderWord (familyFolderName (family));
+    if (folderWord.isEmpty()) { problem = "Only the kick, the snare and the toms can play a sound."; return {}; }
+    if (! source.existsAsFile()) { problem = "That file is not there any more."; return {}; }
+
+    // It is decoded before it is copied: a file DLIVE cannot play is not something to put in
+    // somebody's session folder and find out about on a Sunday.
+    {
+        std::vector<float> mono;
+        double rate = 0.0;
+        if (! decodeHit (source, mono, rate) || mono.empty())
+        {
+            problem = source.getFileName() + " is not audio DLIVE can read, or it is silent.";
+            return {};
+        }
+    }
+
+    // This session's own folder when it has one, so the sound travels with the session.
+    const auto root = session != juce::File() ? session : userFolder();
+    const auto into = root.getChildFile (folderWord);
+    if (! into.createDirectory()) { problem = "That folder could not be made: " + into.getFullPathName(); return {}; }
+
+    juce::String name = source.getFileNameWithoutExtension().trim();
+    if (name.isEmpty()) name = "Sound";
+    auto destination = into.getChildFile (name + source.getFileExtension());
+    for (int n = 2; destination.existsAsFile() && n < 100; ++n)
+        destination = into.getChildFile (name + " " + juce::String (n) + source.getFileExtension());
+    if (! source.copyFileTo (destination)) { problem = "That file could not be copied into the session."; return {}; }
+
+    load();
+    return destination.getFileNameWithoutExtension();
+}
+
 void SampleLibrary::load()
 {
     owned.clear();
@@ -62,6 +102,10 @@ void SampleLibrary::load()
     if (builtIn.isDirectory()) loadFolder (builtIn, true);
     const auto user = userFolder();
     if (user.isDirectory() && user != builtIn) loadFolder (user, false);
+    // This session's own sounds last, so a sound it carries is there beside the ones this Mac
+    // happens to have rather than instead of them.
+    if (session != juce::File() && session.isDirectory() && session != builtIn && session != user)
+        loadFolder (session, false);
 
     // A family with nothing to play gets the synthesised placeholders.
     for (auto family : { RoleFamily::Kick, RoleFamily::Snare, RoleFamily::Tom })
@@ -103,7 +147,8 @@ void SampleLibrary::loadFolder (const juce::File& root, bool builtIn)
             if (bank == nullptr) continue;
             banks.set (family, slot, bank.get());
             catalogue[size_t (family)].push_back ({ bank->name, ! builtIn,
-                                                   entry.getRelativePathFrom (root).toStdString() });
+                                                   entry.getRelativePathFrom (root).toStdString(),
+                                                   session != juce::File() && root == session });
             owned.push_back (std::move (bank));
             ++slot;
             ++loaded;

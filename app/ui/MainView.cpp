@@ -1008,6 +1008,21 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     livePage->onToggleRecord = [this] { handleCommand (501); };
     advancedPage->onBack = [this] { showPage (Page::Tune); };
     advancedPage->onRetune = [this] { handleCommand (400); };
+    // ADD A SOUND: a .wav of this church's own becomes one of the drum's sounds, copied into
+    // the session folder so the session travels with the sound it was mixed with.
+    advancedPage->onImportSample = [this] (RoleFamily family)
+    {
+        chooser = std::make_unique<juce::FileChooser> ("Add a sound", juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                       "*.wav;*.aif;*.aiff;*.flac");
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                              [this, family] (const juce::FileChooser& fc)
+                              {
+                                  const auto file = fc.getResult();
+                                  if (file == juce::File()) return;
+                                  showToast (services.importSample (family, file));
+                                  advancedPage->rebuild();
+                              });
+    };
     advancedPage->onTuneChannel = [this] (int strip) { tuneChannel (strip); };
     transportBar->onToast = [this] (const juce::String& t) { showToast (t); };
     transportBar->onTimelineChanged = [this] { timelineChanged(); };

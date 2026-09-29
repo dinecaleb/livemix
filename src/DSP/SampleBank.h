@@ -40,7 +40,13 @@ struct SampleBank
 // a pointer and never frees anything.
 struct SampleBankTable
 {
-    static constexpr int kSounds = 8;
+    // How many sounds one family may hold. Eight was the first number and it was too small
+    // for a church with a folder of kicks: the cap said so out loud (SampleLibrary::
+    // whatWasLeftOut) rather than dropping them silently, which was the right first fix and
+    // not the answer. This is an array of pointers on the audio thread - the banks themselves
+    // are owned by SampleLibrary and outlive the engine - so the cost of raising it is 16
+    // pointers per family and nothing else.
+    static constexpr int kSounds = 24;
     std::array<std::array<const SampleBank*, kSounds>, int (RoleFamily::Count)> banks {};
 
     const SampleBank* bank (RoleFamily family, int sound) const noexcept

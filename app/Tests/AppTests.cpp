@@ -1854,3 +1854,74 @@ TEST_CASE ("MixController: a voice microphone is given a job, and the next tune 
     c.prepare (kSr, kBlock);
     CHECK (c.getGraph().strips[size_t (lead)].bus == MixBus::Lead);
 }
+
+TEST_CASE ("SampleLibrary: a sound imported from a strip is copied into the session and travels with it")
+{
+    // A session folder, and one WAV that is not in it. This is what an engineer does when the
+    // kick the church actually uses is a file on their desktop.
+    auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                      .getChildFile ("dlive-sample-import").getChildFile ("Sunday");
+    folder.deleteRecursively();
+    folder.createDirectory();
+    auto elsewhere = folder.getParentDirectory().getChildFile ("Their kick.wav");
+    elsewhere.deleteFile();
+    {
+        // A short, real hit: a decaying sine, so decoding it has something to find.
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::FileOutputStream> out (elsewhere.createOutputStream());
+        REQUIRE (out != nullptr);
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (out.release(), 48000.0, 1, 16, {}, 0));
+        REQUIRE (writer != nullptr);
+        juce::AudioBuffer<float> hit (1, 12000);
+        for (int i = 0; i < hit.getNumSamples(); ++i)
+            hit.setSample (0, i, 0.9f * std::sin (2.0f * float (M_PI) * 60.0f * float (i) / 48000.0f)
+                                      * std::exp (-3.0f * float (i) / 48000.0f));
+        writer->writeFromAudioSampleBuffer (hit, 0, hit.getNumSamples());
+    }
+
+    SampleLibrary library;
+    library.setSessionFolder (folder);
+    library.load();
+    const int builtInKicks = library.numSounds (RoleFamily::Kick);
+    REQUIRE (builtInKicks > 0);
+
+    juce::String problem;
+    const auto name = library.importSound (RoleFamily::Kick, elsewhere, problem);
+    CHECK (problem.isEmpty());
+    CHECK (name == "Their kick");
+
+    // IT WAS COPIED, NOT REFERENCED: the file is inside the session folder, and deleting the
+    // original changes nothing about what the session can play.
+    const auto copied = folder.getChildFile ("Samples").getChildFile ("kick").getChildFile ("Their kick.wav");
+    CHECK (copied.existsAsFile());
+    elsewhere.deleteFile();
+    library.load();
+    CHECK (library.numSounds (RoleFamily::Kick) == builtInKicks + 1);
+    CHECK (library.soundNames (RoleFamily::Kick).contains ("Their kick"));
+
+    // ...and it is findable by the identity a session stores, and marked as the session's own.
+    const int slot = library.slotFor (RoleFamily::Kick, "Their kick", true, "kick/Their kick.wav");
+    CHECK (slot >= 0);
+    REQUIRE (slot < int (library.sounds (RoleFamily::Kick).size()));
+    CHECK (library.sounds (RoleFamily::Kick)[size_t (slot)].inSession);
+    CHECK (library.table()->bank (RoleFamily::Kick, slot) != nullptr);
+
+    // A file DLIVE cannot play never reaches the session folder: it is decoded before it is
+    // copied, so a Sunday is not where you find out.
+    auto rubbish = folder.getParentDirectory().getChildFile ("notes.txt");
+    rubbish.replaceWithText ("this is not a drum");
+    CHECK (library.importSound (RoleFamily::Kick, rubbish, problem).isEmpty());
+    CHECK (problem.isNotEmpty());
+    CHECK (! folder.getChildFile ("Samples").getChildFile ("kick").getChildFile ("notes.txt").existsAsFile());
+
+    // Only the three drums that have a Sample stage are offered one.
+    CHECK (library.importSound (RoleFamily::LeadVocal, copied, problem).isEmpty());
+    CHECK (problem.contains ("kick"));
+
+    // The cap is a real number and it is no longer eight: a church with a folder of kicks
+    // reaches all of them.
+    CHECK (SampleBankTable::kSounds >= 24);
+    CHECK (! library.familyFull (RoleFamily::Kick));
+
+    folder.getParentDirectory().deleteRecursively();
+}

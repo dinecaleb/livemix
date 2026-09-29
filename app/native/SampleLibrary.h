@@ -30,9 +30,23 @@ public:
     struct Sound
     {
         std::string name;        // the file (or folder) name, without its extension
-        bool user = false;       // from ~/Music/DLIVE/Samples rather than the bundle
+        bool user = false;       // from the user folder or this session's own, not the bundle
         std::string path;        // relative to that folder ("Snare/My Snare.wav"); empty for a placeholder
+        bool inSession = false;  // ... and it is this session's own copy, so it travels with it
     };
+
+    // WHERE THIS SESSION KEEPS ITS OWN SOUNDS. A sound imported from a strip is copied in
+    // here - <session>/Samples/<kick|snare|toms>/ - rather than into ~/Music, so the session
+    // folder is the whole session: hand it to somebody else, or open it on the booth Mac next
+    // Sunday, and the kick it was mixed with is in it. Set before load(); empty means a
+    // session with no folder of its own yet, and an import then goes to the user folder.
+    void setSessionFolder (const juce::File&);
+    const juce::File& sessionFolder() const noexcept { return session; }
+
+    // Bring a file in as a sound of this family: copied (never referenced), named from the
+    // file, and the library reloaded so the engine can play it. Returns the name it was filed
+    // under, or an empty string with `problem` saying why not. Message thread.
+    juce::String importSound (RoleFamily family, const juce::File& source, juce::String& problem);
 
     // Decodes everything it finds. Message thread; touches files and allocates.
     void load();
@@ -67,6 +81,7 @@ private:
     SampleBankTable banks;
     std::array<std::vector<Sound>, int (RoleFamily::Count)> catalogue;
     std::array<int, int (RoleFamily::Count)> counts {};
+    juce::File session;             // this session's own Samples folder, when it has one
     juce::StringArray sources;
     juce::StringArray overflowed;   // the families whose folders hold more than kSounds
 };

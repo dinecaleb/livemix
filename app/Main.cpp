@@ -39,6 +39,31 @@ namespace
         // sound is written down by name and found again by name.
         void setSampleLibrary (SampleLibrary& library) { samples = &library; }
 
+        // The sounds this session carries. A session folder holds its own Samples/, so a kick
+        // somebody imported travels with the service rather than living in one Mac's ~/Music.
+        void reloadSamplesForSession()
+        {
+            if (samples == nullptr) return;
+            samples->setSessionFolder (dawEngine.getProject().folder);
+            samples->load();
+            controller.setSampleBanks (samples->table());
+        }
+
+        juce::String importSample (RoleFamily family, const juce::File& file) override
+        {
+            if (samples == nullptr) return "Sounds are not available here.";
+            samples->setSessionFolder (dawEngine.getProject().folder);
+            juce::String problem;
+            const auto name = samples->importSound (family, file, problem);
+            if (name.isEmpty()) return problem;
+            controller.setSampleBanks (samples->table());
+            touchSession();
+            return "\"" + name + "\" is in this session's sounds"
+                   + (dawEngine.getProject().folder == juce::File()
+                          ? juce::String (" (in your own folder - save the session and it will travel with it).")
+                          : juce::String (", so it travels with it. Pick it on the strip and press HEAR IT."));
+        }
+
         DawEngine& daw() override { return dawEngine; }
 
         juce::Array<Device> inputDevices() override
@@ -244,6 +269,9 @@ namespace
             panelWidth = state.trackPanelWidth;
             forgetPairing();
             recoveryNote.clear();
+            // The session's own sounds, before the choices are resolved against them: a sound
+            // that travelled with the session is one of the ones a choice can name.
+            reloadSamplesForSession();
             if (samples != nullptr)
                 for (const auto& gone : resolveSampleChoices (state.samples, *samples, controller))
                     recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + juce::String (gone);

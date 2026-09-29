@@ -50,6 +50,13 @@ public:
     virtual void askForInputPermission (std::function<void (bool)> done) { if (done) done (true); }
     virtual void reconfigure() = 0;          // assignments changed: rebuild the graph with audio stopped
 
+    // ---- the drum sounds ----
+    // Bring a file in as a sound of this family (kick, snare or toms), copied into the
+    // session's own Samples folder so the session stays portable - hand the folder to
+    // somebody else and the kick it was mixed with is in it. Returns the sentence to show,
+    // whether it worked or not.
+    virtual juce::String importSample (RoleFamily, const juce::File&) { return "Sounds are not available here."; }
+
     // ---- Two outputs: one for the broadcast, one for the engineer ----
     //
     // The whole feature, from the user's side, is two choices: which device the stream and the

@@ -131,6 +131,9 @@ test; each change that alters the sound creates a Mix history checkpoint.
 3. **Reset Mix to Raw.** Every strip, bus, FX and the master back to the session's baseline; clears Tune
   results and sample replacement; keeps audio, clips, names, assignments, routing, scenes, reference and
    history. Takes a "Before reset" checkpoint first. Different from BYPASS, which stays untouched.
+4. ✅ **Sample replacement, finished.** *(2026-09-28. ADD A SOUND on the strip; decoded before it is copied;
+   copied into `<session>/Samples/` so the session is portable; the cap is 24 rather than 8.
+   `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md` has it.)* The original note:
 4. **Sample replacement, finished.** User samples imported from the strip (copied into the session folder so
   the session is portable), preview, and the 8-per-family cap removed or made clear. Kick, snare, toms only.
    *(Phase 1 already made the cap say so out loud and made the selection survive a moved slot.)*

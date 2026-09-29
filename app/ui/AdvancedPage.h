@@ -30,6 +30,8 @@ public:
     std::function<void()> onBack;
     std::function<void()> onRetune;           // the trail column's RE-TUNE: the toolbar's TUNE MIX
     std::function<void (int strip)> onTuneChannel;   // TUNE CHANNEL: this one source, listened to on its own
+    // ADD A SOUND, from the sample stage: the window owns the chooser and the copying.
+    std::function<void (RoleFamily)> onImportSample;
 
     void refresh();                           // 30 Hz
     void rebuild();                           // after the session / graph changed

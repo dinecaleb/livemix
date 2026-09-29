@@ -1672,6 +1672,22 @@ void ChainEditor::buildControls()
             hear->onClick = [this] { controller.auditionSample (strip); };
             controlsHolder.addAndMakeVisible (*hear);
             controls.push_back (std::move (hear));
+
+            // ADD A SOUND: this church's own kick, in the list beside the built-in ones, copied
+            // into the session folder so handing the session to somebody else hands them the
+            // sound it was mixed with.
+            auto add = std::make_unique<DineButton> ("Add a sound", DineButton::Style::Standard);
+            add->setFontPx (11.5f);
+            add->setTooltip ("Bring in a .wav of your own. It is copied into this session, so the session travels with "
+                             "the sound it was mixed with - it is never a link to a file on this Mac.");
+            add->onClick = [this]
+            {
+                const auto& g = controller.getGraph();
+                if (strip < 0 || strip >= g.numStrips() || ! onImportSample) return;
+                onImportSample (roleFamily (g.strips[size_t (strip)].role));
+            };
+            controlsHolder.addAndMakeVisible (*add);
+            controls.push_back (std::move (add));
         }
     }
     resized();
