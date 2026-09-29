@@ -113,6 +113,9 @@ namespace
 
     // The shared geometry of the slot chips: 10 px type, 3 px of padding, 6 px corners.
     constexpr int kSlotH = 22;
+    // Between two rows of the same block (the chain's three, the two sends). Wider than it
+    // was, and still well under the gap between one block and the next.
+    constexpr int kRowGapIn = 4;
 }
 
 // ------------------------------------------------------------------ Strip
@@ -525,15 +528,20 @@ public:
             // input is fine" are different things and a slot that comes and goes bends the
             // line the whole console is read down. A lamp and a word, the way the design
             // draws it - no plane, so OK is quiet and CLIPPING is not.
-            const juce::String label = advice.known ? gainAdviceChip (advice) : juce::String (Glyph::dash());
-            const auto tintColour = advice.known ? gainAdviceColour (advice.level) : Dine::ink4;
+            // An unlit lamp and nothing beside it. A dash on every strip of a thirty-two
+            // channel console is thirty-two words that say nothing, and they are the reason
+            // the head reads as a wall; the slot is still here, so the line across the
+            // console does not bend when one input has something to say and the rest do not.
             auto area = col.gain;
             auto lamp = area.removeFromLeft (5).withSizeKeepingCentre (4, 4);
-            g.setColour (tintColour);
+            g.setColour (advice.known ? gainAdviceColour (advice.level) : Dine::ink4.withAlpha (0.45f));
             g.fillEllipse (lamp.toFloat());
             area.removeFromLeft (5);
-            g.setFont (Dine::caps (9.5f, 0.04f, 600));
-            Dine::drawText (g, label, area, juce::Justification::centredLeft, true);
+            if (advice.known)
+            {
+                g.setFont (Dine::caps (9.5f, 0.04f, 600));
+                Dine::drawText (g, gainAdviceChip (advice), area, juce::Justification::centredLeft, true);
+            }
         }
 
         // ---- the master's loudness
@@ -580,13 +588,13 @@ public:
                 auto area = col.insertRows[i];
                 const bool used = i < insertList.size();
                 auto lamp = area.removeFromLeft (5).withSizeKeepingCentre (4, 4);
-                g.setColour (used ? Dine::accent : Dine::ink4.withAlpha (0.5f));
+                g.setColour (used ? Dine::accent : Dine::ink4.withAlpha (0.3f));
                 g.fillEllipse (lamp.toFloat());
+                if (! used) continue;              // an empty slot is an unlit lamp, not a dash
                 area.removeFromLeft (5);
-                g.setColour (used ? Dine::ink2 : Dine::ink4);
+                g.setColour (Dine::ink2);
                 g.setFont (Dine::text (10.5f, 500));
-                Dine::drawText (g, used ? sentenceCase (insertList[i].label) : juce::String (Glyph::dash()), area,
-                                juce::Justification::centredLeft, true);
+                Dine::drawText (g, sentenceCase (insertList[i].label), area, juce::Justification::centredLeft, true);
             }
         }
 
@@ -600,17 +608,16 @@ public:
                 auto bar = area.removeFromRight (juce::jmin (22, area.getWidth() / 3)).withSizeKeepingCentre (
                                juce::jmin (22, col.sendRows[i].getWidth() / 3), 3);
                 area.removeFromRight (5);
-                g.setColour (used ? Dine::ink2 : Dine::ink4);
+                // A send that is off is an empty slot, not an empty track: a stub of grey with
+                // no name beside it reads as a mark on the strip rather than as nothing.
+                if (! used) continue;
+                g.setColour (Dine::ink2);
                 g.setFont (Dine::text (10.5f, 500));
-                Dine::drawText (g, used ? sendList[i].label : juce::String (Glyph::dash()), area,
-                                juce::Justification::centredLeft, true);
+                Dine::drawText (g, sendList[i].label, area, juce::Justification::centredLeft, true);
                 Dine::fillRounded (g, bar.toFloat(), Dine::control, 1.5f);
-                if (used)
-                {
-                    const float amount = juce::jlimit (0.0f, 1.0f, float (sendPercent (sendList[i].db)) / 100.0f);
-                    if (amount > 0.01f)
-                        Dine::fillRounded (g, bar.toFloat().withWidth (bar.getWidth() * amount), Dine::accent, 1.5f);
-                }
+                const float amount = juce::jlimit (0.0f, 1.0f, float (sendPercent (sendList[i].db)) / 100.0f);
+                if (amount > 0.01f)
+                    Dine::fillRounded (g, bar.toFloat().withWidth (bar.getWidth() * amount), Dine::accent, 1.5f);
             }
         }
 
@@ -760,14 +767,18 @@ public:
         // three insert lamps, two send rows, the pan knob and its readout, then the throw.
         // No section captions: the design says INSERTS and SENDS by what they look like, and a
         // caption on a 70 pt column is three quarters of the column.
-        const int gap = 7;
+        // The strip is read as blocks, not as lines: the name, what the preamp is doing, the
+        // chain, the sends, the pan, the throw. A 7 pt gap between blocks and 2 between rows
+        // made all six of them one stack of small type, so the gap between blocks is wider
+        // than the gap inside one and the eye can find the block it wants.
+        const int gap = 11;
         const int nameH = 18;
         const int gainH = kind == Kind::Master ? 0 : 14;
         const int loudH = kind == Kind::Master ? 56 + 10 + 4 * 21 : 0;
         const int inserts = kind == Kind::Master ? 0 : 3;
         const int sends = showSends && kind != Kind::Master ? 2 : 0;
-        const int insertsH = inserts > 0 ? inserts * kSlotH + (inserts - 1) * 2 : 0;
-        const int sendsH = sends > 0 ? sends * kSlotH + (sends - 1) * 2 : 0;
+        const int insertsH = inserts > 0 ? inserts * kSlotH + (inserts - 1) * kRowGapIn : 0;
+        const int sendsH = sends > 0 ? sends * kSlotH + (sends - 1) * kRowGapIn : 0;
         const int panH = kind != Kind::Master ? 26 + 2 + 12 : 0;
         const int levelH = 14, peakH = kind == Kind::Master ? 0 : 13;
         // A third key row for FX, full width under M and S. It is RESERVED on every strip, not
@@ -799,14 +810,14 @@ public:
         if (keepInserts)
         {
             auto block = r.removeFromTop (insertsH);
-            for (int i = 0; i < inserts; ++i) { col.insertRows.push_back (block.removeFromTop (kSlotH)); block.removeFromTop (2); }
+            for (int i = 0; i < inserts; ++i) { col.insertRows.push_back (block.removeFromTop (kSlotH)); block.removeFromTop (kRowGapIn); }
             col.hasInserts = true;
             r.removeFromTop (gap);
         }
         if (keepSends)
         {
             auto block = r.removeFromTop (sendsH);
-            for (int i = 0; i < sends; ++i) { col.sendRows.push_back (block.removeFromTop (kSlotH)); block.removeFromTop (2); }
+            for (int i = 0; i < sends; ++i) { col.sendRows.push_back (block.removeFromTop (kSlotH)); block.removeFromTop (kRowGapIn); }
             col.hasSends = true;
             r.removeFromTop (gap);
         }
@@ -1099,7 +1110,11 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (Dine::window);
+        // THE GUTTER BETWEEN STRIPS HAS TO BE DARKER THAN A STRIP, or the space between two
+        // columns is not space - it is the same plane with nothing drawn on it. The console
+        // stands on the deepest ground in the product; the list does not, because a list's
+        // rows are separated by their own hairlines and not by air.
+        g.fillAll (list ? Dine::window : Dine::menubar);
         if (! list) return;
         auto r = getLocalBounds().withHeight (kListHeadH).reduced (12, 0);
         // Sentence case: the only capitals in this product are its verbs.
@@ -1432,6 +1447,13 @@ void MixerPage::updateControls()
 void MixerPage::paint (juce::Graphics& g)
 {
     g.fillAll (Dine::window);
+    // The console's own ground, behind the bank and the master, so the gutters between the
+    // strips read as gutters all the way across the row rather than only inside the bank.
+    if (view == View::Strips)
+    {
+        g.setColour (Dine::menubar);
+        g.fillRect (getLocalBounds().withTrimmedTop (kHeaderH).withTrimmedBottom (footHeight()));
+    }
     Dine::drawHeaderBand (g, getLocalBounds().removeFromTop (kHeaderH));
 
     auto trackFor = [&g] (juce::Component* first, juce::Component* last)

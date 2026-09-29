@@ -462,6 +462,7 @@ public:
     {
         static const Def defs[kRows] = {
             { "Routing",           Page::Routing,    Dine::Icon::DeviceNav,     Action::None,       "",       false },
+            { "Audio device",      Page::Device,     Dine::Icon::None,          Action::None,       "",       true  },
             { "Inputs",            Page::Assign,     Dine::Icon::None,          Action::None,       "",       true  },
             { "Outputs",           Page::Outputs,    Dine::Icon::None,          Action::None,       "",       true  },
             { "Purpose and sound", Page::Purpose,    Dine::Icon::Purpose,       Action::None,       "",       false },
@@ -498,8 +499,9 @@ public:
         }
         items[0]->setTooltip ("The device, the inputs and the output feeds. Under LIVE SAFE nothing there can be "
                               "changed until you say you mean it.");
-        items[1]->setTooltip ("The patch: what is plugged into every input, and what each one is.");
-        items[2]->setTooltip ("The output feeds: where the mix, or one group, is sent as well as the main pair.");
+        items[1]->setTooltip ("The interface DLIVE is running on, its rate and its buffer.");
+        items[2]->setTooltip ("The patch: what is plugged into every input, and what each one is.");
+        items[3]->setTooltip ("The output feeds: where the mix, or one group, is sent as well as the main pair.");
         setOpaque (true);
     }
 
@@ -570,6 +572,15 @@ public:
             Dine::drawText (g, c.second, c.first, juce::Justification::centredLeft);
         }
 
+        // ROUTING's sections hang off it on a hairline, so the four Setup rows read as two
+        // things - a workspace with its sections, and Purpose and sound - instead of five
+        // loose rows of which three have no icon.
+        if (! spine.isEmpty())
+        {
+            g.setColour (Dine::hairStrong);
+            g.fillRect (spine);
+        }
+
         // the device, under a seam that stops short of both edges
         auto foot = getLocalBounds().removeFromBottom (kFootH);
         g.setColour (Dine::hair);
@@ -608,41 +619,53 @@ public:
             captions.push_back ({ juce::Rectangle<int> (16, y, getWidth() - 32, 14), text });
             y += 22;
         };
+        spine = {};
         auto rows = [&] (int from, int to)
         {
             for (int i = from; i < to; ++i)
             {
                 // A child is stepped in and sits closer to the row above it: it is part of that
-                // row, not another one beside it.
+                // row, not another one beside it. A hairline runs down the left of the run of
+                // them, from under the parent's icon - without it the rows with no icon read as
+                // three orphans, and the row after them reads as a new section.
                 const bool child = rowDefs()[i].child;
-                items[size_t (i)]->setBounds (child ? 22 : 8, y, getWidth() - (child ? 31 : 17), Dine::Metric::row);
+                items[size_t (i)]->setBounds (child ? kChildX : 8, y, getWidth() - (child ? kChildX + 9 : 17), Dine::Metric::row);
+                if (child)
+                {
+                    const juce::Rectangle<int> mark (kSpineX, y - 2, 1, Dine::Metric::row + 4);
+                    spine = spine.isEmpty() ? mark : spine.getUnion (mark);
+                }
                 y += child ? 28 : 30;
             }
             y += 12 - 2;
         };
-        caption ("Setup");     rows (0, 4);
-        caption ("Workspace"); rows (4, 9);
-        caption ("Safety");    rows (9, 11);
-        caption ("Library");   rows (11, kRows);
+        caption ("Setup");     rows (0, 5);
+        caption ("Workspace"); rows (5, 10);
+        caption ("Safety");    rows (10, 12);
+        caption ("Library");   rows (12, kRows);
     }
 
 private:
-    static constexpr int kRows = 13;
+    static constexpr int kRows = 14;
     static constexpr int kFootH = 72;
+    // A child row's step in, and where its spine is drawn: under the middle of the parent's
+    // 16 pt icon, with a hand's width between the line and the child's own label.
+    static constexpr int kChildX = 30, kSpineX = 18;
     static int indexOf (Page p) noexcept
     {
         switch (p)
         {
-            // ROUTING's own two sections light their own row; the device and the saved patches
-            // light ROUTING, because they have no row of their own.
-            case Page::Routing: case Page::Device: case Page::Maps: return 0;
-            case Page::Assign: return 1;
-            case Page::Outputs: return 2;
-            case Page::Purpose: return 3;
-            case Page::Tracks: return 4; case Page::Mixer: return 5; case Page::Tune: return 6;
-            case Page::Live: return 7; case Page::Inspector: return 8;
-            case Page::Sessions: return 11;
-            case Page::Favourites: return 12;
+            // ROUTING's three everyday sections light their own row, in the order its own tabs
+            // have them; the saved patches light ROUTING, because they have no row of their own.
+            case Page::Routing: case Page::Maps: return 0;
+            case Page::Device: return 1;
+            case Page::Assign: return 2;
+            case Page::Outputs: return 3;
+            case Page::Purpose: return 4;
+            case Page::Tracks: return 5; case Page::Mixer: return 6; case Page::Tune: return 7;
+            case Page::Live: return 8; case Page::Inspector: return 9;
+            case Page::Sessions: return 12;
+            case Page::Favourites: return 13;
         }
         return 0;
     }
@@ -650,6 +673,7 @@ private:
     AppServices& services;
     std::array<std::unique_ptr<DineNavItem>, size_t (kRows)> items, rail;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> captions;
+    juce::Rectangle<int> spine;       // the hairline binding ROUTING's sections to it
     juce::String footState, footName, footSpec;
     int footXruns = 0;
     bool footRecording = false, collapsed = false;
@@ -1325,8 +1349,8 @@ void MainView::updateChrome()
     const auto& project = services.daw().getProject();
 
     // ---- the sidebar's rows
-    const Page all[10] = { Page::Sessions, Page::Favourites, Page::Routing, Page::Assign, Page::Outputs,
-                           Page::Purpose, Page::Tracks, Page::Mixer, Page::Tune, Page::Live };
+    const Page all[11] = { Page::Sessions, Page::Favourites, Page::Routing, Page::Device, Page::Assign,
+                           Page::Outputs, Page::Purpose, Page::Tracks, Page::Mixer, Page::Tune, Page::Live };
     for (const Page p : all)
         sidebar->item (p).setEnabled (isSetupPage (p) || mixable);
     sidebar->item (Page::Inspector).setEnabled (mixable);
