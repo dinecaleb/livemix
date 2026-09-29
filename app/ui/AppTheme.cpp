@@ -976,6 +976,37 @@ void Dine::drawPill (juce::Graphics& g, juce::Rectangle<float> r, const juce::St
 // ============================================================================ PanBar
 void PanBar::paint (juce::Graphics& g)
 {
+    if (style == Style::Knob)
+    {
+        const float size = juce::jmin (float (getWidth()), float (getHeight()));
+        auto box = getLocalBounds().toFloat().withSizeKeepingCentre (size, size).reduced (1.5f);
+        const auto centre = box.getCentre();
+        const float radius = box.getWidth() * 0.5f;
+        const float start = juce::MathConstants<float>::pi * 1.25f;
+        const float end   = juce::MathConstants<float>::pi * 2.75f;
+        const float mid   = (start + end) * 0.5f;
+        const float angle = mid + value * (end - mid);
+
+        juce::Path track;
+        track.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, start, end, true);
+        g.setColour (Dine::control);
+        g.strokePath (track, juce::PathStrokeType (2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        if (std::fabs (value) > 0.004f)
+        {
+            juce::Path arc;
+            arc.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, juce::jmin (mid, angle), juce::jmax (mid, angle), true);
+            g.setColour (isEnabled() ? tint.value_or (Dine::accent) : Dine::ink4);
+            g.strokePath (arc, juce::PathStrokeType (2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+        // the pointer: a dot on the rim, so the arc is never covered by it
+        const auto dot = centre.getPointOnCircumference (radius - 4.5f, angle);
+        g.setColour (isEnabled() ? Dine::ink : Dine::ink4);
+        g.fillEllipse (juce::Rectangle<float> (3.4f, 3.4f).withCentre (dot));
+        return;
+    }
+
     auto r = getLocalBounds().toFloat().withSizeKeepingCentre (float (getWidth()), 4.0f);
     Dine::fillRounded (g, r, Dine::control, 2.0f);
     const float centre = r.getCentreX();
@@ -1005,6 +1036,16 @@ void PanBar::mouseDoubleClick (const juce::MouseEvent&)
 void PanBar::drag (const juce::MouseEvent& e)
 {
     if (! isEnabled()) return;
+    if (style == Style::Knob)
+    {
+        // A knob is dragged, never jumped to: the distance travelled is the change, so a click
+        // on it does not fling the balance to wherever the pointer landed.
+        const float half = juce::jmax (1.0f, float (getWidth()) * 1.6f);
+        const float v = juce::jlimit (-1.0f, 1.0f, dragFrom + float (e.getDistanceFromDragStartX()) / half);
+        setValue (std::fabs (v) < 0.04f ? 0.0f : v);
+        if (onChange) onChange (value);
+        return;
+    }
     const float half = juce::jmax (1.0f, float (getWidth()) * 0.5f - 5.5f);
     const float v = juce::jlimit (-1.0f, 1.0f, (float (e.position.x) - float (getWidth()) * 0.5f) / half);
     setValue (std::fabs (v) < 0.06f ? 0.0f : v);
@@ -1399,27 +1440,46 @@ void DineLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w, 
     auto full = juce::Rectangle<float> (float (x), float (y), float (w), float (h));
     const juce::Colour capColour = s.isEnabled() ? Dine::ink2 : Dine::ink4;
 
-    // The design's fader: a 2 px line and a flat cap (24 x 9 standing, 9 x 14 lying). The
-    // line never fills - a bank of faders reads as a row of caps, not a wall of colour.
+    // The design's fader (`Fader`, 62:9241): a 4 pt well and a machined cap - a two-stop
+    // vertical gradient, a lighter bevel along its top edge and one index line across its
+    // middle. No glow and no texture; the slot never fills, so a bank reads as a row of caps
+    // rather than a wall of colour, and the one mark it is read against is the unity line the
+    // strip draws across the fader and the meter together.
     if (consoleFader)
     {
+        const auto capTop  = s.isEnabled() ? juce::Colour (0xffd8dadd) : Dine::ink4;
+        const auto capBot  = s.isEnabled() ? juce::Colour (0xff9a9da4) : Dine::ink4.darker (0.2f);
+        const auto bevel   = s.isEnabled() ? juce::Colour (0xfff0f1f3) : Dine::ink4.brighter (0.2f);
+
         if (vertical)
         {
-            g.setColour (Dine::hairStrong);
-            g.fillRect (full.getCentreX() - 1.0f, full.getY(), 2.0f, full.getHeight());
-            const float capH = 9.0f, capW = juce::jlimit (16.0f, 26.0f, full.getWidth());
+            auto well = juce::Rectangle<float> (full.getCentreX() - 2.0f, full.getY(), 4.0f, full.getHeight());
+            Dine::fillRounded (g, well, Dine::deep, 2.0f);
+            const float capH = 18.0f, capW = juce::jlimit (18.0f, 26.0f, full.getWidth());
             const float cy = juce::jlimit (full.getY() + capH * 0.5f, full.getBottom() - capH * 0.5f, sliderPos);
-            g.setColour (capColour);
-            g.fillRoundedRectangle (full.getCentreX() - capW * 0.5f, cy - capH * 0.5f, capW, capH, 3.0f);
+            auto cap = juce::Rectangle<float> (full.getCentreX() - capW * 0.5f, cy - capH * 0.5f, capW, capH);
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.fillRoundedRectangle (cap.translated (0.0f, 1.0f), 3.0f);
+            g.setGradientFill ({ capTop, cap.getX(), cap.getY(), capBot, cap.getX(), cap.getBottom(), false });
+            g.fillRoundedRectangle (cap, 3.0f);
+            g.setColour (bevel);
+            g.fillRect (cap.getX() + 2.0f, cap.getY() + 0.5f, cap.getWidth() - 4.0f, 1.0f);
+            g.setColour (juce::Colour (0xff5a5d63));
+            g.fillRect (cap.getX() + 3.0f, cap.getCentreY() - 0.5f, cap.getWidth() - 6.0f, 1.0f);
         }
         else
         {
-            g.setColour (Dine::hairStrong);
-            g.fillRect (full.getX(), full.getCentreY() - 1.0f, full.getWidth(), 2.0f);
-            const float capW = 9.0f, capH = juce::jlimit (10.0f, 14.0f, full.getHeight());
+            auto well = juce::Rectangle<float> (full.getX(), full.getCentreY() - 2.0f, full.getWidth(), 4.0f);
+            Dine::fillRounded (g, well, Dine::deep, 2.0f);
+            const float capW = 12.0f, capH = juce::jlimit (12.0f, 18.0f, full.getHeight());
             const float cx = juce::jlimit (full.getX() + capW * 0.5f, full.getRight() - capW * 0.5f, sliderPos);
-            g.setColour (capColour);
-            g.fillRoundedRectangle (cx - capW * 0.5f, full.getCentreY() - capH * 0.5f, capW, capH, 3.0f);
+            auto cap = juce::Rectangle<float> (cx - capW * 0.5f, full.getCentreY() - capH * 0.5f, capW, capH);
+            g.setColour (juce::Colours::black.withAlpha (0.45f));
+            g.fillRoundedRectangle (cap.translated (0.0f, 1.0f), 3.0f);
+            g.setGradientFill ({ capTop, cap.getX(), cap.getY(), capBot, cap.getX(), cap.getBottom(), false });
+            g.fillRoundedRectangle (cap, 3.0f);
+            g.setColour (juce::Colour (0xff5a5d63));
+            g.fillRect (cap.getCentreX() - 0.5f, cap.getY() + 3.0f, 1.0f, cap.getHeight() - 6.0f);
         }
         return;
     }

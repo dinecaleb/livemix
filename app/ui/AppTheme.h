@@ -492,21 +492,29 @@ private:
 class PanBar : public juce::Component, public juce::SettableTooltipClient
 {
 public:
+    // Bar  - a track with a thumb: the Inspector's head, a LIST row.
+    // Knob - the design's 26 pt pan (`Pan`, 62:9271): a 270 degree track, the value arc drawn
+    //        from the centre and a pointer dot. What a mixer strip carries.
+    enum class Style { Bar, Knob };
+
     std::function<void (float)> onChange;
+
+    void setStyle (Style s)       { if (s != style) { style = s; repaint(); } }
 
     void setValue (float v)       { if (std::fabs (v - value) > 0.0005f) { value = v; repaint(); } }
     float getValue() const noexcept { return value; }
     void setTint (juce::Colour c) { tint = c; }
 
     void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent& e) override { drag (e); }
+    void mouseDown (const juce::MouseEvent& e) override { dragFrom = value; if (style == Style::Bar) drag (e); }
     void mouseDrag (const juce::MouseEvent& e) override { drag (e); }
     void mouseDoubleClick (const juce::MouseEvent&) override;
 
 private:
     void drag (const juce::MouseEvent&);
 
-    float value = 0.0f;
+    float value = 0.0f, dragFrom = 0.0f;
+    Style style = Style::Bar;
     std::optional<juce::Colour> tint;    // unset = the accent, read when painted
 };
 
