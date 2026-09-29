@@ -493,11 +493,11 @@ void OutputsSheet::paint (juce::Graphics& g)
     auto head = r.removeFromTop (36).withTrimmedBottom (10).reduced (12, 0);
     g.setColour (Dine::ink4);
     g.setFont (Dine::caps (11.0f, 0.06f, 500));
-    Dine::drawText (g, "FEED", head.removeFromLeft (150), juce::Justification::centredLeft);
-    Dine::drawText (g, "SOURCE", head.removeFromLeft (190), juce::Justification::centredLeft);
-    Dine::drawText (g, "DESTINATION", head.removeFromLeft (170), juce::Justification::centredLeft);
-    Dine::drawText (g, "STATE", head.removeFromRight (158), juce::Justification::centredRight);
-    Dine::drawText (g, "LEVEL", head, juce::Justification::centredLeft);
+    Dine::drawText (g, "Feed", head.removeFromLeft (150), juce::Justification::centredLeft);
+    Dine::drawText (g, "Source", head.removeFromLeft (190), juce::Justification::centredLeft);
+    Dine::drawText (g, "Destination", head.removeFromLeft (170), juce::Justification::centredLeft);
+    Dine::drawText (g, "Mono  " + juce::String (Glyph::dot()) + "  Mute", head.removeFromRight (158), juce::Justification::centredRight);
+    Dine::drawText (g, "Level", head, juce::Justification::centredLeft);
 
     // Along the foot: how many feeds, and what is set up for the engineer, in one sentence.
     auto foot = card.reduced (26, 26).removeFromBottom (40 + Dine::Metric::button);

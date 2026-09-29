@@ -300,18 +300,19 @@ void ReferenceSheet::paint (juce::Graphics& g)
 
     // ---- who this is about, on every state.
     {
-        auto head = r.removeFromTop (18);
+        // The design's title for this sheet is what it is for, in the words a volunteer would
+        // use; MATCH TO REFERENCE is the verb on the button at the foot of it.
+        auto head = r.removeFromTop (28);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (19.0f, 600));
-        Dine::drawText (g, "MATCH TO REFERENCE", head.removeFromLeft (240), juce::Justification::centredLeft);
-        if (s == State::Chosen)
-        {
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::text (11.5f));
-            Dine::drawText (g, juce::String (controller.getReference().name), head, juce::Justification::centredRight, true);
-        }
+        g.setFont (Dine::text (22.0f, 600));
+        Dine::drawText (g, "Sound like a record you know", head.withTrimmedRight (40), juce::Justification::centredLeft, true);
     }
-    r.removeFromTop (12);
+    r.removeFromTop (2);
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (13.0f));
+    Dine::drawText (g, "The master's tone, image and density follow the reference.", r.removeFromTop (18),
+                    juce::Justification::centredLeft, true);
+    r.removeFromTop (14);
 
     g.setColour (Dine::ink);
     g.setFont (Dine::text (19.0f, 600));

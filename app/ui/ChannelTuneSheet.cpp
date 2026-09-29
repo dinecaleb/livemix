@@ -167,17 +167,19 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
 
     // ---- who this is about, on every state: one channel, named.
     {
-        auto head = r.removeFromTop (24);
+        auto head = r.removeFromTop (28);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (19.0f, 600));
-        Dine::drawText (g, "TUNE CHANNEL  " + juce::String (Glyph::dot()) + "  " + name, head.withTrimmedRight (70), juce::Justification::centredLeft, true);
+        g.setFont (Dine::text (22.0f, 600));
+        Dine::drawText (g, "TUNE CHANNEL  " + juce::String (Glyph::dot()) + "  " + name, head.withTrimmedRight (40), juce::Justification::centredLeft, true);
     }
-    r.removeFromTop (10);
+    r.removeFromTop (2);
     g.setColour (Dine::ink3);
-    g.setFont (Dine::text (12.5f));
-    Dine::drawFittedText (g, "The console keeps playing behind this sheet. DLIVE listens to this input alone and proposes a chain for it. Nothing is committed by asking.",
-                      r.removeFromTop (36), juce::Justification::topLeft, 2);
-    r.removeFromTop (10);
+    g.setFont (Dine::text (13.0f));
+    Dine::drawFittedText (g, previewing() ? "Heard " + name + " on its own. Nothing else in the mix moved."
+                                          : "The console keeps playing behind this sheet. DLIVE listens to this input alone and "
+                                            "proposes a chain for it. Nothing is committed by asking.",
+                          r.removeFromTop (36), juce::Justification::topLeft, 2);
+    r.removeFromTop (16);
 
     if (! previewing())
     {
@@ -244,11 +246,6 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
     const auto* plan = controller.getPlan();
     if (plan == nullptr) return;
 
-    g.setColour (Dine::ink);
-    g.setFont (Dine::text (19.0f, 600));
-    Dine::drawText (g, juce::String (plan->headline), r.removeFromTop (24), juce::Justification::centredLeft, true);
-
-    r.removeFromTop (4);
     {
         juce::StringArray parts;
         if (plan->parametersChanged > 0)
@@ -262,28 +259,35 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
         const juce::String counts = parts.isEmpty() ? juce::String ("nothing changed")
                                                     : parts.joinIntoString ("  " + juce::String (Glyph::dot()) + "  ");
         g.setColour (Dine::ink3);
-        g.setFont (Dine::mono (11.0f));
-        Dine::drawText (g, counts, r.removeFromTop (16), juce::Justification::centredLeft, true);
+        g.setFont (Dine::mono (11.0f, 500));
+        Dine::drawText (g, juce::String (plan->headline) + "  " + Glyph::dot() + "  " + counts,
+                        r.removeFromTop (16), juce::Justification::centredLeft, true);
     }
 
-    r.removeFromTop (10);
+    r.removeFromTop (14);
     auto list = r.removeFromTop (juce::jmax (0, r.getHeight() - (before.isVisible() ? 84 : 46)));
     auto inner = list;
+    // The design's `List Row`: a lamp, what it did, and why under it. No box - rows are
+    // separated by a hairline and by space.
     for (const auto& line : lines())
     {
         const int h = line.second.isEmpty() ? kLineH : kLineWhyH;
         if (inner.getHeight() < h) break;
-        auto row = inner.removeFromTop (h).withTrimmedBottom (4);
-        Dine::fillRounded (g, row.toFloat(), Dine::item, Dine::Radius::control);
-        row = row.reduced (12, 8);
+        auto row = inner.removeFromTop (h);
+        Dine::drawRule (g, row.withHeight (1), Dine::hairSoft);
+        row = row.reduced (0, 10);
+        auto lamp = row.removeFromLeft (7).withSizeKeepingCentre (6, 6).withY (row.getY() + 5);
+        g.setColour (Dine::accent);
+        g.fillEllipse (lamp.toFloat());
+        row.removeFromLeft (10);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (13.0f));
-        Dine::drawText (g, line.first, row.removeFromLeft (150), juce::Justification::topLeft, true);
-        row.removeFromLeft (14);
+        g.setFont (Dine::text (13.0f, 600));
+        Dine::drawText (g, line.first, row.removeFromTop (18), juce::Justification::topLeft, true);
         if (line.second.isNotEmpty())
         {
-            g.setColour (Dine::ink2);
-            g.setFont (Dine::text (12.5f));
+            row.removeFromTop (2);
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (12.0f));
             Dine::drawFittedText (g, line.second, row, juce::Justification::topLeft, 3, 1.0f);
         }
     }

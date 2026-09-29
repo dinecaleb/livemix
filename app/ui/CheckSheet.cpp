@@ -145,17 +145,25 @@ void CheckSheet::paint (juce::Graphics& g)
     // The column heads.
     {
         auto head = r.removeFromTop (22);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::caps (9.5f, 0.08f, 500));
-        Dine::drawText (g, "INPUT", head.removeFromLeft (170), juce::Justification::centredLeft);
-        Dine::drawText (g, "SOURCE", head.removeFromLeft (120), juce::Justification::centredLeft);
-        Dine::drawText (g, "STATE", head.removeFromRight (74), juce::Justification::centredRight);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.0f, 500));
+        Dine::drawText (g, "Input", head.removeFromLeft (170), juce::Justification::centredLeft);
+        Dine::drawText (g, "Source", head.removeFromLeft (120), juce::Justification::centredLeft);
+        Dine::drawText (g, "State", head.removeFromRight (74), juce::Justification::centredLeft);
         head.removeFromRight (12);
-        Dine::drawText (g, "PEAK", head.removeFromRight (64), juce::Justification::centredRight);
+        Dine::drawText (g, "Peak", head.removeFromRight (64), juce::Justification::centredRight);
         head.removeFromRight (12);
-        Dine::drawText (g, "LEVEL NOW", head, juce::Justification::centredLeft);
+        Dine::drawText (g, "Level now", head, juce::Justification::centredLeft);
     }
 
+    // The one thing this sheet has to say about itself: it is a reading, not a control.
+    {
+        auto note = juce::Rectangle<int> (r).removeFromBottom (Dine::Metric::button).withTrimmedRight (
+                        resetButton.getWidth() + doneButton.getWidth() + 24);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (12.0f));
+        Dine::drawText (g, "Reading only. Nothing here changes the mix.", note, juce::Justification::centredLeft, true);
+    }
     r.removeFromBottom (14 + Dine::Metric::button);
     for (const auto& row : rows)
     {

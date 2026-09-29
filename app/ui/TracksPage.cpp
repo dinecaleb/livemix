@@ -1240,7 +1240,7 @@ void TracksPage::paint (juce::Graphics& g)
             if (dropTrack < 0)
             {
                 g.setFont (Dine::caps (10.0f, 0.08f, 500));
-                Dine::drawText (g, "NEW TRACK", band.reduced (12, 0), juce::Justification::centredLeft);
+                Dine::drawText (g, "New track", band.reduced (12, 0), juce::Justification::centredLeft);
             }
         }
 
@@ -1680,7 +1680,7 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
     {
         g.setColour (Dine::crit.withAlpha (0.55f));
         g.setFont (Dine::caps (10.0f, 0.04f, 600));
-        Dine::drawText (g, "TO RECORD", area.reduced (12, 0).withWidth (96), juce::Justification::centredLeft);
+        Dine::drawText (g, "Set to record", area.reduced (12, 0).withWidth (110), juce::Justification::centredLeft);
     }
 }
 

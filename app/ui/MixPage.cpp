@@ -1046,7 +1046,7 @@ public:
         return int ((juce::Time::getMillisecondCounter() - stepStartedMs) / 1000);
     }
 
-    static constexpr int kCardW = 540, kCardH = 318;
+    static constexpr int kCardW = 560, kCardH = 384;
 
     juce::Rectangle<int> sheetBounds() const
     {
@@ -1054,11 +1054,15 @@ public:
         return juce::Rectangle<int> (w, juce::jmin (kCardH, getHeight() - 20)).withCentre (getLocalBounds().getCentre());
     }
 
+    // The design's listening sheet (`09 - TUNE MIX is listening`, 75:12415): a title and one
+    // line saying what to do, the run's real steps as lamps, a bar with the seconds under it,
+    // then a line per group saying what has been heard - because a volunteer standing at the
+    // desk needs to know that the pastor's microphone has not made a sound yet.
     void paint (juce::Graphics& g) override
     {
         g.fillAll (Dine::desk.withAlpha (0.88f));
         auto card = sheetBounds();
-        Dine::drawSheet (g, card.toFloat(), 14.0f);
+        Dine::drawSheet (g, card.toFloat(), Dine::Radius::card);
 
         const bool waiting = controller.isWaitingForBand();
         const bool planning = controller.getStage() == MixController::Stage::Planning;
@@ -1070,21 +1074,12 @@ public:
         const bool working = (live && ! capturing) || planning;
         const juce::String verb = tuneVerb (controller, live);
 
-        auto r = card.reduced (34, 34);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::caps (12.0f, 0.10f));
-        Dine::drawText (g, verb + (working ? " IS WORKING" : waiting ? " IS WAITING" : " IS LISTENING"), r.removeFromTop (14), juce::Justification::centred);
-        r.removeFromTop (12);
-
-        // The number: seconds left in a listen, per cent through the work.
-        const float seconds = controller.getListenSeconds();
-        const juce::String big = waiting ? juce::String (Glyph::dash())
-                               : working ? juce::String (juce::jmin (99, int (std::round (progress * 100.0f)))) + "%"
-                                         : juce::String (juce::jmax (0, int (std::ceil (seconds * (1.0f - progress))))) + " s";
+        auto r = card.reduced (30, 26);
         g.setColour (Dine::ink);
-        g.setFont (Dine::mono (52.0f, 500));
-        Dine::drawText (g, big, r.removeFromTop (58), juce::Justification::centred);
-        r.removeFromTop (8);
+        g.setFont (Dine::text (22.0f, 600));
+        Dine::drawText (g, verb + (working ? " is working" : waiting ? " is waiting" : " is listening"),
+                        r.removeFromTop (28), juce::Justification::centredLeft, true);
+        r.removeFromTop (2);
 
         juce::String hearing;
         if (live)
@@ -1093,65 +1088,91 @@ public:
             if (capturing) hearing += " Keep the band playing.";
         }
         else if (waiting) hearing = "Have the band play a song the way they normally would. DLIVE starts as soon as it hears them.";
-        else if (planning) hearing = "Comparing what it heard against " + juce::String (styleProfileName (controller.getSession().profile)) + ", then checking its own work.";
-        else
-        {
-            juce::StringArray heard;
-            for (int i = 0; i < kGroupBuses; ++i)
-                if (controller.getEngine().isBusUsed (MixBus (i)) && controller.busHeard (MixBus (i)))
-                    heard.add (juce::String (mixBusName (MixBus (i))).toLowerCase());
-            hearing = heard.isEmpty() ? "Listening to every input at once. Keep the band playing."
-                                      : "Hearing " + heard.joinIntoString (", ") + ". Keep the band playing.";
-        }
-        g.setColour (Dine::ink2);
+        else if (planning) hearing = "Comparing what it heard against " + juce::String (styleProfileName (controller.getSession().profile))
+                                   + ", then checking its own work.";
+        else hearing = "Keep playing. DLIVE hears every input at once and builds the whole mix.";
+        g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        Dine::drawFittedText (g, hearing, r.removeFromTop (40), juce::Justification::centredTop, 2);
-        r.removeFromTop (10);
+        Dine::drawFittedText (g, hearing, r.removeFromTop (36), juce::Justification::topLeft, 2);
+        r.removeFromTop (16);
 
-        auto bar = r.removeFromTop (4);
-        Dine::fillRounded (g, bar.toFloat(), Dine::hair, 2.0f);
+        // The steps: the run's real ones, a lamp each, lit as it passes them.
+        {
+            auto steps = r.removeFromTop (16);
+            const auto font = Dine::text (12.0f, 500);
+            auto lamp = [&g] (juce::Rectangle<int>& row, const juce::String& label, juce::Colour c, const juce::Font& f)
+            {
+                g.setColour (c);
+                g.fillEllipse (row.removeFromLeft (7).withSizeKeepingCentre (6, 6).toFloat());
+                row.removeFromLeft (7);
+                g.setFont (f);
+                const int w = Dine::textWidth (f, label);
+                Dine::drawText (g, label, row.removeFromLeft (w), juce::Justification::centredLeft);
+                row.removeFromLeft (22);
+            };
+            if (live)
+            {
+                const int at = liveStepFor (liveState);
+                for (int i = 0; i < kNumLiveSteps; ++i)
+                    lamp (steps, Dine::sectionCase (kLiveSteps[i].label),
+                          at > i ? Dine::accent : at == i ? Dine::ink : Dine::ink4, font);
+            }
+            else
+            {
+                const char* labels[3] = { "Listen", "Analyse", "Decide" };
+                const int at = planning ? 2 : waiting ? -1 : 0;
+                for (int i = 0; i < 3; ++i)
+                    lamp (steps, labels[i], at > i ? Dine::accent : at == i ? Dine::accent : Dine::ink4, font);
+            }
+        }
+        r.removeFromTop (14);
+
+        auto bar = r.removeFromTop (5);
+        Dine::fillRounded (g, bar.toFloat(), Dine::control, 2.5f);
         const float phase = float (juce::Time::getMillisecondCounter() % 1400u) / 1400.0f;
         if (working && live)
         {
             // a sweep, because a bar frozen at full is indistinguishable from a run that stopped
             const float w = float (bar.getWidth()) * 0.22f;
             const float x = float (bar.getX()) + (float (bar.getWidth()) - w) * phase;
-            Dine::fillRounded (g, juce::Rectangle<float> (x, float (bar.getY()), w, float (bar.getHeight())), Dine::accent, 2.0f);
+            Dine::fillRounded (g, juce::Rectangle<float> (x, float (bar.getY()), w, float (bar.getHeight())), Dine::accent, 2.5f);
         }
         else if (progress > 0.0f)
-            Dine::fillRounded (g, bar.toFloat().withWidth (juce::jmax (4.0f, float (bar.getWidth()) * progress)), Dine::accent, 2.0f);
-        r.removeFromTop (18);
+            Dine::fillRounded (g, bar.toFloat().withWidth (juce::jmax (5.0f, float (bar.getWidth()) * progress)), Dine::accent, 2.5f);
+        r.removeFromTop (10);
 
-        // The steps: the run's real ones, lit as it passes them.
-        auto steps = r.removeFromTop (16);
-        if (live)
         {
-            const int at = liveStepFor (liveState);
-            const auto font = Dine::caps (11.0f, 0.08f, 500);
-            int total = 0;
-            for (int i = 0; i < kNumLiveSteps; ++i) total += Dine::textWidth (font, juce::String (kLiveSteps[i].label).toUpperCase()) + 16;
-            auto row = steps.withSizeKeepingCentre (juce::jmin (total, steps.getWidth()), steps.getHeight());
-            for (int i = 0; i < kNumLiveSteps; ++i)
-            {
-                const auto label = juce::String (kLiveSteps[i].label).toUpperCase();
-                const int w = Dine::textWidth (font, label) + 16;
-                g.setColour (at > i ? Dine::accent : at == i ? Dine::ink : Dine::ink4);
-                g.setFont (font);
-                Dine::drawText (g, label, row.removeFromLeft (w), juce::Justification::centred);
-            }
+            const float seconds = controller.getListenSeconds();
+            const int done = juce::jmax (0, int (std::round (seconds * progress)));
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::mono (11.0f, 500));
+            Dine::drawText (g, waiting ? juce::String ("Waiting for the band")
+                                       : working ? juce::String (juce::jmin (99, int (std::round (progress * 100.0f)))) + "% through"
+                                                 : juce::String (done) + " of " + juce::String (int (std::round (seconds))) + " seconds",
+                            r.removeFromTop (16), juce::Justification::centredLeft);
         }
-        else
+        r.removeFromTop (14);
+
+        // What it has heard so far, group by group.
+        r.removeFromBottom (Dine::Metric::button + 8);
+        for (int i = 0; i < kGroupBuses && r.getHeight() >= 22; ++i)
         {
-            const char* labels[4] = { "LISTEN", "ANALYSE", "PLAN", "VERIFY" };
-            const int phaseIndex = planning ? 2 : waiting ? -1 : 0;
-            const auto font = Dine::caps (11.0f, 0.08f, 500);
-            auto row = steps.withSizeKeepingCentre (juce::jmin (steps.getWidth(), 4 * 84), steps.getHeight());
-            for (int i = 0; i < 4; ++i)
-            {
-                g.setColour (i <= phaseIndex ? Dine::accent : Dine::ink4);
-                g.setFont (font);
-                Dine::drawText (g, labels[i], row.removeFromLeft (84), juce::Justification::centred);
-            }
+            const auto bus = groupBus (i);
+            if (! controller.isPrepared() || ! controller.getEngine().isBusUsed (bus)) continue;
+            auto row = r.removeFromTop (22);
+            const bool heard = controller.busHeard (bus);
+            g.setColour (Dine::busTint (bus));
+            g.fillEllipse (row.removeFromLeft (7).withSizeKeepingCentre (7, 7).toFloat());
+            row.removeFromLeft (10);
+            const auto state = heard ? juce::String ("Heard") : juce::String ("Not yet");
+            const auto stateFont = Dine::text (12.0f, 500);
+            auto cell = row.removeFromRight (Dine::textWidth (stateFont, state));
+            g.setColour (heard ? Dine::accent : Dine::ink4);
+            g.setFont (stateFont);
+            Dine::drawText (g, state, cell, juce::Justification::centredRight);
+            g.setColour (Dine::ink2);
+            g.setFont (Dine::text (12.5f, 500));
+            Dine::drawText (g, groupName (i), row, juce::Justification::centredLeft, true);
         }
     }
 
@@ -1159,7 +1180,7 @@ public:
     {
         auto card = sheetBounds();
         const int w = juce::jmax (120, cancel.idealWidth());
-        cancel.setBounds (juce::Rectangle<int> (w, Dine::Metric::button).withCentre ({ card.getCentreX(), card.getBottom() - 34 - 16 }));
+        cancel.setBounds (card.reduced (30, 26).removeFromBottom (Dine::Metric::button).removeFromRight (w));
         cancel.setButtonText (controller.isTuningLive() ? "Stop" : "Stop listening");
     }
 
@@ -1304,11 +1325,14 @@ public:
                                              : "AFTER is playing only what is switched on. KEEP applies exactly that.");
     }
 
-    struct Bullet { juce::String what, why; bool done = true; };
+    // The design's `List Row` (61:9171): a lamp, what it did, why it did it, and the value at
+    // the right. No box - rows are separated by space and a hairline.
+    struct Bullet { juce::String what, why, value; bool done = true; };
 
-    static constexpr int kPadX = 28, kPadY = 28;
+    static constexpr int kPadX = 30, kPadY = 26;
+    static constexpr int kSheetW = 620, kValueW = 92;
 
-    int bulletWidth() const { return juce::jmin (900, getWidth() - 80) - kPadX * 2 - 150 - 18 - 18; }
+    int bulletWidth() const { return juce::jmin (kSheetW, getWidth() - 80) - kPadX * 2 - kValueW - 18 - 17; }
 
     static int linesNeeded (const juce::Font& font, const juce::String& text, int width)
     {
@@ -1325,9 +1349,9 @@ public:
     int bulletHeight (const Bullet& b) const
     {
         const int avail = juce::jmax (80, bulletWidth());
-        const int whyLines = b.why.isEmpty() ? 1 : linesNeeded (Dine::text (13.0f), b.why, avail);
-        const int whatLines = linesNeeded (Dine::text (13.0f), b.what, 150);
-        return 16 + juce::jmax (whatLines * 17 + 2, whyLines * 20) + 16;
+        const int whatLines = linesNeeded (Dine::text (13.0f, 600), b.what, avail);
+        const int whyLines = b.why.isEmpty() ? 0 : linesNeeded (Dine::text (12.0f), b.why, avail);
+        return 11 + whatLines * 18 + (whyLines > 0 ? 2 + whyLines * 16 : 0) + 11;
     }
 
     int listHeight() const
@@ -1342,8 +1366,8 @@ public:
 
     juce::Rectangle<int> sheetBounds() const
     {
-        const int w = juce::jmin (900, getWidth() - 80);
-        const int content = kPadY + 28 + 20 + Dine::Metric::button + 10 + chipRowHeight() + listHeight() + kPadY;
+        const int w = juce::jmin (kSheetW, getWidth() - 80);
+        const int content = kPadY + 28 + 2 + 18 + 18 + chipRowHeight() + listHeight() + 18 + Dine::Metric::button + kPadY;
         const int h = juce::jlimit (240, juce::jmax (240, getHeight() - 40), content);
         return juce::Rectangle<int> (w, h).withCentre (getLocalBounds().getCentre());
     }
@@ -1361,7 +1385,7 @@ public:
                 juce::String why (line.why);
                 if (line.kind == Kind::NotPossible) why = why.isEmpty() ? "DLIVE cannot do this, so it did not." : why;
                 if (line.kind == Kind::Refused && why.isEmpty()) why = "DLIVE declined this change.";
-                out.push_back ({ juce::String (line.what), why,
+                out.push_back ({ juce::String (line.what), why, {},
                                  line.kind != Kind::NotPossible && line.kind != Kind::Refused });
                 if (out.size() >= 6) return out;
             }
@@ -1369,13 +1393,13 @@ public:
         }
         for (const auto& n : plan->notes)
         {
-            out.push_back ({ juce::String (n), {}, true });
+            out.push_back ({ juce::String (n), {}, {}, true });
             if (out.size() >= 2) break;
         }
         for (const auto& rel : plan->relationships)
         {
             if (rel.changes.empty() && rel.kind != Recommendation::Kind::MixGain) continue;
-            out.push_back ({ juce::String (rel.what), juce::String (rel.why), true });
+            out.push_back ({ juce::String (rel.what), juce::String (rel.why), formatRecommendationValues (rel), true });
             if (out.size() >= 6) break;
         }
         return out;
@@ -1394,54 +1418,70 @@ public:
         auto head = r.removeFromTop (28);
         head.removeFromRight (closeButton.getWidth() + 10);
         const bool live = controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready;
-        const juce::String title = tuneVerb (controller, live) + " is ready";
-        const auto titleFont = Dine::text (22.0f);
         g.setColour (Dine::ink);
-        g.setFont (titleFont);
-        Dine::drawText (g, title, head.removeFromLeft (Dine::textWidth (titleFont, title)), juce::Justification::centredLeft);
-        head.removeFromLeft (14);
+        g.setFont (Dine::text (22.0f, 600));
+        Dine::drawText (g, tuneVerb (controller, live) + " is ready", head, juce::Justification::centredLeft, true);
+        r.removeFromTop (2);
         // WHAT IT RAN ON. A card that says "is ready" without saying what it is a card about
         // is the reason the scopes were invisible in the first place - so every one of them
         // names itself here, the whole mix included.
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        Dine::drawText (g, "on " + juce::String (controller.getLastTuneScope()) + "  " + Glyph::dot() + "  "
-                            + (plan->noChangeRequired ? juce::String (plan->headline)
-                                   : "heard " + juce::String (plan->stripsHeard) + " inputs, proposed "
-                                         + juce::String (plan->parametersChanged) + " settings and "
-                                         + juce::String (plan->fadersChanged) + " levels. " + juce::String (plan->headline)),
-                    head, juce::Justification::centredLeft, true);
+        Dine::drawFittedText (g, "On " + juce::String (controller.getLastTuneScope()) + ". "
+                                 + (plan->noChangeRequired ? juce::String (plan->headline)
+                                        : "Heard " + juce::String (plan->stripsHeard) + " inputs, proposed "
+                                              + juce::String (plan->parametersChanged) + " settings and "
+                                              + juce::String (plan->fadersChanged) + " levels. " + juce::String (plan->headline)),
+                              r.removeFromTop (18), juce::Justification::topLeft, 1);
+        r.removeFromTop (18);
 
-        r.removeFromTop (20 + Dine::Metric::button + 10);
         if (showChips())
         {
             auto row = r.removeFromTop (kChipH);
             g.setColour (everythingPicked() ? Dine::ink3 : Dine::accent);
-            g.setFont (Dine::caps (10.0f, 0.08f));
-            Dine::drawText (g, everythingPicked() ? "KEEP" : "KEEPING", row.removeFromLeft (kKeepLabelW), juce::Justification::centredLeft);
+            g.setFont (Dine::text (12.0f, 500));
+            Dine::drawText (g, everythingPicked() ? "Keep" : "Keeping", row.removeFromLeft (kKeepLabelW), juce::Justification::centredLeft);
             r.removeFromTop (12);
         }
+
+        r.removeFromBottom (Dine::Metric::button + 18);
         for (const auto& b : bullets())
         {
             const int h = bulletHeight (b);
             if (r.getHeight() < h) break;
             auto row = r.removeFromTop (h);
             Dine::drawRule (g, row.withHeight (1), Dine::hairSoft);
-            row = row.reduced (0, 16);
-            auto left = row.removeFromLeft (150);
-            g.setColour (b.done ? Dine::ink : Dine::ink3);
-            g.setFont (Dine::text (13.0f));
-            Dine::drawFittedText (g, b.what, left, juce::Justification::topLeft, 5, 1.0f);
-            row.removeFromLeft (18);
-            if (! b.done)
+            row = row.reduced (0, 11);
+
+            auto lamp = row.removeFromLeft (7).withSizeKeepingCentre (6, 6).withY (row.getY() + 6);
+            g.setColour (b.done ? Dine::accent : Dine::warn);
+            g.fillEllipse (lamp.toFloat());
+            row.removeFromLeft (10);
+
+            auto value = row.removeFromRight (kValueW);
+            row.removeFromRight (18);
+            if (b.value.isNotEmpty())
             {
-                auto tag = row.removeFromRight (90);
-                Dine::drawStatusChip (g, tag.withHeight (17).toFloat(), "NOT DONE", Dine::warn);
-                row.removeFromRight (12);
+                g.setColour (Dine::ink);
+                g.setFont (Dine::mono (11.0f, 500));
+                Dine::drawText (g, b.value, value.withHeight (18), juce::Justification::centredRight, true);
             }
-            g.setColour (Dine::ink2);
-            g.setFont (Dine::text (13.0f));
-            Dine::drawFittedText (g, b.why.isEmpty() ? juce::String ("Applied.") : b.why, row, juce::Justification::topLeft, 5, 1.0f);
+            else if (! b.done)
+            {
+                Dine::drawStatusChip (g, value.removeFromRight (74).withHeight (17).toFloat(), "NOT DONE", Dine::warn);
+            }
+
+            const int whatLines = linesNeeded (Dine::text (13.0f, 600), b.what, row.getWidth());
+            g.setColour (b.done ? Dine::ink : Dine::ink3);
+            g.setFont (Dine::text (13.0f, 600));
+            Dine::drawFittedText (g, b.what, row.removeFromTop (whatLines * 18), juce::Justification::topLeft, whatLines, 1.0f);
+            if (b.why.isNotEmpty())
+            {
+                row.removeFromTop (2);
+                g.setColour (Dine::ink3);
+                g.setFont (Dine::text (12.0f));
+                Dine::drawFittedText (g, b.why, row, juce::Justification::topLeft, 4, 1.0f);
+            }
         }
     }
 
@@ -1449,23 +1489,27 @@ public:
     {
         auto card = sheetBounds();
         auto r = card.reduced (kPadX, kPadY);
-        closeButton.setBounds (r.removeFromTop (28).removeFromRight (juce::jmax (56, closeButton.idealWidth())));
-        r.removeFromTop (20);
-        auto row = r.removeFromTop (Dine::Metric::button);
-        before.setBounds (row.removeFromLeft (juce::jmax (80, before.idealWidth())));
-        row.removeFromLeft (10);
-        after.setBounds (row.removeFromLeft (juce::jmax (80, after.idealWidth())));
-        row.removeFromLeft (10);
-        review.setBounds (row.removeFromLeft (juce::jmax (90, review.idealWidth())));
-        keep.setBounds (row.removeFromRight (juce::jmax (80, keep.idealWidth())));
-        row.removeFromRight (10);
-        revert.setBounds (row.removeFromRight (juce::jmax (90, revert.idealWidth())));
-        row.removeFromRight (10);
-        another.setBounds (row.removeFromRight (juce::jmax (120, another.idealWidth())));
+        closeButton.setBounds (r.removeFromTop (28).removeFromRight (28).withSizeKeepingCentre (28, 28));
+
+        // The design's `Sheet Footer` (65:9354): BEFORE / AFTER on the left, the actions on
+        // the right with the default - Keep - last, the way macOS orders them.
+        auto row = r.removeFromBottom (Dine::Metric::button);
+        before.setBounds (row.removeFromLeft (juce::jmax (74, before.idealWidth())));
+        row.removeFromLeft (4);
+        after.setBounds (row.removeFromLeft (juce::jmax (74, after.idealWidth())));
+        keep.setBounds (row.removeFromRight (juce::jmax (74, keep.idealWidth())));
+        row.removeFromRight (8);
+        revert.setBounds (row.removeFromRight (juce::jmax (82, revert.idealWidth())));
+        row.removeFromRight (8);
+        another.setBounds (row.removeFromRight (juce::jmax (116, another.idealWidth())));
+        row.removeFromRight (8);
+        review.setBounds (row.removeFromRight (juce::jmin (juce::jmax (0, row.getWidth()),
+                                                           juce::jmax (140, review.idealWidth()))));
+        r.removeFromBottom (18);
+        r.removeFromTop (2 + 18 + 18);
 
         if (showChips())
         {
-            r.removeFromTop (10);
             auto chipRow = r.removeFromTop (kChipH);
             chipRow.removeFromLeft (kKeepLabelW);
             for (int b = 0; b < int (MixBus::Count); ++b)

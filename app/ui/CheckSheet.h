@@ -49,7 +49,7 @@ private:
     double opened = 0.0, now = 0.0;
     int ticks = 0;
     DineButton resetButton { "Reset clips", DineButton::Style::Standard };
-    DineButton doneButton { "Close", DineButton::Style::Standard };
+    DineButton doneButton { "Done", DineButton::Style::Filled };
     static constexpr int kCardW = 720, kRowH = 30;
 };
 
