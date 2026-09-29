@@ -285,16 +285,25 @@ TEST_CASE ("Text: the clipping audit reports what was cut and nothing that fitte
         // Room to spare, exactly the ellipsis path, and nowhere near enough room.
         Dine::drawText (g, "Kick", juce::Rectangle<int> (0, 0, 200, 18), juce::Justification::centredLeft, true);
         Dine::drawText (g, "Close", juce::Rectangle<int> (0, 18, 28, 18), juce::Justification::centredLeft, true);
-        // Fitted text squeezes rather than cutting, so it is not the audit's business.
-        Dine::drawFittedText (g, "A sentence that will be squeezed to fit", juce::Rectangle<int> (0, 0, 60, 18),
-                              juce::Justification::centredLeft, 1, 0.5f);
+        // Ellipses off: the caller has said it would rather the string ran on.
+        Dine::drawText (g, "Runs on past its box", juce::Rectangle<int> (0, 0, 30, 18), juce::Justification::centredLeft, false);
+        // Fitted text squeezes before it cuts, so what counts is whether it fits after the
+        // squeeze. This one does.
+        Dine::drawFittedText (g, "Snare", juce::Rectangle<int> (0, 0, 40, 18), juce::Justification::centredLeft, 1, 0.7f);
+        // ... and this one does not, which is how "Ambie..." reached a group tile.
+        Dine::drawFittedText (g, "A sentence with nowhere near enough room", juce::Rectangle<int> (0, 0, 60, 18),
+                              juce::Justification::centredLeft, 1, 0.7f);
+        // Past one line it wraps, and where a word lands is JUCE's business.
+        Dine::drawFittedText (g, "A sentence with nowhere near enough room", juce::Rectangle<int> (0, 0, 60, 40),
+                              juce::Justification::topLeft, 3, 0.9f);
     }
     Dine::endTextClipAudit();
     const auto report = Dine::textClipReport();
-    REQUIRE (report.size() == 1);
-    CHECK (report[0].text == "Close");
-    CHECK (report[0].where == "a test");
-    CHECK (report[0].wanted > report[0].available);
+    REQUIRE (report.size() == 2);
+    CHECK (report[0].text == "A sentence with nowhere near enough room");   // the widest shortfall first
+    CHECK (report[1].text == "Close");
+    CHECK (report[1].where == "a test");
+    CHECK (report[1].wanted > report[1].available);
 
     // Off again, and the next run starts from nothing.
     {
@@ -303,7 +312,7 @@ TEST_CASE ("Text: the clipping audit reports what was cut and nothing that fitte
         g.setFont (Dine::text (13.0f));
         Dine::drawText (g, "Another one that does not fit", juce::Rectangle<int> (0, 0, 20, 18), juce::Justification::centredLeft, true);
     }
-    CHECK (Dine::textClipReport().size() == 1);
+    CHECK (Dine::textClipReport().size() == 2);
     Dine::beginTextClipAudit();
     CHECK (Dine::textClipReport().empty());
     Dine::endTextClipAudit();

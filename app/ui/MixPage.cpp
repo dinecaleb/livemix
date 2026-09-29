@@ -174,15 +174,17 @@ public:
             head.removeFromRight (5);
         }
         g.setColour (! used ? Dine::ink4 : muted ? Dine::ink3 : Dine::ink);
-        g.setFont (Dine::text (13.0f, 600));
-        // A column is narrow, and a group's name is the one thing on it that must be readable:
-        // it is squeezed a little, then said in fewer letters, and it is never cut off.
+        // A column is narrow, and a group's name is the one thing on it that must be readable.
+        // A smaller tile carries smaller type, the type is squeezed a little after that, and
+        // only then does the group say its name in fewer letters. It is never cut off.
         {
-            const auto nameFont = Dine::text (13.0f, 600);
+            constexpr float squeeze = 0.72f;
+            const auto nameFont = Dine::text (nameSizePx(), 600);
+            g.setFont (nameFont);
             const auto full = groupName (group);
-            const bool squeezable = float (Dine::textWidth (nameFont, full)) * 0.78f <= float (head.getWidth());
-            Dine::drawFittedText (g, squeezable ? full : groupNameBrief (group), head,
-                                  juce::Justification::centredLeft, 1, 0.78f);
+            const bool whole = float (Dine::textWidth (nameFont, full)) * squeeze <= float (head.getWidth());
+            Dine::drawFittedText (g, whole ? full : groupNameBrief (group), head,
+                                  juce::Justification::centredLeft, 1, squeeze);
         }
 
         auto sub = inner.removeFromTop (16);
@@ -235,6 +237,7 @@ public:
 private:
     // A narrow console gives its padding up before anything on the tile gives up a letter.
     int paddingX() const noexcept { return getWidth() >= 96 ? 12 : getWidth() >= 64 ? 8 : 6; }
+    float nameSizePx() const noexcept { return getWidth() >= 96 ? 13.0f : getWidth() >= 64 ? 12.0f : 11.5f; }
     bool isFx() const noexcept { return group >= kGroupBuses; }
     // The returns are not a group of sources, so there is nothing to listen to and tune.
     bool canTune() const noexcept { return used && ! isFx(); }
@@ -1701,7 +1704,11 @@ MixPage::MixPage (MixController& c) : controller (c)
     Dine::nativeScrolling (sideView);
     sideView.setScrollBarsShown (true, false);
     addAndMakeVisible (sideView);
-    sideTab = std::make_unique<DinePanelTab> (DinePanelTab::Side::Right, "Mix health");
+    // THE PANEL IS NAMED FOR WHAT IT IS, not for its last section. Folded, the gutter is the
+    // only thing left of TUNE MIX, RE-TUNE LIVE, MATCH TO REFERENCE and the mix history - and
+    // it used to be labelled MIX HEALTH, so a workspace that had folded it looked like it had
+    // lost the whole-mix tune and kept only the one on each group tile.
+    sideTab = std::make_unique<DinePanelTab> (DinePanelTab::Side::Right, "Tune");
     sideTab->onClick = [this] { setSideShown (! sideShown); };
     addAndMakeVisible (*sideTab);
 
@@ -1887,6 +1894,10 @@ void MixPage::setSideShown (bool shown)
     sideView.setVisible (shown);
     resized();
     repaint();
+    // Folding this one away takes the verb the whole workspace is named after off the screen,
+    // and the keyboard can do it by accident. Say where it went and how to get it back.
+    if (! shown && onToast)
+        onToast ("TUNE MIX and the rest of the verbs are folded away. The tab down the right-hand edge brings them back.");
 }
 
 void MixPage::openReference()

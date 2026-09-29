@@ -229,8 +229,17 @@ namespace
     void noteIfClipped (const TextLayoutKey& key)
     {
         auto& audit = clipAudit();
-        if (! audit.on || key.fitted || ! key.ellipses || key.width <= 0.0f || key.text.isEmpty()) return;
-        const float wanted = juce::GlyphArrangement::getStringWidth (key.font, key.text);
+        if (! audit.on || key.width <= 0.0f || key.text.isEmpty()) return;
+        // Fitted text squeezes before it cuts, so what it needs is what it needs after the
+        // squeeze. Past one line it wraps as well, and where a word lands is JUCE's business
+        // rather than something worth guessing at here.
+        float wanted = juce::GlyphArrangement::getStringWidth (key.font, key.text);
+        if (key.fitted)
+        {
+            if (key.maxLines != 1) return;
+            wanted *= key.minScale > 0.0f ? key.minScale : juce::Font::getDefaultMinimumHorizontalScaleFactor();
+        }
+        else if (! key.ellipses) return;
         if (wanted <= key.width + 0.5f) return;
         for (auto& c : audit.found)
             if (c.text == key.text && std::abs (c.available - key.width) < 0.5f)

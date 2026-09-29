@@ -16,6 +16,12 @@ The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizab
   and 1920x1080 - the three screens a booth actually has - so a layout that only holds together at the
   developer's window is caught before a Sunday. `dlive_ui_snapshots <dir>` (no flag) is still the full set of
   states, and `21`-`25` are the smallest window DLIVE allows.
+- **A folded panel is named for what is behind it.** `DinePanelTab` writes the panel's name
+  down the gutter when it is folded, so the name has to be the panel, not its last section:
+  TUNE's right-hand panel carries TUNE MIX, RE-TUNE LIVE, MATCH TO REFERENCE, the mix history
+  and the mix health, and calling its tab "Mix health" made a folded workspace look as though
+  the whole-mix tune had gone and only the per-group TUNE chips were left. Folding that one
+  also toasts, because the keyboard (View, `togglePanel`) can do it by accident.
 - **Text that did not fit.** `dlive_ui_snapshots <dir>` walks every workspace with the clipping audit on
   (`Dine::beginTextClipAudit` / `textClipReport`, `app/ui/AppTheme.cpp`) and ends with a **TEXT CLIPPING**
   report: one line per string that lost characters, with the screen it was on, the room it had and the room it

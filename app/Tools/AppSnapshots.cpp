@@ -1380,6 +1380,14 @@ int main (int argc, char** argv)
     rig.feed (0.3);
     rig.snap (dir, "16b-tune-rail-folded");
     view.setSidebarShown (true);
+    // ...and with the verbs folded away, which is the one fold that takes TUNE MIX itself off
+    // the screen. The gutter it leaves has to say what is behind it, or the workspace looks
+    // like it has lost the whole-mix tune and only kept the one on each group tile.
+    view.getMixPage().setSideShown (false);
+    rig.feed (0.3);
+    rig.snap (dir, "16d-tune-verbs-folded");
+    view.getMixPage().setSideShown (true);
+    rig.feed (0.3);
     rig.controller.keepPlan();
     view.getMixPage().setMacroValue (MixMacro::Space, 72.0f);
     view.getMixPage().setMacroValue (MixMacro::Drums, 30.0f);
