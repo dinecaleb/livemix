@@ -4,15 +4,17 @@ namespace livemix::http
 {
 
 Result postJson (const juce::String& url, const juce::String& jsonBody, const juce::String& bearerToken,
-                 int timeoutSeconds, const std::atomic<bool>* shouldCancel)
+                 int timeoutSeconds, const std::atomic<bool>* shouldCancel, const juce::String& extraHeaders)
 {
     Result result;
     const auto cancelled = [shouldCancel] { return shouldCancel != nullptr && shouldCancel->load(); };
 
-    juce::URL target (url);
-    target = target.withPOSTData (jsonBody);
+    // Not parsed: a parsed URL's query ("?on_conflict=...") is moved into the body of a POST,
+    // in front of the JSON, and the server sees neither.
+    auto target = juce::URL::createWithoutParsing (url).withPOSTData (jsonBody);
     juce::String headers = "Content-Type: application/json\r\n";
     if (bearerToken.trim().isNotEmpty()) headers += "Authorization: Bearer " + bearerToken.trim() + "\r\n";
+    headers += extraHeaders;
 
     // The progress callback is polled (about every 1 ms) until the response headers arrive,
     // which is where a slow model spends its time; returning false aborts the connection.

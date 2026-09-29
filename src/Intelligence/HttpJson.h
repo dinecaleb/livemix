@@ -17,9 +17,13 @@ struct Result
     juce::String error;      // transport-level only; an HTTP error arrives as a status with a body
 
     bool ok() const noexcept { return error.isEmpty() && status == 200; }
+    bool accepted() const noexcept { return error.isEmpty() && status >= 200 && status < 300; }   // 201 / 204 count too
 };
 
+// `extraHeaders`: whole "Name: value\r\n" lines, for a service that wants more than a bearer
+// token (Supabase's apikey and Prefer - app/native/Telemetry).
 Result postJson (const juce::String& url, const juce::String& jsonBody, const juce::String& bearerToken,
-                 int timeoutSeconds, const std::atomic<bool>* shouldCancel);
+                 int timeoutSeconds, const std::atomic<bool>* shouldCancel,
+                 const juce::String& extraHeaders = {});
 
 } // namespace livemix::http
