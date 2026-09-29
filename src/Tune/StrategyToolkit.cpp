@@ -699,7 +699,6 @@ void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneD
     if (ctx.role == ChannelRole::KickOut || ctx.role == ChannelRole::SnareBottom) return;
     const auto& a = ctx.analysis;
     const auto& cur = d.proposed;
-    const RoleFamily family = roleFamily (ctx.role);
     const Levels L = levels (ctx);
     if (L.hitDb < -70.0f) return;                        // nothing was heard: nothing to fit
 

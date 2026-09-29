@@ -18,8 +18,9 @@ namespace
     constexpr int kScenesH = 100;
     constexpr int kMonitorH = 150;
     constexpr int kMonitorW = 560;
-    // The monitor card's rows, measured once: the caption, a gap, the chips, a gap, the level, a gap, the sentence.
-    constexpr int kMonCaption = 14, kMonCaptionGap = 12, kMonRowGap = 20, kMonNoteGap = 16, kMonNote = 18;
+    // The monitor card's rows, measured once: a gap under its heading, the chips, a gap, the
+    // level, a gap, the sentence that says where solo is going.
+    constexpr int kMonCaptionGap = 12, kMonRowGap = 20, kMonNoteGap = 16, kMonNote = 18;
 
     juce::String dbText (float v)
     {

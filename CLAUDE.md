@@ -77,6 +77,14 @@ file under `docs/` — read the one for the area you are touching before changin
   `MixController::touch()`'s revision, never a UI call site. A session survives a crash the way a take does
   (`app/native/SessionAutosave`): an autosave and a clean-exit marker sit beside the document, and one found on the
   next launch offers Recover / Open last saved / Keep both. `docs/SESSION-STATE.md` is the audit and the contract.
+- **The design is the Figma file, and `docs/DESIGN-V3.md` is the map to it.** The DLIVE
+  application is built to "DLIVE - Full UX Mockup" (v3, 2026-09-29): Inter and IBM Plex Mono,
+  flat neutral planes, one 52 pt toolbar with the window's own buttons inside it, a 208 pt
+  sidebar in sentence case that folds to a 52 pt icon rail, and a 28 pt status foot. **The only
+  capitals in the product are its verbs** - `Dine::drawSection` puts a caption back into
+  sentence case, so a caption written in capitals is corrected rather than shouted. Read
+  `docs/DESIGN-V3.md` before moving anything in `app/ui`; it also lists, with the reason, every
+  place the code and the design disagree.
 - **UI changes are verified by looking at the PNGs** (`dlive_ui_snapshots`, the per-product
   `livemix_*_ui_snapshots`), never by reasoning about layout code; regression references change only when a
   baseline changes on purpose. No page repaints itself wholesale from its tick; a page's `paint` and its `Look`
@@ -139,6 +147,7 @@ tests/                      engine + integration tests, benchmark, reference ren
 | DLIVE the application: DAW layer, every workspace, setup pages | `docs/DLIVE-APP.md`, `docs/ARCHITECTURE-DLIVE.md`, `docs/MILESTONE-7.md` |
 | The mix engineer: TUNE LIVE MIX, REFERENCE MIX, LIVE SAFE, MIX BUDDY, loudness, profiles, linked faders | `docs/DLIVE-MIX-ENGINEER.md`, `docs/ARCHITECTURE-DLIVE-AI.md` |
 | Monitoring: the solo bus, two devices, Dante | `docs/DLIVE-MONITORING.md` |
+| The v3 design: the Figma file, every frame, and where each one landed | `docs/DESIGN-V3.md` |
 | The desktop design, macro pads, themes, tutorial, frame budget | `docs/DLIVE-DESIGN.md`, `docs/THEMES.md` |
 | RealtimeSanitizer: wiring, findings, suppressions | `docs/REALTIME-SANITIZER.md` |
 | Drum sample replacement: the scope and what was built | `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md` |

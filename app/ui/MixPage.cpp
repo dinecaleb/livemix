@@ -32,8 +32,6 @@ namespace
     {
         return i >= 0 && i < kGroupBuses ? Dine::busTint (groupBus (i)) : Dine::ink2;
     }
-
-    constexpr int kGroupsH = 210;
     constexpr int kRibbonGap = 22;      // the ENERGY ribbon sits clear of the snap rows above it
 
     // WHAT A TUNE IS ABOUT, in one place. The listen card and the result card both say it, and

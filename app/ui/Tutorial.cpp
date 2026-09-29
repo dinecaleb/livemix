@@ -1,4 +1,5 @@
 #include "Tutorial.h"
+#include "UI/Widgets.h"
 
 namespace livemix
 {
@@ -93,6 +94,7 @@ void Tutorial::go (int index)
     const auto& s = steps()[size_t (step)];
     if (onStep) onStep (s.page);
     spot = spotFor && juce::String (s.spot).isNotEmpty() ? spotFor (s.spot) : juce::Rectangle<int>();
+    backButton.setVisible (step > 0);
     backButton.setEnabled (step > 0);
     nextButton.setButtonText (step + 1 >= int (steps().size()) ? "Start mixing" : "Next");
     resized();
@@ -147,41 +149,49 @@ void Tutorial::paint (juce::Graphics& g)
     auto card = cardBounds();
     Dine::drawSheet (g, card.toFloat(), 14.0f);
 
+    // The design's tour card (`22 - Getting started`, 77:19229): where you are in the tour,
+    // the one thing this step is about, the sentence under it, and the dots along the foot
+    // beside the two buttons.
     auto inner = card.reduced (22, 18);
-    inner.removeFromBottom (kFooterH);          // the buttons place themselves there
-    auto dots = inner.removeFromBottom (12);
-    inner.removeFromBottom (8);
+    auto footer = inner.removeFromBottom (kFooterH);
 
-    g.setColour (Dine::accent);
-    g.setFont (Dine::caps (10.0f, 0.14f));
-    Dine::drawText (g, s.eyebrow, inner.removeFromTop (14), juce::Justification::topLeft);
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (11.0f, 500));
+    Dine::drawText (g, "Getting started  " + juce::String (Glyph::dot()) + "  " + juce::String (step + 1)
+                        + " of " + juce::String (int (steps().size())),
+                    inner.removeFromTop (14), juce::Justification::topLeft);
     inner.removeFromTop (6);
     g.setColour (Dine::ink);
-    g.setFont (Dine::text (21.0f, 600));
-    Dine::drawText (g, s.title, inner.removeFromTop (26), juce::Justification::topLeft, true);
+    g.setFont (Dine::text (18.0f, 600));
+    Dine::drawText (g, s.title, inner.removeFromTop (24), juce::Justification::topLeft, true);
     inner.removeFromTop (6);
 
-    g.setColour (Dine::ink2);
+    g.setColour (Dine::ink3);
     g.setFont (Dine::text (12.5f));
     Dine::drawFittedText (g, s.body, inner, juce::Justification::topLeft, 4);
 
-    // Seven dots: where you are, and how much is left.
-    for (int i = 0; i < int (steps().size()); ++i)
+    // The dots: where you are, and how much is left.
     {
-        auto d = dots.removeFromLeft (13).withSizeKeepingCentre (i == step ? 7 : 5, i == step ? 7 : 5);
-        g.setColour (i == step ? Dine::accent : Dine::ink4.withAlpha (0.5f));
-        g.fillEllipse (d.toFloat());
+        auto dots = footer.withHeight (26).withTrimmedRight (footer.getWidth() - 120);
+        for (int i = 0; i < int (steps().size()); ++i)
+        {
+            auto d = dots.removeFromLeft (12).withSizeKeepingCentre (i == step ? 14 : 5, 5);
+            g.setColour (i == step ? Dine::accent : Dine::ink4.withAlpha (0.5f));
+            g.fillRoundedRectangle (d.toFloat(), 2.5f);
+        }
     }
 }
 
 void Tutorial::resized()
 {
     auto row = cardBounds().reduced (22, 18).removeFromBottom (kFooterH).withHeight (26);
-    nextButton.setBounds (row.removeFromRight (juce::jmax (92, nextButton.idealWidth())));
+    nextButton.setBounds (row.removeFromRight (juce::jmax (80, nextButton.idealWidth())));
     row.removeFromRight (8);
-    backButton.setBounds (row.removeFromRight (juce::jmax (64, backButton.idealWidth())));
-    skipButton.setBounds (row.removeFromLeft (juce::jmin (row.getWidth(),
-                                                          juce::jmax (96, skipButton.idealWidth()))));
+    skipButton.setBounds (row.removeFromRight (juce::jmin (juce::jmax (0, row.getWidth() - 130),
+                                                           juce::jmax (100, skipButton.idealWidth()))));
+    row.removeFromRight (8);
+    backButton.setBounds (row.removeFromRight (step > 0 ? juce::jmin (juce::jmax (0, row.getWidth() - 130),
+                                                                      juce::jmax (60, backButton.idealWidth())) : 0));
 }
 
 } // namespace livemix

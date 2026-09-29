@@ -1,5 +1,12 @@
 # DLIVE: the desktop design
 
+> **The current design is v3** - the Figma file "DLIVE - Full UX Mockup", 2026-09-29.
+> `docs/DESIGN-V3.md` is the map from that file to the code: the tokens, the shell, every
+> one of its forty frames and where it landed, and every place the code and the design
+> deliberately disagree. What follows here is the reasoning behind the workspaces
+> themselves - what each one is for and why it is shaped as it is - which v3 restyled
+> rather than replaced.
+
 The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizable TRACKS panel, desk sizes and the frame budget. Moved verbatim from the old CLAUDE.md (2026-09-19); themes in detail are `docs/THEMES.md`.
 
 - **The TRACKS channel panel is resizable** (`TracksPage::setPanelWidth`, the divider at `headerWidth`): the

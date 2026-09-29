@@ -6,8 +6,6 @@ namespace livemix
 
 namespace
 {
-    constexpr int kPadX    = 26;
-    constexpr int kPadY    = 22;
     constexpr int kHeadH   = 58;
     constexpr int kMapRowH = 66;
 }

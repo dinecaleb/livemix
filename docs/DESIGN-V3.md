@@ -174,7 +174,37 @@ the design does not draw, and the code therefore keeps unchanged: the Mixer's **
 the three strip widths, the three track heights, the timeline's right-click menu, input
 mappings, the menu bar, and every keyboard binding in that prompt's §"INTERACTION RULES".
 
-## 5. Order of work
+## 5. Where the code and the design disagree, and why
+
+Every one of these is a decision, not an oversight. The design is the brief; these are the
+places the brief and the product's own rules met.
+
+| What | The design | The code | Why |
+| --- | --- | --- | --- |
+| **The order of the groups** | Lead, BGV, Speech, Drums, Bass, Music | Drums, Bass, Music, Lead, BGV, Speech | `CLAUDE.md` fixes that order "everywhere", `mixBusInDisplayOrder` is the one place it lives, and a session's stored enum is that order. A different opinion about the same list is not worth breaking the rule for. |
+| **LIVE SAFE, off** | Amber in every frame (they are all of a locked console) | Amber only while it is on; a hairline key when it is off | "Is the sound locked" is one of the six states that must always be unmistakable. A control that looks identical either way does not say it. |
+| **TUNE CHANNEL on a TRACKS header** | Not drawn | Kept, and dropped first when the panel is narrow | It is a verb the inventory puts on the header; the design's header simply has fewer things on it. |
+| **The stacked group bar on a session row** | Not drawn | Kept, before the date | It is the one thing on the library screen that says what kind of service a session was. The inventory asks for it by name. |
+| **The Inputs table** | One flat table, three bulk buttons, All / Not used | The same, plus a list button beside the filter | Grouping by bus, one group at a time, the saved patches and Clear every assignment are all inventory items the design left no home for. They are one press away under that button and under Quick actions. |
+| **ROUTING's sections** | Audio device, Inputs, Outputs | ... and Patches | The design draws no screen for the patches a church saves, and they are in the inventory. |
+| **The Mixer's LIST layout, the three track heights, the timeline's menus** | Not drawn | Unchanged | The design drew the STRIPS console only. Everything else is in the inventory and is where it was. |
+| **TUNE's right column** | TUNE MIX, Match to reference, Check inputs | ... then a quiet row of TUNE LIVE MIX, Mix Buddy, Undo, Redo, Mix history, Inspector | All six are one press elsewhere (the toolbar, the sidebar, the Mix menu), so nothing was at risk; keeping them on the panel costs one row and saves a journey during a service. |
+
+### The gaps: what the design draws that DLIVE does not do yet
+
+- **EXPORT's Group stems and Raw multitrack, and its loudness choice.** DLIVE bounces the master
+  bus; rendering per-group or per-input, and normalising on the way out, is engine work in
+  `app/native/MixBounce`. The sheet offers what exists rather than controls that do nothing, and
+  the loudness a mix lands at is still chosen once, in Purpose and sound.
+- **EXPORT's AIFF.** Same place, same reason; WAV and MP3 are what `AppServices::ExportFormat`
+  carries.
+- **The Appearance sheet's swatch grid.** The design shows the palette as unlabelled squares;
+  the code keeps its labelled, hex-bearing cards, because that sheet is where a theme is
+  *edited* and a square with no name cannot be.
+- **MIX HISTORY as a right-hand panel.** The design's own annotation (`91:26974`) says the code
+  shows it as a sheet and that the design should follow the code. It is still a sheet.
+
+## 6. Order of work
 
 1. **Language** — Inter into `LiveMixFonts`, the v3 tokens and metrics, `Dine::Glyph`.
 2. **Shell** — one toolbar, the 208 pt sidebar and its 52 pt rail, the 28 pt status bar, the

@@ -349,8 +349,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
 
     if (s == State::Empty)
     {
-        Dine::drawText (g, "Sound like a record you know", r.removeFromTop (26), juce::Justification::topLeft, true);
-        r.removeFromTop (6);
+        // The title is already at the top of the sheet; this state says what adding one does.
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
         Dine::drawFittedText (g, "Add a finished song and DLIVE aims the master at it: the tonal balance it has, how wide it sits "
