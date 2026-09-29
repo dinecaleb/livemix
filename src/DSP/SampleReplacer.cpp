@@ -124,6 +124,18 @@ void SampleReplacer::detect (const AudioBlockView& preGate, long long blockStart
 void SampleReplacer::apply (AudioBlockView& postGate) noexcept
 {
     if (! params.enabled) return;
+    // THE MICROPHONE IS ONLY TAKEN AWAY BY SOMETHING THAT REPLACES IT.
+    //
+    // The stage is a crossfade, so at a full blend the microphone is gone and the sample is the
+    // channel. With no sound loaded to play - the bank the session names was taken out of the
+    // samples folder, the library failed to decode it - that crossfade is a drum turned down by
+    // the blend, and at 100 % it is a drum that has gone silent. On a Sunday.
+    //
+    // So a stage with nothing to play is a no-op: the block passes through bit-identical, the
+    // same as switching the stage off. The session still says which sound it wants and DLIVE
+    // still says out loud that it could not find it; what it does not do is take the kick away.
+    if (player.getBank() == nullptr) return;
+
     const float blend = clamp (params.blend, 0.0f, 1.0f);
     const int n = postGate.numSamples;
     if (blend > 0.0f)

@@ -295,6 +295,38 @@ TEST_CASE ("SampleReplacer: off is bit-transparent; on, the microphone is scaled
     CHECK (testsig::allFinite (d));
 }
 
+TEST_CASE ("SampleReplacer: with no sound loaded the stage is bit-transparent, whatever the blend says")
+{
+    // The stage is a crossfade: at blend 1 the microphone is scaled to nothing and the sample
+    // takes its place. If the sample is missing - no bank loaded, a sound file that did not
+    // come with the session - that crossfade would silence the drum. The stage stands aside
+    // instead, and the microphone is what they hear.
+    testsig::Buffer mic (1, int (kSr));
+    kickWithSnareBleed (mic, 0.5f, 0.03f, 0.002f);
+
+    SampleReplacer r;
+    r.prepare (kSr, 128, 1);
+    SampleReplacer::Params p;
+    p.enabled = true; p.blend = 1.0f; p.thresholdDb = -30.0f; p.riseDb = 6.0f;
+    p.detHpfHz = 30.0f; p.detLpfHz = 250.0f; p.steady = true;
+    r.setParams (p);
+
+    testsig::Buffer a (1, mic.numSamples());
+    a.data = mic.data;
+    for (int i = 0; i + 128 <= a.numSamples(); i += 128) { auto v = a.view (i, 128); r.detect (v); r.apply (v); }
+    CHECK (a.data[0] == mic.data[0]);
+
+    // And the moment a sound is there, the same settings do replace it.
+    auto bank = synthesizeBank (RoleFamily::Kick, 0, kSr);
+    r.setBank (&bank);
+    r.reset();
+    testsig::Buffer b (1, mic.numSamples());
+    b.data = mic.data;
+    for (int i = 0; i + 128 <= b.numSamples(); i += 128) { auto v = b.view (i, 128); r.detect (v); r.apply (v); }
+    CHECK (! (b.data[0] == mic.data[0]));
+    CHECK (testsig::allFinite (b));
+}
+
 TEST_CASE ("ChannelProcessor: the sample stage exists only where it is configured, adds no latency, allocates nothing, and off changes nothing")
 {
     testsig::Buffer mic (1, int (kSr));
