@@ -235,22 +235,26 @@ Big, calm, readable from across the room. Only what matters while it is happenin
 
 ## 9. INSPECTOR (the engineer's drill-down)
 
+> This section describes the v2 Inspector. The v3 design (`07`, `17a`–`17l`, `28`) rebuilt
+> it; `docs/DESIGN-V3.md` §5 lists what moved and where it went. The chain stages below,
+> and the rule about an unavailable processor, are unchanged.
+
 Three columns:
 
-- **Left rail** — every channel under its bus, with a dot, name, a mini level bar and
-  its fader; the engine's state (rate, buffer, latency) along the foot.
-- **Middle** — the channel head (colour, what it is, name, IN and OUT meters either
-  side of the chain, input gain, level, pan, keys). Under it the **signal path**: a
-  chip per stage with a lamp, a number, an icon, its setting, a bar for how hard it is
-  working, and a dot for where the value came from (tuned by DLIVE vs hand-edited).
-  Under that, the stage you picked, opened as a device: its name, a plain sentence,
-  IN/OUT, **Back to DLIVE**, and what it is doing **drawn** — a draggable EQ curve with
-  nodes, a compressor's or gate's in/out line with live gain reduction and the last 8
-  seconds of history, a trim's bars with its gain staging — beside a knob for every
-  number it owns.
-- **Right column** — what TUNE MIX did: a line per stage with its value, a
-  TUNED / EDITED / NOT USED badge, and the sentence from the report that explains it.
-  RE-TUNE, REVERT, and the headroom (the master shows loudness instead).
+- **Left rail** — every channel under its bus: a dot in the source's colour and its
+  name, 28 pt inside a 32 pt pitch.
+- **Middle** — the channel's name, what it is patched to, its group and when it was
+  tuned; Simple / Advanced and RE-TUNE at the right. Under it the **signal path**: one
+  small chip per stage, a lamp and a name, the chosen one a lit plane. Under that the
+  **stage card**: its name and the plain word it answers to, Off / On, the line that
+  says who set it, then a well holding what the stage is doing **drawn** — a draggable
+  EQ curve, the signal with the threshold across it, the gain reduction second by
+  second, a transfer, the envelope before and after, the stereo picture, the levels
+  either side of a trim, the sends — a knob for every number under that, then the
+  stage's choices. The sentence that says what it is for closes the card.
+- **Right column** — what DLIVE did: one record per tune and per hand edit, newest
+  first, each with its clock, what did it, the sentence, and **PUT BACK**. A gain
+  card sits above them when the input needs attention.
 - Chain stages available: Input, filters, gate, corrective EQ, de-esser, compressor,
   transient, tone EQ, saturation, width (stereo only), output trim, limiter (master
   only), loudness meter. An unavailable processor is shown **with its reason**, never

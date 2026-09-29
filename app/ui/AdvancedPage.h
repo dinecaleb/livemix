@@ -52,6 +52,10 @@ public:
     void selectBus (MixBus bus);
     MixBus selectedBus() const noexcept { return selection.isBus ? selection.bus : MixBus::Count; }
     void selectStage (int index);             // ... and one stage of its chain
+    // The chain this channel has, for the snapshot tool: one PNG per stage card is how the
+    // fourteen stage frames of the design are checked.
+    int numStages() const;
+    juce::String stageName (int index) const;
     // SIMPLE / ADVANCED. Simple is the channel in five plain words, with 50 meaning "as TUNE
     // left it"; Advanced is the whole chain, stage by stage. It is a way of looking, never a
     // mode the mix is in: the sound is the same either way.
@@ -64,12 +68,13 @@ public:
 private:
     class SectionHeader;
     class Row;
-    class Head;
     class Trail;
     class SimplePanel;
     struct Selection { bool isBus = false; int strip = -1; MixBus bus = MixBus::Master; };
 
     void showSelection();
+    void paintHead (juce::Graphics&, juce::Rectangle<int>) const;
+    juce::String tunedLabel() const;
     // One row of the channel's HISTORY, in the trail's words: what did it, when, how much,
     // and each change as "High-pass  80 Hz to 100 Hz".
     struct HistoryView
@@ -79,12 +84,12 @@ private:
         bool operator== (const HistoryView& o) const { return what == o.what && when == o.when && summary == o.summary && lines == o.lines; }
     };
     std::vector<HistoryView> historyViews();
-    void paintWorkspaceBands (juce::Graphics&, juce::Rectangle<int>) const;
     int railWidth() const noexcept  { return ! railAvailable ? 0 : railShown ? kRailW : Dine::Metric::panelTab; }
     int trailWidth() const noexcept { return trailShown ? kTrailW : Dine::Metric::panelTab; }
 
-    static constexpr int kRailW  = 200;       // the channel rail
-    static constexpr int kTrailW = 280;       // what DLIVE did
+    static constexpr int kRailW     = Dine::Metric::chanRail;   // the channel rail: 180, the design's
+    static constexpr int kTrailW    = Dine::Metric::trail;      // what DLIVE did: 280
+    static constexpr int kRailHeadH = 42;
 
     MixController& controller;
     Selection selection;
@@ -92,7 +97,6 @@ private:
     std::vector<Row*> rows;                  // only the selectable rows, for refresh/selection
     juce::Viewport viewport;
     juce::Component listHolder;
-    std::unique_ptr<Head> head;
     std::unique_ptr<SimplePanel> simple;
     // The design's Simple / Advanced segment, and RE-TUNE, at the right of the channel head.
     DineSegmentRow viewTrack;
@@ -119,13 +123,12 @@ private:
         int strip = -2;
         int rowCount = -1;
         bool bypassed = false, prepared = false, rail = true, trail = true;
-        double sampleRate = 0.0;
-        int blockSize = 0;
+        int tunes = -1;
         bool operator== (const InspectorLook& o) const
         {
             return isBus == o.isBus && bus == o.bus && strip == o.strip && rowCount == o.rowCount
                 && bypassed == o.bypassed && prepared == o.prepared && rail == o.rail && trail == o.trail
-                && sampleRate == o.sampleRate && blockSize == o.blockSize;
+                && tunes == o.tunes;
         }
         bool operator!= (const InspectorLook& o) const { return ! (*this == o); }
     };

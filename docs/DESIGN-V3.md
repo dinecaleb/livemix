@@ -81,7 +81,11 @@ Icons: 16 pt, **1.4 pt stroke, round caps and joins** — the 16 glyphs of the `
 - **Master Column** (`65:9316`) LUFS-I in an inset display, then the four readouts.
 - **Sheet Header** (`65:9347`) Title 1 + one line of summary, close icon top right, no eyebrow.
   **Sheet Footer** (`65:9354`) Before/After left; actions right with the default (Keep) last.
-- **Inspector Stage Card** (`65:9397`) the only card on the Inspector page.
+- **Inspector Stage Card** (`65:9397`) the only card on the Inspector page: a 22 pt title row
+  with the stage's name and the plain word it answers to, an Off / On segment at its right, the
+  provenance line under it with a 6 pt lamp, then a well inset 24 - the drawing 20 inside it at
+  220 tall, a row of 80 x 82 knob cells, the popups and buttons, and the choices as a 14 pt
+  caption over a 28 pt segment track. The closing sentence sits along the card's foot.
 - **Stage Controls / \*** (`84:*`) one symbol per chain stage: what that stage draws.
 
 ## 2. The shell
@@ -189,6 +193,11 @@ places the brief and the product's own rules met.
 | **ROUTING's sections** | Audio device, Inputs, Outputs | ... and Patches | The design draws no screen for the patches a church saves, and they are in the inventory. |
 | **The Mixer's LIST layout, the three track heights, the timeline's menus** | Not drawn | Unchanged | The design drew the STRIPS console only. Everything else is in the inventory and is where it was. |
 | **TUNE's right column** | TUNE MIX, Match to reference, Check inputs | ... then a quiet row of TUNE LIVE MIX, Mix Buddy, Undo, Redo, Mix history, Inspector | All six are one press elsewhere (the toolbar, the sidebar, the Mix menu), so nothing was at risk; keeping them on the panel costs one row and saves a journey during a service. |
+| **The Inspector's channel rail** | A flat list of sixteen inputs | The same rows, under a quiet caption per group, with the bus strips and the master at the end | The design's frame is one sixteen-input service. A real console has group buses and a master to open, and they have to be somewhere; the caption is the only thing added. |
+| **An EQ band** | A gain knob per band under the curve | ... and, for the band you picked, its frequency, Q and shape underneath | A band with no frequency or Q is not a band an engineer can use, and the Inspector is the one place those live. Picking is all that changes; the sound never does. |
+| **The Inspector's head, rail and path** | Name, one line, Simple / Advanced, RE-TUNE; a rail of names and dots; a chip of a lamp and a name | The same, exactly | Implemented as drawn, which means the v2 Inspector lost: the head's IN / OUT meters, input gain, pan, level, MUTE, SOLO and EFFECTS; the rail's per-row level bar and the engine's rate / buffer / latency along its foot; and the path chip's number, icon, value and work bar. Every one of them is on MIXER, on the strip, on the chain foot, in the sidebar's device line or in the status bar - none is more than one press away, and the room the Inspector got back is spent on the thing it is actually for. |
+| **The trail's stage lines** | Records with PUT BACK | The same | The v2 column listed every stage with a TUNED / EDITED / NOT USED badge and its sentence. The stage card now says who set *it* and why, in its own head and foot, so the column is what the design makes it: the channel's history, and the way back to any of it. The master's loudness readout moved with it - it is on the Mixer's master column and in the status foot. |
+| **The trail's gain card** | Records only | ... with a gain-staging card above them when the input needs attention | A preamp that is wrong is the one thing no amount of tuning can put right. It appears only when `InputAdvice::needsAttention()` is true, so a healthy input still leaves the column a history and nothing else. |
 
 ### The gaps: what the design draws that DLIVE does not do yet
 

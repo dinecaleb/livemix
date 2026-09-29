@@ -11,13 +11,19 @@ namespace livemix
 
 namespace
 {
-    constexpr int kColW      = 300;  // the controls column
-    constexpr int kColBandW  = 352;  // ... wider where it holds band cards, so a knob's readout fits
-    constexpr int kKnobCellH = 54;
-    constexpr int kBandCardH = 80;
-    constexpr int kChipH     = 30;
-    constexpr int kSendRowH  = 32;
-    constexpr int kGraphMinW = 240;
+    // The design's Stage card (`65:9397`) and its Controls (`84:9339`), to the pixel: the
+    // well is inset 24 from the card, the drawing 20 inside the well, a knob is an 80 x 82
+    // cell and a choice is a 14 pt caption over a 28 pt segment track.
+    constexpr int kCardPad   = 24;   // the card's own gutter
+    constexpr int kWellPad   = 20;   // ... and the well's, inside it
+    constexpr int kGraphH    = 220;  // what the drawing gets when the card has the room
+    constexpr int kGraphMinH = 130;  // ... and the least it is worth drawing in
+    constexpr int kKnobCellW = 80;
+    constexpr int kKnobCellH = 82;
+    constexpr int kRowGap    = 22;   // between the drawing and the knobs, and between knob rows
+    constexpr int kChoiceH   = 46;   // caption 14 + 4 + track 28
+    constexpr int kExtraH    = 32;   // the popup / button row (HEAR IT, Import a sound...)
+    constexpr int kSendRowH  = 50;
     constexpr float kEqRangeDb = 18.0f;
 
     enum class Fmt { Db, DbPlain, Hz, Ms, Ratio, Percent, Q, Bipolar, Semitones };
@@ -148,8 +154,10 @@ namespace
     using Field = ChainEditor::Field;
     using StageSpec = ChainEditor::StageSpec;
 
-    // What a stage draws in its graph.
-    enum class GraphKind { Eq, Transfer, Bars, Sends };
+    // What a stage draws in its well. One per shape in the design's `Stage Controls / *`
+    // set: a curve, a threshold over the signal, a gain-reduction trace, a transfer, the
+    // envelope before and after, the stereo picture, labelled bars, or the sends.
+    enum class GraphKind { Eq, Threshold, Reduction, Curve, Ceiling, Envelope, Stereo, Meters, Sends };
 
     GraphKind graphFor (StageId id) noexcept
     {
@@ -157,14 +165,33 @@ namespace
         {
             case StageId::Filters:
             case StageId::CorrectiveEq:
-            case StageId::DeEss:
             case StageId::ToneEq:     return GraphKind::Eq;
             case StageId::Gate:
-            case StageId::Comp:
-            case StageId::Sat:
-            case StageId::Limiter:    return GraphKind::Transfer;
+            case StageId::Sample:     return GraphKind::Threshold;
+            case StageId::DeEss:
+            case StageId::Comp:       return GraphKind::Reduction;
+            case StageId::Sat:        return GraphKind::Curve;
+            case StageId::Limiter:    return GraphKind::Ceiling;
+            case StageId::Transient:  return GraphKind::Envelope;
+            case StageId::Width:      return GraphKind::Stereo;
             case StageId::Sends:      return GraphKind::Sends;
-            default:                  return GraphKind::Bars;
+            default:                  return GraphKind::Meters;
+        }
+    }
+
+    // The plain word a stage answers to on a workspace, beside its engineer's name. The
+    // words are the product's, not this file's: CLEAN-UP, SMOOTH, STEADY, WARMTH, LOUD.
+    juce::String macroWordFor (StageId id)
+    {
+        switch (id)
+        {
+            case StageId::Gate:     return "CLEAN-UP";
+            case StageId::DeEss:    return "SMOOTH";
+            case StageId::Comp:     return "STEADY";
+            case StageId::ToneEq:   return "WARMTH and CLARITY";
+            case StageId::Sat:      return "WARMTH";
+            case StageId::Limiter:  return "LOUD";
+            default:                return {};
         }
     }
 
@@ -216,7 +243,7 @@ namespace
             StageSpec s;
             s.id = StageId::Input;
             s.name = "Input";
-            s.plain = "The trim and the polarity: what the rest of the chain receives.";
+            s.plain = "Trim sets what arrives at the chain. It cannot undo a clip at the desk.";
             s.icon = Dine::Icon::Sliders;
             s.ids = { "inputTrim", "polarity" };
             s.summary = [] (const ChannelParameters& p)
@@ -231,7 +258,7 @@ namespace
             StageSpec s;
             s.id = StageId::Filters;
             s.name = "Filters";
-            s.plain = "Clears the rumble under the sound, and the hiss above it.";
+            s.plain = "Takes out the rumble below the sound. Never above its lowest note.";
             s.icon = Dine::Icon::Waveform;
             s.ids = { "hpf", "lpf" };
             s.isOn = [] (const ChannelParameters& p) { return p.hpfEnabled || p.lpfEnabled; };
@@ -255,7 +282,7 @@ namespace
             StageSpec s;
             s.id = StageId::Gate;
             s.name = "Gate";
-            s.plain = "CLEAN-UP: quiet between the hits, so the room and the bleed stay out.";
+            s.plain = "Quiet between the hits, so the room and the bleed stay out.";
             s.icon = Dine::Icon::Dash;
             s.ids = { "gate" };
             s.isOn = [] (const ChannelParameters& p) { return p.gateEnabled; };
@@ -346,7 +373,7 @@ namespace
             StageSpec s;
             s.id = StageId::DeEss;
             s.name = "De-esser";
-            s.plain = "SMOOTH: takes the sting off the S and T sounds.";
+            s.plain = "Takes the sting off the S and T sounds.";
             s.icon = Dine::Icon::Speech;
             s.ids = { "deEss" };
             s.isOn = [] (const ChannelParameters& p) { return p.deEssEnabled; };
@@ -365,7 +392,7 @@ namespace
             StageSpec s;
             s.id = StageId::Comp;
             s.name = "Compressor";
-            s.plain = "STEADY: evens out the loud and the quiet so the level holds.";
+            s.plain = "Evens out the loud and the quiet so the level holds.";
             s.icon = Dine::Icon::Sliders;
             s.ids = { "comp" };
             s.isOn = [] (const ChannelParameters& p) { return p.compEnabled; };
@@ -390,7 +417,7 @@ namespace
             StageSpec s;
             s.id = StageId::Transient;
             s.name = "Transient";
-            s.plain = "More stick, or more room: the front of the sound against its tail.";
+            s.plain = "More crack at the start of each hit and less ring after it.";
             s.icon = Dine::Icon::Drum;
             s.ids = { "trans" };
             s.isOn = [] (const ChannelParameters& p) { return p.transientEnabled; };
@@ -408,7 +435,7 @@ namespace
             StageSpec s;
             s.id = StageId::ToneEq;
             s.name = "Tone EQ";
-            s.plain = "WARMTH and CLARITY: the broad shape of the sound.";
+            s.plain = "The broad shape of the sound.";
             s.icon = Dine::Icon::Waveform;
             s.ids = { "toneEq" };
             s.isOn = [] (const ChannelParameters& p) { return p.toneEqEnabled; };
@@ -430,7 +457,7 @@ namespace
             StageSpec s;
             s.id = StageId::Sat;
             s.name = "Saturation";
-            s.plain = "WARMTH: a little valve colour, and the glue that comes with it.";
+            s.plain = "A little valve colour, and the glue that comes with it.";
             s.icon = Dine::Icon::Fx;
             s.ids = { "sat" };
             s.isOn = [] (const ChannelParameters& p) { return p.satEnabled; };
@@ -449,7 +476,7 @@ namespace
             StageSpec s;
             s.id = StageId::Width;
             s.name = "Width";
-            s.plain = "Wider or narrower, and how much of the low end stays in the middle.";
+            s.plain = "Wider or narrower than recorded, so the lead keeps the centre. The low end stays mono.";
             s.icon = Dine::Icon::Room;
             s.ids = { "width" };
             s.isOn = [] (const ChannelParameters& p) { return p.widthEnabled; };
@@ -469,7 +496,7 @@ namespace
             StageSpec s;
             s.id = StageId::Limiter;
             s.name = "Limiter";
-            s.plain = "LOUD: the ceiling the broadcast never goes above.";
+            s.plain = "Holds the broadcast under its ceiling. It looks 1.5 ms ahead, and that latency is always reported.";
             s.icon = Dine::Icon::Target;
             s.ids = { "limiter" };
             s.isOn = [] (const ChannelParameters& p) { return p.limiterEnabled; };
@@ -487,7 +514,7 @@ namespace
             StageSpec s;
             s.id = StageId::Output;
             s.name = "Output";
-            s.plain = "The last trim on the way out of the chain, before the fader.";
+            s.plain = "What leaves the chain and meets the fader.";
             s.icon = Dine::Icon::Sliders;
             s.ids = { "outputTrim" };
             s.summary = [] (const ChannelParameters& p) { return signedNumber (p.outputTrimDb, 1) + " dB"; };
@@ -516,12 +543,6 @@ namespace
             case StageId::ToneEq:
                 q.toneEqEnabled = p.toneEqEnabled;
                 break;
-            case StageId::DeEss:
-                // The de-esser is a dynamic dip: draw it as the notch it takes out when it works.
-                q.correctiveEqEnabled = p.deEssEnabled;
-                for (auto& b : q.correctiveBands) b.enabled = false;
-                q.correctiveBands[0] = { true, FilterType::Peak, p.deEssHz, -p.deEssRangeDb, 2.4f };
-                break;
             default:
                 break;
         }
@@ -530,18 +551,19 @@ namespace
 }
 
 // ------------------------------------------------------------------ Knob
-// One number: a 270-degree sweep, its name and what it reads. Drag up and down; a
-// double-click puts it back where a fresh channel starts.
-class ChainEditor::Knob : public juce::Component
+// One number, in the design's shape (`Knob`, 62:9301): a 48 pt ring with the value drawn
+// on it from the left stop, a raised body with one pointer, then what it reads and what it
+// is called, both under it and centred. Drag up and down; a double-click puts it back
+// where a fresh channel starts.
+class ChainEditor::Knob : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    Knob (Field f, std::function<void (double)> apply, juce::Colour tint, bool compact = false)
-        : field (std::move (f)), commit (std::move (apply)), colour (tint), small (compact)
+    Knob (Field f, std::function<void (double)> apply, juce::Colour tint)
+        : field (std::move (f)), commit (std::move (apply)), colour (tint)
     {
         setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+        setTooltip (field.label.trim());
     }
-
-    int dial() const noexcept { return small ? 34 : kDial; }
 
     void setValue (double v)
     {
@@ -550,40 +572,56 @@ public:
         repaint();
     }
 
+    // The words under a knob are a readout, so they are what has to stay legible when Text
+    // size is turned up: the cell keeps its pixels and the type grows inside it.
+    static int cellHeight() { return kDial + 4 + 2 * juce::jmax (14, int (Dine::text (11.0f).getHeight())); }
+
+    // The design's cell is 80 wide, which every one of its own labels fits in. A label that
+    // does not - LISTEN ABOVE, DETECTOR HP - takes the width it needs rather than an
+    // ellipsis: a knob you cannot name is a knob you cannot use.
+    int cellWidth() const
+    {
+        return juce::jmax (kKnobCellW, 8 + juce::jmax (Dine::textWidth (capsFont (10.0f, 600), field.label.trim().toUpperCase()),
+                                                       Dine::textWidth (Dine::mono (11.0f, 500), format (field.fmt, value))));
+    }
+
     void paint (juce::Graphics& g) override
     {
         const bool live = isEnabled();
         auto r = getLocalBounds();
-        const int d = dial();
-        auto face = r.removeFromLeft (d).toFloat().withSizeKeepingCentre (float (d), float (d));
-        const float cx = face.getCentreX(), cy = face.getCentreY(), rad = d * 0.5f - 3.0f;
+        auto face = r.removeFromTop (kDial).toFloat().withSizeKeepingCentre (float (kDial), float (kDial));
+        const float cx = face.getCentreX(), cy = face.getCentreY(), rad = kDial * 0.5f - 2.0f;
         const float a0 = juce::degreesToRadians (-135.0f), sweep = juce::degreesToRadians (270.0f);
         const float t = float (toProportion (value, field.min, field.max, field.mid));
 
         juce::Path track, arc;
         track.addCentredArc (cx, cy, rad, rad, 0.0f, a0, a0 + sweep, true);
-        const float thickness = small ? 3.0f : 3.5f;
         g.setColour (juce::Colours::white.withAlpha (live ? 0.10f : 0.05f));
-        g.strokePath (track, juce::PathStrokeType (thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath (track, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         if (t > 0.004f)
         {
             arc.addCentredArc (cx, cy, rad, rad, 0.0f, a0, a0 + sweep * t, true);
             g.setColour (live ? colour : Dine::ink4);
-            g.strokePath (arc, juce::PathStrokeType (thickness, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath (arc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
+
+        const float bodyR = kBody * 0.5f;
+        g.setColour (live ? Dine::raised : Dine::card);
+        g.fillEllipse (cx - bodyR, cy - bodyR, kBody, kBody);
         const float a = a0 + sweep * t;
         const float sx = std::sin (a), sy = -std::cos (a);
         g.setColour (live ? Dine::ink : Dine::ink4);
-        g.drawLine (cx + sx * rad * 0.42f, cy + sy * rad * 0.42f, cx + sx * (rad - 1.0f), cy + sy * (rad - 1.0f), 2.0f);
+        g.drawLine (cx + sx * bodyR * 0.35f, cy + sy * bodyR * 0.35f,
+                    cx + sx * (bodyR - 3.0f), cy + sy * (bodyR - 3.0f), 2.4f);
 
-        r.removeFromLeft (small ? 6 : 8);
-        g.setColour (live ? Dine::ink3 : Dine::ink4);
-        g.setFont (capsFont (9.0f, 600));
-        Dine::drawText (g, field.label.trim().toUpperCase(), r.removeFromTop (r.getHeight() / 2).withTrimmedTop (small ? 3 : 6),
-                    juce::Justification::bottomLeft, true);
+        r.removeFromTop (4);
+        const int lineH = juce::jmax (14, int (Dine::text (11.0f).getHeight()));
         g.setColour (live ? Dine::ink : Dine::ink4);
-        g.setFont (Dine::mono (small ? 11.0f : 12.0f, 500));
-        Dine::drawText (g, format (field.fmt, value), r.withTrimmedBottom (small ? 3 : 6), juce::Justification::topLeft, true);
+        g.setFont (Dine::mono (11.0f, 500));
+        Dine::drawText (g, format (field.fmt, value), r.removeFromTop (lineH), juce::Justification::centred, true);
+        g.setColour (live ? Dine::ink3 : Dine::ink4);
+        g.setFont (capsFont (10.0f, 600));
+        Dine::drawText (g, field.label.trim().toUpperCase(), r.removeFromTop (lineH), juce::Justification::centred, true);
     }
 
     void mouseDown (const juce::MouseEvent& e) override
@@ -606,7 +644,7 @@ public:
 
     void enablementChanged() override { repaint(); }
 
-    static constexpr int kDial = 42;
+    static constexpr int kDial = 48, kBody = 34;
 
 private:
     void apply (double v)
@@ -622,219 +660,120 @@ private:
     Field field;
     std::function<void (double)> commit;
     juce::Colour colour;
-    bool small = false;
     double value = 0.0, dragFrom = 0.0;
     float anchor = 0.0f;
 };
 
-// ------------------------------------------------------------------ SwitchChip
-// A switch or a choice as one flat chip: its name in small caps, then what it is set to.
-class ChainEditor::SwitchChip : public juce::Button
+// ------------------------------------------------------------------ ChoiceGroup
+// A switch or a choice the way the design writes one: the caption above, then the answer -
+// a two- or three-segment track when there are that few, a popup when there are more (the
+// sample library's SOUND list). Never a chip with the name inside it: a caption is read
+// once and the answer is read every time.
+class ChainEditor::ChoiceGroup : public juce::Component
 {
 public:
-    SwitchChip (Field f, std::function<void (double)> apply)
-        : juce::Button (f.label), field (std::move (f)), commit (std::move (apply))
+    ChoiceGroup (Field f, std::function<void (double)> apply)
+        : field (std::move (f)), commit (std::move (apply))
     {
-        onClick = [this]
+        // Two answers are a segment you can read both of at once; three or more is a list,
+        // which is what the design draws for the sample library's SOUND and for a band's shape.
+        usePopup = field.choices.size() > 2;
+        if (usePopup)
         {
-            if (field.choices.size() <= 2)
+            popup = std::make_unique<DinePopup>();
+            popup->onClick = [this]
             {
-                commit (index > 0 ? 0.0 : 1.0);
-                return;
+                juce::PopupMenu m;
+                for (int i = 0; i < field.choices.size(); ++i) m.addItem (i + 1, field.choices[i], true, i == index);
+                m.showMenuAsync (juce::PopupMenu::Options {}.withTargetComponent (popup.get()),
+                                 [this] (int r) { if (r > 0) commit (double (r - 1)); });
+            };
+            addAndMakeVisible (*popup);
+        }
+        else
+        {
+            addAndMakeVisible (track);
+            for (int i = 0; i < field.choices.size(); ++i)
+            {
+                auto b = std::make_unique<DineButton> (field.choices[i], DineButton::Style::Segment);
+                b->setFontPx (12.0f);
+                b->onClick = [this, i] { commit (double (i)); };
+                track.addAndMakeVisible (*b);
+                segments.push_back (std::move (b));
             }
-            juce::PopupMenu m;
-            for (int i = 0; i < field.choices.size(); ++i) m.addItem (i + 1, field.choices[i], true, i == index);
-            m.showMenuAsync (juce::PopupMenu::Options {}.withTargetComponent (this),
-                             [this] (int r) { if (r > 0) commit (double (r - 1)); });
-        };
+        }
+        setIndex (0);
     }
+
+    bool isPopup() const noexcept { return usePopup; }
 
     void setIndex (int i)
     {
         i = juce::jlimit (0, juce::jmax (0, field.choices.size() - 1), i);
-        if (i == index) return;
         index = i;
+        if (usePopup) popup->setValue (field.choices.isEmpty() ? juce::String() : field.choices[i]);
+        else
+            for (size_t k = 0; k < segments.size(); ++k)
+                segments[k]->setToggleState (int (k) == i, juce::dontSendNotification);
         repaint();
     }
 
     int idealWidth() const
     {
-        int widest = 0;
-        for (const auto& c : field.choices) widest = juce::jmax (widest, Dine::textWidth (Dine::text (11.5f), c));
-        return 11 + Dine::textWidth (capsFont (9.5f, 600), field.label.trim().toUpperCase()) + 9 + widest + 11;
+        if (usePopup) return juce::jlimit (160, 300, popup->idealWidth());
+        int w = 4;
+        for (const auto& b : segments) w += segmentWidth (*b) + 2;
+        return juce::jmax (w - 2, Dine::textWidth (Dine::text (11.0f, 500), field.label.trim()) + 8);
     }
 
-    void paintButton (juce::Graphics& g, bool over, bool) override
-    {
-        const bool on = index > 0, live = isEnabled();
-        auto r = getLocalBounds().toFloat();
-        Dine::fillRounded (g, r, on && live ? Dine::accent.withAlpha (0.16f)
-                                            : juce::Colours::white.withAlpha (over && live ? 0.09f : 0.05f), Dine::Radius::chip);
-        Dine::hairlineRounded (g, r, Dine::hair, Dine::Radius::chip);
-        auto inner = getLocalBounds().reduced (11, 0);
-        const auto label = field.label.trim().toUpperCase();
-        g.setColour (live ? Dine::ink3 : Dine::ink4);
-        g.setFont (capsFont (9.5f, 600));
-        Dine::drawText (g, label, inner.removeFromLeft (Dine::textWidth (capsFont (9.5f, 600), label)), juce::Justification::centredLeft);
-        inner.removeFromLeft (9);
-        g.setColour (! live ? Dine::ink4 : on ? Dine::accent : Dine::ink);
-        g.setFont (Dine::text (11.5f));
-        Dine::drawText (g, index < field.choices.size() ? field.choices[index] : juce::String(), inner, juce::Justification::centredLeft);
-    }
-
-private:
-    Field field;
-    std::function<void (double)> commit;
-    int index = 0;
-};
-
-// ------------------------------------------------------------------ BandCard
-// One EQ band: its lamp, what shape it is, where it sits, and the three knobs that move
-// it. Picking a card picks the node on the curve, and the other way round.
-class ChainEditor::BandCard : public juce::Component
-{
-public:
-    using Commit = std::function<void (const std::function<void (ChannelParameters&)>&)>;
-
-    BandCard (int bandIndex, bool corrective, Commit c, std::function<void (int)> pick)
-        : index (bandIndex), corr (corrective), commit (std::move (c)), select (std::move (pick))
-    {
-        auto edit = [this] (int which, double v)
-        {
-            commit ([this, which, v] (ChannelParameters& p)
-            {
-                auto& b = band (p);
-                if (which == 0) b.freqHz = float (v);
-                else if (which == 1) b.gainDb = float (v);
-                else b.q = float (v);
-            });
-        };
-
-        // A double-click puts a knob back where a fresh band starts, not to zero.
-        Field f;
-        f.label = "Freq"; f.min = 20.0; f.max = 20000.0; f.step = 1.0; f.mid = 630.0; f.fmt = Fmt::Hz;
-        f.get = [] (const ChannelParameters&) { return 630.0; };
-        // Pale, like every other control: what the engineer sets is metal, what the audio
-        // does is lime. The curve above these knobs is the lime part.
-        knobs[0] = std::make_unique<Knob> (f, [edit] (double v) { edit (0, v); }, Dine::ink2, true);
-        f.label = "Gain"; f.min = -18.0; f.max = 18.0; f.step = 0.1; f.mid = 0.0; f.fmt = Fmt::Db;
-        f.get = [] (const ChannelParameters&) { return 0.0; };
-        knobs[1] = std::make_unique<Knob> (f, [edit] (double v) { edit (1, v); }, Dine::ink2, true);
-        f.label = "Q"; f.min = 0.1; f.max = 10.0; f.step = 0.01; f.mid = 1.0; f.fmt = Fmt::Q;
-        f.get = [] (const ChannelParameters&) { return 1.0; };
-        knobs[2] = std::make_unique<Knob> (f, [edit] (double v) { edit (2, v); }, Dine::ink2, true);
-        for (auto& k : knobs) addAndMakeVisible (*k);
-
-        type.setValue (filterTypeName (shape));
-        type.onClick = [this]
-        {
-            juce::PopupMenu m;
-            for (int i = 0; i < int (FilterType::Count); ++i)
-                m.addItem (i + 1, kFilterTypeNames[size_t (i)], true, i == int (shape));
-            m.showMenuAsync (juce::PopupMenu::Options {}.withTargetComponent (&type), [this] (int r)
-            {
-                if (r <= 0) return;
-                const auto t = FilterType (r - 1);
-                commit ([this, t] (ChannelParameters& p) { band (p).type = t; });
-            });
-        };
-        addAndMakeVisible (type);
-    }
-
-    void pull (const ChannelParameters& p, bool live, bool selected)
-    {
-        const auto& b = band (p);
-        knobs[0]->setValue (b.freqHz);
-        knobs[1]->setValue (b.gainDb);
-        knobs[2]->setValue (b.q);
-        for (auto& k : knobs) k->setEnabled (live && b.enabled);
-        type.setEnabled (live && b.enabled);
-        if (shape != b.type) { shape = b.type; type.setValue (filterTypeName (shape)); }
-        if (on != b.enabled || sel != selected || summary != summaryFor (b))
-        {
-            on = b.enabled;
-            sel = selected;
-            summary = summaryFor (b);
-            repaint();
-        }
-    }
+    int height() const { return usePopup ? kExtraH : captionH() + 4 + Dine::Metric::control; }
 
     void paint (juce::Graphics& g) override
     {
-        auto r = getLocalBounds().toFloat();
-        Dine::fillRounded (g, r, sel ? juce::Colours::white.withAlpha (0.07f) : juce::Colours::white.withAlpha (0.03f), Dine::Radius::card);
-        Dine::hairlineRounded (g, r, sel ? Dine::accent.withAlpha (0.6f) : Dine::hairSoft, Dine::Radius::card);
-
-        auto head = getLocalBounds().reduced (11, 0).withHeight (kHeadH);
-        auto lamp = head.removeFromLeft (10).withSizeKeepingCentre (9, 9).toFloat();
-        g.setColour (on ? Dine::accent : juce::Colours::white.withAlpha (0.14f));
-        g.fillEllipse (lamp);
-        head.removeFromLeft (8);
-        const auto nameFont = capsFont (10.5f, 700);
-        const juce::String name = "BAND " + juce::String (index + 1);
-        g.setColour (on ? Dine::ink : Dine::ink3);
-        g.setFont (nameFont);
-        Dine::drawText (g, name, head.removeFromLeft (Dine::textWidth (nameFont, name)), juce::Justification::centredLeft);
-        g.setColour (on ? Dine::ink3 : Dine::ink4);
-        g.setFont (Dine::mono (10.5f));
-        Dine::drawText (g, summary, head.withTrimmedLeft (8 + kTypeW), juce::Justification::centredRight, true);
+        if (usePopup) return;                 // a popup says its own name in its value
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.0f, 500));
+        Dine::drawText (g, field.label.trim(), getLocalBounds().removeFromTop (captionH()), juce::Justification::centredLeft, true);
     }
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced (11, 0);
-        auto head = r.removeFromTop (kHeadH);
-        head.removeFromLeft (10 + 8 + Dine::textWidth (capsFont (10.5f, 700), "BAND 8") + 8);
-        type.setBounds (head.removeFromLeft (kTypeW).withSizeKeepingCentre (kTypeW, Dine::Metric::control));
-        r.removeFromTop (2);
-        const int cell = juce::jmax (70, (r.getWidth() - 12) / 3);
-        for (auto& k : knobs)
+        auto r = getLocalBounds();
+        if (usePopup) { popup->setBounds (r.withHeight (juce::jmin (r.getHeight(), kExtraH))); return; }
+        r.removeFromTop (captionH() + 4);
+        track.setBounds (r.withHeight (juce::jmin (r.getHeight(), Dine::Metric::control)));
+        auto inner = track.getLocalBounds().reduced (2, 2);
+        for (size_t k = 0; k < segments.size(); ++k)
         {
-            k->setBounds (r.removeFromLeft (cell).withHeight (k->dial()).withY (r.getY() + 3));
-            r.removeFromLeft (6);
+            const int w = k + 1 == segments.size() ? inner.getWidth() : segmentWidth (*segments[k]);
+            segments[k]->setBounds (inner.removeFromLeft (w));
+            inner.removeFromLeft (2);
         }
     }
 
-    void mouseDown (const juce::MouseEvent& e) override
+    void enablementChanged() override
     {
-        if (e.x < 22 && e.y < kHeadH)
-        {
-            commit ([this] (ChannelParameters& p) { auto& b = band (p); b.enabled = ! b.enabled; });
-            return;
-        }
-        if (select) select (index);
+        if (popup != nullptr) popup->setEnabled (isEnabled());
+        for (auto& b : segments) b->setEnabled (isEnabled());
+        repaint();
     }
-
-    static constexpr int kHeadH = 24, kTypeW = 96;
 
 private:
-    juce::String summaryFor (const EQBandParams& b) const
-    {
-        return hzText (b.freqHz) + "   " + signedNumber (b.gainDb, 1) + " dB";
-    }
+    int captionH() const { return juce::jmax (14, int (Dine::text (11.0f).getHeight())); }
+    static int segmentWidth (const DineButton& b) { return juce::jmax (48, b.idealWidth()); }
 
-    EQBandParams& band (ChannelParameters& p) const
-    {
-        return corr ? p.correctiveBands[size_t (index)] : p.toneBands[size_t (index)];
-    }
-
-    const EQBandParams& band (const ChannelParameters& p) const
-    {
-        return corr ? p.correctiveBands[size_t (index)] : p.toneBands[size_t (index)];
-    }
-
+    Field field;
+    std::function<void (double)> commit;
+    DineSegmentRow track;
+    std::vector<std::unique_ptr<DineButton>> segments;
+    std::unique_ptr<DinePopup> popup;
+    bool usePopup = false;
     int index = 0;
-    bool corr = false, on = false, sel = false;
-    Commit commit;
-    std::function<void (int)> select;
-    std::array<std::unique_ptr<Knob>, 3> knobs;
-    DinePopup type;
-    FilterType shape = FilterType::Peak;
-    juce::String summary;
 };
 
 // ------------------------------------------------------------------ SendRow
-// One FX send: how much of this channel is going to that return.
+// One FX send inside the stage's well: its name, the amount as a bar you can drag, and
+// what that is in decibels.
 class ChainEditor::SendRow : public juce::Component
 {
 public:
@@ -873,25 +812,25 @@ public:
     {
         auto r = getLocalBounds();
         g.setColour (isEnabled() ? Dine::ink2 : Dine::ink4);
-        g.setFont (Dine::text (12.0f));
+        g.setFont (Dine::text (13.0f, 500));
         Dine::drawText (g, sendName (slot), r.removeFromLeft (kLabelW), juce::Justification::centredLeft, true);
-        g.setColour (off ? Dine::ink4 : Dine::ink);
-        g.setFont (Dine::mono (11.5f, 500));
-        Dine::drawText (g, off ? juce::String ("off") : signedNumber (level.getValue(), 1) + " dB",
-                    r.removeFromRight (kValueW), juce::Justification::centredRight);
+        g.setColour (off ? Dine::ink4 : Dine::ink2);
+        g.setFont (Dine::mono (11.0f, 500));
+        Dine::drawText (g, off ? juce::String ("off") : signedNumber (level.getValue(), 0) + " dB",
+                    r.removeFromRight (kValueW), juce::Justification::centredLeft);
     }
 
     void resized() override
     {
         auto r = getLocalBounds();
         r.removeFromLeft (kLabelW);
-        r.removeFromRight (kValueW + 8);
-        level.setBounds (r.withSizeKeepingCentre (r.getWidth(), 20));
+        r.removeFromRight (kValueW + 14);
+        level.setBounds (r.withSizeKeepingCentre (r.getWidth(), 16));
     }
 
     void enablementChanged() override { level.setEnabled (isEnabled()); repaint(); }
 
-    static constexpr int kLabelW = 92, kValueW = 62;
+    static constexpr int kLabelW = 124, kValueW = 62;
     static constexpr double kOffDb = -60.0;   // slider detent; the mix stores kSilenceDb when off
 
     FxSlot slot;
@@ -904,8 +843,16 @@ private:
 };
 
 // ------------------------------------------------------------------ Graph
-// What the stage is doing, drawn: an EQ curve with a node you can drag, a compressor's
-// in-out line with the live gain reduction beside it, or the bars of a trim.
+// WHAT THE STAGE IS DOING, DRAWN.
+//
+// One shape per stage, the design's `Stage Controls / *`: an EQ curve with a node you can
+// drag; the signal with the line the stage is listening for across it; the gain reduction
+// it is taking, second by second; the transfer it puts the signal through; the envelope
+// before and after it; the stereo picture; the levels either side of a trim; the sends.
+//
+// Everything here is either measured from the engine or computed from the stage's own
+// numbers. Nothing is decoration: a drawing that does not follow the sound is a lie about
+// the sound, and an engineer would find it out in the first minute.
 class ChainEditor::Graph : public juce::Component
 {
 public:
@@ -915,13 +862,17 @@ public:
 
     void setStage (const StageSpec* s)
     {
+        if (s == spec) return;             // picking a band is not a change of stage
         spec = s;
-        history.assign (kHistory, 0.0f);
+        grHistory.assign (kHistory, 0.0f);
+        levelHistory.assign (kHistory, -120.0f);
+        marks.assign (kHistory, false);
         repaint();
     }
 
     void update (const ChannelParameters& p, double sr, float grDb, float inDb, float outDb,
-                 float levelNorm, int selectedBand, bool live, std::vector<std::pair<FxSlot, float>> sendLevels)
+                 float levelNorm, int selectedBand, bool live, bool sampleFired,
+                 std::vector<std::pair<FxSlot, float>> sendLevels)
     {
         params = p;
         sampleRate = sr > 0.0 ? sr : 48000.0;
@@ -931,57 +882,35 @@ public:
         level = levelNorm;
         band = selectedBand;
         running = live;
-        const size_t hadSends = sends.size();
         sends = std::move (sendLevels);
-        // The sends arrive after the layout, so the well is sized for one row until they do.
-        if (hadSends != sends.size())
-            if (auto* parent = getParentComponent()) parent->resized();
-        if (spec != nullptr && graphFor (spec->id) == GraphKind::Transfer)
-        {
-            history.erase (history.begin());
-            history.push_back (gr);
-        }
+        grHistory.erase (grHistory.begin());
+        grHistory.push_back (gr);
+        levelHistory.erase (levelHistory.begin());
+        levelHistory.push_back (spec != nullptr && spec->id == StageId::Limiter ? outDb : inDb);
+        marks.erase (marks.begin());
+        marks.push_back (sampleFired);
         repaint();
-    }
-
-    // How tall this drawing actually wants to be, or 0 where it fills whatever it is given
-    // (a curve, an in/out line). The bars and the sends are short lists: stretched down a
-    // 700 px well they leave a large empty rectangle, which is the one thing that makes a
-    // finished panel look unfinished. The card is sized to the list instead.
-    int naturalHeight() const
-    {
-        if (spec == nullptr) return 0;
-        switch (graphFor (spec->id))
-        {
-            case GraphKind::Sends:
-                return 24 + 52 * juce::jmax (1, int (sends.size()));
-            case GraphKind::Bars:
-            {
-                const bool staging = spec->id == StageId::Input || spec->id == StageId::Output;
-                int sliders = 0;
-                for (const auto& f : spec->fields) if (f.kind == Field::Kind::Slider) ++sliders;
-                return 24 + sliders * 56 + (staging ? 24 + 2 * 30 + 12 : 0);
-            }
-            case GraphKind::Eq:
-            case GraphKind::Transfer:
-            default: return 0;
-        }
     }
 
     void paint (juce::Graphics& g) override
     {
         auto area = getLocalBounds().toFloat();
-        Dine::drawWell (g, area, Dine::Radius::card);
+        Dine::fillRounded (g, area, Dine::menubar, Dine::Radius::control);
         if (spec == nullptr) return;
 
-        auto r = getLocalBounds().reduced (12);
+        auto r = getLocalBounds().reduced (10, 10);
         switch (graphFor (spec->id))
         {
-            case GraphKind::Eq:       paintEq (g, r); break;
-            case GraphKind::Transfer: paintTransfer (g, r); break;
-            case GraphKind::Sends:    paintSends (g, r); break;
-            case GraphKind::Bars:
-            default:                  paintBars (g, r); break;
+            case GraphKind::Eq:        paintEq (g); break;
+            case GraphKind::Threshold: paintThreshold (g, r); break;
+            case GraphKind::Reduction: paintReduction (g, r); break;
+            case GraphKind::Curve:     paintCurve (g, r); break;
+            case GraphKind::Ceiling:   paintCeiling (g, r); break;
+            case GraphKind::Envelope:  paintEnvelope (g, r); break;
+            case GraphKind::Stereo:    paintStereo (g, r); break;
+            case GraphKind::Sends:     break;                  // the rows are real controls, laid over this well
+            case GraphKind::Meters:
+            default:                   paintMeters (g, r); break;
         }
     }
 
@@ -1016,7 +945,7 @@ public:
 private:
     struct Node { juce::Point<float> pos; float hz = 0.0f, gainDb = 0.0f; int band = -1; juce::String label; bool vertical = true; bool on = true; };
 
-    juce::Rectangle<float> plot() const { return getLocalBounds().reduced (12).toFloat().withTrimmedBottom (14).withTrimmedLeft (22); }
+    juce::Rectangle<float> plot() const { return getLocalBounds().reduced (10).toFloat().withTrimmedBottom (14); }
 
     float yForDb (float db) const
     {
@@ -1052,10 +981,6 @@ private:
             if (params.hpfEnabled) add (params.hpfHz, 0.0f, -1, "H", false, true);
             if (params.lpfEnabled) add (params.lpfHz, 0.0f, -1, "L", false, true);
         }
-        else if (spec->id == StageId::DeEss)
-        {
-            add (params.deEssHz, -params.deEssRangeDb, -1, "S", true, params.deEssEnabled);
-        }
         return out;
     }
 
@@ -1081,46 +1006,42 @@ private:
                 if (which == "H") q.hpfHz = juce::jlimit (20.0f, 1000.0f, hz);
                 else              q.lpfHz = juce::jlimit (1000.0f, 20000.0f, hz);
             }
-            else if (id == StageId::DeEss)
-            {
-                q.deEssHz = juce::jlimit (2000.0f, 12000.0f, hz);
-                q.deEssRangeDb = juce::jlimit (0.0f, 24.0f, -db);
-            }
         });
     }
 
-    void paintEq (juce::Graphics& g, juce::Rectangle<int>)
+    // The caption a drawing carries in its own corner, in the design's Caption face.
+    void caption (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& text,
+                  juce::Colour colour, juce::Justification just = juce::Justification::topLeft) const
+    {
+        g.setColour (colour);
+        g.setFont (Dine::text (11.0f, 500));
+        Dine::drawText (g, text, r, just, true);
+    }
+
+    void paintEq (juce::Graphics& g)
     {
         auto p = plot();
-        const auto gridFont = Dine::mono (9.5f);
+        const auto gridFont = Dine::mono (10.0f);
 
         for (float hz : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
         {
             const float x = logX (hz, p.getX(), p.getWidth());
             g.setColour (Dine::hairSoft);
             g.fillRect (x, p.getY(), 0.5f, p.getHeight());
+        }
+        for (float hz : { 100.0f, 1000.0f, 10000.0f })
+        {
+            const float x = logX (hz, p.getX(), p.getWidth());
             g.setColour (Dine::ink4);
             g.setFont (gridFont);
             Dine::drawText (g, hz >= 1000.0f ? juce::String (int (hz / 1000.0f)) + "k" : juce::String (int (hz)),
-                        juce::Rectangle<float> (x - 18.0f, p.getBottom() + 1.0f, 36.0f, 12.0f), juce::Justification::centred);
+                        juce::Rectangle<float> (x - 22.0f, p.getBottom() - 15.0f, 20.0f, 13.0f), juce::Justification::centredRight);
         }
         for (float db : { 9.0f, 0.0f, -9.0f })
         {
             const float y = yForDb (db);
             g.setColour (db == 0.0f ? Dine::hair : Dine::hairSoft);
             g.fillRect (p.getX(), y, p.getWidth(), 0.5f);
-            g.setColour (Dine::ink4);
-            g.setFont (gridFont);
-            Dine::drawText (g, db > 0.0f ? "+" + juce::String (int (db)) : db < 0.0f ? Glyph::minus() + juce::String (9) : juce::String ("0"),
-                        juce::Rectangle<float> (p.getX() - 22.0f, y - 6.0f, 20.0f, 12.0f), juce::Justification::centredRight);
-        }
-
-        // A wash that follows the level, so the curve reads as live without pretending to
-        // be a spectrum we do not measure.
-        if (running && level > 0.01f)
-        {
-            g.setColour (Dine::accent.withAlpha (0.07f * level));
-            g.fillRect (p.getX(), p.getBottom() - p.getHeight() * 0.45f * level, p.getWidth(), p.getHeight() * 0.45f * level);
         }
 
         const auto only = isolate (params, spec->id);
@@ -1133,298 +1054,257 @@ private:
             const float y = yForDb (EqResponse::chainMagnitudeDb (only, sampleRate, hz));
             if (i == 0) curve.startNewSubPath (x, y); else curve.lineTo (x, y);
         }
-        auto fill = curve;
-        fill.lineTo (p.getRight(), yForDb (0.0f));
-        fill.lineTo (p.getX(), yForDb (0.0f));
-        fill.closeSubPath();
-        g.setColour (Dine::accent.withAlpha (isEnabled() ? 0.13f : 0.05f));
-        g.fillPath (fill);
         g.setColour (isEnabled() ? Dine::accent : Dine::ink4);
         g.strokePath (curve, juce::PathStrokeType (2.0f));
 
         for (const auto& n : nodes())
         {
             const bool sel = n.band >= 0 && n.band == band;
-            const float rad = sel ? 10.0f : 8.0f;
+            const float rad = sel ? 7.0f : 5.5f;
             auto c = juce::Rectangle<float> (n.pos.x - rad, n.pos.y - rad, rad * 2.0f, rad * 2.0f);
-            g.setColour (juce::Colours::black.withAlpha (0.45f));
-            g.fillEllipse (c.translated (0.0f, 1.0f));
-            g.setColour (! n.on ? juce::Colours::white.withAlpha (0.16f) : sel ? Dine::accent : Dine::accent.withAlpha (0.55f));
+            g.setColour (! n.on ? juce::Colours::white.withAlpha (0.16f) : Dine::accent);
             g.fillEllipse (c);
             if (sel)
             {
-                g.setColour (juce::Colours::white.withAlpha (0.75f));
-                g.drawEllipse (c, 1.5f);
+                g.setColour (juce::Colours::white.withAlpha (0.8f));
+                g.drawEllipse (c.expanded (2.0f), 1.2f);
             }
-            g.setColour (n.on && sel ? Dine::onAccent : Dine::ink);
-            g.setFont (Dine::text (9.5f, 600));
-            Dine::drawText (g, n.label, c, juce::Justification::centred);
         }
 
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::mono (10.5f));
-        Dine::drawText (g, readout(), getLocalBounds().reduced (14, 8).removeFromTop (14), juce::Justification::topRight, true);
-        g.setColour (Dine::ink4);
-        g.setFont (capsFont (9.5f, 600));
-        Dine::drawText (g, nodes().empty() ? juce::String() : juce::String ("DRAG A NODE"),
-                    getLocalBounds().reduced (14, 8).removeFromTop (14), juce::Justification::topLeft, true);
+        if (! nodes().empty())
+            caption (g, getLocalBounds().reduced (12, 10).removeFromTop (14), "Drag a node", Dine::ink4);
     }
 
-    juce::String readout() const
+    // The signal, and the line the stage is listening for across it. The bars are the level
+    // this channel has actually been running at; the line is where the threshold sits on the
+    // same scale, so "is it opening" is one look.
+    void paintThreshold (juce::Graphics& g, juce::Rectangle<int> r)
     {
-        if (spec == nullptr) return {};
-        if (spec->bands > 0)
+        const bool sample = spec->id == StageId::Sample;
+        const float thresholdDb = sample ? params.replaceThresholdDb : params.gateThresholdDb;
+        paintBars (g, r, levelHistory, isEnabled() ? Dine::ink3.withAlpha (0.55f) : Dine::ink4.withAlpha (0.35f));
+        if (sample)
         {
-            const int i = juce::jlimit (0, spec->bands - 1, band);
-            const auto& b = spec->corrective ? params.correctiveBands[size_t (i)] : params.toneBands[size_t (i)];
-            return "BAND " + juce::String (i + 1) + "   " + hzText (b.freqHz) + "   " + signedNumber (b.gainDb, 1)
-                   + " dB   " + format (Fmt::Q, b.q);
+            // Every hit the sampler actually fired, where it fired it.
+            auto plotR = r.toFloat();
+            for (size_t i = 0; i < marks.size(); ++i)
+            {
+                if (! marks[i]) continue;
+                const float x = plotR.getX() + plotR.getWidth() * float (i) / float (juce::jmax<size_t> (1, marks.size() - 1));
+                g.setColour (Dine::warn.withAlpha (0.85f));
+                g.fillRect (x - 1.0f, plotR.getY(), 2.0f, plotR.getHeight());
+            }
         }
-        if (spec->id == StageId::DeEss)
-            return hzText (params.deEssHz) + "   " + signedNumber (params.deEssThresholdDb, 0) + " dB   up to "
-                   + juce::String (params.deEssRangeDb, 1) + " dB down";
-        juce::StringArray parts;
-        if (params.hpfEnabled) parts.add ("HIGH-PASS " + hzText (params.hpfHz));
-        if (params.lpfEnabled) parts.add ("LOW-PASS " + hzText (params.lpfHz));
-        return parts.isEmpty() ? juce::String (Glyph::dash()) : parts.joinIntoString ("   " + Glyph::dot() + "   ");
+        paintLevelLine (g, r, thresholdDb, sample ? Dine::crit : Dine::accent,
+                        sample ? signedNumber (thresholdDb, 0) + " dB" : "Threshold");
     }
 
-    void paintTransfer (juce::Graphics& g, juce::Rectangle<int> r)
+    // The ceiling and what is arriving at it: the same drawing, in the master's words.
+    void paintCeiling (juce::Graphics& g, juce::Rectangle<int> r)
     {
-        r = r.withSizeKeepingCentre (r.getWidth(), juce::jmin (r.getHeight(), 300));
-        const int size = juce::jlimit (120, juce::jmax (120, r.getHeight()), juce::jmin (r.getHeight(), r.getWidth() / 2));
-        auto square = r.removeFromLeft (size).withSizeKeepingCentre (size, size).toFloat();
-        r.removeFromLeft (18);
+        paintBars (g, r, levelHistory, isEnabled() ? Dine::accent.withAlpha (0.75f) : Dine::ink4.withAlpha (0.35f));
+        paintLevelLine (g, r, params.limiterCeilingDb, Dine::crit,
+                        "Ceiling " + signedNumber (params.limiterCeilingDb, 1) + " dBTP");
+    }
 
-        const bool sat = spec->id == StageId::Sat;
+    // How much the stage is taking off, second by second, and what that is right now.
+    void paintReduction (juce::Graphics& g, juce::Rectangle<int> r)
+    {
+        const auto tone = gr > 9.0f ? Dine::crit : Dine::warn;
+        auto head = r.removeFromTop (18);
+        caption (g, head, "Gain reduction", Dine::ink3);
+        g.setColour (isEnabled() ? tone : Dine::ink4);
+        g.setFont (Dine::mono (11.0f, 500));
+        Dine::drawText (g, juce::String (gr, 1) + " dB", head, juce::Justification::topRight);
+        r.removeFromTop (4);
+        Dine::drawRule (g, r.removeFromTop (1), Dine::hairSoft);
+
+        auto p = r.toFloat();
+        juce::Path line;
+        for (size_t i = 0; i < grHistory.size(); ++i)
+        {
+            const float x = p.getX() + p.getWidth() * float (i) / float (grHistory.size() - 1);
+            const float y = p.getY() + juce::jlimit (0.0f, 1.0f, grHistory[i] / 18.0f) * p.getHeight();
+            if (i == 0) line.startNewSubPath (x, y); else line.lineTo (x, y);
+        }
+        g.setColour (isEnabled() ? tone.withAlpha (0.9f) : Dine::ink4);
+        g.strokePath (line, juce::PathStrokeType (1.6f));
+    }
+
+    // The transfer the stage puts the signal through, against the line it would be without it.
+    void paintCurve (juce::Graphics& g, juce::Rectangle<int> r)
+    {
+        auto square = r.toFloat().withSizeKeepingCentre (float (juce::jmin (r.getWidth(), r.getHeight())),
+                                                         float (juce::jmin (r.getWidth(), r.getHeight())));
         auto xFor = [&] (float db) { return square.getX() + square.getWidth() * juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 66.0f); };
         auto yFor = [&] (float db) { return square.getBottom() - square.getHeight() * juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 66.0f); };
 
-        for (int i = 0; i <= 4; ++i)
-        {
-            const float t = float (i) / 4.0f;
-            g.setColour (Dine::hairSoft);
-            g.fillRect (square.getX() + square.getWidth() * t, square.getY(), 0.5f, square.getHeight());
-            g.fillRect (square.getX(), square.getY() + square.getHeight() * t, square.getWidth(), 0.5f);
-        }
-        g.setColour (Dine::hair);
+        g.setColour (Dine::hairSoft);
         g.drawLine (square.getX(), square.getBottom(), square.getRight(), square.getY(), 1.0f);
 
         juce::Path curve;
-        constexpr int kPoints = 80;
+        constexpr int kPoints = 90;
         for (int i = 0; i < kPoints; ++i)
         {
             const float din = -60.0f + 66.0f * float (i) / float (kPoints - 1);
-            const float dout = throughStage (din);
-            const float x = xFor (din), y = yFor (dout);
+            const float x = xFor (din), y = yFor (throughStage (din));
             if (i == 0) curve.startNewSubPath (x, y); else curve.lineTo (x, y);
         }
         g.setColour (isEnabled() ? Dine::accent : Dine::ink4);
         g.strokePath (curve, juce::PathStrokeType (2.2f));
-
-        if (! sat)
-        {
-            const float thr = spec->id == StageId::Comp ? params.compThresholdDb
-                            : spec->id == StageId::Gate ? params.gateThresholdDb : params.limiterCeilingDb;
-            const float dashes[] = { 3.0f, 3.0f };
-            g.setColour (Dine::warn.withAlpha (0.55f));
-            g.drawDashedLine ({ xFor (thr), square.getY(), xFor (thr), square.getBottom() }, dashes, 2, 1.0f);
-            g.drawDashedLine ({ square.getX(), yFor (thr), square.getRight(), yFor (thr) }, dashes, 2, 1.0f);
-        }
         if (running && inputDb > -100.0f)
         {
-            const float x = xFor (inputDb), y = yFor (throughStage (inputDb));
             g.setColour (Dine::ink);
-            g.fillEllipse (x - 4.0f, y - 4.0f, 8.0f, 8.0f);
+            g.fillEllipse (xFor (inputDb) - 3.5f, yFor (throughStage (inputDb)) - 3.5f, 7.0f, 7.0f);
         }
-        g.setColour (Dine::ink4);
-        g.setFont (capsFont (9.5f, 600));
-        Dine::drawText (g, "IN " + Glyph::dash() + " OUT", square.withHeight (12.0f).translated (4.0f, 2.0f).toNearestInt(),
-                    juce::Justification::topLeft);
+    }
 
-        // Beside it: how much the stage is taking off right now, and the last few seconds.
-        auto side = r;
-        const juce::Colour tone = gr > 9.0f ? Dine::crit : gr > 4.0f ? Dine::warn : Dine::accent;
-        auto top = side.removeFromTop (juce::jmin (100, side.getHeight() / 2));
-        g.setColour (Dine::ink4);
-        g.setFont (capsFont (9.5f, 600));
-        Dine::drawText (g, sat ? "DRIVE" : "GAIN REDUCTION", top.removeFromTop (14), juce::Justification::topLeft);
-        auto figures = top.removeFromTop (38);
-        const juce::String big = sat ? juce::String (juce::roundToInt (params.satDrive * 100.0f)) + "%"
-                                     : juce::String (gr, 1);
-        const auto bigFont = Dine::mono (30.0f, 500);
-        g.setColour (isEnabled() ? tone : Dine::ink4);
-        g.setFont (bigFont);
-        const int bw = Dine::textWidth (bigFont, big) + 8;
-        Dine::drawText (g, big, figures.removeFromLeft (bw), juce::Justification::centredLeft);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.0f));
-        Dine::drawText (g, sat ? "into the valve" : "dB now", figures, juce::Justification::bottomLeft);
-        top.removeFromTop (6);
-        auto bar = top.removeFromTop (8);
-        Dine::drawWell (g, bar.toFloat(), 2.0f);
-        g.setColour (tone);
-        const float amount = sat ? params.satDrive : juce::jlimit (0.0f, 1.0f, gr / 15.0f);
-        g.fillRect (bar.toFloat().withWidth (bar.getWidth() * amount));
+    // The front of a hit and its tail, before the stage and after it: the shaping it is
+    // doing, computed from its own two numbers.
+    void paintEnvelope (juce::Graphics& g, juce::Rectangle<int> r)
+    {
+        auto legend = r.removeFromTop (18);
+        caption (g, legend, "After", Dine::accent, juce::Justification::topRight);
+        caption (g, legend.withTrimmedRight (Dine::textWidth (Dine::text (11.0f, 500), "After") + 14),
+                 "Before", Dine::ink3, juce::Justification::topRight);
+        r.removeFromTop (4);
 
-        side.removeFromTop (14);
-        auto hist = side.removeFromTop (juce::jmin (72, side.getHeight()));
-        if (hist.getHeight() > 24)
+        auto p = r.toFloat();
+        constexpr int kHits = 4;
+        const float hitW = p.getWidth() / float (kHits);
+        auto envelope = [] (float t, float attack, float sustain)
         {
-            Dine::drawWell (g, hist.toFloat(), 4.0f);
-            auto hr = hist.toFloat().reduced (4.0f);
-            juce::Path line;
-            for (size_t i = 0; i < history.size(); ++i)
-            {
-                const float x = hr.getX() + hr.getWidth() * float (i) / float (history.size() - 1);
-                const float y = hr.getY() + juce::jlimit (0.0f, 1.0f, history[i] / 15.0f) * hr.getHeight();
-                if (i == 0) line.startNewSubPath (x, y); else line.lineTo (x, y);
-            }
-            g.setColour (tone.withAlpha (0.9f));
-            g.strokePath (line, juce::PathStrokeType (1.6f));
-            g.setColour (Dine::ink4);
-            g.setFont (capsFont (9.5f, 600));
-            Dine::drawText (g, "LAST 8 SECONDS", hist.reduced (6, 4).removeFromTop (12), juce::Justification::topLeft);
+            // t in 0..1 across one hit: a fast rise then an exponential tail, with the two
+            // controls doing to it exactly what the stage does to the signal.
+            const float rise = juce::jlimit (0.0f, 1.0f, t / 0.02f);
+            const float tail = std::exp (-t * (7.0f - sustain * 4.0f));
+            const float peak = 1.0f + attack * 0.45f;
+            return juce::jlimit (0.0f, 1.2f, rise * tail * peak);
+        };
+        auto trace = [&] (float attack, float sustain, juce::Colour colour, float thickness)
+        {
+            juce::Path path;
+            constexpr int kPoints = 60;
+            for (int h = 0; h < kHits; ++h)
+                for (int i = 0; i < kPoints; ++i)
+                {
+                    const float t = float (i) / float (kPoints - 1);
+                    const float x = p.getX() + hitW * (float (h) + t);
+                    const float y = p.getBottom() - p.getHeight() * juce::jmin (1.0f, envelope (t, attack, sustain)) * 0.85f;
+                    if (i == 0) path.startNewSubPath (x, p.getBottom()), path.lineTo (x, y);
+                    else path.lineTo (x, y);
+                }
+            g.setColour (colour);
+            g.strokePath (path, juce::PathStrokeType (thickness));
+        };
+        trace (0.0f, 0.0f, Dine::ink3.withAlpha (0.55f), 1.2f);
+        trace (params.transientAttack, params.transientSustain, isEnabled() ? Dine::accent : Dine::ink4, 1.8f);
+    }
+
+    // The stereo picture: the circle a mono source would sit on the middle of, and the
+    // ellipse this width setting makes of it, with the frequency the bottom stays mono below.
+    void paintStereo (juce::Graphics& g, juce::Rectangle<int> r)
+    {
+        auto foot = r.removeFromBottom (18);
+        const float w = params.widthAmount;
+        caption (g, foot, "Width " + juce::String (juce::roundToInt (w * 100.0f)) + "%"
+                          + (params.widthMonoBelowHz >= 20.0f ? "   " + juce::String (Glyph::dot()) + "   mono below " + hzText (params.widthMonoBelowHz)
+                                                              : juce::String()),
+                 isEnabled() ? Dine::accent : Dine::ink4);
+
+        const float size = float (juce::jmin (r.getWidth(), r.getHeight()));
+        auto circle = r.toFloat().withSizeKeepingCentre (size, size).reduced (4.0f);
+        g.setColour (Dine::hairSoft);
+        g.drawEllipse (circle, 1.0f);
+        g.fillRect (circle.getCentreX() - 0.25f, circle.getY(), 0.5f, circle.getHeight());
+
+        // A width of 1.0 is the circle; wider spreads it sideways, narrower squeezes it in.
+        const float spread = juce::jlimit (0.06f, 1.0f, w * 0.5f);
+        auto shape = circle.withSizeKeepingCentre (circle.getWidth() * spread, circle.getHeight() * 0.94f);
+        g.setColour ((isEnabled() ? Dine::accent : Dine::ink4).withAlpha (0.18f));
+        g.fillEllipse (shape);
+        g.setColour (isEnabled() ? Dine::accent : Dine::ink4);
+        g.drawEllipse (shape, 1.6f);
+    }
+
+    // The levels either side of a trim, as the design's Input and Output draw them: what
+    // arrives, what the trim made of it, and what leaves.
+    void paintMeters (juce::Graphics& g, juce::Rectangle<int> r)
+    {
+        const bool in = spec->id == StageId::Input;
+        struct Row { juce::String label; float db; };
+        std::vector<Row> rows;
+        if (in)
+        {
+            rows.push_back ({ "Arriving", inputDb });
+            rows.push_back ({ "After trim", inputDb <= -119.0f ? inputDb : inputDb + params.inputTrimDb });
+            rows.push_back ({ "Into the fader", outputDb });
         }
+        else
+        {
+            rows.push_back ({ "Into the fader", outputDb <= -119.0f ? outputDb : outputDb - params.outputTrimDb });
+            rows.push_back ({ "Out", outputDb });
+        }
+
+        const int rowH = 50;
+        auto block = r.withSizeKeepingCentre (r.getWidth(), juce::jmin (r.getHeight(), rowH * int (rows.size())));
+        for (const auto& row : rows)
+        {
+            auto line = block.removeFromTop (rowH);
+            auto label = line.removeFromLeft (SendRow::kLabelW);
+            g.setColour (isEnabled() ? Dine::ink2 : Dine::ink4);
+            g.setFont (Dine::text (13.0f, 500));
+            Dine::drawText (g, row.label, label, juce::Justification::centredLeft, true);
+            auto bar = line.withSizeKeepingCentre (line.getWidth(), 4);
+            Dine::fillRounded (g, bar.toFloat(), Dine::well, 2.0f);
+            const float n = DineMeter::norm (row.db);
+            if (n > 0.005f)
+                Dine::fillRounded (g, bar.toFloat().withWidth (juce::jmax (2.0f, bar.getWidth() * n)),
+                                   isEnabled() ? Dine::accent : Dine::ink4, 2.0f);
+        }
+    }
+
+    // The signal as bars, oldest at the left. One rectangle per column, so a 220 pt well
+    // costs the same whatever the console is doing.
+    void paintBars (juce::Graphics& g, juce::Rectangle<int> r, const std::vector<float>& history, juce::Colour colour) const
+    {
+        auto p = r.toFloat();
+        const int columns = juce::jlimit (1, int (history.size()), int (p.getWidth() / 5.6f));
+        const float step = p.getWidth() / float (columns);
+        g.setColour (colour);
+        for (int i = 0; i < columns; ++i)
+        {
+            const size_t from = history.size() * size_t (i) / size_t (columns);
+            const size_t to   = juce::jmax (from + 1, history.size() * size_t (i + 1) / size_t (columns));
+            float peak = -120.0f;
+            for (size_t k = from; k < to && k < history.size(); ++k) peak = juce::jmax (peak, history[k]);
+            const float h = juce::jmax (1.0f, p.getHeight() * DineMeter::norm (peak));
+            g.fillRect (p.getX() + step * float (i), p.getBottom() - h, juce::jmax (1.0f, step - 2.6f), h);
+        }
+    }
+
+    // A line across the drawing at a level, with what it is written above it.
+    void paintLevelLine (juce::Graphics& g, juce::Rectangle<int> r, float db, juce::Colour colour,
+                         const juce::String& label) const
+    {
+        auto p = r.toFloat();
+        const float y = p.getBottom() - p.getHeight() * DineMeter::norm (db);
+        g.setColour (isEnabled() ? colour : Dine::ink4);
+        g.fillRect (p.getX(), y - 0.5f, p.getWidth(), 1.0f);
+        g.setFont (Dine::text (11.0f, 500));
+        // A ceiling at -1 dBTP sits right under the top of the well, so the label goes below
+        // its line rather than half off the drawing.
+        const int above = int (y) - 17;
+        Dine::drawText (g, label, juce::Rectangle<int> (r.getX() + 2, above < r.getY() ? int (y) + 3 : above, r.getWidth() - 4, 14),
+                    juce::Justification::topLeft, true);
     }
 
     float throughStage (float din) const
     {
-        switch (spec->id)
-        {
-            case StageId::Comp:
-            {
-                const float k = juce::jmax (0.01f, params.compKneeDb), over = din - params.compThresholdDb;
-                float dout = din;
-                if (over > k * 0.5f) dout = params.compThresholdDb + over / juce::jmax (1.0f, params.compRatio);
-                else if (over > -k * 0.5f)
-                {
-                    const float x = over + k * 0.5f;
-                    dout = din + (1.0f / juce::jmax (1.0f, params.compRatio) - 1.0f) * x * x / (2.0f * k);
-                }
-                return dout + params.compMakeupDb;
-            }
-            case StageId::Gate:
-            {
-                float dout = din;
-                if (din < params.gateThresholdDb)
-                    dout = params.gateThresholdDb - (params.gateThresholdDb - din) * juce::jmax (1.0f, params.gateRatio);
-                return juce::jmax (dout, din - params.gateRangeDb);
-            }
-            case StageId::Limiter:
-                return juce::jmin (din, params.limiterCeilingDb);
-            case StageId::Sat:
-            default:
-            {
-                const float x = juce::jlimit (0.0f, 1.0f, (din + 60.0f) / 66.0f);
-                const float d = 1.0f + params.satDrive * 8.0f;
-                const float y = (std::tanh (x * d) / std::tanh (d)) * params.satMix + x * (1.0f - params.satMix);
-                return y * 66.0f - 60.0f;
-            }
-        }
-    }
-
-    void paintBars (juce::Graphics& g, juce::Rectangle<int> r)
-    {
-        const bool staging = spec->id == StageId::Input || spec->id == StageId::Output;
-        int sliders = 0;
-        for (const auto& f : spec->fields) if (f.kind == Field::Kind::Slider) ++sliders;
-        const int rowH = 56;
-        const int needed = sliders * rowH + (staging ? 24 + 2 * 30 + 12 : 0);
-        auto rows = r.reduced (10, 6);
-        rows = rows.withHeight (juce::jmin (rows.getHeight(), needed));
-
-        for (const auto& f : spec->fields)
-        {
-            if (f.kind != Field::Kind::Slider) continue;
-            auto row = rows.removeFromTop (rowH).withTrimmedBottom (8);
-            const double v = f.get (params);
-            const double zero = f.min < 0.0 ? (0.0 - f.min) / (f.max - f.min) : 0.0;
-            const double t = (v - f.min) / juce::jmax (1.0e-9, f.max - f.min);
-            auto head = row.removeFromTop (16);
-            g.setColour (Dine::ink3);
-            g.setFont (capsFont (10.0f, 600));
-            Dine::drawText (g, f.label.trim().toUpperCase(), head.removeFromLeft (head.getWidth() - 120), juce::Justification::centredLeft);
-            g.setColour (isEnabled() ? Dine::ink : Dine::ink4);
-            g.setFont (Dine::mono (12.5f, 500));
-            Dine::drawText (g, format (f.fmt, v), head, juce::Justification::centredRight);
-            auto bar = row.removeFromTop (14);
-            Dine::drawWell (g, bar.toFloat(), 3.0f);
-            const float x0 = bar.getX() + bar.getWidth() * float (juce::jmin (zero, t));
-            const float w = juce::jmax (1.0f, bar.getWidth() * float (std::fabs (t - zero)));
-            g.setColour (isEnabled() ? (v < 0.0 && f.min < 0.0 ? Dine::warn : Dine::ink2) : Dine::ink4);
-            g.fillRect (juce::Rectangle<float> (x0, bar.getY() + 2.0f, w, bar.getHeight() - 4.0f));
-            if (f.min < 0.0)
-            {
-                g.setColour (Dine::hairStrong);
-                g.fillRect (bar.getX() + bar.getWidth() * float (zero), float (bar.getY()), 0.5f, float (bar.getHeight()));
-            }
-            auto scale = row.removeFromTop (12);
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::mono (9.5f));
-            Dine::drawText (g, format (f.fmt, f.min), scale, juce::Justification::centredLeft);
-            Dine::drawText (g, format (f.fmt, f.max), scale, juce::Justification::centredRight);
-        }
-
-        if (! staging || rows.getHeight() < 50) return;
-        Dine::drawRule (g, rows.removeFromTop (1), Dine::hairSoft);
-        rows.removeFromTop (8);
-        g.setColour (Dine::ink4);
-        g.setFont (capsFont (9.5f, 600));
-        Dine::drawText (g, "GAIN STAGING, LIVE", rows.removeFromTop (14), juce::Justification::topLeft);
-        const bool in = spec->id == StageId::Input;
-        auto meterRow = [&] (const juce::String& label, const juce::String& note, float db)
-        {
-            auto row = rows.removeFromTop (30);
-            auto text = row.removeFromLeft (140);
-            g.setColour (Dine::ink3);
-            g.setFont (capsFont (10.0f, 600));
-            Dine::drawText (g, label, text.removeFromTop (14), juce::Justification::bottomLeft);
-            g.setColour (Dine::ink4);
-            g.setFont (Dine::text (11.0f));
-            Dine::drawText (g, note, text, juce::Justification::topLeft, true);
-            auto value = row.removeFromRight (72);
-            g.setColour (db <= -119.0f ? Dine::ink4 : Dine::ink);
-            g.setFont (Dine::mono (12.0f, 500));
-            Dine::drawText (g, db <= -119.0f ? Glyph::dash() : signedNumber (db, 1) + " dB", value, juce::Justification::centredRight);
-            row.removeFromRight (10);
-            auto bar = row.withSizeKeepingCentre (row.getWidth(), 9);
-            Dine::drawWell (g, bar.toFloat(), 2.0f);
-            g.setColour (Dine::levelColour (db));
-            g.fillRect (bar.toFloat().withWidth (bar.getWidth() * DineMeter::norm (db)));
-        };
-        meterRow (in ? "ARRIVING" : "INTO THE TRIM", in ? "what the desk sends" : "the end of the chain", inputDb);
-        meterRow (in ? "AFTER TRIM" : "INTO THE FADER",
-                  format (Fmt::Db, in ? params.inputTrimDb : params.outputTrimDb)
-                      + (in && params.polarityInvert ? "  " + Glyph::dot() + "  polarity flipped" : juce::String()),
-                  outputDb);
-    }
-
-    void paintSends (juce::Graphics& g, juce::Rectangle<int> r)
-    {
-        auto rows = r.reduced (10, 8);
-        const int rowH = 52;
-        rows = rows.withHeight (juce::jmin (rows.getHeight(), rowH * int (sends.size())));
-        for (const auto& s : sends)
-        {
-            auto row = rows.removeFromTop (rowH).withTrimmedBottom (8);
-            auto head = row.removeFromTop (16);
-            const bool off = s.second <= kSilenceDb + 0.01f;
-            g.setColour (Dine::ink3);
-            g.setFont (capsFont (10.0f, 600));
-            Dine::drawText (g, juce::String (sendName (s.first)).toUpperCase(), head.removeFromLeft (head.getWidth() - 100),
-                        juce::Justification::centredLeft);
-            g.setColour (off ? Dine::ink4 : Dine::ink);
-            g.setFont (Dine::mono (12.5f, 500));
-            Dine::drawText (g, off ? juce::String ("off") : signedNumber (s.second, 1) + " dB", head, juce::Justification::centredRight);
-            auto bar = row.removeFromTop (14);
-            Dine::drawWell (g, bar.toFloat(), 3.0f);
-            if (! off)
-            {
-                g.setColour (Dine::ink2);
-                g.fillRect (bar.toFloat().reduced (0.0f, 2.0f).withWidth (bar.getWidth() * juce::jlimit (0.0f, 1.0f, (s.second + 60.0f) / 66.0f)));
-            }
-        }
+        const float x = juce::jlimit (0.0f, 1.0f, (din + 60.0f) / 66.0f);
+        const float d = 1.0f + params.satDrive * 8.0f;
+        const float y = (std::tanh (x * d) / std::tanh (d)) * params.satMix + x * (1.0f - params.satMix);
+        return y * 66.0f - 60.0f;
     }
 
     static constexpr size_t kHistory = 240;   // 8 seconds at the page's rate
@@ -1434,7 +1314,9 @@ private:
     const StageSpec* spec = nullptr;
     ChannelParameters params;
     std::vector<std::pair<FxSlot, float>> sends;
-    std::vector<float> history { std::vector<float> (kHistory, 0.0f) };
+    std::vector<float> grHistory { std::vector<float> (kHistory, 0.0f) };
+    std::vector<float> levelHistory { std::vector<float> (kHistory, -120.0f) };
+    std::vector<char> marks { std::vector<char> (kHistory, 0) };
     double sampleRate = 48000.0;
     float gr = 0.0f, inputDb = -120.0f, outputDb = -120.0f, level = 0.0f;
     int band = 0, dragging = -1;
@@ -1450,21 +1332,30 @@ ChainEditor::ChainEditor (MixController& c) : controller (c)
     addAndMakeVisible (controlsView);
 
     graph = std::make_unique<Graph> ([this] (const std::function<void (ChannelParameters&)>& edit) { commit (edit); },
-                                     [this] (int b) { band = b; refresh(); });
-    addAndMakeVisible (*graph);
+                                     [this] (int b) { band = b; buildControls(); refresh(); });
+    controlsHolder.addAndMakeVisible (*graph);
 
-    power = std::make_unique<DineSwitch> ("IN", "OUT");
-    power->setClickingTogglesState (true);
-    power->onClick = [this]
+    // Off / On, at the right of the title row. Two words rather than a lamp: a stage that is
+    // out of the chain has to say so in the same breath as it says what it is.
+    addChildComponent (onOffTrack);
+    for (auto* b : { &offButton, &onButton })
+    {
+        b->setFontPx (12.0f);
+        onOffTrack.addAndMakeVisible (*b);
+    }
+    auto power = [this] (bool on)
     {
         const auto& s = spec();
-        if (s.setOn) commit ([&s, on = power->getToggleState()] (ChannelParameters& p) { s.setOn (p, on); });
+        if (s.setOn) commit ([&s, on] (ChannelParameters& p) { s.setOn (p, on); });
+        if (onStageChanged) onStageChanged();
     };
-    addChildComponent (*power);
+    offButton.onClick = [power] { power (false); };
+    onButton.onClick  = [power] { power (true); };
 
-    revertButton = std::make_unique<DineButton> ("Back to DINE", DineButton::Style::Standard);
+    revertButton = std::make_unique<DineButton> ("Put back", DineButton::Style::Standard);
     revertButton->setFontPx (11.5f);
-    revertButton->setIcon (Dine::Icon::Refresh);
+    revertButton->setCaps (true);
+    revertButton->setTooltip ("This stage back to what TUNE MIX set. Nothing else on the channel moves.");
     revertButton->onClick = [this] { revertStage(); };
     addChildComponent (*revertButton);
 }
@@ -1571,7 +1462,7 @@ void ChainEditor::build()
             StageSpec s;
             s.id = StageId::Sends;
             s.name = "Sends";
-            s.plain = "How much of this channel goes to each FX return.";
+            s.plain = "How much of this channel goes to each effect return.";
             s.icon = Dine::Icon::Fx;
             stages.push_back (std::move (s));
         }
@@ -1609,10 +1500,28 @@ void ChainEditor::buildControls()
 {
     controls.clear();
     controlsHolder.removeAllChildren();
+    controlsHolder.addAndMakeVisible (*graph);
     const auto& s = spec();
     graph->setStage (stages.empty() ? nullptr : &s);
 
-    auto commitFn = [this] (const std::function<void (ChannelParameters&)>& edit) { commit (edit); };
+    auto addKnob = [this] (Field f, std::function<void (ChannelParameters&, double)> set)
+    {
+        auto knob = std::make_unique<Knob> (f, [this, set] (double v)
+        {
+            commit ([&set, v] (ChannelParameters& p) { set (p, v); });
+        }, Dine::accent);
+        controlsHolder.addAndMakeVisible (*knob);
+        controls.push_back (std::move (knob));
+    };
+    auto addChoice = [this] (Field f, std::function<void (ChannelParameters&, double)> set)
+    {
+        auto group = std::make_unique<ChoiceGroup> (f, [this, set] (double v)
+        {
+            commit ([&set, v] (ChannelParameters& p) { set (p, v); });
+        });
+        controlsHolder.addAndMakeVisible (*group);
+        controls.push_back (std::move (group));
+    };
 
     if (s.id == StageId::Sends)
     {
@@ -1631,41 +1540,74 @@ void ChainEditor::buildControls()
     }
     else if (s.bands > 0)
     {
+        // THE CURVE IS THE CONTROL, AND THE KNOBS ARE ONE PER BAND.
+        //
+        // The design draws a gain knob per band under the curve. A band also has a frequency,
+        // a Q and a shape, and dropping them would make the Inspector unable to do the one
+        // thing an engineer opens it for - so the band you picked (on the curve, or on its
+        // knob) opens its own three under the row. Picking is the only thing that changes;
+        // the sound never does.
+        const bool corr = s.corrective;
         for (int i = 0; i < s.bands; ++i)
         {
-            auto card = std::make_unique<BandCard> (i, s.corrective, commitFn, [this] (int b) { band = b; refresh(); });
-            controlsHolder.addAndMakeVisible (*card);
-            controls.push_back (std::move (card));
+            Field f;
+            f.label = "Band " + juce::String (i + 1);
+            f.min = -18.0; f.max = 18.0; f.step = 0.1; f.mid = 0.0; f.fmt = Fmt::Db;
+            f.get = [] (const ChannelParameters&) { return 0.0; };
+            addKnob (f, [corr, i] (ChannelParameters& p, double v)
+            {
+                auto& b = corr ? p.correctiveBands[size_t (i)] : p.toneBands[size_t (i)];
+                b.gainDb = float (v);
+                b.enabled = true;              // moving a band's gain is asking for the band
+            });
+        }
+        const int sel = juce::jlimit (0, s.bands - 1, band);
+        {
+            Field f;
+            f.label = "Frequency"; f.min = 20.0; f.max = 20000.0; f.step = 1.0; f.mid = 630.0; f.fmt = Fmt::Hz;
+            f.get = [] (const ChannelParameters&) { return 630.0; };
+            addKnob (f, [corr, sel] (ChannelParameters& p, double v)
+            {
+                (corr ? p.correctiveBands[size_t (sel)] : p.toneBands[size_t (sel)]).freqHz = float (v);
+            });
+            f.label = "Q"; f.min = 0.1; f.max = 10.0; f.step = 0.01; f.mid = 1.0; f.fmt = Fmt::Q;
+            f.get = [] (const ChannelParameters&) { return 1.0; };
+            addKnob (f, [corr, sel] (ChannelParameters& p, double v)
+            {
+                (corr ? p.correctiveBands[size_t (sel)] : p.toneBands[size_t (sel)]).q = float (v);
+            });
+        }
+        {
+            Field f;
+            f.kind = Field::Kind::Choice;
+            f.label = "Shape";
+            for (const auto* name : kFilterTypeNames) f.choices.add (name);
+            addChoice (f, [corr, sel] (ChannelParameters& p, double v)
+            {
+                (corr ? p.correctiveBands[size_t (sel)] : p.toneBands[size_t (sel)]).type
+                    = FilterType (juce::jlimit (0, int (FilterType::Count) - 1, juce::roundToInt (v)));
+            });
+            Field on;
+            on.kind = Field::Kind::Toggle;
+            on.label = "Band " + juce::String (sel + 1);
+            on.choices = { "Off", "On" };
+            addChoice (on, [corr, sel] (ChannelParameters& p, double v)
+            {
+                (corr ? p.correctiveBands[size_t (sel)] : p.toneBands[size_t (sel)]).enabled = v > 0.5;
+            });
         }
     }
     else
     {
         for (const auto& f : s.fields)
         {
-            if (f.kind == Field::Kind::Slider)
-            {
-                auto knob = std::make_unique<Knob> (f, [this, f] (double v)
-                {
-                    commit ([&f, v] (ChannelParameters& p) { f.set (p, v); });
-                }, Dine::ink2);
-                controlsHolder.addAndMakeVisible (*knob);
-                controls.push_back (std::move (knob));
-            }
-            else
-            {
-                auto chip = std::make_unique<SwitchChip> (f, [this, f] (double v)
-                {
-                    commit ([&f, v] (ChannelParameters& p) { f.set (p, v); });
-                });
-                controlsHolder.addAndMakeVisible (*chip);
-                controls.push_back (std::move (chip));
-            }
+            if (f.kind == Field::Kind::Slider) addKnob (f, [f] (ChannelParameters& p, double v) { f.set (p, v); });
+            else                               addChoice (f, [f] (ChannelParameters& p, double v) { f.set (p, v); });
         }
         if (s.id == StageId::Sample)
         {
             // HEAR IT: the chosen sound, once, where solo goes. Nothing about the mix changes.
-            // After the fields: the knobs and chips are refreshed by their position in the list.
-            auto hear = std::make_unique<DineButton> ("Hear it", DineButton::Style::Filled);
+            auto hear = std::make_unique<DineButton> ("Hear it", DineButton::Style::Standard);
             hear->setCaps (true);
             hear->setFontPx (11.5f);
             hear->setTooltip ("Plays this sound once in your own listen (where solo goes). The broadcast never hears it.");
@@ -1676,7 +1618,7 @@ void ChainEditor::buildControls()
             // ADD A SOUND: this church's own kick, in the list beside the built-in ones, copied
             // into the session folder so handing the session to somebody else hands them the
             // sound it was mixed with.
-            auto add = std::make_unique<DineButton> ("Add a sound", DineButton::Style::Standard);
+            auto add = std::make_unique<DineButton> ("Import a sound...", DineButton::Style::Standard);
             add->setFontPx (11.5f);
             add->setTooltip ("Bring in a .wav of your own. It is copied into this session, so the session travels with "
                              "the sound it was mixed with - it is never a link to a file on this Mac.");
@@ -1877,18 +1819,33 @@ void ChainEditor::refresh()
     edited = stageEdited (selected);
     const bool live = ! bypassed && (stageOn || ! s.isOn);
 
-    // Who set this stage, in words rather than in capitals - and it is DLIVE that set it.
-    if (edited)                 { badge = "Hand-edited";     badgeTint = Dine::warn; }
-    else if (! stageOn)         { badge = "Left out";        badgeTint = Dine::ink3; }
-    else if (controller.getPlan() != nullptr) { badge = "Set by TUNE MIX"; badgeTint = Dine::accent; }
-    else                        { badge = "The baseline";    badgeTint = Dine::ink3; }
-
-    if (power != nullptr)
+    // WHO SET THIS STAGE, in the design's one line under the title. It is DLIVE that set it,
+    // and a hand edit says so in the same place rather than in a badge somewhere else.
+    if (bypassed)               { provenance = "BYPASS is on - nothing in the chain is running."; badgeTint = Dine::warn; }
+    else if (edited)            { provenance = "Hand-edited"; badgeTint = Dine::monitor; }
+    else if (! stageOn)         { provenance = "Left out of the chain"; badgeTint = Dine::ink4; }
+    else if (controller.getPlan() != nullptr)
     {
-        power->setVisible (s.setOn != nullptr);
-        power->setToggleState (stageOn, juce::dontSendNotification);
-        power->setEnabled (! bypassed);
+        provenance = "Set by TUNE MIX";
+        if (const auto when = lastTuneClock(); when.isNotEmpty()) provenance += " at " + when;
+        badgeTint = Dine::accent;
     }
+    else                        { provenance = "The profile's baseline for this source"; badgeTint = Dine::ink4; }
+
+    // The sentence along the foot: what TUNE MIX said about this stage, or what it is for.
+    sentence = selected < int (views.size()) ? views[size_t (selected)].why : s.plain;
+
+    const bool switchable = s.setOn != nullptr;
+    if (onOffTrack.isVisible() != switchable)
+    {
+        onOffTrack.setVisible (switchable);
+        resized();
+    }
+    offButton.setToggleState (! stageOn, juce::dontSendNotification);
+    onButton.setToggleState (stageOn, juce::dontSendNotification);
+    offButton.setEnabled (! bypassed);
+    onButton.setEnabled (! bypassed);
+
     if (revertButton != nullptr)
     {
         const bool canRevert = edited && (s.id == StageId::Sends ? plannedStrip() != nullptr : plannedChannel() != nullptr);
@@ -1907,9 +1864,19 @@ void ChainEditor::refresh()
     }
     else if (s.bands > 0)
     {
-        for (size_t i = 0; i < controls.size(); ++i)
-            if (auto* card = dynamic_cast<BandCard*> (controls[i].get()))
-                card->pull (p, live, int (i) == band);
+        const int sel = juce::jlimit (0, s.bands - 1, band);
+        auto bandOf = [&] (int i) -> const EQBandParams& { return s.corrective ? p.correctiveBands[size_t (i)] : p.toneBands[size_t (i)]; };
+        size_t next = 0;
+        for (int i = 0; i < s.bands && next < controls.size(); ++i, ++next)
+            if (auto* knob = dynamic_cast<Knob*> (controls[next].get())) knob->setValue (bandOf (i).gainDb);
+        if (next < controls.size()) if (auto* k = dynamic_cast<Knob*> (controls[next].get())) k->setValue (bandOf (sel).freqHz);
+        ++next;
+        if (next < controls.size()) if (auto* k = dynamic_cast<Knob*> (controls[next].get())) k->setValue (bandOf (sel).q);
+        ++next;
+        if (next < controls.size()) if (auto* g = dynamic_cast<ChoiceGroup*> (controls[next].get())) g->setIndex (int (bandOf (sel).type));
+        ++next;
+        if (next < controls.size()) if (auto* g = dynamic_cast<ChoiceGroup*> (controls[next].get())) g->setIndex (bandOf (sel).enabled ? 1 : 0);
+        for (auto& c : controls) c->setEnabled (live);
     }
     else
     {
@@ -1918,14 +1885,16 @@ void ChainEditor::refresh()
         {
             if (next >= controls.size()) break;
             if (auto* knob = dynamic_cast<Knob*> (controls[next].get())) knob->setValue (f.get (p));
-            else if (auto* chip = dynamic_cast<SwitchChip*> (controls[next].get())) chip->setIndex (juce::roundToInt (f.get (p)));
+            else if (auto* group = dynamic_cast<ChoiceGroup*> (controls[next].get())) group->setIndex (juce::roundToInt (f.get (p)));
             controls[next]->setEnabled (live);
             ++next;
         }
+        for (; next < controls.size(); ++next) controls[next]->setEnabled (live);
     }
 
     // What the graph needs: the live meters, the reduction of this stage and the sends.
     float grDb = 0.0f, inDb = -120.0f, outDb = -120.0f, level = 0.0f;
+    bool fired = false;
     if (controller.isPrepared())
     {
         const ChannelProcessor* proc = isBus ? &controller.getEngine().getBus (bus)
@@ -1937,6 +1906,12 @@ void ChainEditor::refresh()
             outDb = proc->getOutputMeter().getMaxPeakDb();
             level = DineMeter::norm (outDb);
             grDb = views[size_t (selected)].grDb;
+            if (s.id == StageId::Sample)
+            {
+                const int hits = proc->getSampler().getHitCount();
+                fired = hits != sampleHits;
+                sampleHits = hits;
+            }
         }
     }
     std::vector<std::pair<FxSlot, float>> sends;
@@ -1949,133 +1924,248 @@ void ChainEditor::refresh()
                 sends.push_back ({ FxSlot (f), strip >= 0 && strip < base.numStrips ? base.strips[size_t (strip)].sendDb[size_t (f)] : kSilenceDb });
     }
     graph->setEnabled (live);
-    graph->update (p, controller.getSampleRate(), grDb, inDb, outDb, level, band, ! bypassed, std::move (sends));
+    graph->update (p, controller.getSampleRate(), grDb, inDb, outDb, level, band, ! bypassed, fired, std::move (sends));
     repaint();
+}
+
+// The clock on the newest tune this channel carries, for the provenance line.
+juce::String ChainEditor::lastTuneClock() const
+{
+    if (isBus || strip < 0) return {};
+    const auto& records = controller.getStripHistory (strip);
+    for (auto it = records.rbegin(); it != records.rend(); ++it)
+        if (juce::String (it->what).startsWith ("TUNE") && it->whenMs > 0)
+            return juce::Time (juce::int64 (it->whenMs)).formatted ("%l:%M %p").trim();
+    return {};
+}
+
+// The well the drawing and the controls live in: the design insets it 24 from the card and
+// leaves the closing sentence its own band along the foot.
+juce::Rectangle<int> ChainEditor::wellBounds() const
+{
+    return getLocalBounds().reduced (kCardPad, 0)
+                           .withTrimmedTop (kHeaderH)
+                           .withTrimmedBottom (kSentenceH);
 }
 
 void ChainEditor::resized()
 {
-    auto area = getLocalBounds();
-    auto head = area.removeFromTop (kHeaderH).reduced (0, 4);
-    if (power != nullptr && power->isVisible())
-        power->setBounds (head.removeFromRight (70).withSizeKeepingCentre (70, 22));
+    auto head = getLocalBounds().reduced (kCardPad, 0).withTrimmedTop (20).withHeight (Dine::Metric::control);
+    if (onOffTrack.isVisible())
+    {
+        const int w = juce::jmax (74, offButton.idealWidth() + onButton.idealWidth() + 8);
+        onOffTrack.setBounds (head.removeFromRight (w));
+        auto track = onOffTrack.getLocalBounds().reduced (2, 2);
+        offButton.setBounds (track.removeFromLeft (track.getWidth() / 2));
+        onButton.setBounds (track);
+        head.removeFromRight (8);
+    }
     if (revertButton != nullptr && revertButton->isVisible())
+        revertButton->setBounds (head.removeFromRight (juce::jmax (84, revertButton->idealWidth())));
+
+    const auto well = wellBounds();
+    controlsView.setBounds (well);
+
+    const int inner = juce::jmax (120, well.getWidth() - 2 * kWellPad);
+    const int knobCellH = Knob::cellHeight();
+
+    // Everything under the drawing, measured first: the drawing takes what is left, down to
+    // the height below which it stops saying anything, and then the well scrolls instead.
+    std::vector<juce::Component*> knobs, extras, choices;
+    for (auto& c : controls)
     {
-        head.removeFromRight (10);
-        revertButton->setBounds (head.removeFromRight (juce::jmax (110, revertButton->idealWidth()))
-                                     .withSizeKeepingCentre (juce::jmax (110, revertButton->idealWidth()), Dine::Metric::button));
+        if (dynamic_cast<Knob*> (c.get()) != nullptr) knobs.push_back (c.get());
+        else if (auto* g = dynamic_cast<ChoiceGroup*> (c.get())) (g->isPopup() ? extras : choices).push_back (c.get());
+        else if (dynamic_cast<SendRow*> (c.get()) != nullptr) { /* laid inside the drawing */ }
+        else extras.push_back (c.get());
     }
 
-    area.removeFromTop (10);
-    const auto& s = spec();
-    const int colW = juce::jmin (s.bands > 0 ? kColBandW : kColW, juce::jmax (0, area.getWidth() - kGraphMinW - 14));
-    auto column = area.removeFromRight (juce::jmax (0, colW));
-    area.removeFromRight (14);
-    // A drawing with a natural height keeps it; only a curve takes the whole panel.
-    const int wanted = graph->naturalHeight();
-    graph->setBounds (wanted > 0 ? area.withHeight (juce::jmin (area.getHeight(), wanted)) : area);
-
-    controlsView.setBounds (column);
-    int y = 0;
-    const int inner = juce::jmax (60, column.getWidth() - 12);
-
-    if (s.bands > 0)
+    // The knobs wrap at the width the well has, each taking what its own label needs.
+    std::vector<std::vector<juce::Component*>> knobLines;
     {
-        for (auto& c : controls) { c->setBounds (0, y, inner, kBandCardH); y += kBandCardH + 8; }
-    }
-    else if (s.id == StageId::Sends)
-    {
-        for (auto& c : controls) { c->setBounds (0, y, inner, kSendRowH); y += kSendRowH + 6; }
-    }
-    else
-    {
-        const int cellW = (inner - 8) / 2;
-        int col = 0;
-        std::vector<juce::Component*> chips;
-        for (auto& c : controls)
-        {
-            if (dynamic_cast<Knob*> (c.get()) == nullptr) { chips.push_back (c.get()); continue; }
-            c->setBounds (col * (cellW + 8), y, cellW, Knob::kDial);
-            if (++col == 2) { col = 0; y += kKnobCellH; }
-        }
-        if (col != 0) y += kKnobCellH;
         int x = 0;
-        for (auto* c : chips)
+        for (auto* c : knobs)
         {
-            const int w = juce::jmin (inner, dynamic_cast<SwitchChip*> (c) != nullptr
-                                                 ? static_cast<SwitchChip*> (c)->idealWidth() : 120);
-            if (x > 0 && x + w > inner) { x = 0; y += kChipH + 8; }
-            c->setBounds (x, y, w, kChipH);
-            x += w + 8;
+            const int w = static_cast<Knob*> (c)->cellWidth();
+            if (knobLines.empty() || x + w > inner) { knobLines.emplace_back(); x = 0; }
+            knobLines.back().push_back (c);
+            x += w;
         }
-        if (! chips.empty()) y += kChipH + 8;
     }
-    controlsHolder.setSize (juce::jmax (60, column.getWidth() - (y > column.getHeight() ? 10 : 0)),
-                            juce::jmax (y, column.getHeight()));
+    const int knobRows = int (knobLines.size());
+    int below = knobRows > 0 ? kRowGap + knobRows * knobCellH : 0;
+    if (! extras.empty()) below += kRowGap + kExtraH;
+    int choiceRows = 0;
+    {
+        int x = 0;
+        for (auto* c : choices)
+        {
+            const int w = juce::jmin (inner, static_cast<ChoiceGroup*> (c)->idealWidth());
+            if (choiceRows == 0 || x + w > inner) { ++choiceRows; x = 0; }
+            x += w + 24;
+        }
+    }
+    if (choiceRows > 0) below += kRowGap + choiceRows * kChoiceH + (choiceRows - 1) * 12;
+
+    const int graphH = juce::jmax (kGraphMinH, juce::jmin (kGraphH, well.getHeight() - 2 * kWellPad - below));
+    const int content = 2 * kWellPad + graphH + below;
+    const bool scrolls = content > well.getHeight();
+    controlsHolder.setSize (juce::jmax (120, well.getWidth() - (scrolls ? 10 : 0)),
+                            juce::jmax (content, well.getHeight()));
+
+    auto r = controlsHolder.getLocalBounds().reduced (kWellPad, kWellPad);
+    const int width = r.getWidth();
+    graph->setBounds (r.removeFromTop (graphH));
+
+    // The sends are real controls, so they are laid over the drawing rather than painted by it.
+    {
+        auto rows = graph->getBounds().reduced (kWellPad, kWellPad);
+        int n = 0;
+        for (auto& c : controls) if (dynamic_cast<SendRow*> (c.get()) != nullptr) ++n;
+        if (n > 0)
+        {
+            rows = rows.withSizeKeepingCentre (rows.getWidth(), juce::jmin (rows.getHeight(), n * kSendRowH));
+            for (auto& c : controls)
+                if (dynamic_cast<SendRow*> (c.get()) != nullptr) c->setBounds (rows.removeFromTop (kSendRowH));
+        }
+    }
+
+    if (! knobLines.empty())
+    {
+        r.removeFromTop (kRowGap);
+        for (const auto& row : knobLines)
+        {
+            auto line = r.removeFromTop (knobCellH);
+            for (auto* c : row) c->setBounds (line.removeFromLeft (static_cast<Knob*> (c)->cellWidth()));
+        }
+    }
+    if (! extras.empty())
+    {
+        r.removeFromTop (kRowGap);
+        auto line = r.removeFromTop (kExtraH);
+        for (auto* c : extras)
+        {
+            int w = 120;
+            if (auto* group = dynamic_cast<ChoiceGroup*> (c))      w = group->idealWidth();
+            else if (auto* button = dynamic_cast<DineButton*> (c)) w = juce::jmax (84, button->idealWidth());
+            w = juce::jmin (juce::jmax (48, line.getWidth()), w);
+            c->setBounds (line.removeFromLeft (w).withHeight (Dine::Metric::control));
+            line.removeFromLeft (12);
+        }
+    }
+    if (! choices.empty())
+    {
+        r.removeFromTop (kRowGap);
+        auto line = r.removeFromTop (kChoiceH);
+        int x = 0;
+        for (auto* c : choices)
+        {
+            const int w = juce::jmin (width, static_cast<ChoiceGroup*> (c)->idealWidth());
+            if (x > 0 && x + w > width) { r.removeFromTop (12); line = r.removeFromTop (kChoiceH); x = 0; }
+            c->setBounds (line.getX() + x, line.getY(), w, kChoiceH);
+            x += w + 24;
+        }
+    }
 }
 
 void ChainEditor::paint (juce::Graphics& g)
 {
     const auto& s = spec();
-    auto head = getLocalBounds().removeFromTop (kHeaderH).reduced (0, 4);
-    if (power != nullptr && power->isVisible()) head.removeFromRight (70);
-    if (revertButton != nullptr && revertButton->isVisible())
-        head.removeFromRight (10 + juce::jmax (110, revertButton->idealWidth()));
+    Dine::fillRounded (g, getLocalBounds().toFloat(), Dine::card, Dine::Radius::card);
+    // The well the whole stage lives in, a plane below the card: the drawing, the knobs and
+    // the choices are one thing, and the card's own head and foot are outside it.
+    Dine::fillRounded (g, wellBounds().toFloat(), Dine::inset, Dine::Radius::well);
+    Dine::hairlineRounded (g, wellBounds().toFloat(), Dine::hairSoft, Dine::Radius::well);
 
-    Dine::drawIcon (g, s.icon, head.removeFromLeft (20).toFloat().withSizeKeepingCentre (19.0f, 19.0f),
-                    stageOn && ! bypassed ? Dine::accent : Dine::glyph);
-    head.removeFromLeft (11);
-    const auto nameFont = Dine::text (19.0f, 600);
-    g.setColour (Dine::ink);
+    auto r = getLocalBounds().reduced (kCardPad, 0);
+    auto title = r.withTrimmedTop (20).withHeight (22);
+    if (onOffTrack.isVisible()) title.removeFromRight (onOffTrack.getWidth() + 8);
+    if (revertButton != nullptr && revertButton->isVisible()) title.removeFromRight (revertButton->getWidth() + 8);
+
+    const auto nameFont = Dine::text (17.0f, 600);
+    const int nameW = juce::jmin (title.getWidth(), Dine::textWidth (nameFont, s.name));
+    g.setColour (stageOn && ! bypassed ? Dine::ink : Dine::ink3);
     g.setFont (nameFont);
-    Dine::drawText (g, s.name, head.removeFromLeft (juce::jmin (head.getWidth(), Dine::textWidth (nameFont, s.name))),
-                juce::Justification::centredLeft);
-    head.removeFromLeft (14);
+    Dine::drawText (g, s.name, title.removeFromLeft (nameW), juce::Justification::centredLeft);
+    // The plain word this stage answers to, beside its name: CLEAN-UP, SMOOTH, STEADY, WARMTH.
+    if (const auto word = macroWordFor (s.id); word.isNotEmpty() && title.getWidth() > 60)
+    {
+        title.removeFromLeft (12);
+        g.setColour (Dine::ink4);
+        g.setFont (Dine::caps (11.0f, 0.36f, 600));
+        Dine::drawText (g, word, title, juce::Justification::centredLeft, true);
+    }
 
-    if (badge.isNotEmpty())
-    {
-        const int w = int (Dine::pillWidth (badge, false));
-        auto pill = head.removeFromRight (juce::jmin (head.getWidth(), w)).withSizeKeepingCentre (w, 22).toFloat();
-        Dine::drawPill (g, pill, badge, badgeTint);
-        head.removeFromRight (12);
-    }
-    if (head.getWidth() > 80)
-    {
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.5f));
-        Dine::drawText (g, bypassed ? "BYPASS is on " + Glyph::dash() + " nothing in the chain is running." : s.plain,
-                    head, juce::Justification::centredLeft, true);
-    }
+    // Who set it, with a lamp in front: the same sentence the trail tells in its own words.
+    auto line = r.withTrimmedTop (52).withHeight (14);
+    g.setColour (badgeTint);
+    g.fillEllipse (line.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat());
+    line.removeFromLeft (6);
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (11.0f, 500));
+    Dine::drawText (g, provenance, line, juce::Justification::centredLeft, true);
+
+    auto foot = r.removeFromBottom (kSentenceH).withTrimmedTop (8).withTrimmedBottom (16);
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (12.0f));
+    Dine::drawFittedText (g, bypassed ? "BYPASS is on - nothing in the chain is running." : sentence,
+                      foot, juce::Justification::topLeft, 2, 1.0f);
 }
 
 // ------------------------------------------------------------------ SignalPath
 SignalPath::SignalPath (ChainEditor& c) : chain (c) {}
 
-void SignalPath::refresh() { repaint(); }
+// The path follows the editor: whichever stage is open is a chip you can see, so picking one
+// from the trail or with the keyboard never leaves it off the end of a scrolled row.
+void SignalPath::refresh()
+{
+    const int i = chain.selectedStage();
+    if (i >= 0 && i < chain.numStages() && getWidth() > 0)
+    {
+        auto chip = chipBounds (i);
+        if (chip.getX() < 0)              scrollX += chip.getX() - gap;
+        else if (chip.getRight() > getWidth()) scrollX += chip.getRight() - getWidth() + gap;
+        clampScroll();
+    }
+    repaint();
+}
 
-// The chips share the row when they all fit at a readable width; when they do not, they
-// keep that width and the row scrolls (wheel, trackpad, or a drag) instead of shrinking
-// every stage into an ellipsis.
+namespace
+{
+    // The chip's name, in the design's sentence case: INPUT -> Input, DE-ESS -> De-ess.
+    juce::String chipName (const juce::String& label)
+    {
+        if (label == "EQ") return label;          // an initialism is not a word to put back into sentence case
+        return label.substring (0, 1) + label.substring (1).toLowerCase();
+    }
+
+    juce::Font chipFont() { return Dine::text (12.0f, 500); }
+}
+
+// A chip is as wide as its name needs and no wider: 10 for the gutter, 5 for the lamp, 6
+// between, the name, then 10 at the end - the design's `Stage - *`, to the pixel.
+int SignalPath::chipWidth (int index) const
+{
+    const auto& views = chain.stageViews();
+    if (index < 0 || index >= int (views.size())) return 0;
+    return 31 + Dine::textWidth (chipFont(), chipName (views[size_t (index)].label));
+}
+
 juce::Rectangle<int> SignalPath::chipBounds (int index) const
 {
-    const int n = chain.numStages();
-    if (n <= 0) return {};
-    auto row = getLocalBounds().withTrimmedTop (titleH);
-    const int gap = 7;
-    const float even = float (row.getWidth() - gap * (n - 1)) / float (n);
-    const float w = juce::jmax (float (minChipW), even);
-    return juce::Rectangle<int> (row.getX() - scrollX + juce::roundToInt (float (index) * (w + float (gap))),
-                                 row.getY(), juce::roundToInt (w), row.getHeight());
+    auto row = getLocalBounds().withHeight (chipH);
+    int x = row.getX() - scrollX;
+    for (int i = 0; i < index; ++i) x += chipWidth (i) + gap;
+    return { x, row.getY(), chipWidth (index), chipH };
 }
 
 int SignalPath::contentWidth() const
 {
     const int n = chain.numStages();
     if (n <= 0) return 0;
-    const int gap = 7;
-    const float even = float (getWidth() - gap * (n - 1)) / float (n);
-    const float w = juce::jmax (float (minChipW), even);
-    return juce::roundToInt (float (n) * w) + gap * (n - 1);
+    int w = 0;
+    for (int i = 0; i < n; ++i) w += chipWidth (i) + gap;
+    return juce::jmax (0, w - gap);
 }
 
 int SignalPath::maxScroll() const { return juce::jmax (0, contentWidth() - getWidth()); }
@@ -2100,77 +2190,34 @@ int SignalPath::chipAt (juce::Point<int> p) const
 
 void SignalPath::paint (juce::Graphics& g)
 {
-    auto title = getLocalBounds().removeFromTop (titleH);
-    Dine::drawSection (g, title.removeFromLeft (110), "SIGNAL PATH");
-    auto legend = [&] (const juce::String& text, juce::Colour c)
-    {
-        const int w = Dine::textWidth (Dine::text (11.0f), text) + 16;
-        auto r = title.removeFromRight (w);
-        g.setColour (c);
-        g.fillEllipse (r.removeFromLeft (7).withSizeKeepingCentre (6, 6).toFloat());
-        r.removeFromLeft (4);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (11.0f));
-        Dine::drawText (g, text, r, juce::Justification::centredLeft);
-        title.removeFromRight (14);
-    };
-    legend ("hand-edited", Dine::monitor);
-    legend ("tuned by DLIVE", Dine::accent);
-    g.setColour (Dine::ink4);
-    g.setFont (Dine::text (12.0f));
-    Dine::drawText (g, "Click a stage to work on it. The lamp switches it in and out.", title, juce::Justification::centredLeft, true);
-
     const auto& views = chain.stageViews();
     juce::Graphics::ScopedSaveState clipToRow (g);
-    g.reduceClipRegion (getLocalBounds().withTrimmedTop (titleH));
+    g.reduceClipRegion (getLocalBounds());
 
     for (int i = 0; i < int (views.size()); ++i)
     {
         const auto& v = views[size_t (i)];
         const bool sel = i == chain.selectedStage();
         auto chip = chipBounds (i);
+        if (chip.getRight() < 0 || chip.getX() > getWidth()) continue;
 
-        // The chip's ground says where its setting came from: tuned, hand-edited, or not used.
-        juce::Colour ground = ! v.on ? Dine::card : v.edited ? Dine::editGround : Dine::soloGround;
-        if (hover == i) ground = ground.brighter (0.06f);
-        Dine::fillRounded (g, chip.toFloat(), ground, Dine::Radius::control);
-        if (sel) Dine::hairlineRounded (g, chip.toFloat(), Dine::accent.withAlpha (0.9f), Dine::Radius::control);
+        juce::Colour ground = sel ? Dine::controlOn : Dine::control;
+        if (hover == i && ! sel) ground = Dine::controlHot;
+        Dine::fillRounded (g, chip.toFloat(), ground, Dine::Radius::chip);
 
-        auto r = chip.reduced (10, 10);
-        auto top = r.removeFromTop (14);
-        auto lamp = top.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat();
-        g.setColour (! v.on ? Dine::ink4 : v.edited ? Dine::monitor : Dine::accent);
-        if (v.switchable || v.on) g.fillEllipse (lamp);
-        else g.drawEllipse (lamp.reduced (0.5f), 1.0f);
-        top.removeFromLeft (6);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::mono (9.0f));
-        Dine::drawText (g, juce::String (i + 1).paddedLeft ('0', 2), top, juce::Justification::centredRight);
-        top.removeFromRight (18);
-        const juce::String name = v.label.substring (0, 1) + v.label.substring (1).toLowerCase();
-        g.setColour (v.on ? Dine::ink : Dine::ink3);
-        g.setFont (Dine::text (12.0f, 500));
-        Dine::drawFittedText (g, name, top, juce::Justification::centredLeft, 1, 0.7f);
-
-        r.removeFromTop (5);
+        auto r = chip.reduced (10, 0);
+        auto lamp = r.removeFromLeft (5).withSizeKeepingCentre (5, 5).toFloat();
+        // The lamp says where the setting came from: DLIVE's, a hand edit, or out of the chain.
+        g.setColour (! v.on ? Dine::ink4.withAlpha (0.5f) : v.edited ? Dine::monitor : Dine::accent);
+        g.fillEllipse (lamp);
+        r.removeFromLeft (6);
         g.setColour (v.on ? Dine::ink2 : Dine::ink4);
-        g.setFont (Dine::mono (11.0f, 500));
-        Dine::drawText (g, v.value, r.removeFromTop (14), juce::Justification::centredLeft, true);
-
-        // Along the foot: how hard the stage is working.
-        auto bar = r.removeFromBottom (3);
-        Dine::fillRounded (g, bar.toFloat(), Dine::hair, 1.5f);
-        if (v.on)
-        {
-            const float work = v.grDb > 0.05f ? juce::jlimit (0.0f, 1.0f, v.grDb / 15.0f) : (v.switchable ? 0.25f : 0.5f);
-            Dine::fillRounded (g, bar.toFloat().withWidth (juce::jmax (3.0f, bar.getWidth() * work)),
-                               v.grDb > 8.0f ? Dine::warn : v.edited ? Dine::monitor : Dine::accent, 1.5f);
-        }
+        g.setFont (chipFont());
+        Dine::drawText (g, chipName (v.label), r, juce::Justification::centredLeft, true);
     }
 
-    // A chip cut off at the edge has to look cut off, or the path reads as if it ended
-    // there. The ground fades in from whichever side still has stages behind it.
-    auto row = getLocalBounds().withTrimmedTop (titleH).toFloat();
+    // A chip cut off at the edge has to look cut off, or the path reads as if it ended there.
+    auto row = getLocalBounds().toFloat();
     auto fade = [&] (bool left)
     {
         auto edge = left ? row.withWidth (26.0f) : row.withTrimmedLeft (row.getWidth() - 26.0f);
@@ -2188,7 +2235,7 @@ void SignalPath::mouseUp (const juce::MouseEvent& e)
     const int i = chipAt (e.getPosition());
     if (i < 0) return;
     auto chip = chipBounds (i);
-    const bool onLamp = e.x < chip.getX() + 26 && e.y < chip.getY() + 26;
+    const bool onLamp = e.x < chip.getX() + 18;
     if (onLamp && chain.stageViews()[size_t (i)].switchable) chain.toggleStage (i);
     else chain.selectStage (i);
 }

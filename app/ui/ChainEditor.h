@@ -13,11 +13,13 @@ namespace livemix
 
 // The processing chain of one channel or bus, one stage at a time.
 //
-// SignalPath draws the whole path along the top - a chip per stage in the order the
-// audio meets them, its lamp, what it is set to and how hard it is working - and this
-// panel opens the one you picked: what the stage is doing, drawn (an EQ curve you can
-// drag a node on, a compressor's in-out line with the live gain reduction, the bars of a
-// trim), and beside it a knob for every number it owns.
+// SignalPath draws the whole path along the top - one small chip per stage in the order
+// the audio meets them, with its lamp - and this panel is the design's Stage card
+// (`65:9397`): the stage's name and the macro word it answers to, an Off / On segment at
+// the right, the line that says who set it, then a well holding what the stage is doing,
+// drawn (an EQ curve you can drag a node on, a compressor's in-out line with the live
+// gain reduction, the bars of a trim), a row of knobs under it - one per number - and the
+// stage's choices under those. The sentence that says what it is for closes the card.
 //
 // Every edit goes through MixController as a whole ChannelParameters, the same way the
 // engine takes it, so a hand edit sits on the kept mix beside the faders: it survives a
@@ -67,23 +69,29 @@ public:
     // only knows which family is being asked about.
     std::function<void (RoleFamily)> onImportSample;
 
-    static constexpr int kHeaderH = 42;
+    // The card's own head: the title row at y = 20 (22 tall) and the provenance line under
+    // it, so the well starts at 84 exactly as the design draws it.
+    static constexpr int kHeaderH = 84;
+    static constexpr int kSentenceH = 56;   // the closing sentence, along the foot of the card
 
 private:
     class Graph;
     class Knob;
-    class BandCard;
-    class SwitchChip;
+    class ChoiceGroup;
     class SendRow;
 
     ChannelParameters read() const;
     void write (const ChannelParameters&);
     void commit (const std::function<void (ChannelParameters&)>&);
     void build();                                // the stages this channel has
-    void buildControls();                        // the picked stage's knobs and cards
+    void buildControls();                        // the picked stage's knobs and choices
     void updateViews();
     void revertStage();                          // this stage back to what TUNE MIX set
     bool stageEdited (int index) const;
+    // Where the card's well - the drawing, the knobs and the choices - lands, in this
+    // component's own coordinates.
+    juce::Rectangle<int> wellBounds() const;
+    juce::String lastTuneClock() const;          // the clock on the newest tune this channel carries
     const StageSpec& spec() const;
     const StripParameters* plannedStrip() const; // what the last TUNE MIX proposed, or null
     const ChannelParameters* plannedChannel() const;
@@ -94,21 +102,27 @@ private:
     MixBus bus = MixBus::Master;
     int selected = 0, band = 0;
     bool bypassed = false, edited = false, stageOn = true;
-    juce::String badge;
+    int sampleHits = 0;                          // the sampler's count, for the hit marks on the drawing
     juce::Colour badgeTint { Dine::accent };
     std::vector<StageSpec> stages;
     std::vector<StageView> views;
+    juce::String provenance, sentence;
     std::unique_ptr<Graph> graph;
     juce::Viewport controlsView;
     juce::Component controlsHolder;
-    std::vector<std::unique_ptr<juce::Component>> controls;
-    std::unique_ptr<DineSwitch> power;
+    std::vector<std::unique_ptr<juce::Component>> controls;   // knobs, then popups/buttons, then choice groups
+    // Off / On: the design's two-segment track at the right of the title row. A switch that
+    // reads "Off | On" says which of the two it is in; a lamp only says that it is lit.
+    DineSegmentRow onOffTrack;
+    DineButton offButton { "Off", DineButton::Style::Segment };
+    DineButton onButton  { "On",  DineButton::Style::Segment };
     std::unique_ptr<DineButton> revertButton;
 };
 
-// The whole chain as one row of chips: the lamp that switches a stage in and out, its
-// number and icon, what it is set to, and a bar along the foot for how hard it is
-// working. Click a chip to open that stage in the editor; click its lamp to switch it.
+// The whole chain as one row of small chips, the way the design draws it (`Signal path`,
+// 73:10380): a lamp and the stage's name, nothing else. The chosen chip is a lit plane; a
+// stage that is out of the chain is quiet. Click a chip to open that stage; click its lamp
+// to switch it in or out. The row scrolls when the chain is longer than the width.
 class SignalPath : public juce::Component
 {
 public:
@@ -122,13 +136,12 @@ public:
     void mouseExit (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
-    static constexpr int height = 128;
-    static constexpr int titleH = 24;
-    // Narrower than this and a chip stops being readable, so the path scrolls instead of
-    // squeezing: a stage you cannot read is a stage you cannot pick.
-    static constexpr int minChipW = 100;
+    static constexpr int height = 32;     // the design's row; the chips are 30 inside it
+    static constexpr int chipH  = 30;
+    static constexpr int gap    = 6;
 
 private:
+    int chipWidth (int index) const;
     juce::Rectangle<int> chipBounds (int index) const;
     int chipAt (juce::Point<int>) const;
     int contentWidth() const;

@@ -1203,6 +1203,31 @@ int main (int argc, char** argv)
         }
         view.getAdvancedPage().select (1);
     }
+    // EVERY STAGE CARD, ONE PNG EACH. The v3 design draws fourteen of them (`07`, `17a`-`17l`,
+    // and the sends); each one is a different drawing, and the only way to know a drawing is
+    // right is to look at it. The lead vocal carries the widest chain a channel has; the master
+    // is walked after it for the limiter.
+    {
+        int lead = -1;
+        const auto& g = rig.controller.getGraph();
+        for (int i = 0; i < g.numStrips(); ++i)
+            if (g.strips[size_t (i)].role == ChannelRole::LeadVocal) { lead = i; break; }
+        if (lead >= 0)
+        {
+            view.getAdvancedPage().select (lead);
+            rig.feed (0.3);
+            for (int st = 0; st < view.getAdvancedPage().numStages(); ++st)
+            {
+                view.getAdvancedPage().selectStage (st);
+                rig.feed (0.3);
+                rig.snap (dir, "17-stage-" + juce::String (st).paddedLeft ('0', 2) + "-"
+                                   + view.getAdvancedPage().stageName (st));
+            }
+        }
+        view.getAdvancedPage().selectStage (0);
+        view.getAdvancedPage().select (1);
+    }
+
     view.getAdvancedPage().selectStage (0);
     view.getAdvancedPage().selectBus (MixBus::Drums);
     rig.feed (0.3);
@@ -1210,6 +1235,14 @@ int main (int argc, char** argv)
     view.getAdvancedPage().selectBus (MixBus::Master);
     rig.feed (0.3);
     rig.snap (dir, "14-inspector-master");
+    for (int st = 0; st < view.getAdvancedPage().numStages(); ++st)
+    {
+        view.getAdvancedPage().selectStage (st);
+        rig.feed (0.3);
+        rig.snap (dir, "17m-master-stage-" + juce::String (st).paddedLeft ('0', 2) + "-"
+                           + view.getAdvancedPage().stageName (st));
+    }
+    view.getAdvancedPage().selectStage (0);
 
     // Every panel at the edge folded away: the sidebar and both of the Inspector's
     // columns, so the channel and its chain have the whole window.
