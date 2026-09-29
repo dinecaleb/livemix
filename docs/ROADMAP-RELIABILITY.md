@@ -119,6 +119,10 @@ test; each change that alters the sound creates a Mix history checkpoint.
    `busFromStoredIndex` remaps, bump `kVersion`. **Before splitting MUSIC into KEYS / GUITAR / OTHER, say what
    it costs — you were not sure it is worth it yet.** Profile numbers for the new bus in `MixProfileData.cpp`
    only. Tune and MixPlanner treat LEAD, BGV and SPEECH as distinct roles.
+2. ✅ **Speaking / Singing on voice channels.** *(2026-09-28. "This microphone is" on the MIXER strip's menu
+   and the TRACKS header's menu: SPEAKING / SINGING LEAD / SINGING BACKING / CHOIR, from
+   `MixController::voiceJobs`; `setInputRole` moves the input to its group and applies the profile's starting
+   point for the new role.)* The original note:
 2. **Speaking / Singing on voice channels.** One-press starting points for pastor, host, MC, lead and guest
   mics. Tune starting points from profile data (`VocalStrategies` already has Lead and Speech), not frozen
    presets: everything stays editable and a Re-tune respects the choice.

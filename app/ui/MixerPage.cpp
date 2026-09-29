@@ -844,6 +844,21 @@ public:
         {
             m.addItem (1, "TUNE CHANNEL", tune != nullptr);
             m.addItem (2, "Open in the Inspector", open != nullptr);
+            // WHAT THIS MICROPHONE IS DOING. A handheld is the pastor's in the sermon and the
+            // worship leader's in the last song, and those are not the same channel. One press
+            // moves it to the right group and gives it the profile's starting point for the
+            // job - a starting point, not a preset: the next TUNE plans it as what it now is.
+            if (controller.isVoiceChannel (strip))
+            {
+                juce::PopupMenu jobs;
+                const auto now = controller.getSession().inputs[size_t (strip)].role;
+                int id = 200;
+                for (const auto& job : MixController::voiceJobs())
+                {
+                    jobs.addItem (id++, juce::String (job.name), ! controller.isLiveSafe(), job.role == now);
+                }
+                m.addSubMenu ("This microphone is", jobs);
+            }
             m.addSeparator();
             m.addItem (3, "Set to record");
             m.addItem (4, "Monitoring: Input");
@@ -881,6 +896,14 @@ public:
                          {
                              if (safe == nullptr || chosen <= 0) return;
                              auto& s = *safe;
+                             if (chosen >= 200 && chosen < 300)
+                             {
+                                 const auto& jobs = MixController::voiceJobs();
+                                 const size_t which = size_t (chosen - 200);
+                                 if (which < jobs.size() && s.controller.setInputRole (s.strip, jobs[which].role))
+                                     s.services.reconfigure();     // the graph changed, exactly as an assignment does
+                                 return;
+                             }
                              if (chosen >= 300)
                              {
                                  const int other = chosen - 300;

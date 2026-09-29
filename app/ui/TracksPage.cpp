@@ -1013,6 +1013,19 @@ void TracksPage::headerMenu (int track)
     }
     m.addSubMenu ("Source", sources, true);
 
+    // WHAT THIS MICROPHONE IS DOING. "Source" is what an input *is* and lives among sixty
+    // choices; this is the one question a voice channel is actually asked in the middle of a
+    // service - the handheld is the pastor's in the sermon and the worship leader's in the
+    // last song - so it is four plain words at the top level, one press each.
+    if (controller.isVoiceChannel (track))
+    {
+        juce::PopupMenu jobs;
+        int jobId = 400;
+        for (const auto& job : MixController::voiceJobs())
+            jobs.addItem (jobId++, juce::String (job.name), ! controller.isLiveSafe(), job.role == input.role);
+        m.addSubMenu ("This microphone is", jobs, true);
+    }
+
     // The icon follows the source unless this session says otherwise - a pad running backing
     // tracks, a spare DI carrying talkback - so the picture on the header can be put right
     // without pretending the input is something it is not.
@@ -1063,6 +1076,17 @@ void TracksPage::headerMenu (int track)
                      [this, track, clip, byId, iconKeys] (int chosen)
                      {
                          if (chosen <= 0 || track >= numTracks()) return;
+                         if (chosen >= 400)
+                         {
+                             const auto& jobs = MixController::voiceJobs();
+                             const size_t which = size_t (chosen - 400);
+                             if (which < jobs.size() && controller.setInputRole (track, jobs[which].role))
+                             {
+                                 services.reconfigure();    // the graph changed, exactly as a source change does
+                                 rebuild();
+                             }
+                             return;
+                         }
                          if (chosen >= 300)
                          {
                              const int other = chosen - 300, group = controller.getStripLink (track);

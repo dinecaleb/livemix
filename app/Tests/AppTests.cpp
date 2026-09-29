@@ -1773,3 +1773,84 @@ TEST_CASE ("MixController: RESET TO RAW takes back everything DLIVE decided and 
     CHECK_NEAR (c.getKept().strips[1].faderDb, -3.0f, 0.01f);
     c.setLiveSafe (false);
 }
+
+TEST_CASE ("MixController: a voice microphone is given a job, and the next tune plans it as that")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+
+    // band() is Kick, Bass, Keys, Lead, Vox. The lead is strip 3.
+    const int lead = 3, kick = 0;
+    CHECK (c.isVoiceChannel (lead));
+    CHECK (c.isVoiceChannel (4));
+    CHECK (! c.isVoiceChannel (kick));            // a kick drum is not offered a job
+    CHECK (! c.isVoiceChannel (2));               // nor a keyboard
+    CHECK (c.voiceJobs().size() == 4);
+    for (const auto& job : c.voiceJobs())
+    {
+        CHECK (juce::String (job.name).isNotEmpty());
+        CHECK (juce::String (job.what).length() > 40);      // every one of them says what it does
+    }
+
+    // A handheld that was a lead vocal becomes the preaching microphone: it moves to the
+    // SPEECH group and takes the profile's own starting point for a speech channel.
+    CHECK (c.getGraph().strips[size_t (lead)].bus == MixBus::Lead);
+    const auto wasKick = c.getKept().strips[size_t (kick)];
+    const auto wasLead = c.getKept().strips[size_t (lead)].channel;
+    REQUIRE (c.setInputRole (lead, ChannelRole::Speech));
+    c.prepare (kSr, kBlock);
+    CHECK (c.getSession().inputs[size_t (lead)].role == ChannelRole::Speech);
+    CHECK (c.getGraph().strips[size_t (lead)].bus == MixBus::Speech);
+    CHECK (! diffParameters (wasLead, c.getKept().strips[size_t (lead)].channel).empty());
+
+    // It is the profile's starting point for what it now is, not a frozen preset.
+    {
+        const auto raw = startingPoint (c.getSession(), c.getGraph());
+        CHECK (diffParameters (c.getKept().strips[size_t (lead)].channel, raw.strips[size_t (lead)].channel).empty());
+    }
+    // ...and nothing else moved.
+    CHECK (diffParameters (wasKick.channel, c.getKept().strips[size_t (kick)].channel).empty());
+    CHECK_NEAR (wasKick.faderDb, c.getKept().strips[size_t (kick)].faderDb, 0.001f);
+
+    // THE NEXT TUNE PLANS IT AS WHAT IT NOW IS, and the choice survives the tune.
+    c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    c.keepPlan();
+    CHECK (c.getSession().inputs[size_t (lead)].role == ChannelRole::Speech);
+    CHECK (c.getGraph().strips[size_t (lead)].bus == MixBus::Speech);
+    // ...and the mix it landed on is a speech channel's, not a lead vocal's: TUNE planned it
+    // from the speech family because that is what the input is now.
+    {
+        auto asLead = c.getSession();
+        asLead.inputs[size_t (lead)].role = ChannelRole::LeadVocal;
+        const auto leadRaw = startingPoint (asLead, RoutingGraph::build (asLead));
+        CHECK (! diffParameters (c.getKept().strips[size_t (lead)].channel, leadRaw.strips[size_t (lead)].channel).empty());
+    }
+
+    // The way back is the mix history, because a graph change is a different mix and clears UNDO.
+    bool named = false;
+    for (const auto& cp : c.getCheckpoints()) if (cp.what.find ("Before Lead became") != std::string::npos) named = true;
+    CHECK (named);
+
+    // Asking for what it already is changes nothing; so does a strip that is not there.
+    CHECK (! c.setInputRole (lead, ChannelRole::Speech));
+    CHECK (! c.setInputRole (99, ChannelRole::Speech));
+    CHECK (! c.setInputRole (-1, ChannelRole::Speech));
+
+    // LIVE SAFE refuses it: the graph is rebuilt, and that stops the audio for a moment.
+    c.setLiveSafe (true);
+    std::string said;
+    c.onMessage = [&said] (const std::string& m) { said = m; };
+    CHECK (! c.setInputRole (lead, ChannelRole::LeadVocal));
+    CHECK (said.find ("LIVE SAFE") != std::string::npos);
+    CHECK (c.getSession().inputs[size_t (lead)].role == ChannelRole::Speech);
+    c.setLiveSafe (false);
+
+    // ...and back again: a handheld is a lead vocal in the last song.
+    REQUIRE (c.setInputRole (lead, ChannelRole::LeadVocal));
+    c.prepare (kSr, kBlock);
+    CHECK (c.getGraph().strips[size_t (lead)].bus == MixBus::Lead);
+}

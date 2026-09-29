@@ -382,6 +382,34 @@ public:
     void setBypass (bool on);
     bool isBypassed() const noexcept { return bypassed; }
 
+    // ---- WHAT THIS MICROPHONE IS DOING ----
+    //
+    // A church has three or four microphones that do two jobs. The handheld is the pastor's in
+    // the sermon and the worship leader's in the last song; the lapel is a host introducing the
+    // service and then an MC; the spare at the back is a guest, and nobody knows which kind of
+    // guest until they open their mouth. Those are not the same channel: a preaching microphone
+    // is levelled to a spoken target, gated, de-essed hard and cut under the boom; a lead vocal
+    // is levelled to a sung target, never gated, and given a pocket in the band.
+    //
+    // So it is one press. `setInputRole` changes what the input *is*: the graph is rebuilt (the
+    // source moves to SPEECH or LEAD or BGV), and that one strip takes the profile's own
+    // starting point for its new role. Every other channel is exactly where it was.
+    //
+    // THESE ARE STARTING POINTS, NOT PRESETS. What lands is what `Profiles` says a source of
+    // that kind starts from - the same table TUNE plans from - so everything stays editable, a
+    // TUNE MIX or a RE-TUNE plans the channel as what it now is, and the choice survives both.
+    //
+    // The graph is rebuilt, so LIVE SAFE refuses it with a sentence and the host has to call
+    // prepare() afterwards, exactly as it does for any assignment change. Returns false when
+    // it was refused, out of range, or already that.
+    bool setInputRole (int strip, ChannelRole role);
+    // The jobs a voice microphone can be given, in the words a volunteer uses. Empty for a
+    // channel that is not a microphone somebody talks or sings into.
+    struct VoiceJob { ChannelRole role; const char* name; const char* what; };
+    static const std::vector<VoiceJob>& voiceJobs();
+    // Is this strip one of them? A kick drum is not offered a job.
+    bool isVoiceChannel (int strip) const;
+
     // ---- RESET MIX TO RAW ----
     //
     // Everything DLIVE has decided about the sound, taken back: every strip's chain, gain,

@@ -87,6 +87,20 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   they were would change the blend rather than the tone - and the blend is what the hierarchy rules own. Mix
   Buddy hears "the vocals", "the voices" and "the singers" as the lead, and "BGV", "backing" and "choir" as the
   backing group.
+- **WHAT THIS MICROPHONE IS DOING (2026-09-28, `MixController::setInputRole` / `voiceJobs`).** A church has
+  three or four microphones that do two jobs: the handheld is the pastor's in the sermon and the worship
+  leader's in the last song, the lapel is a host and then an MC, the spare at the back is a guest nobody can
+  classify until they open their mouth. Those are not the same channel - a preaching microphone is levelled to
+  a spoken target, gated, de-essed hard and cut under the boom; a lead vocal is levelled to a sung target,
+  never gated, and given a pocket in the band. So a voice channel carries "This microphone is" on the MIXER
+  strip's menu and the TRACKS header's menu, in four plain words: SPEAKING / SINGING LEAD / SINGING BACKING /
+  CHOIR. One press moves the input to the right group and gives that one strip the profile's own starting
+  point for the job. Every other channel is exactly where it was.
+  **They are starting points, not presets**: what lands is `startingPoint (session, graph)` for the new role -
+  the same table TUNE plans from - so everything stays editable and the next TUNE MIX or RE-TUNE plans the
+  channel as what it now is. The graph is rebuilt, so the host calls `reconfigure()` afterwards and LIVE SAFE
+  refuses it (`LiveAction::Routing`) with the sentence that says why. A rebuild clears UNDO, so the way back is
+  a Mix history checkpoint named "Before <name> became <role>", taken first.
 - **RESET MIX TO RAW (2026-09-28, `MixController::resetMixToRaw`).** Everything DLIVE has decided about the
   sound, taken back: every strip's chain, gain, fader, pan and sends, every group's chain and fader, the
   returns, the master, the macros and the sample replacement, all the way to `startingPoint (session, graph)` -

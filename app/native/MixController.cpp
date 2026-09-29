@@ -593,6 +593,75 @@ void MixController::setBypass (bool on)
     publish();                       // the kept mix is not touched, so there is nothing to save
 }
 
+const std::vector<MixController::VoiceJob>& MixController::voiceJobs()
+{
+    // Plain words. "Speech", "lead vocal" and "backing vocal" are the engine's names for
+    // these; what a volunteer is asked is what the person holding the microphone is doing.
+    static const std::vector<VoiceJob> jobs = {
+        { ChannelRole::Speech,       "SPEAKING",
+          "Preaching, hosting, announcements. Levelled to a spoken target, held steady, the boom cut "
+          "and the S sounds tamed - and it goes to the SPEECH group, which has its own fader." },
+        { ChannelRole::LeadVocal,    "SINGING LEAD",
+          "The voice the mix is built around. Levelled to a sung target, never gated, given a pocket "
+          "in the band - and it goes to the LEAD group." },
+        { ChannelRole::BackingVocal, "SINGING BACKING",
+          "A voice that sits under the lead and moves with it. It goes to the BGV group, which is "
+          "held under the lead by the profile." },
+        { ChannelRole::Choir,        "CHOIR",
+          "A section rather than a soloist: gentler, wider, and further under the lead than a single "
+          "backing voice. It goes to the BGV group." },
+    };
+    return jobs;
+}
+
+bool MixController::isVoiceChannel (int strip) const
+{
+    if (strip < 0 || strip >= int (session.inputs.size())) return false;
+    switch (roleFamily (session.inputs[size_t (strip)].role))
+    {
+        case RoleFamily::LeadVocal:
+        case RoleFamily::BackingVocal:
+        case RoleFamily::Choir:
+        case RoleFamily::Speech:     return true;
+        default:                     return false;
+    }
+}
+
+bool MixController::setInputRole (int strip, ChannelRole role)
+{
+    if (strip < 0 || strip >= int (session.inputs.size())) return false;
+    if (session.inputs[size_t (strip)].role == role) return false;
+    if (liveSafeRefuses (LiveAction::Routing)) return false;
+
+    // A rebuild clears UNDO (a graph change is a different mix), so the way back is the mix
+    // history rather than a snapshot: a checkpoint before, named after what is about to happen.
+    const std::string name = session.inputs[size_t (strip)].name;
+    checkpoint ("Before " + name + " became " + channelRoleName (role), false);
+
+    auto next = session;
+    next.inputs[size_t (strip)].role = role;
+    setSession (next);            // rebuilds the graph and carries every other strip's mix across
+
+    // ...and this one strip takes the profile's own starting point for what it now is. The
+    // engineer's listening state is not part of what the channel is.
+    const MixParameters raw = startingPoint (session, graph);
+    if (strip < raw.numStrips && strip < kept.numStrips)
+    {
+        const bool mute = kept.strips[size_t (strip)].mute;
+        const bool solo = kept.strips[size_t (strip)].solo;
+        kept.strips[size_t (strip)] = raw.strips[size_t (strip)];
+        kept.strips[size_t (strip)].mute = mute;
+        kept.strips[size_t (strip)].solo = solo;
+        atCapture = kept;
+    }
+    publish();
+    mark (name + ": " + channelRoleName (role));
+    if (onMessage)
+        onMessage (name + " is set up for " + std::string (channelRoleName (role)) + ". It is a starting point, not a "
+                   "preset: everything is still editable, and the next TUNE plans it as what it now is.");
+    return true;
+}
+
 bool MixController::resetMixToRaw()
 {
     if (! built) return false;
