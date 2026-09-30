@@ -433,6 +433,20 @@ namespace
             if (samples != nullptr)
                 for (const auto& gone : resolveSampleChoices (state.samples, *samples, controller, &unresolvedSounds))
                     recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + juce::String (gone);
+            {
+                // Audio that is not where the session says it is plays as silence: said, by name,
+                // rather than left for the engineer to wonder why the keys are gone.
+                const auto gone = missingAudio (state.project, state.session);
+                if (! gone.empty())
+                {
+                    juce::String names;
+                    for (size_t k = 0; k < gone.size() && k < 4; ++k) names += (k == 0 ? "" : ", ") + juce::String (gone[k]);
+                    if (gone.size() > 4) names += " and " + juce::String (int (gone.size()) - 4) + " more";
+                    recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + juce::String (int (gone.size()))
+                                  + (gone.size() == 1 ? " track plays" : " tracks play") + " silence because its audio is not where the session left it ("
+                                  + names + "). Moved or renamed? Put the files back, or import the folder again.";
+                }
+            }
 
             // What could not be opened becomes a sentence on the toast, never a refusal: the
             // whole point of a recording is to be able to open it somewhere else.

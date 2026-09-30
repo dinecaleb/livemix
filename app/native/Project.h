@@ -25,6 +25,9 @@ struct AudioClip
     juce::int64 offset = 0;         // first sample used from the file
     juce::int64 length = 0;         // how many samples are used
     double fileSampleRate = 0.0;    // 0 = same as the project
+    // Last, so the positional initialisers stay as they were. Two mono stems joined as one stereo input ("OH L" + "OH R"): `file` is the left, this is
+    // the right, and they run sample for sample. Empty = `file` carries both sides.
+    juce::String fileRight;
 
     juce::int64 end() const noexcept { return start + length; }
     bool covers (juce::int64 pos) const noexcept { return pos >= start && pos < end(); }
@@ -114,9 +117,62 @@ struct Project
         // disagreeing about which input is which.
         const auto match = matchInputs (previous, next);
         std::vector<TrackState> moved (next.inputs.size());
+        std::vector<bool> used (tracks.size(), false);
         for (size_t n = 0; n < match.size(); ++n)
             if (match[n] >= 0 && match[n] < int (tracks.size()))
-                moved[n] = std::move (tracks[size_t (match[n])]);
+            {
+                moved[n] = tracks[size_t (match[n])];
+                used[size_t (match[n])] = true;
+            }
+
+        // TWO MONO STEMS JOINED AS A PAIR. "OH L" and "OH R" imported as two inputs and linked
+        // on ASSIGN become one stereo input on the left one's channel - and the right one's
+        // track used to go with its input, so the pair played its left side down the middle
+        // and the right side was never heard. Its clips now ride on the left track's as the
+        // right-hand file.
+        auto previousOn = [&] (int channel) -> int
+        {
+            for (size_t p = 0; p < previous.inputs.size(); ++p)
+                if (previous.inputs[p].inputA == channel && ! previous.inputs[p].isStereo()) return int (p);
+            return -1;
+        };
+        for (size_t n = 0; n < next.inputs.size(); ++n)
+        {
+            const auto& in = next.inputs[n];
+            if (! in.isStereo() || match[n] < 0 || previous.inputs[size_t (match[n])].isStereo()) continue;
+            const int right = previousOn (in.inputB);
+            if (right < 0 || right >= int (tracks.size()) || used[size_t (right)]) continue;
+            for (auto& clip : moved[n].clips)
+                for (const auto& r : tracks[size_t (right)].clips)
+                    if (r.start == clip.start && r.length == clip.length && clip.fileRight.isEmpty())
+                        { clip.fileRight = r.file; break; }
+            used[size_t (right)] = true;
+        }
+        // ... and taken apart again: the right-hand files go back to a track of their own on
+        // the right side's channel, and the left track stops carrying them.
+        for (size_t n = 0; n < next.inputs.size(); ++n)
+        {
+            const auto& in = next.inputs[n];
+            if (in.isStereo()) continue;
+            if (match[n] >= 0)
+            {
+                if (previous.inputs[size_t (match[n])].isStereo())
+                    for (auto& clip : moved[n].clips) clip.fileRight = {};
+                continue;
+            }
+            for (size_t p = 0; p < previous.inputs.size() && p < tracks.size(); ++p)
+            {
+                const auto& was = previous.inputs[p];
+                if (! was.isStereo() || was.inputB != in.inputA) continue;
+                TrackState split = tracks[p];
+                split.armed = false;
+                split.clips.clear();
+                for (auto clip : tracks[p].clips)
+                    if (clip.fileRight.isNotEmpty()) { clip.file = clip.fileRight; clip.fileRight = {}; split.clips.push_back (clip); }
+                moved[n] = split;
+                break;
+            }
+        }
         tracks = std::move (moved);
     }
 
@@ -147,11 +203,13 @@ struct Project
     }
 
     // Resolves a clip's file: a bare name lives in "Audio Files", anything else is a path.
-    juce::File fileFor (const AudioClip& clip) const
+    juce::File fileFor (const AudioClip& clip) const { return fileForPath (clip.file); }
+    juce::File rightFileFor (const AudioClip& clip) const { return fileForPath (clip.fileRight); }
+    juce::File fileForPath (const juce::String& path) const
     {
-        if (clip.file.isEmpty()) return {};
-        if (juce::File::isAbsolutePath (clip.file)) return juce::File (clip.file);
-        return audioFolder().getChildFile (clip.file);
+        if (path.isEmpty()) return {};
+        if (juce::File::isAbsolutePath (path)) return juce::File (path);
+        return audioFolder().getChildFile (path);
     }
 };
 

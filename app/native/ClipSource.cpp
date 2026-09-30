@@ -89,9 +89,22 @@ void ClipSource::read (juce::int64 from, int count)
             const int sourceChannels = juce::jmin (2, int (reader->numChannels));
             scratch.clear (0, needed);
             float* src[2] = { scratch.getWritePointer (0), scratch.getWritePointer (1) };
-            reader->read (src, sourceChannels, clip.offset + juce::int64 (double (clipOffset) * ratio), needed);
-            if (sourceChannels == 1)
-                juce::FloatVectorOperations::copy (src[1], src[0], needed);   // a mono file feeds both sides of a stereo track
+            const juce::int64 at = clip.offset + juce::int64 (double (clipOffset) * ratio);
+            auto* right = clip.fileRight.isNotEmpty() && track.channels > 1 ? readerFor (clip.fileRight) : nullptr;
+            if (right != nullptr && right->numChannels > 0)
+            {
+                // Two mono stems joined as a pair: the left file is the left, the right file the right.
+                float* one[1] = { src[0] };
+                reader->read (one, 1, at, needed);
+                one[0] = src[1];
+                right->read (one, 1, at, needed);
+            }
+            else
+            {
+                reader->read (src, sourceChannels, at, needed);
+                if (sourceChannels == 1)
+                    juce::FloatVectorOperations::copy (src[1], src[0], needed);   // a mono file feeds both sides of a stereo track
+            }
 
             for (int ch = 0; ch < track.channels; ++ch)
             {

@@ -162,6 +162,10 @@ void readSampleChoices (const MixController&, const SampleLibrary&,
 // that strip's Sample stage off), so the caller can say so; empty when everything resolved.
 // `unresolved`, when given, receives the stored choice of every strip whose sound has gone -
 // so the next save can write the name that was asked for instead of forgetting it.
+// The inputs whose clips point at audio that is not on the disk (moved, renamed, a drive not
+// plugged in): their names, once each. Those tracks play silence.
+std::vector<std::string> missingAudio (const Project& project, const MixSession& session);
+
 std::vector<std::string> resolveSampleChoices (const std::array<SampleChoice, kMaxStrips>&,
                                                const SampleLibrary&, MixController&,
                                                std::array<SampleChoice, kMaxStrips>* unresolved = nullptr);

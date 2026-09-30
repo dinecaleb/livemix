@@ -21,9 +21,12 @@ namespace StemNames
     {
         static const Guess table[] = {
             { "kick",  ChannelRole::KickIn }, { "bd", ChannelRole::KickIn, true },
-            { "snare", ChannelRole::SnareTop }, { "sn", ChannelRole::SnareTop, true },
+            // Playback first: "tracks" has "rack" inside it, and a backing track read as a rack
+            // tom got a gate, a tom's EQ and the drum room (the Praise stems, 2026-09-30).
+            { "track", ChannelRole::SynthPad },
+            { "snare", ChannelRole::SnareTop }, { "snr", ChannelRole::SnareTop }, { "sn", ChannelRole::SnareTop, true },
             { "hat",   ChannelRole::HiHat }, { "hh", ChannelRole::HiHat, true },
-            { "tom l", ChannelRole::RackTom }, { "rack", ChannelRole::RackTom }, { "tom 1", ChannelRole::RackTom }, { "tom1", ChannelRole::RackTom },
+            { "tom l", ChannelRole::RackTom }, { "rack", ChannelRole::RackTom, true }, { "racktom", ChannelRole::RackTom }, { "tom 1", ChannelRole::RackTom }, { "tom1", ChannelRole::RackTom },
             { "tom r", ChannelRole::FloorTom }, { "floor", ChannelRole::FloorTom }, { "tom 2", ChannelRole::FloorTom }, { "tom2", ChannelRole::FloorTom },
             { "tom",   ChannelRole::RackTom },
             // Overheads. Live desks write them "OH", "OV", "OVH" or spell them out; the cymbal mics
@@ -65,11 +68,13 @@ namespace StemNames
             { "organ", ChannelRole::Organ }, { "keys", ChannelRole::Piano }, { "piano", ChannelRole::Piano }, { "pad", ChannelRole::SynthPad },
             // Playback from the stage or the booth: a loop, a backing track, a click, the computer feed
             // a desk calls "Computer Audio" or "USB". It is music, so it joins the music bus.
-            { "track", ChannelRole::SynthPad }, { "playback", ChannelRole::SynthPad }, { "loop", ChannelRole::SynthPad },
+            { "playback", ChannelRole::SynthPad }, { "loop", ChannelRole::SynthPad },
+            // A sample pad (Roland SPD, "Pad", "Samples") plays loops and hits along with the band.
+            { "spd", ChannelRole::SynthPad, true }, { "sampler", ChannelRole::SynthPad }, { "samples", ChannelRole::SynthPad },
             { "click", ChannelRole::SynthPad }, { "synth", ChannelRole::SynthLead },
             { "computer", ChannelRole::SynthPad }, { "usb", ChannelRole::SynthPad, true }, { "media", ChannelRole::SynthPad },
             { "video", ChannelRole::SynthPad }, { "laptop", ChannelRole::SynthPad },
-            { "acoustic", ChannelRole::AcousticGuitar }, { "gtr", ChannelRole::ElectricGuitarClean }, { "guitar", ChannelRole::ElectricGuitarClean },
+            { "acoustic", ChannelRole::AcousticGuitar }, { "gtr", ChannelRole::ElectricGuitarClean }, { "guit", ChannelRole::ElectricGuitarClean },
             { "lead",  ChannelRole::LeadVocal }, { "ld", ChannelRole::LeadVocal, true },
             { "choir", ChannelRole::Choir },
             { "vox",   ChannelRole::BackingVocal }, { "bgv", ChannelRole::BackingVocal }, { "bv", ChannelRole::BackingVocal, true }, { "vocal", ChannelRole::BackingVocal },
@@ -165,6 +170,17 @@ namespace StemNames
             const juce::String needle (table[i].needle);
             if (table[i].whole ? ! containsWord (name, needle) : ! name.contains (needle)) continue;
             role = table[i].role;
+            // The snare's other microphone: "SNR BM", "Snare Bottom", "SN Btm", "Snare Under".
+            if (role == ChannelRole::SnareTop)
+            {
+                bool bottom = false;
+                forEachWord (name, [&] (const juce::String& w)
+                {
+                    bottom = w == "bm" || w == "bot" || w == "btm" || w == "bottom" || w == "under" || w == "bt";
+                    return bottom;
+                });
+                if (bottom) role = ChannelRole::SnareBottom;
+            }
             // A pair of mono overheads is named by its side, and the side is where it belongs in the image.
             if (role == ChannelRole::Overhead)
             {

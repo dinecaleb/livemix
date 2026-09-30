@@ -128,6 +128,8 @@ namespace
                 if (! resolved.existsAsFile()) continue;
                 auto copy = clip;
                 copy.file = resolved.getFullPathName();
+                const auto right = project.rightFileFor (clip);
+                copy.fileRight = right.existsAsFile() ? right.getFullPathName() : juce::String();
                 tracks[i].clips.push_back (copy);
             }
         }

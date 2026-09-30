@@ -89,6 +89,8 @@ void DawEngine::rebuildPlayer()
             const auto file = project.fileFor (clip);
             if (! file.existsAsFile()) continue;         // a missing take is silence, never a crash
             resolved.file = file.getFullPathName();
+            const auto right = project.rightFileFor (clip);
+            resolved.fileRight = right.existsAsFile() ? right.getFullPathName() : juce::String();
             forPlayer[i].clips.push_back (resolved);
         }
     }

@@ -462,6 +462,7 @@ namespace
                 auto* co = new juce::DynamicObject();
                 co->setProperty ("name", c.name);
                 co->setProperty ("file", c.file);
+                if (c.fileRight.isNotEmpty()) co->setProperty ("fileRight", c.fileRight);
                 co->setProperty ("start", double (c.start));
                 co->setProperty ("offset", double (c.offset));
                 co->setProperty ("length", double (c.length));
@@ -512,6 +513,7 @@ namespace
                                 AudioClip c;
                                 c.name = co->getProperty ("name").toString();
                                 c.file = co->getProperty ("file").toString();
+                                c.fileRight = co->getProperty ("fileRight").toString();
                                 c.start = juce::int64 (double (co->getProperty ("start")));
                                 c.offset = juce::int64 (double (co->getProperty ("offset")));
                                 c.length = juce::int64 (double (co->getProperty ("length")));

@@ -1043,6 +1043,22 @@ TEST_CASE ("StemNames: the labels a live desk actually writes, and no accidents 
     // A channel named after the person singing on it cannot be guessed, and must not be guessed at:
     // the import lists it for the user to assign.
     CHECK (guess ("angelica") == ChannelRole::Count);
+
+    // The Praise stems (2026-09-30): backing tracks were read as rack toms ("tracks" has "rack" in
+    // it), the snare's bottom mic as its top, and the guitars and the sample pad were not read at all.
+    CHECK (guess ("tracks1") == ChannelRole::SynthPad);
+    CHECK (guess ("Tracks L") == ChannelRole::SynthPad);
+    CHECK (guess ("Rack Tom") == ChannelRole::RackTom);
+    CHECK (guess ("Rack 2") == ChannelRole::RackTom);
+    CHECK (guess ("06-TOM1-240927_2117") == ChannelRole::RackTom);
+    CHECK (guess ("03-SNR TP-240927_2117") == ChannelRole::SnareTop);
+    CHECK (guess ("04-SNR BM-240927_2117") == ChannelRole::SnareBottom);
+    CHECK (guess ("Snare Bottom") == ChannelRole::SnareBottom);
+    CHECK (guess ("14-E.GUIT L-240927_2117") == ChannelRole::ElectricGuitarClean);
+    CHECK (guess ("Guitar") == ChannelRole::ElectricGuitarClean);
+    CHECK (guess ("12-SPD-240927_2117") == ChannelRole::SynthPad);
+    CHECK (guess ("10-OH L-240927_2117") == ChannelRole::OverheadLeft);
+    CHECK (guess ("audienceL") == ChannelRole::CrowdMic);
 }
 
 // The shape of the bug these guard: the ASSIGN page rebuilds MixSession::inputs from
@@ -3993,4 +4009,77 @@ TEST_CASE ("Samples: finding a stored sound again is not an edit - nothing to un
     CHECK (reopened.getKept().strips[0].channel.replaceSound == 1);
     CHECK (reopened.canUndoMix() == couldUndo);
     CHECK (reopened.getAllStripHistory().size() == history);
+}
+
+// ---------------------------------------------------------------------------
+// Two mono stems joined as one stereo input
+// ---------------------------------------------------------------------------
+TEST_CASE ("Stereo pair: two mono stems linked on ASSIGN keep both sides, and come apart again")
+{
+    // "OH L" and "OH R" imported as two inputs. Linking them used to drop the right one's
+    // track, so the pair played its left side down the middle (the Praise stems, 2026-09-30).
+    const auto folder = scratchFolder().getChildFile ("pair");
+    folder.deleteRecursively();
+    const auto left = writeTone (folder, "OH L.wav", 0.5, 0.5f, 220.0f);
+    const auto right = writeTone (folder, "OH R.wav", 0.5, 0.25f, 440.0f);
+
+    MixSession apart;
+    apart.inputs = { { "OH L", ChannelRole::OverheadLeft, 0, -1 }, { "OH R", ChannelRole::OverheadRight, 1, -1 } };
+    Project p;
+    p.tracks.resize (2);
+    for (int t = 0; t < 2; ++t)
+    {
+        AudioClip c;
+        c.file = (t == 0 ? left : right).getFullPathName();
+        c.length = juce::int64 (kSr / 2);
+        c.fileSampleRate = kSr;
+        p.tracks[size_t (t)].clips.push_back (c);
+    }
+
+    MixSession joined;
+    joined.inputs = { { "OH", ChannelRole::Overhead, 0, 1 } };
+    p.syncTracks (apart, joined);
+    REQUIRE (p.tracks.size() == 1);
+    REQUIRE (p.tracks[0].clips.size() == 1);
+    CHECK (p.tracks[0].clips[0].file == left.getFullPathName());
+    CHECK (p.tracks[0].clips[0].fileRight == right.getFullPathName());
+
+    // Heard as a pair: the left file on the left, the right file on the right.
+    ClipSource::Track track;
+    track.channels = 2;
+    track.clips = p.tracks[0].clips;
+    ClipSource source;
+    source.prepare (kSr, 512, { track });
+    source.read (4800, 512);
+    float l = 0.0f, r = 0.0f;
+    for (int i = 0; i < 512; ++i) { l = std::max (l, std::fabs (source.channel (0, 0)[i])); r = std::max (r, std::fabs (source.channel (0, 1)[i])); }
+    CHECK (l > 0.45f);
+    CHECK (r > 0.2f);
+    CHECK (r < 0.3f);
+
+    // Saved and opened again, still a pair.
+    SessionStore::Document d;
+    d.session = joined;
+    d.project = p;
+    SessionStore::Document back;
+    REQUIRE (SessionStore::fromVar (juce::JSON::parse (juce::JSON::toString (SessionStore::toVar (d))), back));
+    REQUIRE (back.project.tracks.size() == 1);
+    CHECK (back.project.tracks[0].clips[0].fileRight == right.getFullPathName());
+
+    // Taken apart: the right file goes back to a track of its own.
+    p.syncTracks (joined, apart);
+    REQUIRE (p.tracks.size() == 2);
+    REQUIRE (p.tracks[0].clips.size() == 1);
+    REQUIRE (p.tracks[1].clips.size() == 1);
+    CHECK (p.tracks[0].clips[0].file == left.getFullPathName());
+    CHECK (p.tracks[0].clips[0].fileRight.isEmpty());
+    CHECK (p.tracks[1].clips[0].file == right.getFullPathName());
+
+    // A file that has gone is named, so the engineer knows why a track is silent.
+    right.deleteFile();
+    p.syncTracks (apart, joined);
+    const auto gone = missingAudio (p, joined);
+    REQUIRE (gone.size() == 1);
+    CHECK (gone[0] == "OH");
+    folder.deleteRecursively();
 }

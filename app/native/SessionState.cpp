@@ -145,6 +145,24 @@ void keepUnresolvedSampleChoices (std::array<SampleChoice, kMaxStrips>& unresolv
     }
 }
 
+std::vector<std::string> missingAudio (const Project& project, const MixSession& session)
+{
+    std::vector<std::string> out;
+    for (size_t t = 0; t < project.tracks.size(); ++t)
+    {
+        bool gone = false;
+        for (const auto& clip : project.tracks[t].clips)
+        {
+            if (! project.fileFor (clip).existsAsFile()) gone = true;
+            if (clip.fileRight.isNotEmpty() && ! project.rightFileFor (clip).existsAsFile()) gone = true;
+        }
+        if (! gone) continue;
+        out.push_back (t < session.inputs.size() && ! session.inputs[t].name.empty() ? session.inputs[t].name
+                                                                                     : "Track " + std::to_string (t + 1));
+    }
+    return out;
+}
+
 std::vector<std::string> resolveSampleChoices (const std::array<SampleChoice, kMaxStrips>& choices,
                                                const SampleLibrary& library, MixController& controller,
                                                std::array<SampleChoice, kMaxStrips>* unresolved)
