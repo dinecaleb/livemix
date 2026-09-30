@@ -1163,12 +1163,50 @@ void MixController::publish()
     running = compose();
     // THE ENGINE PLAYS THE GRAPH IT WAS PREPARED WITH. A change of inputs rebuilds the graph
     // here at once (rebuild()) but reaches the audio only when the device is reconfigured;
-    // parameters are handed over by strip position, so publishing in between would give every
-    // channel after an inserted input its neighbour's gain, gate, EQ and fader - the kick's
-    // gate on the pastor's microphone. Until the two agree the engine keeps the mix that
-    // matches its own graph, and prepare() publishes the new one.
-    if (! engineHasThisGraph()) return;
-    engine.setParameters (running);
+    // parameters are handed over by strip position, so handing them over as they are would
+    // give every channel after an inserted input its neighbour's gain, gate, EQ and fader -
+    // the kick's gate on the pastor's microphone. So in between, every strip the engine is
+    // playing takes the settings of the strip that listens to the same device channels, and
+    // everything that does not belong to one input - the groups, the master, the returns and
+    // above all MUTE and DIM - goes through as it is. Refusing to publish instead froze the
+    // whole console, emergency keys included, until something happened to re-open the device.
+    onEngine = engineHasThisGraph() ? running : onEngineGraph (running);
+    engine.setParameters (onEngine);
+}
+
+MixParameters MixController::onEngineGraph (const MixParameters& p) const
+{
+    const auto& playing = engine.getGraph();
+    MixParameters out = p;
+    out.numStrips = std::min (playing.numStrips(), int (kMaxStrips));
+    // Two passes: the same device channels under the same name first (two lines of the
+    // document can share a channel), then the same channels alone (a renamed input).
+    std::array<int, kMaxStrips> from {};
+    std::array<bool, kMaxStrips> taken {};
+    from.fill (-1);
+    for (int pass = 0; pass < 2; ++pass)
+        for (int e = 0; e < out.numStrips; ++e)
+        {
+            if (from[size_t (e)] >= 0) continue;
+            const auto& heard = playing.strips[size_t (e)];
+            for (int s = 0; s < graph.numStrips() && s < p.numStrips; ++s)
+            {
+                const auto& mine = graph.strips[size_t (s)];
+                if (taken[size_t (s)] || mine.inputA != heard.inputA || mine.inputB != heard.inputB) continue;
+                if (pass == 0 && mine.name != heard.name) continue;
+                from[size_t (e)] = s;
+                taken[size_t (s)] = true;
+                break;
+            }
+        }
+    for (int e = 0; e < out.numStrips; ++e)
+    {
+        if (from[size_t (e)] >= 0)
+            out.strips[size_t (e)] = p.strips[size_t (from[size_t (e)])];
+        else if (e < onEngine.numStrips)
+            out.strips[size_t (e)] = onEngine.strips[size_t (e)];   // an input the document no longer has plays on as it was
+    }
+    return out;
 }
 
 bool MixController::engineHasThisGraph() const noexcept

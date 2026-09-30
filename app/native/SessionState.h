@@ -46,10 +46,15 @@ struct DeviceChoice
     juce::String consoleInput;       // the desk / interface / Dante the inputs arrive on
     juce::String broadcastOutput;    // where the mix leaves for OBS, Ecamm, the recorder
     juce::String soloOutput;         // the engineer's own listen; empty = solo has nowhere to go
+    // Which physical unit, as CoreAudio names it for good. A name is a label the maker chose, and
+    // two interfaces of the same model share one: the name finds the device, the UID says
+    // whether it is the same one. Empty for a session saved before these were kept.
+    juce::String consoleInputUid, broadcastOutputUid;
 
     bool operator== (const DeviceChoice& o) const noexcept
     {
-        return consoleInput == o.consoleInput && broadcastOutput == o.broadcastOutput && soloOutput == o.soloOutput;
+        return consoleInput == o.consoleInput && broadcastOutput == o.broadcastOutput && soloOutput == o.soloOutput
+            && consoleInputUid == o.consoleInputUid && broadcastOutputUid == o.broadcastOutputUid;
     }
     bool operator!= (const DeviceChoice& o) const noexcept { return ! (*this == o); }
 };

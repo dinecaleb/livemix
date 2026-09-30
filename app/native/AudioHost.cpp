@@ -1,5 +1,6 @@
 #include "AudioHost.h"
 #include "MicPermission.h"
+#include "MonitorDevice.h"
 
 namespace livemix
 {
@@ -88,7 +89,9 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
     // Remembered before the attempt, not after: a device that comes back has to be opened the
     // way it was asked for, which is not always the way it ended up (the input half may have
     // been refused and the output opened alone).
-    lastRequest = { true, false, inputDevice, outputDevice, preferredSampleRate, preferredBufferSize, outputChannels };
+    lastRequest = { true, false, inputDevice, outputDevice, preferredSampleRate, preferredBufferSize, outputChannels,
+                    MonitorDevice::findDevice (inputDevice).uid, MonitorDevice::findDevice (outputDevice).uid };
+    impostorAnnounced = false;
 
     juce::AudioDeviceManager::AudioDeviceSetup setup;
     setup.inputDeviceName = inputDevice;
@@ -182,7 +185,9 @@ juce::String AudioHost::openOutputOnly (const juce::String& outputDevice, double
     if (! fromOpen)
     {
         lostAnnounced = false;
-        lastRequest = { true, true, {}, outputDevice, preferredSampleRate, preferredBufferSize, {} };
+        lastRequest = { true, true, {}, outputDevice, preferredSampleRate, preferredBufferSize, {},
+                        {}, MonitorDevice::findDevice (outputDevice).uid };
+        impostorAnnounced = false;
     }
     juce::AudioDeviceManager::AudioDeviceSetup setup;
     setup.inputDeviceName = {};
@@ -400,6 +405,19 @@ bool AudioHost::checkForReturnedDevice()
     }
     const auto answer = deviceReturned (before, inputs, outputs);
     if (! answer.reopen) return false;
+
+    // The same name is not the same unit. Two interfaces of one model share a name; the one
+    // that has turned up may be the other one, with other things plugged into it.
+    const auto& want = lastRequest;
+    const bool inputSame = want.input.isEmpty() || sameUnit (want.inputUid, MonitorDevice::findDevice (want.input).uid);
+    const bool outputSame = want.output.isEmpty() || sameUnit (want.outputUid, MonitorDevice::findDevice (want.output).uid);
+    if (! inputSame || ! outputSame)
+    {
+        if (! impostorAnnounced && onDifferentUnitReturned)
+            onDifferentUnitReturned (! inputSame ? want.input : want.output);
+        impostorAnnounced = true;
+        return false;
+    }
 
     // Opened exactly as it was: same devices, same rate, same buffer, same output channels.
     // The session, the assignments and the kept mix are not this function's business - it

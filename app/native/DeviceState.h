@@ -141,12 +141,36 @@ inline juce::String deviceLostSentence (const DeviceState& d, bool recording)
     return s;
 }
 
-inline juce::String deviceBackSentence (const juce::String& what, int inputChannels, int outputChannels)
+// Checked, not assumed: a Dante card or a desk's USB interface can come back in a different
+// channel mode, and "every input is on the channel it was on" is only said when it is true.
+// `inputsNeeded` / `outputsNeeded` are the highest device channel the session uses (from 1),
+// 0 when it uses none.
+inline juce::String deviceBackSentence (const juce::String& what, int inputChannels, int outputChannels,
+                                        int inputsNeeded = 0, int outputsNeeded = 0)
 {
-    juce::String s = (what.isNotEmpty() ? what : juce::String ("The audio device")) + " is back";
+    const auto name = what.isNotEmpty() ? what : juce::String ("The audio device");
+    juce::String s = name + " is back";
     if (inputChannels > 0 || outputChannels > 0)
         s += ": " + juce::String (inputChannels) + " in, " + juce::String (outputChannels) + " out";
-    return s + ". Every input is on the channel it was on.";
+    const bool shortIn = inputsNeeded > inputChannels;
+    const bool shortOut = outputsNeeded > outputChannels;
+    if (! shortIn && ! shortOut) return s + ". Every input is on the channel it was on.";
+    s += ". It came back with fewer channels than this session uses:";
+    if (shortIn)
+        s += " inputs " + juce::String (inputChannels + 1) + (inputsNeeded > inputChannels + 1 ? "-" + juce::String (inputsNeeded) : juce::String())
+           + " are silent,";
+    if (shortOut)
+        s += " outputs above " + juce::String (outputChannels) + " are not playing,";
+    s = s.trimCharactersAtEnd (",");
+    return s + ". Check its channel count (a Dante or USB mode), then choose it again under Audio device.";
+}
+
+// Is the device that is connected under this name the unit the session was set up on? A UID
+// that is known on both sides and differs is a different unit of the same model - never a
+// reason to refuse it, always a reason to say so before the service.
+inline bool sameUnit (const juce::String& savedUid, const juce::String& connectedUid) noexcept
+{
+    return savedUid.isEmpty() || connectedUid.isEmpty() || savedUid == connectedUid;
 }
 
 // What the status line says about a device, whatever state it is in. Never "no audio devices"

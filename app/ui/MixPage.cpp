@@ -2080,7 +2080,7 @@ void MixPage::rebuildRail()
         row->tint = Dine::busTint (s.bus);
         row->onTune = [this, i] { selectRow (i); if (onTuneStrip) onTuneStrip (i); };
         row->onSelect = [this, i] { selectRow (i); };
-        row->onFocus = [this, i] { controller.setFocusInput (i); rebuildRail(); };
+        row->onFocus = [this, in = s.input] { controller.setFocusInput (in); rebuildRail(); };
         row->onHeightChanged = [this] { resized(); };
         railHolder.addAndMakeVisible (*row);
         inputRows.push_back (std::move (row));
@@ -2100,24 +2100,27 @@ void MixPage::rebuildVoices()
     const auto& graph = controller.getGraph();
     for (int i = 0; i < graph.numStrips(); ++i)
     {
-        if (! controller.isVoiceChannel (i)) continue;
+        // A strip is where an input sits on the console; the role belongs to the input, and
+        // the two numbers differ as soon as an input before it is switched off.
         const auto& st = graph.strips[size_t (i)];
+        const int in = st.input;
+        if (! controller.isVoiceChannel (in)) continue;
         auto row = std::make_unique<VoiceRow> (st.name, Dine::busTint (st.bus));
         // SPEAKING keeps what kind of speaking microphone this is: a lapel that was singing
         // and goes back to speaking is a lapel again, not a generic speech channel.
-        row->speaking.onClick = [this, i]
+        row->speaking.onClick = [this, in]
         {
-            controller.setInputRole (i, controller.roleForJob (i, ChannelRole::Speech));
+            if (controller.setInputRole (in, controller.roleForJob (in, ChannelRole::Speech)) && onGraphChanged) onGraphChanged();
             rebuildVoices();
             layoutSide();
         };
-        row->singing.onClick = [this, i]
+        row->singing.onClick = [this, in]
         {
             // Singing, and which kind of singing it already was: a backing voice stays a
             // backing voice, a choir stays a choir, and anything else becomes the lead.
-            const auto now = controller.getGraph().strips[size_t (i)].role;
+            const auto now = controller.getSession().inputs[size_t (in)].role;
             const auto wanted = now == ChannelRole::BackingVocal || now == ChannelRole::Choir ? now : ChannelRole::LeadVocal;
-            controller.setInputRole (i, wanted);
+            if (controller.setInputRole (in, wanted) && onGraphChanged) onGraphChanged();
             rebuildVoices();
             layoutSide();
         };
@@ -2171,7 +2174,7 @@ void MixPage::refresh()
         {
             const bool faint = plan != nullptr && i < int (plan->strips.size()) && plan->strips[size_t (i)].faint;
             inputRows[size_t (i)]->set (i < kept.numStrips && kept.strips[size_t (i)].mute, faint, i == selectedRow,
-                                        i == controller.getFocusInput());
+                                        graph.strips[size_t (i)].input == controller.getFocusInput());
         }
     }
 

@@ -5,6 +5,7 @@
 #include "native/MixController.h"
 #include "native/SampleLibrary.h"
 #include "native/DevicePlan.h"
+#include "native/DeviceState.h"
 #include "native/SessionStore.h"
 #include "Profiles/MixProfileData.h"
 #include "Mix/MixPlanner.h"
@@ -1575,6 +1576,36 @@ TEST_CASE ("DevicePlan: a session opens on its own devices when they are here, o
     p = planDevicesForSession ("", "", false, ins, outs, "", "", false);
     CHECK (p.action == DevicePlan::Action::None);
     CHECK (p.note.contains ("No audio device is open"));
+
+    // A missing output is never replaced by whatever happens to be first in the list - that can
+    // be the PA's interface. The Mac's own speakers are where an unchosen mix goes.
+    const juce::StringArray stage { "Behringer X32", "PA Processor", "MacBook Pro Speakers" };
+    p = planDevicesForSession ("Dante Virtual Soundcard", "Broadcast Encoder", true, ins, stage, "", "", false, "MacBook Pro Speakers");
+    CHECK (p.output == "MacBook Pro Speakers");
+    p = planDevicesForSession ("Behringer X32", "Broadcast Encoder", true, {}, stage, "", "", false, "MacBook Pro Speakers");
+    CHECK (p.action == DevicePlan::Action::OpenOutputOnly);
+    CHECK (p.output == "MacBook Pro Speakers");
+}
+
+TEST_CASE ("Devices: a device that comes back is checked, not trusted")
+{
+    // A Dante card back in 16-channel mode on a 24-input session.
+    const auto s = deviceBackSentence ("Dante Virtual Soundcard", 16, 16, 24, 2);
+    CHECK (! s.contains ("on the channel it was on"));
+    CHECK (s.contains ("inputs 17-24 are silent"));
+    CHECK (deviceBackSentence ("X32", 32, 32, 24, 2).contains ("on the channel it was on"));
+    CHECK (deviceBackSentence ("X32", 32, 1, 24, 2).contains ("outputs above 1"));
+    // Another unit of the same model is not the same device; an unknown UID is not a mismatch.
+    CHECK (! sameUnit ("AppleUSBAudioEngine:X32:1", "AppleUSBAudioEngine:X32:2"));
+    CHECK (sameUnit ("AppleUSBAudioEngine:X32:1", "AppleUSBAudioEngine:X32:1"));
+    CHECK (sameUnit ({}, "AppleUSBAudioEngine:X32:2"));
+    // ... and the session remembers which unit it was.
+    SessionState st;
+    st.devices = { "X32", "X32", {}, "uid-in", "uid-out" };
+    SessionState back;
+    REQUIRE (SessionStore::fromVar (SessionStore::toVar (st), back));
+    CHECK (back.devices.consoleInputUid == "uid-in");
+    CHECK (back.devices.broadcastOutputUid == "uid-out");
 }
 
 // ---------------------------------------------------------------------------

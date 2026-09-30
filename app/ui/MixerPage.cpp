@@ -1032,10 +1032,10 @@ public:
             // worship leader's in the last song, and those are not the same channel. One press
             // moves it to the right group and gives it the profile's starting point for the
             // job - a starting point, not a preset: the next TUNE plans it as what it now is.
-            if (controller.isVoiceChannel (strip))
+            if (controller.isVoiceChannel (controller.inputOfStrip (strip)))
             {
                 juce::PopupMenu jobs;
-                const auto now = controller.getSession().inputs[size_t (strip)].role;
+                const auto now = controller.getSession().inputs[size_t (controller.inputOfStrip (strip))].role;
                 int id = 200;
                 for (const auto& job : MixController::voiceJobs())
                 {
@@ -1086,7 +1086,8 @@ public:
                                  const auto& jobs = MixController::voiceJobs();
                                  const size_t which = size_t (chosen - 200);
                                  if (which < jobs.size()
-                                     && s.controller.setInputRole (s.strip, s.controller.roleForJob (s.strip, jobs[which].role)))
+                                     && s.controller.setInputRole (s.controller.inputOfStrip (s.strip),
+                                                                   s.controller.roleForJob (s.controller.inputOfStrip (s.strip), jobs[which].role)))
                                      s.services.reconfigure();     // the graph changed, exactly as an assignment does
                                  return;
                              }

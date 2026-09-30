@@ -5,6 +5,7 @@
 // with its recordings inside; the last one reloads on launch.
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_audio_utils/juce_audio_utils.h>
+#include <map>
 #include "native/AudioHost.h"
 #include "native/DawEngine.h"
 #include "native/MixBounce.h"
@@ -238,6 +239,7 @@ namespace
         }
 
         void touchSession() override { controller.touch(); }
+        void forgetDeviceUids() { uidCache.clear(); }     // the device list changed (see uidFor)
         unsigned long long sessionRevision() override { return controller.getRevision(); }
         unsigned long long sessionMilestone() override { return controller.getMilestone(); }
 
@@ -360,11 +362,23 @@ namespace
             juce::StringArray ins, outs;
             for (const auto& d : host.listInputDevices()) ins.add (d.name);
             for (const auto& d : host.listOutputDevices()) outs.add (d.name);
+            // The Mac's own speakers, by CoreAudio transport: where a mix goes when its own output
+            // is missing, rather than whatever output happens to be first (DevicePlan.h).
+            juce::String safeOutput;
+            for (const auto& d : MonitorDevice::outputDevices())
+                if (d.kind == MonitorDevice::Device::Kind::BuiltIn) { safeOutput = d.name; break; }
+            forgetDeviceUids();
             const auto plan = planDevicesForSession (doc.devices.consoleInput, doc.devices.broadcastOutput,
                                                     doc.project.hasAudio(), ins, outs,
-                                                     host.getInputDeviceName(), host.getOutputDeviceName(), host.isOpen());
+                                                     host.getInputDeviceName(), host.getOutputDeviceName(), host.isOpen(),
+                                                     safeOutput);
             juce::String err;
             juce::String note = plan.note;
+            // The same name, another unit: opened (it is what is plugged in), and said, because its
+            // channels may carry other sources than the ones this session was built on.
+            if (plan.action == DevicePlan::Action::OpenBoth && ! sameUnit (doc.devices.consoleInputUid, uidFor (plan.input)))
+                note += juce::String (note.isEmpty() ? "" : " ") + "This " + plan.input + " is not the unit this session was set up on "
+                        "(another of the same model). Run CHECK INPUTS before the service to be sure every input is what it was.";
             switch (plan.action)
             {
                 case DevicePlan::Action::OpenBoth:
@@ -602,8 +616,22 @@ namespace
         // The devices as the engineer chose them, never the one DLIVE built around them.
         DeviceChoice deviceChoice()
         {
-            return { consoleInput(), broadcastOutputDevice(), soloOutputDevice() };
+            DeviceChoice d { consoleInput(), broadcastOutputDevice(), soloOutputDevice() };
+            d.consoleInputUid = uidFor (d.consoleInput);
+            d.broadcastOutputUid = uidFor (d.broadcastOutput);
+            return d;
         }
+
+        // CoreAudio's permanent name for a device, cached by name: this is read on every autosave,
+        // and enumerating the devices is not free. The cache is dropped whenever the list changes.
+        juce::String uidFor (const juce::String& name)
+        {
+            if (name.isEmpty()) return {};
+            auto it = uidCache.find (name);
+            if (it != uidCache.end()) return it->second;
+            return uidCache[name] = MonitorDevice::findDevice (name).uid;
+        }
+        std::map<juce::String, juce::String> uidCache;
 
         // The console's own input device. While DLIVE's built device carries the console's
         // inputs, the host's input device *is* the built one, and nothing outside this class
@@ -750,14 +778,31 @@ public:
         host->onDeviceReturned = [this] (DeviceState device)
         {
             if (window == nullptr) return;
+            // Checked against what the session uses, not assumed: a device can come back in a
+            // different channel mode.
+            int inputsNeeded = 0, outputsNeeded = 0;
+            for (const auto& in : controller->getSession().inputs)
+                inputsNeeded = std::max ({ inputsNeeded, in.inputA + 1, in.inputB + 1 });
+            const auto& feeds = controller->getOutputFeeds();
+            for (int f = 0; f < feeds.count; ++f)
+                outputsNeeded = std::max ({ outputsNeeded, feeds.feeds[size_t (f)].left + 1, feeds.feeds[size_t (f)].right + 1 });
             window->view().showToast (deviceBackSentence (device.input.isNotEmpty() ? device.input : device.output,
-                                                          device.inputChannels, device.outputChannels));
+                                                          device.inputChannels, device.outputChannels,
+                                                          device.inputChannels > 0 ? inputsNeeded : 0, outputsNeeded));
+        };
+        host->onDifferentUnitReturned = [this] (juce::String name)
+        {
+            if (window == nullptr) return;
+            window->view().showToast ("A " + name + " was plugged in, but it is not the one this session was running on - "
+                                      "it is another unit with the same name. DLIVE has not opened it. If it is the right "
+                                      "one, choose it under Audio device and check the inputs.");
         };
         // Something was plugged in or pulled out. The chrome and the status foot follow the
         // device on their own tick; the one thing that does not is the list of devices on the
         // set-up page, and only when somebody is looking at it.
         host->onDeviceListChanged = [this]
         {
+            if (services != nullptr) services->forgetDeviceUids();
             if (window == nullptr) return;
             auto& page = window->view().getDevicePage();
             if (page.isVisible()) page.refresh();

@@ -36,6 +36,7 @@ public:
     std::function<void()> onOpenCheck;                // CHECK INPUTS: every assigned input and one word about it
     std::function<void()> onOpenFavourites;           // the favourite mixes a tune can be aimed at
     std::function<void (int strip)> onSelectStrip;    // a row on the rail was picked out
+    std::function<void()> onGraphChanged;             // a voice changed job: the device follows the new graph
     int selectedStrip() const noexcept { return selectedRow; }
 
     void refresh();                    // 30 Hz: meters, stage, health

@@ -450,6 +450,12 @@ public:
     static const std::vector<VoiceJob>& voiceJobs();
     // Is this strip one of them? A kick drum is not offered a job.
     bool isVoiceChannel (int strip) const;
+    // The input a console strip listens to. A strip is a position on the console and an input is
+    // a line of the document; they are the same number only until an input before it is off.
+    int inputOfStrip (int strip) const noexcept
+    {
+        return strip >= 0 && strip < graph.numStrips() ? graph.strips[size_t (strip)].input : -1;
+    }
     // WHAT THIS MICROPHONE IS DOING is a family, not a role: a lapel and a lectern gooseneck
     // are both SPEAKING, and choosing SPEAKING on one of them must not turn it into the
     // other. Returns the role to store for `job` on `strip`: the one it already has when it
@@ -832,6 +838,7 @@ private:
     MixParameters kept;                 // the mix without macros: baselines, then the kept plan + Advanced edits
     MixParameters atCapture;            // what ran while listening
     MixParameters running;
+    MixParameters onEngine;             // what the engine was actually handed, in the engine's own strip order
     std::optional<MixPlan> plan;
     Compare compare = Compare::After;
     MixMacroValues macros;
@@ -898,6 +905,7 @@ private:
     long long autopilotLastSamples = -1;
     void pollAutopilot();
     bool engineHasThisGraph() const noexcept;     // the graph the engine was prepared with is this one
+    MixParameters onEngineGraph (const MixParameters& p) const;   // p, strip by strip, onto the graph the engine plays
     void autopilotRelearn();                 // a new mix to hold: learn it before moving anything
     void autopilotFlushHistory (const char* why);
 

@@ -60,6 +60,10 @@ public:
     std::function<void (DeviceState)> onDeviceLost;       // it was open and went away
     std::function<void (DeviceState)> onDeviceReturned;   // ... and it is open again
     std::function<void()> onDeviceListChanged;            // something was plugged in or pulled out
+    // A device with the lost one's name came back, but it is a different unit (its CoreAudio
+    // UID differs): DLIVE does not open it by itself, because its channels are not the
+    // session's channels. Said once, with the name.
+    std::function<void (juce::String)> onDifferentUnitReturned;
 
     // Open it again by itself when it comes back. On by default; off is for a tool or a test
     // that must not have a device opened behind it.
@@ -125,8 +129,10 @@ private:
         double sampleRate = 48000.0;
         int bufferSize = 64;
         juce::BigInteger outputChannels;
+        juce::String inputUid, outputUid;       // which physical unit was opened (MonitorDevice), when known
     };
     OpenRequest lastRequest;
+    bool impostorAnnounced = false;             // a different unit under the same name has been reported
     bool reopenOnReturn = true;
     bool lostAnnounced = false;                  // onDeviceLost has been told about this one
     // The device that was open went away and has not been opened again. It outlives the

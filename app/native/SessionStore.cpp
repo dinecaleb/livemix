@@ -595,6 +595,8 @@ juce::var toVar (const Document& d)
     obj->setProperty ("inputDevice", d.devices.consoleInput);
     obj->setProperty ("outputDevice", d.devices.broadcastOutput);
     if (d.devices.soloOutput.isNotEmpty()) obj->setProperty ("soloDevice", d.devices.soloOutput);
+    if (d.devices.consoleInputUid.isNotEmpty()) obj->setProperty ("inputDeviceUid", d.devices.consoleInputUid);
+    if (d.devices.broadcastOutputUid.isNotEmpty()) obj->setProperty ("outputDeviceUid", d.devices.broadcastOutputUid);
     juce::Array<juce::var> inputs;
     for (const auto& in : d.session.inputs)
     {
@@ -707,6 +709,8 @@ bool fromVar (const juce::var& v, Document& d)
     d.devices.consoleInput = obj->getProperty ("inputDevice").toString();
     d.devices.broadcastOutput = obj->getProperty ("outputDevice").toString();
     d.devices.soloOutput = obj->getProperty ("soloDevice").toString();
+    d.devices.consoleInputUid = obj->getProperty ("inputDeviceUid").toString();
+    d.devices.broadcastOutputUid = obj->getProperty ("outputDeviceUid").toString();
     if (auto* inputs = obj->getProperty ("inputs").getArray())
         for (const auto& iv : *inputs)
         {

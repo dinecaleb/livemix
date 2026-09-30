@@ -20,11 +20,19 @@ struct DevicePlan
     juce::String note;          // empty when the session's own devices open as they were
 };
 
+//
+// WHERE THE MIX GOES WHEN ITS OUTPUT IS MISSING. Never simply the first output in the list:
+// that can be the PA's interface or the broadcast encoder's input, and a mix sent there by a
+// fallback is a mix nobody chose to put on air. `safeOutput` is the Mac's own speakers (by
+// CoreAudio transport, found by the caller); only when there is none is it the first output.
 inline DevicePlan planDevicesForSession (const juce::String& wantedInput, const juce::String& wantedOutput, bool sessionHasAudio,
                                          const juce::StringArray& inputs, const juce::StringArray& outputs,
-                                         const juce::String& openInput, const juce::String& openOutput, bool somethingOpen)
+                                         const juce::String& openInput, const juce::String& openOutput, bool somethingOpen,
+                                         const juce::String& safeOutput = {})
 {
     DevicePlan p;
+    const juce::String fallback = safeOutput.isNotEmpty() && outputs.contains (safeOutput) ? safeOutput
+                                : (outputs.isEmpty() ? juce::String() : outputs[0]);
     auto hasInput = [&] (const juce::String& n) { return n.isNotEmpty() && inputs.contains (n); };
     auto hasOutput = [&] (const juce::String& n) { return n.isNotEmpty() && outputs.contains (n); };
     auto whereToFix = juce::String (" Pick it under Audio device when it is back.");
@@ -38,7 +46,7 @@ inline DevicePlan planDevicesForSession (const juce::String& wantedInput, const 
         {
             // The same device, else the first one there is; either way the output it used is
             // missing and the toast says so, because the broadcast is going somewhere else.
-            p.output = hasOutput (wantedInput) ? wantedInput : (outputs.isEmpty() ? wantedInput : outputs[0]);
+            p.output = hasOutput (wantedInput) ? wantedInput : (fallback.isEmpty() ? wantedInput : fallback);
             if (wantedOutput.isNotEmpty() && wantedOutput != p.output)
                 p.note = "The output it used, " + wantedOutput + ", is not connected; the mix is going out of " + p.output + " instead.";
         }
@@ -61,7 +69,7 @@ inline DevicePlan planDevicesForSession (const juce::String& wantedInput, const 
 
     if (sessionHasAudio || wantedInput.isNotEmpty())
     {
-        const juce::String out = hasOutput (wantedOutput) ? wantedOutput : (outputs.isEmpty() ? juce::String() : outputs[0]);
+        const juce::String out = hasOutput (wantedOutput) ? wantedOutput : fallback;
         if (out.isNotEmpty())
         {
             p.action = DevicePlan::Action::OpenOutputOnly;
