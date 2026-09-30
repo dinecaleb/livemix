@@ -108,7 +108,10 @@ target_include_directories(DLive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOU
 include ("${CMAKE_SOURCE_DIR}/telemetry.local.cmake" OPTIONAL)
 set(DLIVE_SUPABASE_URL "" CACHE STRING "Supabase project URL for DLIVE usage events (empty = off)")
 set(DLIVE_SUPABASE_ANON_KEY "" CACHE STRING "Supabase anon key for DLIVE usage events")
-target_compile_definitions(DLive PRIVATE ${DLIVE_DEFINES}
+# An exception on the message thread is caught by the loop, reported (app/unhandled_exception)
+# and the app carries on - the audio thread never sees it. Without this JUCE lets it terminate
+# the process, which in the middle of a service is the one outcome worse than carrying on.
+target_compile_definitions(DLive PRIVATE ${DLIVE_DEFINES} JUCE_CATCH_UNHANDLED_EXCEPTIONS=1
     DLIVE_SUPABASE_URL="${DLIVE_SUPABASE_URL}"
     DLIVE_SUPABASE_ANON_KEY="${DLIVE_SUPABASE_ANON_KEY}"
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:DLive,JUCE_PRODUCT_NAME>"
@@ -118,12 +121,13 @@ if (APPLE)
 endif()
 target_link_libraries(DLive PRIVATE ${DLIVE_LIBS} ${AVFOUNDATION_FRAMEWORK}
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
-# The built-in drum samples (app/Samples, with their licence) ride in the bundle; a build that
-# is run from the tree, and every tool, reads the source folder instead.
+# The built-in drum samples (app/Samples, with their licence) ride in the bundle; every tool
+# and test, which run from the tree, reads the source folder instead.
 add_custom_command(TARGET DLive POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/Samples" "$<TARGET_BUNDLE_CONTENT_DIR:DLive>/Resources/Samples"
     COMMENT "Copying the built-in drum samples into the DLIVE bundle")
-target_compile_definitions(DLive PRIVATE DLIVE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
+# The app reads its own bundle's copy and nothing else: the source folder's path is not
+# compiled into what ships (the tools and the tests, which run from the tree, keep it).
 
 if (LIVEMIX_BUILD_TESTS)
     add_executable(dlive_ui_snapshots Tools/AppSnapshots.cpp ${DLIVE_UI_SOURCES})
