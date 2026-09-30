@@ -390,8 +390,13 @@ namespace
             {
                 auto* bo = buses->getReference (b).getDynamicObject();
                 if (bo == nullptr) continue;
-                auto& bus = m.buses[size_t (busFromStoredIndex (b, buses->size()))];
+                const MixBus which = busFromStoredIndex (b, buses->size());
+                auto& bus = m.buses[size_t (which)];
                 channelFromVar (bo->getProperty ("channel"), bus.channel);
+                // THE MASTER'S CEILING IS NEVER OPENED FROM A FILE. Its limiter is the only true-peak
+                // bound on what leaves the desk; a session saved with it off, or the master
+                // bypassed, comes back with the ceiling in place.
+                if (which == MixBus::Master) { bus.channel.limiterEnabled = true; bus.channel.bypassAll = false; }
                 bus.faderDb = storedDb (bo->getProperty ("faderDb"), kSilenceDb, 12.0f);
                 bus.mute = bool (bo->getProperty ("mute"));
                 bus.solo = bool (bo->getProperty ("solo"));
@@ -755,7 +760,7 @@ bool fromVar (const juce::var& v, Document& d)
             // Before version 3 there was no speech group, so a feed's source index above
             // VOCALS meant one bus lower than it does now.
             f.source = busFromStoredIndex (int (fo->getProperty ("source")), storedBusCount (fileVersion));
-            f.gainDb = float (double (fo->getProperty ("gainDb")));
+            f.gainDb = storedDb (fo->getProperty ("gainDb"), -60.0f, 12.0f);   // what a feed's level can reach
             f.mute = bool (fo->getProperty ("mute"));
             f.mono = bool (fo->getProperty ("mono"));
             // A feed that carries the engineer's listen rather than a bus. Absent before the

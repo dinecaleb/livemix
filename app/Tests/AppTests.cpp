@@ -2370,6 +2370,43 @@ TEST_CASE ("MixController: a listen the audio device restarts under is ended, no
     CHECK (c.getStage() != MixController::Stage::Listening);
 }
 
+TEST_CASE ("MixController: the master's ceiling stays closed - from a file, under LIVE SAFE, and on a feed")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    REQUIRE (c.getKept().master().channel.limiterEnabled);
+
+    // From a file: a master saved open comes back with its ceiling.
+    SessionStore::Document d;
+    d.session = c.getSession();
+    d.hasMix = true;
+    d.mix = c.getKept();
+    d.mix.master().channel.limiterEnabled = false;
+    d.mix.master().channel.bypassAll = true;
+    SessionStore::Document back;
+    REQUIRE (SessionStore::fromVar (SessionStore::toVar (d), back));
+    CHECK (back.mix.master().channel.limiterEnabled);
+    CHECK (! back.mix.master().channel.bypassAll);
+
+    // Under LIVE SAFE it cannot be switched off.
+    c.setLiveSafe (true);
+    auto open = c.getKept().master().channel;
+    open.limiterEnabled = false;
+    c.setBusChannel (MixBus::Master, open);
+    CHECK (c.getKept().master().channel.limiterEnabled);
+    c.setLiveSafe (false);
+
+    // A feed of the finished mix is never lifted past the ceiling.
+    OutputFeeds feeds;
+    feeds.count = 2;
+    feeds.feeds[0] = { 0, 1 };
+    feeds.feeds[1] = { 2, 3 };
+    feeds.feeds[1].gainDb = 9.0f;
+    c.setOutputFeeds (feeds);
+    CHECK (c.getOutputFeeds().feeds[1].gainDb <= 0.0f);
+}
+
 TEST_CASE ("MixController: a mix is never handed to an engine playing a different set of inputs")
 {
     // Parameters go to the engine by strip position. Between a change of inputs and the
@@ -2471,6 +2508,7 @@ TEST_CASE ("MixController: solo in place is refused under LIVE SAFE, and a sessi
 
     SessionStore::Document d;
     d.session = c.getSession();
+    d.hasMix = true;
     d.mix = c.getKept();
     SessionStore::Document back;
     REQUIRE (SessionStore::fromVar (SessionStore::toVar (d), back));

@@ -85,6 +85,8 @@ public:
     {
         updating = true;
         feed = f;
+        // The main mix stops at unity: past it is level the master limiter's ceiling never saw.
+        levelKnob.setRange (-60.0, ! f.monitor && f.source == MixBus::Master ? 0.0 : 12.0, 0.1);
         levelKnob.setValue (f.gainDb);
         sourceButton.setValue (f.monitor ? juce::String ("My headphones")
                                          : (f.source == MixBus::Master ? juce::String ("Main mix")

@@ -2892,6 +2892,18 @@ void MixController::carryStripHistory (const std::vector<StripTuneRecord>& recor
 void MixController::setBusChannel (MixBus bus, const ChannelParameters& c)
 {
     if (bus == MixBus::Count) return;
+    // The master limiter is the ceiling on everything that goes out. Under LIVE SAFE it stays
+    // on, and the master is never bypassed, whatever else about its chain may change.
+    if (bus == MixBus::Master && safety.on)
+    {
+        const auto& now = kept.master().channel;
+        if ((now.limiterEnabled && ! c.limiterEnabled) || (! now.bypassAll && c.bypassAll))
+        {
+            if (onMessage) onMessage ("LIVE SAFE: the master limiter stays on while the service is running - it is the only "
+                                      "ceiling on what goes out.");
+            return;
+        }
+    }
     markMixChange (std::string (mixBusName (bus)) + " processing");
     auto safe = c;
     sanitizeChannelParameters (safe);

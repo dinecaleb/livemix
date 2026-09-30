@@ -86,6 +86,9 @@ inline void normaliseOutputs (OutputFeeds& feeds, int availableChannels = 0) noe
         // Feed 0 is the broadcast and a monitor feed is what the engineer solos into: both are
         // always stereo. The rest may be mono on purpose.
         if (i == 0 || f.monitor) forceStereoPair (f);
+        // A feed of the finished mix carries the master limiter's ceiling only if nothing is
+        // added after it: gain above unity on it is level the ceiling never saw.
+        if (! f.monitor && f.source == MixBus::Master && f.gainDb > 0.0f) f.gainDb = 0.0f;
         if (availableChannels > 0 && f.routed() && f.right >= availableChannels)
         {
             // The device is smaller than the routing expects. Say nothing here - the Outputs
