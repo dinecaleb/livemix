@@ -84,6 +84,9 @@ public:
     // Called on a worker thread, never on the audio thread and never on the message thread.
     // Implementations poll `shouldCancel` and return promptly once it is set.
     virtual MixReasoningResponse reason (const MixReasoningRequest&, const std::atomic<bool>& shouldCancel) = 0;
+    // Called from another thread after `shouldCancel` has been set: stop a network wait now
+    // rather than at the next poll. A provider with nothing in flight need not do anything.
+    virtual void abort (const std::atomic<bool>& shouldCancel) { (void) shouldCancel; }
 };
 
 // The brief every provider is given: how a live and broadcast engineer is expected to behave,

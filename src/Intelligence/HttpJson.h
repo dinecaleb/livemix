@@ -26,4 +26,10 @@ Result postJson (const juce::String& url, const juce::String& jsonBody, const ju
                  int timeoutSeconds, const std::atomic<bool>* shouldCancel,
                  const juce::String& extraHeaders = {});
 
+// From any other thread: every request running under `shouldCancel` stops now. The flag alone is
+// only looked at between reads, and a read waits for the server - up to the idle timeout - so a
+// quit or a cancel that set the flag and joined the worker could wait fifteen seconds or more, or
+// have JUCE kill the thread. Set the flag first, then call this.
+void abort (const std::atomic<bool>* shouldCancel);
+
 } // namespace livemix::http

@@ -150,6 +150,11 @@ namespace
        #if JUCE_MAC || JUCE_LINUX
         if (crashFd >= 0)
         {
+            // backtrace_symbols_fd can wait on the loader's lock, which the crash may be holding.
+            // A hung handler is a frozen app on a service screen instead of a crash macOS reports
+            // and the next launch recovers from - so the handler gets two seconds, then SIGALRM's
+            // default action ends the process anyway. alarm() is async-signal-safe.
+            ::alarm (2);
             writeRaw ("signal=");
             writeInt (sig);
             writeRaw ("\n");
@@ -386,6 +391,7 @@ void Telemetry::end()
                && isConfigured() && isSharing() && isThreadRunning())
             juce::Thread::sleep (20);
         stopping = true;
+        http::abort (&stopping);           // a send reading its reply stops now, not at its timeout
         stopThread (2500);
     }
     writeFiles();

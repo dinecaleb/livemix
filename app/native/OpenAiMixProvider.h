@@ -26,6 +26,7 @@ public:
     bool sendsDataExternally() const override { return true; }
 
     MixReasoningResponse reason (const MixReasoningRequest&, const std::atomic<bool>& shouldCancel) override;
+    void abort (const std::atomic<bool>& shouldCancel) override;
 
     // Exposed for tests: neither of these touches the network.
     static juce::String buildRequestBody (const MixReasoningRequest&, const AISettings&);

@@ -285,6 +285,17 @@ void TuneLiveCoordinator::clearAnswers()
 
 void TuneLiveCoordinator::joinWorker()
 {
+    // A worker waiting on the network would hold whoever joins it - the message thread - until
+    // the provider's own timeout. Anyone joining has set cancelFlag, so the wait is cut short.
+    if (worker.joinable() && cancelFlag.load (std::memory_order_acquire))
+    {
+        std::shared_ptr<MixReasoningProvider> p;
+        {
+            std::lock_guard<std::mutex> lock (mutex);
+            p = provider;
+        }
+        if (p != nullptr) p->abort (cancelFlag);
+    }
     if (worker.joinable()) worker.join();
 }
 

@@ -1,7 +1,45 @@
 #include "HttpJson.h"
+#include <algorithm>
+#include <mutex>
+#include <vector>
 
 namespace livemix::http
 {
+
+namespace
+{
+    // The streams being read right now, by the flag that cancels them. A stream is taken out
+    // under the same lock before it is destroyed, so abort() never reaches a dead one.
+    struct Live { const std::atomic<bool>* flag; juce::WebInputStream* stream; };
+    std::mutex liveLock;
+    std::vector<Live> live;
+
+    struct Registered
+    {
+        Registered (const std::atomic<bool>* f, juce::InputStream* s)
+            : stream (dynamic_cast<juce::WebInputStream*> (s))
+        {
+            if (f == nullptr || stream == nullptr) { stream = nullptr; return; }
+            std::lock_guard<std::mutex> l (liveLock);
+            live.push_back ({ f, stream });
+        }
+        ~Registered()
+        {
+            if (stream == nullptr) return;
+            std::lock_guard<std::mutex> l (liveLock);
+            live.erase (std::remove_if (live.begin(), live.end(), [this] (const Live& x) { return x.stream == stream; }), live.end());
+        }
+        juce::WebInputStream* stream;
+    };
+}
+
+void abort (const std::atomic<bool>* shouldCancel)
+{
+    if (shouldCancel == nullptr) return;
+    std::lock_guard<std::mutex> l (liveLock);
+    for (const auto& x : live)
+        if (x.flag == shouldCancel) x.stream->cancel();
+}
 
 Result postJson (const juce::String& url, const juce::String& jsonBody, const juce::String& bearerToken,
                  int timeoutSeconds, const std::atomic<bool>* shouldCancel, const juce::String& extraHeaders)
@@ -31,7 +69,10 @@ Result postJson (const juce::String& url, const juce::String& jsonBody, const ju
         return result;
     }
 
-    // Read the body in chunks so a cancel during a slow transfer is honoured too.
+    // Read the body in chunks so a cancel during a slow transfer is honoured too - between reads
+    // by the flag, and in the middle of one by abort().
+    const Registered registered (shouldCancel, stream.get());
+    if (cancelled()) { result.error = "cancelled"; return result; }
     juce::MemoryOutputStream out;
     juce::HeapBlock<char> chunk (8192);
     while (! stream->isExhausted())

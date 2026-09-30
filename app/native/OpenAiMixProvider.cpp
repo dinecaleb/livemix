@@ -231,6 +231,11 @@ MixReasoningResponse OpenAiMixProvider::parseResponse (const juce::String& body,
     return out;
 }
 
+void OpenAiMixProvider::abort (const std::atomic<bool>& shouldCancel)
+{
+    http::abort (&shouldCancel);
+}
+
 MixReasoningResponse OpenAiMixProvider::reason (const MixReasoningRequest& request, const std::atomic<bool>& shouldCancel)
 {
     const AISettings settings = AISettings::load();
