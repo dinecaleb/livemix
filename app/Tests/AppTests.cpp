@@ -2462,6 +2462,30 @@ TEST_CASE ("MixController: the engineer's listen never takes the room's outputs"
     CHECK (now.count == 3);
 }
 
+TEST_CASE ("MixController: renaming a channel keeps every scene and history entry")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    c.setStripFader (1, -7.0f);
+    c.keepScene (0);
+    c.checkpoint ("Before the sermon", false);
+    c.setStripFader (1, 0.0f);
+
+    c.setInputName (4, "Grace");                 // this week's singer on the backing mic
+    CHECK (c.getGraph().strips[4].name == "Grace");
+    REQUIRE (c.recallScene (0));
+    CHECK_NEAR (c.getKept().strips[1].faderDb, -7.0f, 0.001f);
+    c.setStripFader (1, 0.0f);
+    const auto list = c.getCheckpoints();
+    REQUIRE (! list.empty());
+    int index = -1;
+    for (int i = 0; i < int (list.size()); ++i) if (list[size_t (i)].what == "Before the sermon") index = i;
+    REQUIRE (index >= 0);
+    CHECK (c.restoreCheckpoint (index));
+    CHECK_NEAR (c.getKept().strips[1].faderDb, -7.0f, 0.001f);
+}
+
 TEST_CASE ("Mix Buddy: a question never changes the mix, and nothing is kept for you")
 {
     MixController c;

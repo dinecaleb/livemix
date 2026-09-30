@@ -112,12 +112,14 @@ namespace
         juce::String openDevices (const juce::String& input, const juce::String& output) override
         {
             if (const auto locked = deviceChangeLocked(); locked.isNotEmpty()) return locked;
+            standingIn = false;                          // the engineer's own choice now
             forgetPairing();
             return host.open (input, output, runningRate(), runningBlock());
         }
         juce::String openOutputOnly (const juce::String& output) override
         {
             if (const auto locked = deviceChangeLocked(); locked.isNotEmpty()) return locked;
+            standingIn = false;                          // the engineer's own choice now
             forgetPairing();
             return host.openOutputOnly (output, runningRate(), runningBlock());
         }
@@ -138,6 +140,7 @@ namespace
         juce::String changeOutput (const juce::String& output) override
         {
             if (const auto locked = deviceChangeLocked(); locked.isNotEmpty()) return locked;
+            standingIn = false;                          // the engineer's own choice now
             // Changing the broadcast while solo is set up is not a device swap - it is the same
             // pairing with a different half, so the joined device has to be rebuilt around it.
             // Without this, choosing a new broadcast from the toolbar would silently drop the
@@ -454,6 +457,11 @@ namespace
                 case DevicePlan::Action::KeepOpen:       host.reconfigure(); break;
                 case DevicePlan::Action::None:           break;
             }
+            // A plan that is not the session's own devices is a stand-in (see deviceChoice).
+            wantedDevices = doc.devices;
+            standingIn = plan.action != DevicePlan::Action::None
+                      && (plan.input != doc.devices.consoleInput || plan.output != doc.devices.broadcastOutput)
+                      && (doc.devices.consoleInput.isNotEmpty() || doc.devices.broadcastOutput.isNotEmpty());
             // Added to what openState has already said - a drum sound that did not travel is as
             // much news as a device that is missing, and clearing here used to throw it away.
             if (note.isNotEmpty()) recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + note;
@@ -704,13 +712,28 @@ namespace
         }
 
         // The devices as the engineer chose them, never the one DLIVE built around them.
+        //
+        // While a session is running on a stand-in - it opened with its console unplugged and the
+        // mix went to the Mac's speakers - what it asked for is still what it is saved with. The
+        // stand-in used to be written into the document by the first autosave, and next Sunday at
+        // church the console was never opened. It stops standing in when the engineer picks a
+        // device, or when the one asked for is what is open again.
         DeviceChoice deviceChoice()
         {
             DeviceChoice d { consoleInput(), broadcastOutputDevice(), soloOutputDevice() };
+            if (standingIn)
+            {
+                if (d.consoleInput == wantedDevices.consoleInput && d.broadcastOutput == wantedDevices.broadcastOutput)
+                    standingIn = false;
+                else
+                    return wantedDevices;
+            }
             d.consoleInputUid = uidFor (d.consoleInput);
             d.broadcastOutputUid = uidFor (d.broadcastOutput);
             return d;
         }
+        DeviceChoice wantedDevices;
+        bool standingIn = false;
 
         // CoreAudio's permanent name for a device, cached by name: this is read on every autosave,
         // and enumerating the devices is not free. The cache is dropped whenever the list changes.

@@ -154,11 +154,24 @@ std::array<std::vector<StripTuneRecord>, kMaxStrips> MixController::carriedStrip
 void MixController::setInputName (int strip, const std::string& name)
 {
     if (strip < 0 || strip >= int (session.inputs.size()) || name.empty()) return;
+    const auto was = inputNamesNow();
     session.inputs[size_t (strip)].name = name;
     touch();
-    if (strip < graph.numStrips()) graph.strips[size_t (strip)].name = name;
+    // `strip` is the input; its place on the console is whichever strip listens to it.
+    for (int i = 0; i < graph.numStrips(); ++i)
+        if (graph.strips[size_t (i)].input == strip)
+        {
+            graph.strips[size_t (i)].name = name;
+            engine.setStripName (i, name);
+        }
     if (strip < int (builtSession.inputs.size())) builtSession.inputs[size_t (strip)].name = name;
-    engine.setStripName (strip, name);
+
+    // A RENAME IS THE SAME CONSOLE. Scenes, favourites and the mix history know the inputs
+    // they were kept with by name, so renaming BV1 to this week's singer made every one of
+    // them "a different set of inputs". Whatever was kept with the old names takes the new.
+    const auto now = inputNamesNow();
+    for (auto& sc : scenes) if (sc.inputs == was) sc.inputs = now;
+    for (auto& cp : checkpoints) if (cp.inputs == was) cp.inputs = now;
 }
 
 void MixController::setInputIcon (int strip, const std::string& icon)
@@ -166,9 +179,13 @@ void MixController::setInputIcon (int strip, const std::string& icon)
     if (strip < 0 || strip >= int (session.inputs.size())) return;
     session.inputs[size_t (strip)].icon = icon;
     touch();
-    if (strip < graph.numStrips()) graph.strips[size_t (strip)].icon = icon;
+    for (int i = 0; i < graph.numStrips(); ++i)
+        if (graph.strips[size_t (i)].input == strip)
+        {
+            graph.strips[size_t (i)].icon = icon;
+            engine.setStripIcon (i, icon);
+        }
     if (strip < int (builtSession.inputs.size())) builtSession.inputs[size_t (strip)].icon = icon;
-    engine.setStripIcon (strip, icon);
 }
 
 // Pinning one unpins the rest, and pinning the one that is already pinned clears it. Nothing
