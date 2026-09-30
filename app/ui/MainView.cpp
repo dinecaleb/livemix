@@ -2471,6 +2471,11 @@ bool MainView::keyPressed (const juce::KeyPress& key)
 void MainView::newSession()
 {
     if (liveSafeBlocks ("starting a new session")) return;
+    if (services.daw().isRecording())
+    {
+        showToast ("Recording is running. Stop recording first - a new session would close the one it is recording into.");
+        return;
+    }
     if (! services.saveSession())
     {
         showToast ("\"" + services.currentSessionName() + "\" could not be saved, so it is still open. Check the disk, then try again.");
@@ -2494,6 +2499,11 @@ void MainView::sessionMenu()
 void MainView::importMultitrack()
 {
     if (liveSafeBlocks ("importing")) return;
+    if (services.daw().isRecording())
+    {
+        showToast ("Recording is running. Stop recording first - importing replaces the tracks it is recording onto.");
+        return;
+    }
     chooser = std::make_unique<juce::FileChooser> ("Choose a folder of recorded stems",
                                                    juce::File::getSpecialLocation (juce::File::userMusicDirectory));
     chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,

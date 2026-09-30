@@ -42,11 +42,11 @@ namespace
         DawEngine& daw() override { return dawEngine; }
         juce::Array<Device> inputDevices() override { juce::Array<Device> a; a.add ({ "Console", 32, 32 }); return a; }
         juce::Array<Device> outputDevices() override { juce::Array<Device> a; a.add ({ "Console", 32, 32 }); return a; }
-        juce::String openDevices (const juce::String& in, const juce::String& out) override { input = in; output = out; running = true; return {}; }
-        juce::String openOutputOnly (const juce::String& out) override { output = out; running = true; return {}; }
+        juce::String openDevices (const juce::String& in, const juce::String& out) override { input = in; output = out; running = true; outputOnly = false; return {}; }
+        juce::String openOutputOnly (const juce::String& out) override { input = {}; output = out; running = true; outputOnly = true; return {}; }
         juce::String changeOutput (const juce::String& out) override { output = out; return {}; }
         bool isAudioRunning() override { return running; }
-        int numInputChannels() override { return running ? kInputs : 0; }
+        int numInputChannels() override { return running && ! outputOnly ? kInputs : 0; }
         int numOutputChannels() override { return running ? 8 : 0; }
         double sampleRate() override { return kSr; }
         int bufferSize() override { return kBlock; }
@@ -80,7 +80,7 @@ namespace
     private:
         MixController& controller;
         DawEngine& dawEngine;
-        bool running = false;
+        bool running = false, outputOnly = false;
         juce::String input, output, sessionName { "Reachability" };
     };
 
@@ -631,4 +631,17 @@ TEST_CASE ("Reachability: ROUTING gathers the set-up, and LIVE SAFE covers it un
     CHECK_MESSAGE (routing.isCovered(), "a confirmation outlived the visit it was given for");
 
     window.services.daw().setLiveSafe (false);
+}
+
+TEST_CASE ("Recording: REC with nothing to record from says so and records nothing")
+{
+    // An output-only device - the microphone refused, "Not now", the console unplugged - is
+    // running. REC used to light up over it and write hours of silence.
+    Window w;
+    REQUIRE (! w.dawEngine.getProject().tracks.empty());
+    w.dawEngine.getProject().tracks[0].armed = true;
+    w.dawEngine.getProject().folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dlive-rec-refused");
+    w.services.openOutputOnly ("Console");
+    w.view->getTransportBar().toggleRecord();
+    CHECK (! w.dawEngine.isRecording());
 }

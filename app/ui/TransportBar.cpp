@@ -171,6 +171,34 @@ void TransportBar::toggleRecord()
     }
     if (! services.isAudioRunning()) { if (onToast) onToast ("Open an audio device first."); return; }
 
+    // NOTHING TO RECORD FROM IS SAID, NOT RECORDED. An output-only device (the microphone
+    // refused, "Not now", the console not plugged in) counts as running, and the recorder
+    // writes silence for a channel that is not there - so REC used to light up and write
+    // hours of nothing. Every armed track has to reach a channel the device has open.
+    {
+        const auto& inputs = daw.getSession().inputs;
+        const auto& tracks = daw.getProject().tracks;
+        const int open = services.numInputChannels();
+        int armed = 0, reachable = 0;
+        for (size_t t = 0; t < tracks.size() && t < inputs.size(); ++t)
+        {
+            if (! tracks[t].armed) continue;
+            ++armed;
+            const auto& in = inputs[t];
+            if (in.inputA >= 0 && in.inputA < open && in.inputB < open) ++reachable;
+        }
+        if (armed > 0 && reachable < armed)
+        {
+            if (onToast)
+                onToast (open <= 0 ? juce::String ("Nothing to record from: no inputs are open. Choose the console under Audio device "
+                                                   "(and allow the microphone in System Settings if macOS asked).")
+                                   : juce::String (armed - reachable) + (armed - reachable == 1 ? " track that is" : " tracks that are")
+                                         + " set to record " + (armed - reachable == 1 ? "listens" : "listen")
+                                         + " to an input this device does not have. Fix the assignments, or take them off record.");
+            return;
+        }
+    }
+
     if (services.sessionFolder() == juce::File())
     {
         const juce::String name = services.currentSessionName().isNotEmpty() ? services.currentSessionName() : "Untitled";

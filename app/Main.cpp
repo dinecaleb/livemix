@@ -299,6 +299,9 @@ namespace
         {
             juce::String n = name.trim();
             if (n.isEmpty()) return "Give the session a name.";
+            // The takes being written live in this session's folder; moving the document away
+            // from under them mid-take left the new session pointing at files that are not there.
+            if (dawEngine.isRecording()) return "Recording is running into this session's folder. Stop recording first, then save it under another name.";
             controller.setSessionName (n.toStdString());
             const auto file = SessionStore::fileFor (n);
             // Moving to a new folder: the takes stay where they are, and their clips keep absolute paths.
@@ -320,6 +323,8 @@ namespace
         juce::String loadSession (const juce::File& file) override
         {
             SessionState state;
+            if (dawEngine.isRecording())
+                return "Recording is running. Stop recording first - opening another session would close the one it is recording into.";
             if (! SessionStore::load (file, state))
             {
                 trackError ("session", "load_failed", true);
@@ -346,7 +351,10 @@ namespace
         // opens at all with the console unplugged, and why saving it then cannot lose anything.
         // `allowInputs` is false only when macOS has never been asked about the microphone and
         // the engineer said Not now: the output opens on its own and nothing listens.
-        void openState (const SessionState& state, const char* source = "user", bool allowInputs = true)
+        // `recoverTakes` is false only at a launch that is about to ask Recover / Open last saved /
+        // Keep both: a take the crash left unfinished is put back on the session the engineer
+        // chooses, after the answer, not on the one that happens to open first (recoverTakesNow).
+        void openState (const SessionState& state, const char* source = "user", bool allowInputs = true, bool recoverTakes = true)
         {
             // Whatever was open is closed cleanly first: its marker and its autosave go, so a
             // session that was left properly is never offered back as unsaved work.
@@ -367,11 +375,12 @@ namespace
             const auto err = openDevicesFor (state, allowInputs);
             restoreSolo (state, err);
             int takes = 0;
-            for (const auto& take : dawEngine.recoverUnfinishedTakes())
-            {
-                recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + take.note;
-                ++takes;
-            }
+            if (recoverTakes)
+                for (const auto& take : dawEngine.recoverUnfinishedTakes())
+                {
+                    recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + take.note;
+                    ++takes;
+                }
             dawEngine.locate (0);
             autosave.open (documentFileOrDefault());
             trackEvent ("session_opened", { { "source", source },
@@ -386,7 +395,6 @@ namespace
         // even the planned device would not open (the note carries it too).
         juce::String openDevicesFor (const SessionState& doc, bool allowInputs = true)
         {
-            recoveryNote.clear();
             juce::StringArray ins, outs;
             for (const auto& d : host.listInputDevices()) ins.add (d.name);
             for (const auto& d : host.listOutputDevices()) outs.add (d.name);
@@ -423,13 +431,30 @@ namespace
                 case DevicePlan::Action::KeepOpen:       host.reconfigure(); break;
                 case DevicePlan::Action::None:           break;
             }
-            recoveryNote = note;
+            // Added to what openState has already said - a drum sound that did not travel is as
+            // much news as a device that is missing, and clearing here used to throw it away.
+            if (note.isNotEmpty()) recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + note;
             if (err.isNotEmpty())
                 recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + juce::String ("Its audio device could not be opened (") + err + "). Pick one under Audio device.";
             return err;
         }
 
         juce::String takeRecoveryNote() override { auto n = recoveryNote; recoveryNote.clear(); return n; }
+
+        // The takes a crash left unfinished, repaired and put back on the session that is open
+        // now - called once the recovery question has been answered. Returns what to say.
+        juce::String recoverTakesNow()
+        {
+            juce::String note;
+            bool any = false;
+            for (const auto& take : dawEngine.recoverUnfinishedTakes())
+            {
+                note += (note.isEmpty() ? "" : " ") + take.note;
+                any = any || take.repaired;
+            }
+            if (any) touchSession();
+            return note;
+        }
         juce::String recoveryNote;
 
         juce::Array<SessionStore::Listing> listSessions() override { return SessionStore::listSessions(); }
@@ -883,9 +908,10 @@ public:
         {
             // Exactly the same path as opening it from the library, so there is one way a
             // session comes back: the document first, then whatever devices this Mac has.
-            auto restore = [this, state] (bool withInputs)
+            const bool asking = found.offer;
+            auto restore = [this, state, asking] (bool withInputs)
             {
-                services->openState (state, "launch", withInputs);
+                services->openState (state, "launch", withInputs, ! asking);
                 window->view().showPage (controller->getSession().inputs.empty() ? MainView::Page::Assign
                                                                                  : MainView::Page::Tracks);
                 const auto note = services->takeRecoveryNote();
@@ -1041,10 +1067,12 @@ public:
         auto* srv = services.get();
 
         const bool afterCrash = telemetry != nullptr && telemetry->previousRunEndedBadly();
-        offer.onOpenSaved = [document, afterCrash]
+        offer.onOpenSaved = [view, srv, document, afterCrash]
         {
             trackEvent ("session_recovery", { { "choice", "open_saved" }, { "ok", true }, { "after_crash", afterCrash } });
             SessionAutosave::dismissRecovery (document);
+            const auto takes = srv->recoverTakesNow();
+            if (takes.isNotEmpty()) view->showToast (takes);
         };
         offer.onRecover = [this, view, srv, autosave, document, when, afterCrash]
         {
@@ -1054,8 +1082,10 @@ public:
             if (! ok)
             {
                 trackError ("session", "autosave_unreadable", false);
-                view->showToast ("That autosave could not be read, so the session on disk is the one you have.");
                 SessionAutosave::dismissRecovery (document);
+                const auto takes = srv->recoverTakesNow();
+                view->showToast ("That autosave could not be read, so the session on disk is the one you have."
+                                 + (takes.isEmpty() ? juce::String() : " " + takes));
                 return;
             }
             srv->openState (recovered, "recovery");
@@ -1065,8 +1095,9 @@ public:
             if (srv->saveSession())
             {
                 SessionAutosave::dismissRecovery (document);
+                const auto more = srv->takeRecoveryNote();
                 view->showToast ("Recovered. The work from " + when.toString (false, true, false, true)
-                                 + " is back, and the session has been saved.");
+                                 + " is back, and the session has been saved." + (more.isEmpty() ? juce::String() : " " + more));
             }
             else
             {
@@ -1082,8 +1113,10 @@ public:
             if (! ok)
             {
                 trackError ("session", "autosave_unreadable", false);
-                view->showToast ("That autosave could not be read, so the session on disk is the one you have.");
                 SessionAutosave::dismissRecovery (document);
+                const auto takes = srv->recoverTakesNow();
+                view->showToast ("That autosave could not be read, so the session on disk is the one you have."
+                                 + (takes.isEmpty() ? juce::String() : " " + takes));
                 return;
             }
             // Keep both: the recovered work becomes a session of its own, beside the one that
