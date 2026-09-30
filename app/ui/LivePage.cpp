@@ -20,7 +20,7 @@ namespace
     constexpr int kCardPadX = 16, kCardPadY = 14, kCardGap = 10;
     constexpr int kHeadH = 18;            // a card's header line
     constexpr int kSegmentH = 24;         // a segment inside its track: 4 + 16 + 4
-    constexpr int kLevelW = 96;           // the monitor level's line
+    constexpr int kLevelW = 72;           // the monitor level's line
 
     juce::String dbText (float v)
     {
@@ -176,7 +176,7 @@ public:
         auto inner = getLocalBounds().reduced (kInsetX, 0).withTrimmedTop (16);
         g.setColour (! used ? Dine::ink4 : muted ? Dine::ink3 : Dine::ink);
         g.setFont (Dine::text (13.0f, 600));
-        Dine::drawFittedText (g, name(), inner.removeFromTop (18), juce::Justification::centred, 1, 0.8f);
+        Dine::drawFittedText (g, name(), inner.removeFromTop (18), juce::Justification::centred, 1, 0.7f);
         inner.removeFromTop (4);
 
         auto sub = inner.removeFromTop (14);
@@ -194,13 +194,17 @@ public:
             Dine::drawText (g, dbText (float (fader.getValue())) + " dB", sub, juce::Justification::centred, true);
         }
 
-        // Unity: the one mark the fader is read against, under the cap.
-        if (fader.getHeight() > 0)
-        {
-            const float y = float (fader.getY()) + float (fader.getPositionOfValue (0.0));
-            g.setColour (Dine::panMark);
-            g.fillRect (juce::Rectangle<float> (float (fader.getX() + 7), y, 12.0f, 1.0f));
-        }
+    }
+
+    // Unity: the one mark the fader is read against, across the slot. Over the slot rather than
+    // under it (the slider paints the slot), and left out while the cap is sitting on it.
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (fader.getHeight() <= 0) return;
+        const float unity = float (fader.getPositionOfValue (0.0));
+        if (std::fabs (unity - float (fader.getPositionOfValue (fader.getValue()))) < 21.0f) return;
+        g.setColour (Dine::panMark);
+        g.fillRect (juce::Rectangle<float> (float (fader.getX() + 7), float (fader.getY()) + unity, 12.0f, 1.0f));
     }
 
     void resized() override
@@ -484,8 +488,8 @@ void LivePage::refreshMonitor()
     monitorLevel->setTooltip ("Your headphones: " + dbText (m.gainDb) + " dB. Nothing to do with the mix anyone else hears. "
                               "Double-click for 0.0 dB.");
     const auto device = services.soloOutputDevice();
-    soloDevice.setValue (device.isEmpty() ? juce::String ("Pick where solo goes") : device);
-    soloDevice.setBriefValue (device.isEmpty() ? juce::String ("Pick") : Dine::shortPath (device));
+    soloDevice.setValue (device.isEmpty() ? juce::String ("Choose headphones") : device);
+    soloDevice.setBriefValue (device.isEmpty() ? juce::String ("Pick") : device);
     soloDevice.setEnabled (services.isAudioRunning());
 }
 
@@ -511,14 +515,6 @@ void LivePage::focusScenes()
 {
     sceneFlash = 45;
     repaint();
-}
-
-// What Autopilot has done since it was engaged, newest first, in the words the Mix history
-// has: its own entries, back as far as the "Before Autopilot" mark it left when it came on.
-void LivePage::readAutopilotLog (Look& next) const
-{
-    next.autopilotLog = autopilotLog;
-    next.autopilotSince = autopilotSince;
 }
 
 void LivePage::refresh()
@@ -597,6 +593,8 @@ void LivePage::refresh()
         next.autopilotMoved = ap.groupsCorrected > 0;
         if (ap.on && autopilotSince.isEmpty()) autopilotSince = clockTime (juce::Time::currentTimeMillis());
         if (! ap.on) autopilotSince = {};
+        // What it has done since it was engaged, newest first, in the words the Mix history has:
+        // its own entries, back as far as the "Before Autopilot" mark it left when it came on.
         const auto& history = controller.getCheckpoints();
         if (history.size() != checkpointsSeen || ap.on != look.autopilotOn)
         {
@@ -610,10 +608,15 @@ void LivePage::refresh()
                     if (! what.startsWith ("Autopilot: ")) continue;
                     auto line = what.fromFirstOccurrenceOf ("Autopilot: ", false, false).trimCharactersAtEnd (".");
                     line = line.replaceFirstOccurrenceOf (". ", " " + Glyph::dot() + " ").replace ("-", Glyph::minus());
+                    // The group as the strips name it: "Lead", not "LEAD".
+                    const auto group = line.upToFirstOccurrenceOf (" ", false, false);
+                    if (group.length() > 3)
+                        line = group.substring (0, 1) + group.substring (1).toLowerCase() + line.fromFirstOccurrenceOf (" ", true, false);
                     autopilotLog.add (clockTime (it->whenMs) + "\t" + line);
                 }
         }
-        readAutopilotLog (next);
+        next.autopilotLog = autopilotLog;
+        next.autopilotSince = autopilotSince;
     }
 
     safeLink->set (next.safe ? juce::String (juce::CharPointer_UTF8 ("What\xe2\x80\x99s locked \xe2\x80\xba"))
@@ -689,14 +692,16 @@ void LivePage::paint (juce::Graphics& g)
             g.setFont (valueFont);
             const int valueW = juce::jmin (row.getWidth(), Dine::textWidth (valueFont, s.value));
             Dine::drawText (g, s.value, row.removeFromLeft (valueW), juce::Justification::centredLeft, true);
-            if (s.note.isNotEmpty())
+            // The note is a second reading, not a name: on a narrow window it is left out
+            // whole rather than cut to "TP -1..." - the value beside it still says the thing.
+            const auto noteF = s.monoNote ? Dine::mono (11.0f, 500) : capFont;
+            const int noteW = s.note.isEmpty() ? 0 : Dine::textWidth (noteF, s.note);
+            if (noteW > 0 && noteW + 8 <= row.getWidth())
             {
                 row.removeFromLeft (8);
-                const auto noteF = s.monoNote ? Dine::mono (11.0f, 500) : capFont;
                 g.setColour (s.monoNote ? Dine::ink2 : Dine::ink3);
                 g.setFont (noteF);
-                const int noteW = juce::jmin (row.getWidth(), Dine::textWidth (noteF, s.note));
-                Dine::drawText (g, s.note, row.removeFromLeft (noteW), juce::Justification::centredLeft, true);
+                Dine::drawText (g, s.note, row.removeFromLeft (noteW), juce::Justification::centredLeft, false);
             }
         }
     }
@@ -874,7 +879,11 @@ void LivePage::resized()
         const int noteLines = wrapLines (noteFont(), look.monitorNote.isEmpty() ? juce::String ("Press S on a group. Only you hear it.") : look.monitorNote,
                                          textW - clearW - 8);
         const int titleH = juce::jmax (Dine::Metric::button, 18 + 2 + 14 * noteLines);
-        const int monitorH = kCardPadY + titleH + kCardGap + kSegmentH + 4 + kCardGap + 24 + kCardPadY;
+        // The two tracks share a row when the rail is wide enough for both, and stack when it is not.
+        const int modesW = modes[0]->idealWidth() + modes[1]->idealWidth() + 6 + 8 + modes[2]->idealWidth() + modes[3]->idealWidth() + 6;
+        const bool stacked = modesW > textW;
+        const int modesH = stacked ? 2 * (kSegmentH + 4) + 8 : kSegmentH + 4;
+        const int monitorH = kCardPadY + titleH + kCardGap + modesH + kCardGap + 24 + kCardPadY;
         l.monitor = rail.removeFromBottom (monitorH);
 
         auto inner = l.monitor.reduced (kCardPadX, kCardPadY);
@@ -882,14 +891,16 @@ void LivePage::resized()
         clearSolo.setBounds (titleRow.removeFromRight (clearW).removeFromTop (Dine::Metric::button));
         inner.removeFromTop (kCardGap);
 
-        auto modesRow = inner.removeFromTop (kSegmentH + 4);
-        auto track = [&modesRow] (DineButton& a, DineButton& b)
+        auto modesRow = inner.removeFromTop (modesH);
+        auto track = [&modesRow, stacked] (DineButton& a, DineButton& b)
         {
             const int wa = a.idealWidth(), wb = b.idealWidth();
-            auto t = modesRow.removeFromLeft (juce::jmin (modesRow.getWidth(), wa + wb + 6));
-            modesRow.removeFromLeft (8);
+            auto line = stacked ? modesRow.removeFromTop (kSegmentH + 4) : modesRow;
+            if (stacked) modesRow.removeFromTop (8);
+            auto t = line.removeFromLeft (juce::jmin (line.getWidth(), wa + wb + 6));
+            if (! stacked) modesRow.removeFromLeft (wa + wb + 6 + 8);
             auto seg = t.reduced (2);
-            a.setBounds (seg.removeFromLeft (juce::jmin (wa, seg.getWidth() / 2 + (wa - wb) / 2)));
+            a.setBounds (seg.removeFromLeft (juce::jmin (wa, seg.getWidth())));
             seg.removeFromLeft (2);
             b.setBounds (seg);
             return t;
@@ -928,7 +939,11 @@ void LivePage::refreshScenes()
         const auto& scene = controller.getScene (i);
         auto& seg = *sceneSegments[size_t (i)];
         const juce::String name (scene.name.empty() ? defaultSceneName (i) : scene.name.c_str());
-        if (seg.getButtonText() != name.toUpperCase()) { seg.setButtonText (name.toUpperCase()); resized(); }
+        if (seg.getButtonText() != name.toUpperCase())
+        {
+            seg.setButtonText (name.toUpperCase());
+            if (monitorLevel != nullptr) resized();          // a renamed scene is a wider segment
+        }
         seg.setToggleState (i == sceneSlot, juce::dontSendNotification);
         juce::String when;
         if (scene.kept && scene.whenMs > 0) when = clockTime (scene.whenMs);

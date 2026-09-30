@@ -1527,6 +1527,14 @@ int main (int argc, char** argv)
     view.showPage (MainView::Page::Tracks);
     rig.feed (0.4);
     rig.snap (dir, "27e-autopilot-tracks");
+    // LIVE as the design draws it (`06b - Live - decluttered`, 161:18761): LIVE SAFE on and
+    // Autopilot holding, both cards saying so on the rail.
+    rig.dawEngine.setLiveSafe (true);
+    view.showPage (MainView::Page::Live);
+    view.updateChromeForSnapshot();
+    rig.feed (0.5);
+    rig.snap (dir, "27f-autopilot-live-safe");
+    rig.dawEngine.setLiveSafe (false);
     rig.controller.setAutopilot (false);
     view.showPage (MainView::Page::Mixer);
     view.updateChromeForSnapshot();

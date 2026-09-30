@@ -244,8 +244,15 @@ void HistorySheet::paintRows (juce::Graphics& g)
             t.removeFromLeft (10);
         }
         g.setColour (row->sameConsole ? Dine::ink : Dine::ink4);
-        g.setFont (Dine::text (13.0f, 500));
-        Dine::drawText (g, row->sameConsole ? row->what : row->what + "   (different inputs)",
+        const auto font = Dine::text (13.0f, 500);
+        g.setFont (font);
+        // An entry that carries its reason - "Autopilot: LEAD -1.0 dB. The lead had come up..." -
+        // says the move alone when the sentence will not fit, rather than cutting the reason off
+        // mid-word. The whole of it is on LIVE's Autopilot card.
+        auto what = row->what;
+        if (Dine::textWidth (font, what) > t.getWidth() && what.contains (". "))
+            what = what.upToFirstOccurrenceOf (". ", false, false);
+        Dine::drawText (g, row->sameConsole ? what : what + "   (different inputs)",
                     t, juce::Justification::centredLeft, true);
     }
 }

@@ -650,7 +650,11 @@ public:
 
     void drawLinearSlider (juce::Graphics&, int x, int y, int w, int h, float sliderPos, float minPos,
                            float maxPos, juce::Slider::SliderStyle, juce::Slider&) override;
-    int getSliderThumbRadius (juce::Slider&) override { return 7; }
+    int getSliderThumbRadius (juce::Slider& s) override
+    {
+        const int cap = int (s.getProperties().getWithDefault ("dineFaderCap", 0));
+        return cap > 0 ? cap / 2 : 7;
+    }
 
     void drawPopupMenuBackground (juce::Graphics&, int w, int h) override;
     void drawPopupMenuItem (juce::Graphics&, const juce::Rectangle<int>& area, bool isSeparator, bool isActive,

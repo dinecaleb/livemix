@@ -96,7 +96,6 @@ private:
     juce::String autopilotText() const;
     void refreshMonitor();
     void updateDiskNote();
-    void readAutopilotLog (Look&) const;
     int diskTicks = 0, adviceTicks = 0;
     double secondsFree = 0.0;
     juce::String clipText, clipNote;

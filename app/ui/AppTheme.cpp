@@ -1775,13 +1775,18 @@ void DineLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int w, 
         {
             auto well = juce::Rectangle<float> (full.getCentreX() - 2.0f, full.getY(), 4.0f, full.getHeight());
             Dine::fillRounded (g, well, Dine::deep, 2.0f);
-            const float capH = 18.0f, capW = juce::jlimit (18.0f, 26.0f, full.getWidth());
-            const float cy = juce::jlimit (full.getY() + capH * 0.5f, full.getBottom() - capH * 0.5f, sliderPos);
+            // A fader that asks for the design's full 26 x 40 cap (LIVE's strips) gets it, with
+            // the thumb radius to match so the travel is the well and the cap rides over its ends.
+            const float tallCap = float (int (s.getProperties().getWithDefault ("dineFaderCap", 0)));
+            const float capH = tallCap > 0.0f ? tallCap : 18.0f, capW = juce::jlimit (18.0f, 26.0f, full.getWidth());
+            const float capR = tallCap > 0.0f ? 4.0f : 3.0f;
+            const float cy = tallCap > 0.0f ? juce::jlimit (capH * 0.5f, float (s.getHeight()) - capH * 0.5f, sliderPos)
+                                            : juce::jlimit (full.getY() + capH * 0.5f, full.getBottom() - capH * 0.5f, sliderPos);
             auto cap = juce::Rectangle<float> (full.getCentreX() - capW * 0.5f, cy - capH * 0.5f, capW, capH);
             g.setColour (juce::Colours::black.withAlpha (0.45f));
-            g.fillRoundedRectangle (cap.translated (0.0f, 1.0f), 3.0f);
+            g.fillRoundedRectangle (cap.translated (0.0f, tallCap > 0.0f ? 2.0f : 1.0f), capR);
             g.setGradientFill ({ capTop, cap.getX(), cap.getY(), capBot, cap.getX(), cap.getBottom(), false });
-            g.fillRoundedRectangle (cap, 3.0f);
+            g.fillRoundedRectangle (cap, capR);
             g.setColour (bevel);
             g.fillRect (cap.getX() + 2.0f, cap.getY() + 0.5f, cap.getWidth() - 4.0f, 1.0f);
             g.setColour (juce::Colour (0xff5a5d63));

@@ -138,7 +138,8 @@ opens it in the Inspector.
 | 11 | Purpose and sound | `70:9783` | `SetupPages.cpp` `PurposePage` |
 | 04 | Tracks | `71:9611` | `TracksPage.cpp` |
 | 05 | Tune | `71:12025` | `MixPage.cpp` |
-| 06 | Live | `71:12363` | `LivePage.cpp` |
+| 06 | Live (superseded by 06b) | `71:12363` | - |
+| 06b | Live · decluttered | `161:18761` | `LivePage.cpp` (snapshots `17-live`, `27f-autopilot-live-safe`) |
 | 07 | Inspector · Sample | `73:10195` | `AdvancedPage.cpp` / `ChainEditor.cpp` |
 | 17a | Inspector · Input | `73:10629` | `ChainEditor.cpp` |
 | 17b | Inspector · Filters | `73:10893` | " |
@@ -197,6 +198,10 @@ places the brief and the product's own rules met.
 | **TUNE CHANNEL on a TRACKS header** | Not drawn | Kept, and dropped first when the panel is narrow | It is a verb the inventory puts on the header; the design's header simply has fewer things on it. |
 | **The stacked group bar on a session row** | Not drawn | Kept, before the date | It is the one thing on the library screen that says what kind of service a session was. The inventory asks for it by name. |
 | **The Inputs table** | One flat table, three bulk buttons, All / Not used | The same, plus a list button beside the filter | Grouping by bus, one group at a time, the saved patches and Clear every assignment are all inventory items the design left no home for. They are one press away under that button and under Quick actions. |
+| **LIVE's strips (06b)** | Six groups and FX returns | Every group bus, so Ambience too, then FX returns | A group the session has is a group the room can hear, so it has a strip; an unused one says "Off" rather than disappearing and moving every other strip along. The master has no strip on LIVE, as drawn: its headroom and loudness are on the health strip. |
+| **LIVE's "What I hear" (06b)** | Two segment tracks, the headphones and a level | ... and a DIM key before the level | The headphones' DIM has no other home in DLIVE; dropping it would take away "turn my ears down to talk to someone" during a service. The two tracks stack when the rail is narrow. |
+| **LIVE's rail cards when off (06b)** | Drawn on only | LIVE SAFE and Autopilot each say "... is off" with a "Turn on ›" link | The frame is of a locked console with Autopilot holding. Off, the card says so in a sentence; turning either off stays the toolbar's one press. |
+| **LIVE's RECORD (06b)** | Not on the page | Not on the page | The transport's Record is in the toolbar on every workspace; the health strip says what is being written. |
 | **ROUTING's sections** | Audio device, Inputs, Outputs | ... and Patches | The design draws no screen for the patches a church saves, and they are in the inventory. |
 | **The Mixer's LIST layout, the three track heights, the timeline's menus** | Not drawn | Unchanged | The design drew the STRIPS console only. Everything else is in the inventory and is where it was. |
 | **TUNE's right column** | TUNE MIX, Match to reference, Check inputs | ... then a quiet row of TUNE LIVE MIX, Mix Buddy, Undo, Redo, Mix history, Inspector | All six are one press elsewhere (the toolbar, the sidebar, the Mix menu), so nothing was at risk; keeping them on the panel costs one row and saves a journey during a service. |
