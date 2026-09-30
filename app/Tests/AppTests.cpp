@@ -2334,27 +2334,51 @@ TEST_CASE ("MixController: Autopilot, closed loop through the engine - it conver
 TEST_CASE ("MixController: a mix is never handed to an engine playing a different set of inputs")
 {
     // Parameters go to the engine by strip position. Between a change of inputs and the
-    // device being reconfigured, the engine still plays the old strips - so publishing the
-    // new layout would put one channel's chain on its neighbour.
+    // device being reconfigured, the engine still plays the old strips - so every strip it
+    // plays takes the settings of the strip listening to the same device channels, never
+    // the settings of whatever now sits at its position.
     MixController c;
     c.setSession (band());
     c.prepare (kSr, kBlock);
     Feeder f (c);
     f.play (0.1);
-    const float leadBefore = c.getEngine().getAppliedParameters().strips[3].faderDb;
+    const float bgvBefore = c.getEngine().getAppliedParameters().strips[4].faderDb;
 
     auto moved = band();
     moved.inputs.insert (moved.inputs.begin() + 1, { "Pastor", ChannelRole::Speech, 5, -1 });   // an input added in the middle
     c.setSession (moved);
     c.setStripFader (4, -20.0f);          // the lead, in the new layout; strip 4 is the backing vocal in the engine's
     f.play (0.1);
-    CHECK_NEAR (c.getEngine().getAppliedParameters().strips[3].faderDb, leadBefore, 0.001f);
-    CHECK (c.getEngine().getAppliedParameters().strips[4].faderDb > -19.0f);
+    CHECK_NEAR (c.getEngine().getAppliedParameters().strips[3].faderDb, -20.0f, 0.001f);   // the lead's own input
+    CHECK_NEAR (c.getEngine().getAppliedParameters().strips[4].faderDb, bgvBefore, 0.001f); // not its neighbour
 
-    // Once the engine is prepared with the new inputs, the new mix is what it plays.
+    // Once the engine is prepared with the new inputs, the new layout is what it plays.
     c.prepare (kSr, kBlock);
     f.play (0.1);
     CHECK_NEAR (c.getEngine().getAppliedParameters().strips[4].faderDb, -20.0f, 0.001f);
+}
+
+TEST_CASE ("MixController: MUTE, DIM and every fader still reach the audio while the device catches up")
+{
+    // SPEAKING / SINGING on the TUNE page change a voice's job without re-opening the device.
+    // The console must not freeze in between: a howl is muted with the device as it is.
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    f.play (0.1);
+
+    REQUIRE (c.setInputRole (3, ChannelRole::Speech));    // the lead becomes the pastor's microphone
+    REQUIRE (c.needsReconfigure());                        // ...and nobody has re-opened the device yet
+    c.setBroadcastMute (true);
+    c.setStripMute (2, true);
+    c.setStripFader (1, -12.0f);
+    f.play (0.1);
+    const auto& heard = c.getEngine().getAppliedParameters();
+    CHECK (heard.broadcastMute);
+    CHECK (heard.strips[2].mute);
+    CHECK_NEAR (heard.strips[1].faderDb, -12.0f, 0.001f);
+    CHECK (heard.numStrips == band().numStrips());
 }
 
 TEST_CASE ("Mix Buddy: a question never changes the mix, and nothing is kept for you")

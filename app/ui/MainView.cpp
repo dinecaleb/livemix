@@ -1163,10 +1163,10 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     mixPage->onOpenCheck = [this] { showCheck(); };
     mixPage->onOpenFavourites = [this] { showPage (Page::Favourites); };
     mixPage->onSelectStrip = [this] (int strip) { lastChannel = strip; updateChainFoot(); };
+    mixPage->onGraphChanged = [this] { services.reconfigure(); };
     mixerPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
     mixerPage->onOpenBus = [this] (MixBus bus) { showPage (Page::Inspector); advancedPage->selectBus (bus); };
     mixerPage->onTuneStrip = [this] (int strip) { tuneChannel (strip); };
-    mixPage->onGraphChanged = [this] { services.reconfigure(); };
     mixerPage->onOpenWindow = [this] { openMixerWindow(); };
     mixerPage->onToast = [this] (const juce::String& t) { showToast (t); };
     mixerPage->onOpenAssign = [this] { assignPage->refresh(); showPage (Page::Assign); };
