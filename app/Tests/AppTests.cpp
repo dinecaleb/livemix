@@ -2300,6 +2300,32 @@ TEST_CASE ("MixController: Autopilot, closed loop through the engine - it conver
     CHECK (logged);
 }
 
+TEST_CASE ("MixController: a mix is never handed to an engine playing a different set of inputs")
+{
+    // Parameters go to the engine by strip position. Between a change of inputs and the
+    // device being reconfigured, the engine still plays the old strips - so publishing the
+    // new layout would put one channel's chain on its neighbour.
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    f.play (0.1);
+    const float leadBefore = c.getEngine().getAppliedParameters().strips[3].faderDb;
+
+    auto moved = band();
+    moved.inputs.insert (moved.inputs.begin() + 1, { "Pastor", ChannelRole::Speech, 5, -1 });   // an input added in the middle
+    c.setSession (moved);
+    c.setStripFader (4, -20.0f);          // the lead, in the new layout; strip 4 is the backing vocal in the engine's
+    f.play (0.1);
+    CHECK_NEAR (c.getEngine().getAppliedParameters().strips[3].faderDb, leadBefore, 0.001f);
+    CHECK (c.getEngine().getAppliedParameters().strips[4].faderDb > -19.0f);
+
+    // Once the engine is prepared with the new inputs, the new mix is what it plays.
+    c.prepare (kSr, kBlock);
+    f.play (0.1);
+    CHECK_NEAR (c.getEngine().getAppliedParameters().strips[4].faderDb, -20.0f, 0.001f);
+}
+
 TEST_CASE ("Mix Buddy: a question never changes the mix, and nothing is kept for you")
 {
     MixController c;

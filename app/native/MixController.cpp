@@ -1161,7 +1161,27 @@ void MixController::publish()
 {
     if (! prepared) return;
     running = compose();
+    // THE ENGINE PLAYS THE GRAPH IT WAS PREPARED WITH. A change of inputs rebuilds the graph
+    // here at once (rebuild()) but reaches the audio only when the device is reconfigured;
+    // parameters are handed over by strip position, so publishing in between would give every
+    // channel after an inserted input its neighbour's gain, gate, EQ and fader - the kick's
+    // gate on the pastor's microphone. Until the two agree the engine keeps the mix that
+    // matches its own graph, and prepare() publishes the new one.
+    if (! engineHasThisGraph()) return;
     engine.setParameters (running);
+}
+
+bool MixController::engineHasThisGraph() const noexcept
+{
+    const auto& playing = engine.getGraph();
+    if (playing.numStrips() != graph.numStrips()) return false;
+    for (int i = 0; i < graph.numStrips(); ++i)
+    {
+        const auto& a = playing.strips[size_t (i)];
+        const auto& b = graph.strips[size_t (i)];
+        if (a.inputA != b.inputA || a.inputB != b.inputB || a.bus != b.bus || a.role != b.role) return false;
+    }
+    return true;
 }
 
 // ---- TUNE MIX ----

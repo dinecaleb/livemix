@@ -897,6 +897,7 @@ private:
     double autopilotSettle = 0.0;            // seconds of audio still to settle for
     long long autopilotLastSamples = -1;
     void pollAutopilot();
+    bool engineHasThisGraph() const noexcept;     // the graph the engine was prepared with is this one
     void autopilotRelearn();                 // a new mix to hold: learn it before moving anything
     void autopilotFlushHistory (const char* why);
 
