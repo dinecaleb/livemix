@@ -50,6 +50,7 @@ juce::String Recorder::start (const juce::File& audioFolder,
     frames.store (0, std::memory_order_relaxed);
     failed.store (false, std::memory_order_relaxed);
     oversized.store (false, std::memory_order_relaxed);
+    diskFault.store (0, std::memory_order_relaxed);
 
     // A service is an hour; a disk that cannot hold kMinMinutes of it will fail in the middle
     // of it. Better to refuse now, in words, than to stop recording during the sermon.
@@ -112,7 +113,41 @@ juce::String Recorder::start (const juce::File& audioFolder,
 int Recorder::SidecarWriter::useTimeSlice()
 {
     owner.writeSidecars();
+    owner.checkDisk();
     return owner.sidecarMs;
+}
+
+void Recorder::checkDisk()
+{
+    if (! active.load (std::memory_order_acquire) || writers.empty()) return;
+    const juce::int64 written = frames.load (std::memory_order_relaxed);
+
+    // Nearly full: stop while the headers can still be written, and say why, rather than
+    // carrying on with a red light over a take that is no longer landing.
+    const double perSecond = double (kBitDepth / 8) * rate * [this] { int c = 0; for (const auto& w : writers) c += w.channels; return c; }();
+    const juce::int64 free = writers.front().file.getBytesFreeOnVolume();
+    if (free > 0 && double (free) < perSecond * 30.0)
+    {
+        diskFault.store (1, std::memory_order_relaxed);
+        failed.store (true, std::memory_order_relaxed);
+        return;
+    }
+
+    // Still landing: every file grows while audio arrives. The header is flushed every
+    // headerFlushSeconds of audio at the latest, so a file that has not grown for well over
+    // that while the take went on is not being written - the drive went, or it is full.
+    const juce::int64 patience = juce::int64 (rate * (headerFlushSeconds + 10.0));
+    for (auto& w : writers)
+    {
+        const juce::int64 size = w.file.existsAsFile() ? w.file.getSize() : -1;
+        if (size > w.lastSize) { w.lastSize = size; w.framesAtGrowth = written; continue; }
+        if (size < 0 || written - w.framesAtGrowth > patience)
+        {
+            diskFault.store (2, std::memory_order_relaxed);
+            failed.store (true, std::memory_order_relaxed);
+            return;
+        }
+    }
 }
 
 void Recorder::writeSidecars()
@@ -304,6 +339,13 @@ juce::String Recorder::getError() const
     if (oversized.load (std::memory_order_relaxed))
         return "The audio device is using a buffer this recorder cannot capture. "
                "Choose a buffer size of 8192 samples or less under Audio device, then record again.";
+    const int fault = diskFault.load (std::memory_order_relaxed);
+    if (fault == 1)
+        return "The recording disk is full, so the take has been stopped with everything up to now kept. "
+               "Free some space, or save the session somewhere with more room, and record again.";
+    if (fault == 2)
+        return "The take stopped reaching the disk - the drive may have been unplugged or be full. It has been stopped "
+               "with what was written kept. Check the drive, then record again.";
     if (failed.load (std::memory_order_relaxed))
         return "The disk could not keep up with the recording. Stop, free some space, and record again.";
     return {};
@@ -312,6 +354,8 @@ juce::String Recorder::getError() const
 const char* Recorder::getErrorCode() const noexcept
 {
     if (oversized.load (std::memory_order_relaxed)) return "buffer_too_large";
+    if (diskFault.load (std::memory_order_relaxed) == 1) return "disk_full";
+    if (diskFault.load (std::memory_order_relaxed) == 2) return "disk_lost";
     if (failed.load (std::memory_order_relaxed)) return "disk_too_slow";
     return "";
 }

@@ -203,6 +203,39 @@ TEST_CASE ("Recorder: an armed track becomes a WAV, and an empty take leaves no 
     folder.deleteRecursively();
 }
 
+TEST_CASE ("Recorder: a take that stops reaching the disk is found and said, not recorded into nothing")
+{
+    // JUCE's threaded writer drops a failed write without a word, so a drive pulled out or
+    // filled mid-sermon used to leave REC lit over a take that was no longer landing.
+    const auto folder = scratchFolder().getChildFile ("disk-lost");
+    folder.deleteRecursively();
+    Recorder recorder (0.05, 0.05);           // look often: this is about what is found, not when
+    std::vector<Recorder::Spec> specs { { 0, "Pastor", 0, -1 } };
+    REQUIRE (recorder.start (folder, specs, kSr, 0).isEmpty());
+
+    std::vector<float> in (size_t (kBlock), 0.25f);
+    const float* ip[1] = { in.data() };
+    auto play = [&] (double seconds)
+    {
+        for (int b = 0; b < int (seconds * kSr / kBlock); ++b)
+        {
+            recorder.write (ip, 1, kBlock);
+            if (b % 64 == 0) juce::Thread::sleep (2);
+        }
+        juce::Thread::sleep (300);
+    };
+    play (1.0);
+    CHECK (recorder.getError().isEmpty());     // a healthy take is left alone
+
+    // The drive goes.
+    for (const auto& f : folder.findChildFiles (juce::File::findFiles, false, "*.wav")) f.deleteFile();
+    play (1.0);
+    CHECK (juce::String (recorder.getErrorCode()) == "disk_lost");
+    CHECK (recorder.getError().contains ("stopped reaching the disk"));
+    recorder.stop();
+    folder.deleteRecursively();
+}
+
 TEST_CASE ("Recorder: refuses to start with nothing armed")
 {
     Recorder recorder;

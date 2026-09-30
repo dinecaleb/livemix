@@ -172,7 +172,7 @@ Error codes, all of them:
 | --- | --- | --- | --- |
 | `app` | `unhandled_exception` (the message loop caught it and carried on) | true | `type`, `where` (file name and line only) |
 | `audio_device` | `device_lost` | false (see `device_returned`) | `was_recording` |
-| `recording` | `buffer_too_large`, `disk_too_slow`, `device_lost` | false | `seconds` |
+| `recording` | `buffer_too_large`, `disk_too_slow`, `disk_full`, `disk_lost`, `device_lost` | false | `seconds` |
 | `session` | `load_failed`, `restore_failed` (the last session didn't reopen at launch), `autosave_unreadable`, `save_failed` | per code | `save_as` |
 | `samples` | `import_failed` | true | `instrument` |
 

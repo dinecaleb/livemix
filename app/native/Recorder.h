@@ -113,7 +113,16 @@ private:
         int inputA = -1, inputB = -1;
         std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> writer;
         std::array<const float*, 2> ptrs {};
+        // Writer thread only: how big the file was, and how much audio had arrived, when it
+        // last grew. A file that stops growing while audio keeps arriving is a disk that has
+        // stopped taking it (see checkDisk).
+        juce::int64 lastSize = 0;
+        juce::int64 framesAtGrowth = 0;
     };
+    // Writer thread, every sidecar interval: is the take still landing? JUCE's threaded writer
+    // drops a failed write without saying so, so this is where a full disk or a drive pulled
+    // out is found - by the file, not by the writer.
+    void checkDisk();
 
     static juce::File uniqueTakeFile (const juce::File& folder, const juce::String& trackName);
 
@@ -146,6 +155,7 @@ private:
     std::atomic<juce::int64> frames { 0 };
     std::atomic<bool> failed { false };
     std::atomic<bool> oversized { false };
+    std::atomic<int> diskFault { 0 };        // 1 = the disk is full, 2 = the take stopped reaching the disk
     juce::int64 startSample = 0;
     double rate = 48000.0;
 };
