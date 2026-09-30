@@ -16,11 +16,15 @@ namespace
     constexpr int kStatusH = 100;
     constexpr int kSafeW = 470;
     constexpr int kScenesH = 100;
-    constexpr int kMonitorH = 150;
+    // Tall enough for everything the card holds: 16 + heading 22 + line 16 + the gaps, the
+    // chips, the level row and the sentence that says where solo is going, + 16. At 150 that
+    // sentence - a warning, in amber - was drawn below the card, on the page's own ground.
+    constexpr int kMonitorH = 16 + 22 + 16 + 12 + 28 + 20 + 28 + 16 + 18 + 16;
     constexpr int kMonitorW = 560;
     // The monitor card's rows, measured once: a gap under its heading, the chips, a gap, the
     // level, a gap, the sentence that says where solo is going.
     constexpr int kMonCaptionGap = 12, kMonRowGap = 20, kMonNoteGap = 16, kMonNote = 18;
+    constexpr int kMonDial = 28;    // the monitor level: a rotary, sized to the card's control row
 
     juce::String dbText (float v)
     {
@@ -415,12 +419,16 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         });
     };
 
+    // The monitor level is the one knob every console has under the engineer's right hand, so
+    // it is a knob here too - the card says what it is and what it reads, beside it.
     addAndMakeVisible (monitorLevel);
-    monitorLevel.setRange (-40.0, 12.0, 0.5);
-    monitorLevel.setValue (0.0, juce::dontSendNotification);
-    monitorLevel.setTooltip ("How loud your headphones are. Nothing to do with the mix anyone else hears.");
-    Dine::dragOnly (monitorLevel);
-    monitorLevel.onValueChange = [this] { controller.setMonitorGain (float (monitorLevel.getValue())); repaint (layout().monitor); };
+    monitorLevel.setRange (-40.0, 12.0, 0.5, -8.0);
+    monitorLevel.setDefaultValue (0.0);
+    monitorLevel.setDial (kMonDial);
+    monitorLevel.setShowsText (false, false);
+    monitorLevel.setTooltip ("How loud your headphones are. Nothing to do with the mix anyone else hears. "
+                             "Double-click for 0.0 dB.");
+    monitorLevel.onChange = [this] (double v) { controller.setMonitorGain (float (v)); repaint (layout().monitor); };
 
     setOpaque (true);
     refreshMonitor();
@@ -439,7 +447,7 @@ void LivePage::refreshMonitor()
     chips[4]->setToggleState (m.dim, juce::dontSendNotification);
     chips[5]->setEnabled (controller.numSoloed() > 0);
     if (std::fabs (monitorLevel.getValue() - double (m.gainDb)) > 0.01)
-        monitorLevel.setValue (m.gainDb, juce::dontSendNotification);
+        monitorLevel.setValue (m.gainDb);
     const auto device = services.soloOutputDevice();
     soloDevice.setValue (device.isEmpty() ? juce::String ("Solo goes nowhere yet") : "Solo: " + device);
     soloDevice.setEnabled (services.isAudioRunning());
@@ -673,7 +681,8 @@ void LivePage::paint (juce::Graphics& g)
         Dine::drawText (g, "Monitor level", levelRow.removeFromLeft (94), juce::Justification::centredLeft);
         g.setColour (Dine::ink2);
         g.setFont (Dine::mono (11.0f, 500));
-        Dine::drawText (g, dbText (look.monitorDb), levelRow.removeFromRight (52), juce::Justification::centredRight);
+        levelRow.removeFromLeft (kMonDial + 10);          // past the knob and the gap after it
+        Dine::drawText (g, dbText (look.monitorDb), levelRow.withWidth (60), juce::Justification::centredLeft);
         auto note = inner.withTrimmedTop (Dine::Metric::control + kMonRowGap + Dine::Metric::control + kMonNoteGap).withHeight (kMonNote);
         g.setColour (look.inPlace || ! look.routed ? Dine::warn : look.soloCount > 0 ? Dine::accent : Dine::ink3);
         g.setFont (Dine::text (12.0f));
@@ -831,8 +840,7 @@ void LivePage::resized()
         inner.removeFromTop (kMonRowGap);
         auto levelRow = inner.removeFromTop (Dine::Metric::control);
         levelRow.removeFromLeft (94);
-        levelRow.removeFromRight (52 + 12);
-        monitorLevel.setBounds (levelRow);
+        monitorLevel.setBounds (levelRow.removeFromLeft (kMonDial).withSizeKeepingCentre (kMonDial, kMonDial));
     }
     {
         auto inner = l.safe.reduced (18, 16);

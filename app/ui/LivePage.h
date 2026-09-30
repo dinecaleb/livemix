@@ -61,7 +61,7 @@ private:
     std::array<std::unique_ptr<SceneCard>, 4> scenePads;
     std::array<std::unique_ptr<DineButton>, 4> sceneKeeps;
     void refreshScenes();
-    juce::Slider monitorLevel { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+    DineKnob monitorLevel;
     DinePopup soloDevice;                                // where solo goes: the device only the engineer hears
     std::unique_ptr<RecordKey> recordButton;
 

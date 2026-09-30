@@ -171,18 +171,18 @@ public:
             knobs[size_t (i)]->onChange = [this, i] (float v) { setMacro (i, v); };
             addAndMakeVisible (*knobs[size_t (i)]);
         }
-        level.setSliderStyle (juce::Slider::LinearHorizontal);
-        level.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        Dine::dragOnly (level);
-        level.setRange (-60.0, 12.0, 0.1);
-        level.setSkewFactorFromMidPoint (-12.0);
-        level.setDoubleClickReturnValue (true, 0.0);
-        level.getProperties().set ("dineFader", true);
+        // THE LEVEL IS A KNOB, NOT A BAR LYING DOWN. A number an engineer turns is turned;
+        // the one fader in the product is the one on the mixer strip, standing up.
+        level.setRange (-60.0, 12.0, 0.1, -12.0);
+        level.setDefaultValue (0.0);
+        level.setDial (kLevelDial);
+        level.setCaption ("Level");
+        level.setFormat ([] (double v) { return db1 (float (v)) + " dB"; });
         level.setTooltip ("How loud this channel is in the mix. Double-click for 0.0 dB.");
-        level.onValueChange = [this]
+        level.onChange = [this] (double v)
         {
             if (updating || strip < 0) return;
-            controller.setStripFader (strip, float (level.getValue()));
+            controller.setStripFader (strip, float (v));
             repaint();
         };
         addAndMakeVisible (level);
@@ -251,7 +251,7 @@ public:
         if (strip < 0 || ! controller.isPrepared() || strip >= controller.getBase().numStrips) return;
         updating = true;
         const float db = controller.getBase().strips[size_t (strip)].faderDb;
-        if (std::fabs (db - float (level.getValue())) > 0.01f) { level.setValue (db, juce::dontSendNotification); repaint(); }
+        if (std::fabs (db - float (level.getValue())) > 0.01f) { level.setValue (db); repaint(); }
         updating = false;
         if (voiceTrack.isVisible())
         {
@@ -301,13 +301,6 @@ public:
                         rows.removeFromTop (kBulletH), juce::Justification::centredLeft, true);
         }
 
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (11.0f, 500));
-        Dine::drawText (g, "Level", lay.levelCaption, juce::Justification::centredLeft);
-        g.setColour (Dine::ink);
-        g.setFont (Dine::mono (12.0f, 500));
-        Dine::drawText (g, db1 (float (level.getValue())) + " dB", lay.levelValue, juce::Justification::centredLeft);
-
         g.setColour (Dine::ink4);
         g.setFont (Dine::text (11.5f));
         Dine::drawText (g, "The engineer's words " + juce::String (Glyph::dash()) + " gate, compressor, de-esser "
@@ -322,7 +315,7 @@ public:
     {
         const int lines = juce::jmax (1, sentences().size());
         return 20 + 22 + 22 + kKnobBlockH + 20 + 1 + 16 + 18 + 10 + lines * kBulletH
-                  + 28 + 14 + 10 + 18 + 18 + Dine::Metric::button + 16 + 16 + 20;
+                  + 24 + DineKnob::cellHeight (kLevelDial) + 18 + Dine::Metric::button + 16 + 16 + 20;
     }
 
     void resized() override
@@ -428,6 +421,7 @@ private:
     };
 
     static constexpr int kKnobSize = 76;
+    static constexpr int kLevelDial = 56;   // the level: a rotary of its own, under the sentences
     static constexpr int kKnobBlockH = kKnobSize + 6 + 16 + 14;
     static constexpr int kBulletH = 30;
 
@@ -437,7 +431,7 @@ private:
     // verbs follow the sentences rather than sitting at the foot of whatever height it has.
     struct Lay
     {
-        juce::Rectangle<int> title, knobs, rule, didHead, bullets, levelCaption, level, levelValue, buttons, note;
+        juce::Rectangle<int> title, knobs, rule, didHead, bullets, level, buttons, note;
     };
 
     Lay layout() const
@@ -454,13 +448,9 @@ private:
         r.removeFromTop (10);
         const int lines = juce::jmax (1, sentences().size());
         l.bullets = r.removeFromTop (juce::jmin (r.getHeight(), lines * kBulletH));
-        r.removeFromTop (28);
-        l.levelCaption = r.removeFromTop (14);
-        r.removeFromTop (10);
-        auto levelRow = r.removeFromTop (18);
-        l.level = levelRow.removeFromLeft (juce::jmin (juce::jmax (120, levelRow.getWidth() - 96), 500));
-        levelRow.removeFromLeft (16);
-        l.levelValue = levelRow;
+        r.removeFromTop (24);
+        l.level = r.removeFromTop (DineKnob::cellHeight (kLevelDial))
+                   .removeFromLeft (juce::jmax (96, level.cellWidth()));
         r.removeFromTop (18);
         l.buttons = r.removeFromTop (Dine::Metric::button);
         r.removeFromTop (16);
@@ -547,7 +537,7 @@ private:
     ChannelParameters asTuned;
     MacroValues values;
     std::array<std::unique_ptr<Knob>, 5> knobs;
-    juce::Slider level;
+    DineKnob level;
     DineButton tuneButton { "TUNE CHANNEL", DineButton::Style::Filled };
     DineButton putBack { "PUT IT BACK", DineButton::Style::Standard };
     DineSegmentRow voiceTrack;

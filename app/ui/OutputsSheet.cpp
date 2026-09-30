@@ -25,6 +25,9 @@ namespace
         }
     }
 
+    // The level cell on a feed's row: the knob, a gap, and the number it is reading. The
+    // table's heading is placed from the same two figures, so the two cannot drift apart.
+    constexpr int kLevelDial = 26, kRowLevelW = kLevelDial + 10 + 62;
 }
 
 // ------------------------------------------------------------------ Row
@@ -35,7 +38,7 @@ public:
     {
         addAndMakeVisible (sourceButton);
         addAndMakeVisible (pairButton);
-        addAndMakeVisible (levelSlider);
+        addAndMakeVisible (levelKnob);
         addAndMakeVisible (monoButton);
         addAndMakeVisible (muteButton);
         addChildComponent (removeButton);
@@ -44,23 +47,23 @@ public:
                                  "headphones - whatever you have soloed. Nothing you solo is ever heard by "
                                  "the room or the stream. (Engineers: the monitor / solo bus, PFL or AFL.)");
         pairButton.setTooltip ("Which pair of the device's outputs it leaves by.");
-        levelSlider.setTooltip ("Monitoring level for this output. It never changes the mix.");
+        levelKnob.setTooltip ("Monitoring level for this output. It never changes the mix. Double-click for 0.0 dB.");
         monoButton.setTooltip ("Sum to mono: a single fill speaker, or a phone feed.");
         muteButton.setTooltip ("Silence this output.");
         removeButton.setTooltip ("Stop sending this feed");
         removeButton.setQuiet (true);
         removeButton.setPadX (4);
 
-        levelSlider.setSliderStyle (juce::Slider::LinearHorizontal);
-        levelSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        Dine::dragOnly (levelSlider);
-        levelSlider.setRange (-60.0, 12.0, 0.1);
-        levelSlider.setDoubleClickReturnValue (true, 0.0);
-        levelSlider.getProperties().set ("dineFader", true);
-        levelSlider.onValueChange = [this]
+        // A trim on a row is a knob, the way it is on every output section ever built: the row
+        // says the number beside it, so the knob itself carries neither a readout nor a name.
+        levelKnob.setRange (-60.0, 12.0, 0.1, -12.0);
+        levelKnob.setDefaultValue (0.0);
+        levelKnob.setDial (kLevelDial);
+        levelKnob.setShowsText (false, false);
+        levelKnob.onChange = [this] (double v)
         {
             if (updating) return;
-            feed.gainDb = float (levelSlider.getValue());
+            feed.gainDb = float (v);
             sheet.commit();
             repaint();
         };
@@ -82,7 +85,7 @@ public:
     {
         updating = true;
         feed = f;
-        levelSlider.setValue (f.gainDb, juce::dontSendNotification);
+        levelKnob.setValue (f.gainDb);
         sourceButton.setValue (f.monitor ? juce::String ("My headphones")
                                          : (f.source == MixBus::Master ? juce::String ("Main mix")
                                                                        : Dine::sectionCase (mixBusName (f.source))));
@@ -125,7 +128,7 @@ public:
 
         g.setColour (feed.mute ? Dine::ink4 : Dine::ink2);
         g.setFont (Dine::mono (11.0f, 500));
-        Dine::drawText (g, db1 (feed.gainDb), levelRect.withTrimmedLeft (levelRect.getWidth() - 54), juce::Justification::centredRight);
+        Dine::drawText (g, db1 (feed.gainDb) + " dB", levelRect, juce::Justification::centredLeft);
 
         if (feed.left >= 0 && ! sheet.pairExists (feed.left / 2))
         {
@@ -153,8 +156,12 @@ public:
         pairButton.setBounds (line.removeFromLeft (158));
         line.removeFromLeft (12);
 
-        levelRect = line;
-        levelSlider.setBounds (line.withTrimmedRight (60));
+        // The level sits at the right of the row, next to the keys: the knob, then the number
+        // it is reading, so a column of feeds line their levels up with each other.
+        auto cell = line.removeFromRight (juce::jmin (line.getWidth(), kRowLevelW));
+        levelKnob.setBounds (cell.removeFromLeft (kLevelDial).withSizeKeepingCentre (kLevelDial, kLevelDial));
+        cell.removeFromLeft (10);
+        levelRect = cell;
     }
 
 private:
@@ -219,7 +226,7 @@ private:
     bool updating = false;
     juce::Rectangle<int> levelRect;
     DinePopup sourceButton, pairButton;
-    juce::Slider levelSlider;
+    DineKnob levelKnob;
     DineButton monoButton { "MONO", DineButton::Style::Toggle };
     DineButton muteButton { "MUTE", DineButton::Style::Standard };
     DineButton removeButton { "x", DineButton::Style::Standard };
@@ -498,7 +505,8 @@ void OutputsSheet::paint (juce::Graphics& g)
     Dine::drawText (g, "Source", head.removeFromLeft (190), juce::Justification::centredLeft);
     Dine::drawText (g, "Destination", head.removeFromLeft (170), juce::Justification::centredLeft);
     Dine::drawText (g, "Mono  " + juce::String (Glyph::dot()) + "  Mute", head.removeFromRight (158), juce::Justification::centredRight);
-    Dine::drawText (g, "Level", head, juce::Justification::centredLeft);
+    // The level's heading sits over the knob, which is at the right of the row beside the keys.
+    Dine::drawText (g, "Level", head.removeFromRight (kRowLevelW), juce::Justification::centredLeft);
 
     // Along the foot: how many feeds, and what is set up for the engineer, in one sentence.
     auto foot = card.reduced (26, 26).removeFromBottom (40 + Dine::Metric::button);

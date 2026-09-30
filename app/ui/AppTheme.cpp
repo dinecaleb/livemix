@@ -1190,6 +1190,171 @@ void PanBar::drag (const juce::MouseEvent& e)
     if (onChange) onChange (value);
 }
 
+// ============================================================================ DineKnob
+namespace
+{
+    // A knob's travel: `mid` is the value at the middle of the sweep, so a range can be
+    // skewed to where the useful part of it is.
+    double knobSkew (double min, double max, double mid) noexcept
+    {
+        if (! (mid > min && mid < max)) return 1.0;
+        return std::log (0.5) / std::log ((mid - min) / (max - min));
+    }
+
+    double knobProportion (double v, double min, double max, double mid) noexcept
+    {
+        const double t = juce::jlimit (0.0, 1.0, (v - min) / juce::jmax (1.0e-9, max - min));
+        return std::pow (t, knobSkew (min, max, mid));
+    }
+
+    double knobValue (double t, double min, double max, double mid) noexcept
+    {
+        return min + (max - min) * std::pow (juce::jlimit (0.0, 1.0, t), 1.0 / knobSkew (min, max, mid));
+    }
+
+    juce::Font knobCaps() { return Dine::text (10.0f, 600).withExtraKerningFactor (0.09f); }
+    juce::Font knobRead() { return Dine::mono (11.0f, 500); }
+}
+
+DineKnob::DineKnob()
+{
+    setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+    format = [] (double v) { return juce::String (v, 1); };
+}
+
+void DineKnob::setRange (double lo, double hi, double increment, double middle)
+{
+    minimum = lo;
+    maximum = juce::jmax (lo + 1.0e-9, hi);
+    step = increment;
+    mid = middle;
+    value = juce::jlimit (minimum, maximum, value);
+    repaint();
+}
+
+void DineKnob::setValue (double v)
+{
+    const double clamped = juce::jlimit (minimum, maximum, v);
+    if (std::fabs (clamped - value) < 1.0e-6) return;
+    value = clamped;
+    repaint();
+}
+
+void DineKnob::setDial (int px)
+{
+    dial = juce::jmax (18, px);
+    repaint();
+}
+
+void DineKnob::setShowsText (bool readout, bool name)
+{
+    showReadout = readout;
+    showCaption = name;
+    repaint();
+}
+
+// The words under a knob are a readout, so they are what has to stay legible when Text size
+// is turned up: the cell keeps its pixels and the type grows inside it.
+int DineKnob::cellHeight (int d)
+{
+    return d + 4 + 2 * juce::jmax (14, int (Dine::text (11.0f).getHeight()));
+}
+
+int DineKnob::cellHeight() const
+{
+    const int line = juce::jmax (14, int (Dine::text (11.0f).getHeight()));
+    return dial + (showReadout || showCaption ? 4 : 0) + (showReadout ? line : 0) + (showCaption ? line : 0);
+}
+
+// The design's cell is 80 wide, which every one of its own labels fits in. A label that does
+// not - LISTEN ABOVE, DETECTOR HP - takes the width it needs rather than an ellipsis.
+int DineKnob::cellWidth() const
+{
+    int w = juce::jmax (dial + 8, 80);
+    if (showCaption) w = juce::jmax (w, 8 + Dine::textWidth (knobCaps(), caption.trim().toUpperCase()));
+    if (showReadout) w = juce::jmax (w, 8 + Dine::textWidth (knobRead(), format ? format (value) : juce::String()));
+    return w;
+}
+
+void DineKnob::paint (juce::Graphics& g)
+{
+    const bool live = isEnabled();
+    auto r = getLocalBounds();
+    const int d = juce::jmin (dial, juce::jmin (r.getWidth(), showReadout || showCaption ? r.getHeight() : r.getHeight()));
+    auto face = r.removeFromTop (d).toFloat().withSizeKeepingCentre (float (d), float (d));
+    const float cx = face.getCentreX(), cy = face.getCentreY(), rad = d * 0.5f - 2.0f;
+    const float a0 = juce::degreesToRadians (-135.0f), sweep = juce::degreesToRadians (270.0f);
+    const float t = float (knobProportion (value, minimum, maximum, mid));
+
+    // A proportion of the knob rather than a fixed 3 pt, so every dial in the product reads
+    // as the same family whatever size it is drawn at.
+    const float ring = juce::jmax (3.0f, rad * 0.17f);
+    juce::Path track, arc;
+    track.addCentredArc (cx, cy, rad, rad, 0.0f, a0, a0 + sweep, true);
+    g.setColour (juce::Colours::white.withAlpha (live ? 0.10f : 0.05f));
+    g.strokePath (track, juce::PathStrokeType (ring, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    if (t > 0.004f)
+    {
+        arc.addCentredArc (cx, cy, rad, rad, 0.0f, a0, a0 + sweep * t, true);
+        g.setColour (live ? tint.value_or (Dine::accent) : Dine::ink4);
+        g.strokePath (arc, juce::PathStrokeType (ring, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    const float bodyR = juce::jmax (6.0f, rad - ring - 1.0f);
+    g.setColour (live ? Dine::raised : Dine::card);
+    g.fillEllipse (cx - bodyR, cy - bodyR, bodyR * 2.0f, bodyR * 2.0f);
+    const float a = a0 + sweep * t;
+    const float sx = std::sin (a), sy = -std::cos (a);
+    g.setColour (live ? Dine::ink : Dine::ink4);
+    g.drawLine (cx + sx * bodyR * 0.35f, cy + sy * bodyR * 0.35f,
+                cx + sx * (bodyR - juce::jmax (2.0f, bodyR * 0.2f)), cy + sy * (bodyR - juce::jmax (2.0f, bodyR * 0.2f)),
+                juce::jmax (1.6f, bodyR * 0.14f));
+
+    if (! showReadout && ! showCaption) return;
+    r.removeFromTop (4);
+    const int lineH = juce::jmax (14, int (Dine::text (11.0f).getHeight()));
+    if (showReadout)
+    {
+        g.setColour (live ? Dine::ink : Dine::ink4);
+        g.setFont (knobRead());
+        Dine::drawText (g, format ? format (value) : juce::String(), r.removeFromTop (lineH), juce::Justification::centred, true);
+    }
+    if (showCaption)
+    {
+        g.setColour (live ? Dine::ink3 : Dine::ink4);
+        g.setFont (knobCaps());
+        Dine::drawText (g, caption.trim().toUpperCase(), r.removeFromTop (lineH), juce::Justification::centred, true);
+    }
+}
+
+void DineKnob::mouseDown (const juce::MouseEvent& e)
+{
+    dragFrom = knobProportion (value, minimum, maximum, mid);
+    anchor = e.position.y;
+}
+
+void DineKnob::mouseDrag (const juce::MouseEvent& e)
+{
+    if (! isEnabled()) return;
+    const double t = juce::jlimit (0.0, 1.0, dragFrom + double (anchor - e.position.y) / (e.mods.isShiftDown() ? 700.0 : 170.0));
+    apply (knobValue (t, minimum, maximum, mid));
+}
+
+void DineKnob::mouseDoubleClick (const juce::MouseEvent&)
+{
+    if (isEnabled()) apply (defaultValue);
+}
+
+void DineKnob::apply (double v)
+{
+    const double q = step > 0.0 ? minimum + std::round ((v - minimum) / step) * step : v;
+    const double clamped = juce::jlimit (minimum, maximum, q);
+    if (std::fabs (clamped - value) < 1.0e-9) return;
+    value = clamped;
+    repaint();
+    if (onChange) onChange (clamped);
+}
+
 // ============================================================================ DineMeter
 void DineMeter::setLevels (float peakDb, float holdDb, bool clip)
 {

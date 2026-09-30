@@ -18,12 +18,11 @@ namespace
     constexpr int kWellPad   = 20;   // ... and the well's, inside it
     constexpr int kGraphH    = 220;  // what the drawing gets when the card has the room
     constexpr int kGraphMinH = 130;  // ... and the least it is worth drawing in
-    constexpr int kKnobCellW = 80;
-    constexpr int kKnobCellH = 82;
     constexpr int kRowGap    = 22;   // between the drawing and the knobs, and between knob rows
     constexpr int kChoiceH   = 46;   // caption 14 + 4 + track 28
     constexpr int kExtraH    = 32;   // the popup / button row (HEAR IT, Import a sound...)
-    constexpr int kSendRowH  = 50;
+    constexpr int kSendRowH  = 44;   // one send, as a labelled bar in the stage's drawing
+    constexpr int kBarLabelW = 124;  // the name beside a labelled bar (the trims, the sends)
     constexpr float kEqRangeDb = 18.0f;
 
     enum class Fmt { Db, DbPlain, Hz, Ms, Ratio, Percent, Q, Bipolar, Semitones };
@@ -41,7 +40,7 @@ namespace
         return juce::String (juce::roundToInt (v)) + " Hz";
     }
 
-    juce::String format (Fmt f, double v)
+    juce::String formatValue (Fmt f, double v)
     {
         switch (f)
         {
@@ -75,31 +74,6 @@ namespace
             case FxSlot::Count:
             default:                 return "?";
         }
-    }
-
-    // Caps used as a section label, not as a word: letterspaced, small, quiet.
-    juce::Font capsFont (float px, int weight = 700)
-    {
-        return Dine::text (px, weight).withExtraKerningFactor (0.09f);
-    }
-
-    // A knob's travel: the value at the middle of the sweep, so 120 Hz sits halfway up a
-    // 20 Hz - 1 kHz range instead of down in the corner.
-    double skewFor (double min, double max, double mid) noexcept
-    {
-        if (! (mid > min && mid < max)) return 1.0;
-        return std::log (0.5) / std::log ((mid - min) / (max - min));
-    }
-
-    double toProportion (double v, double min, double max, double mid) noexcept
-    {
-        const double t = juce::jlimit (0.0, 1.0, (v - min) / juce::jmax (1.0e-9, max - min));
-        return std::pow (t, skewFor (min, max, mid));
-    }
-
-    double fromProportion (double t, double min, double max, double mid) noexcept
-    {
-        return min + (max - min) * std::pow (juce::jlimit (0.0, 1.0, t), 1.0 / skewFor (min, max, mid));
     }
 
     float logX (float hz, float x, float w) noexcept
@@ -551,120 +525,31 @@ namespace
 }
 
 // ------------------------------------------------------------------ Knob
-// One number, in the design's shape (`Knob`, 62:9301): a 48 pt ring with the value drawn
-// on it from the left stop, a raised body with one pointer, then what it reads and what it
-// is called, both under it and centred. Drag up and down; a double-click puts it back
-// where a fresh channel starts.
-class ChainEditor::Knob : public juce::Component, public juce::SettableTooltipClient
+// One number, in the design's shape (`Knob`, 62:9301). The drawing, the drag and the
+// double-click are DineKnob's - every rotary in the product is the same control - and this
+// is only what a Field means by them.
+class ChainEditor::Knob : public DineKnob
 {
 public:
     Knob (Field f, std::function<void (double)> apply, juce::Colour tint)
-        : field (std::move (f)), commit (std::move (apply)), colour (tint)
+        : field (std::move (f))
     {
-        setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+        const auto fmt = field.fmt;
+        setRange (field.min, field.max, field.step, field.mid);
+        setDefaultValue (field.get ? field.get (ChannelParameters {}) : field.min);
+        setFormat ([fmt] (double v) { return formatValue (fmt, v); });
+        setCaption (field.label);
+        setTint (tint);
         setTooltip (field.label.trim());
+        onChange = std::move (apply);
     }
 
-    void setValue (double v)
-    {
-        if (std::fabs (v - value) < 1.0e-6) return;
-        value = v;
-        repaint();
-    }
+    static int cellHeight() { return DineKnob::cellHeight (kDial); }
 
-    // The words under a knob are a readout, so they are what has to stay legible when Text
-    // size is turned up: the cell keeps its pixels and the type grows inside it.
-    static int cellHeight() { return kDial + 4 + 2 * juce::jmax (14, int (Dine::text (11.0f).getHeight())); }
-
-    // The design's cell is 80 wide, which every one of its own labels fits in. A label that
-    // does not - LISTEN ABOVE, DETECTOR HP - takes the width it needs rather than an
-    // ellipsis: a knob you cannot name is a knob you cannot use.
-    int cellWidth() const
-    {
-        return juce::jmax (kKnobCellW, 8 + juce::jmax (Dine::textWidth (capsFont (10.0f, 600), field.label.trim().toUpperCase()),
-                                                       Dine::textWidth (Dine::mono (11.0f, 500), format (field.fmt, value))));
-    }
-
-    void paint (juce::Graphics& g) override
-    {
-        const bool live = isEnabled();
-        auto r = getLocalBounds();
-        auto face = r.removeFromTop (kDial).toFloat().withSizeKeepingCentre (float (kDial), float (kDial));
-        const float cx = face.getCentreX(), cy = face.getCentreY(), rad = kDial * 0.5f - 2.0f;
-        const float a0 = juce::degreesToRadians (-135.0f), sweep = juce::degreesToRadians (270.0f);
-        const float t = float (toProportion (value, field.min, field.max, field.mid));
-
-        // A proportion of the knob rather than a fixed 3 pt, so every dial in the product
-        // reads as the same family whatever size it is drawn at.
-        const float ring = juce::jmax (3.5f, rad * 0.17f);
-        juce::Path track, arc;
-        track.addCentredArc (cx, cy, rad, rad, 0.0f, a0, a0 + sweep, true);
-        g.setColour (juce::Colours::white.withAlpha (live ? 0.10f : 0.05f));
-        g.strokePath (track, juce::PathStrokeType (ring, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        if (t > 0.004f)
-        {
-            arc.addCentredArc (cx, cy, rad, rad, 0.0f, a0, a0 + sweep * t, true);
-            g.setColour (live ? colour : Dine::ink4);
-            g.strokePath (arc, juce::PathStrokeType (ring, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        }
-
-        const float bodyR = kBody * 0.5f;
-        g.setColour (live ? Dine::raised : Dine::card);
-        g.fillEllipse (cx - bodyR, cy - bodyR, kBody, kBody);
-        const float a = a0 + sweep * t;
-        const float sx = std::sin (a), sy = -std::cos (a);
-        g.setColour (live ? Dine::ink : Dine::ink4);
-        g.drawLine (cx + sx * bodyR * 0.35f, cy + sy * bodyR * 0.35f,
-                    cx + sx * (bodyR - 3.0f), cy + sy * (bodyR - 3.0f), 2.4f);
-
-        r.removeFromTop (4);
-        const int lineH = juce::jmax (14, int (Dine::text (11.0f).getHeight()));
-        g.setColour (live ? Dine::ink : Dine::ink4);
-        g.setFont (Dine::mono (11.0f, 500));
-        Dine::drawText (g, format (field.fmt, value), r.removeFromTop (lineH), juce::Justification::centred, true);
-        g.setColour (live ? Dine::ink3 : Dine::ink4);
-        g.setFont (capsFont (10.0f, 600));
-        Dine::drawText (g, field.label.trim().toUpperCase(), r.removeFromTop (lineH), juce::Justification::centred, true);
-    }
-
-    void mouseDown (const juce::MouseEvent& e) override
-    {
-        dragFrom = toProportion (value, field.min, field.max, field.mid);
-        anchor = e.position.y;
-    }
-
-    void mouseDrag (const juce::MouseEvent& e) override
-    {
-        if (! isEnabled()) return;
-        const double t = juce::jlimit (0.0, 1.0, dragFrom + double (anchor - e.position.y) / (e.mods.isShiftDown() ? 700.0 : 170.0));
-        apply (fromProportion (t, field.min, field.max, field.mid));
-    }
-
-    void mouseDoubleClick (const juce::MouseEvent&) override
-    {
-        if (isEnabled()) apply (field.get (ChannelParameters {}));
-    }
-
-    void enablementChanged() override { repaint(); }
-
-    static constexpr int kDial = 48, kBody = 34;
+    static constexpr int kDial = 48;
 
 private:
-    void apply (double v)
-    {
-        const double q = field.step > 0.0 ? field.min + std::round ((v - field.min) / field.step) * field.step : v;
-        const double clamped = juce::jlimit (field.min, field.max, q);
-        if (std::fabs (clamped - value) < 1.0e-9) return;
-        value = clamped;
-        commit (clamped);
-        repaint();
-    }
-
     Field field;
-    std::function<void (double)> commit;
-    juce::Colour colour;
-    double value = 0.0, dragFrom = 0.0;
-    float anchor = 0.0f;
 };
 
 // ------------------------------------------------------------------ ChoiceGroup
@@ -774,75 +659,40 @@ private:
     int index = 0;
 };
 
-// ------------------------------------------------------------------ SendRow
-// One FX send inside the stage's well: its name, the amount as a bar you can drag, and
-// what that is in decibels.
-class ChainEditor::SendRow : public juce::Component
+// ------------------------------------------------------------------ SendKnob
+// One FX send. A send is a knob on every console ever built, so it is a knob here: the
+// stage's drawing shows how much of this channel each effect is getting, and the row of
+// knobs under it is what sets them - the same control, in the same cell, as every other
+// number in the Inspector.
+class ChainEditor::SendKnob : public DineKnob
 {
 public:
-    SendRow (FxSlot f, std::function<void (float)> apply) : slot (f), commit (std::move (apply))
+    // The bottom of the travel is the off detent: the mix stores kSilenceDb, not kOffDb.
+    static constexpr double kOffDb = -60.0;
+
+    SendKnob (FxSlot f, std::function<void (float)> apply) : slot (f)
     {
-        level.setSliderStyle (juce::Slider::LinearHorizontal);
-        level.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        Dine::dragOnly (level);
-        // The bottom stop is the off detent: the mix stores kSilenceDb, not -60.
-        level.setRange (kOffDb, 6.0, 0.5);
-        level.setDoubleClickReturnValue (true, kOffDb);
-        level.onValueChange = [this]
+        setRange (kOffDb, 6.0, 0.5);          // linear in decibels: the ladder above reads the same travel
+        setDefaultValue (kOffDb);
+        setCaption (sendName (slot));
+        setFormat ([] (double v) { return v <= kOffDb + 0.01 ? juce::String ("off") : signedNumber (v, 1) + " dB"; });
+        setTooltip (juce::String (sendName (slot)) + ": how much of this channel the effect gets. "
+                    "All the way down is off.");
+        onChange = [this, apply = std::move (apply)] (double v)
         {
-            if (updating) return;
-            const double v = level.getValue();
-            off = v <= kOffDb + 0.01;
-            commit (off ? kSilenceDb : float (v));
-            repaint();
+            apply (v <= kOffDb + 0.01 ? kSilenceDb : float (v));
         };
-        addAndMakeVisible (level);
     }
 
+    // Off is decided from the mix value (kSilenceDb), not from the knob's stop: clamping
+    // silence up to kOffDb would otherwise make "off" look the same as a -60 dB send.
     void pull (float db, bool live)
     {
-        updating = true;
-        // Off is decided from the mix value (kSilenceDb), not from the slider stop: clamping
-        // silence up to kOffDb would otherwise make "off" look the same as a -60 dB send.
-        off = db <= kSilenceDb + 0.01f;
-        level.setValue (off ? kOffDb : juce::jlimit (kOffDb, 6.0, double (db)), juce::dontSendNotification);
-        updating = false;
-        level.setEnabled (live);
-        repaint();
+        setValue (db <= kSilenceDb + 0.01f ? kOffDb : juce::jlimit (kOffDb, 6.0, double (db)));
+        setEnabled (live);
     }
-
-    void paint (juce::Graphics& g) override
-    {
-        auto r = getLocalBounds();
-        g.setColour (isEnabled() ? Dine::ink2 : Dine::ink4);
-        g.setFont (Dine::text (13.0f, 500));
-        Dine::drawText (g, sendName (slot), r.removeFromLeft (kLabelW), juce::Justification::centredLeft, true);
-        g.setColour (off ? Dine::ink4 : Dine::ink2);
-        g.setFont (Dine::mono (11.0f, 500));
-        Dine::drawText (g, off ? juce::String ("off") : signedNumber (level.getValue(), 0) + " dB",
-                    r.removeFromRight (kValueW), juce::Justification::centredLeft);
-    }
-
-    void resized() override
-    {
-        auto r = getLocalBounds();
-        r.removeFromLeft (kLabelW);
-        r.removeFromRight (kValueW + 14);
-        level.setBounds (r.withSizeKeepingCentre (r.getWidth(), 16));
-    }
-
-    void enablementChanged() override { level.setEnabled (isEnabled()); repaint(); }
-
-    static constexpr int kLabelW = 124, kValueW = 62;
-    static constexpr double kOffDb = -60.0;   // slider detent; the mix stores kSilenceDb when off
 
     FxSlot slot;
-
-private:
-    std::function<void (float)> commit;
-    juce::Slider level;
-    bool updating = false;
-    bool off = true;
 };
 
 // ------------------------------------------------------------------ Graph
@@ -911,7 +761,7 @@ public:
             case GraphKind::Ceiling:   paintCeiling (g, r); break;
             case GraphKind::Envelope:  paintEnvelope (g, r); break;
             case GraphKind::Stereo:    paintStereo (g, r); break;
-            case GraphKind::Sends:     break;                  // the rows are real controls, laid over this well
+            case GraphKind::Sends:     paintSends (g, r); break;
             case GraphKind::Meters:
             default:                   paintMeters (g, r); break;
         }
@@ -1323,6 +1173,56 @@ private:
 
     // The levels either side of a trim, as the design's Input and Output draw them: what
     // arrives, what the trim made of it, and what leaves.
+    // A LADDER, NOT A TRACK. Everything the drawing says about a level it says in lit and
+    // unlit steps, the way a meter does: nothing that is only a reading should look like
+    // something you could drag.
+    void drawLadder (juce::Graphics& g, juce::Rectangle<int> row, float norm) const
+    {
+        auto bar = row.withSizeKeepingCentre (row.getWidth(), 7).toFloat();
+        const float pitch = 6.0f, seg = 3.0f;
+        const float lit = bar.getX() + bar.getWidth() * juce::jlimit (0.0f, 1.0f, norm);
+        for (float x = bar.getX(); x + seg <= bar.getRight(); x += pitch)
+        {
+            g.setColour (x < lit ? (isEnabled() ? Dine::accent : Dine::ink4) : Dine::well);
+            g.fillRoundedRectangle (x, bar.getY(), seg, bar.getHeight(), 1.0f);
+        }
+    }
+
+    // HOW MUCH OF THIS CHANNEL EACH EFFECT IS GETTING. One labelled bar per send, so the
+    // picture says at a glance which effects this source is in and how far up - the knobs
+    // under the drawing are what move them.
+    void paintSends (juce::Graphics& g, juce::Rectangle<int> r) const
+    {
+        if (sends.empty())
+        {
+            g.setColour (Dine::ink4);
+            g.setFont (Dine::text (13.0f));
+            Dine::drawText (g, "This session has no effects set up yet.", r, juce::Justification::centred, true);
+            return;
+        }
+
+        auto block = r.withSizeKeepingCentre (r.getWidth(), juce::jmin (r.getHeight(), kSendRowH * int (sends.size())));
+        for (const auto& send : sends)
+        {
+            auto line = block.removeFromTop (kSendRowH);
+            // Off is the mix's own silence, not the bottom of the knob's travel.
+            const bool off = send.second <= kSilenceDb + 0.01f;
+            g.setColour (isEnabled() && ! off ? Dine::ink2 : Dine::ink4);
+            g.setFont (Dine::text (13.0f, 500));
+            Dine::drawText (g, sendName (send.first), line.removeFromLeft (kBarLabelW), juce::Justification::centredLeft, true);
+            g.setColour (off ? Dine::ink4 : Dine::ink2);
+            g.setFont (Dine::mono (11.0f, 500));
+            Dine::drawText (g, off ? juce::String ("off") : signedNumber (send.second, 1) + " dB",
+                            line.removeFromRight (62), juce::Justification::centredRight);
+            line.removeFromRight (14);
+            // It reads over the knob's own travel - all the way down is off, +6 dB is the top -
+            // so the picture and the knob under it are saying the same thing.
+            const float n = off ? 0.0f : juce::jlimit (0.0f, 1.0f,
+                                                       float ((send.second - SendKnob::kOffDb) / (6.0 - SendKnob::kOffDb)));
+            drawLadder (g, line, n);
+        }
+    }
+
     void paintMeters (juce::Graphics& g, juce::Rectangle<int> r)
     {
         const bool in = spec->id == StageId::Input;
@@ -1345,16 +1245,11 @@ private:
         for (const auto& row : rows)
         {
             auto line = block.removeFromTop (rowH);
-            auto label = line.removeFromLeft (SendRow::kLabelW);
+            auto label = line.removeFromLeft (kBarLabelW);
             g.setColour (isEnabled() ? Dine::ink2 : Dine::ink4);
             g.setFont (Dine::text (13.0f, 500));
             Dine::drawText (g, row.label, label, juce::Justification::centredLeft, true);
-            auto bar = line.withSizeKeepingCentre (line.getWidth(), 4);
-            Dine::fillRounded (g, bar.toFloat(), Dine::well, 2.0f);
-            const float n = DineMeter::norm (row.db);
-            if (n > 0.005f)
-                Dine::fillRounded (g, bar.toFloat().withWidth (juce::jmax (2.0f, bar.getWidth() * n)),
-                                   isEnabled() ? Dine::accent : Dine::ink4, 2.0f);
+            drawLadder (g, line, DineMeter::norm (row.db));
         }
     }
 
@@ -1624,12 +1519,12 @@ void ChainEditor::buildControls()
         {
             if (! g.fxUsed[size_t (f)]) continue;
             const auto slot = FxSlot (f);
-            auto row = std::make_unique<SendRow> (slot, [this, slot] (float db)
+            auto knob = std::make_unique<SendKnob> (slot, [this, slot] (float db)
             {
                 if (! controller.isBypassed()) controller.setStripSend (strip, slot, db);
             });
-            controlsHolder.addAndMakeVisible (*row);
-            controls.push_back (std::move (row));
+            controlsHolder.addAndMakeVisible (*knob);
+            controls.push_back (std::move (knob));
         }
     }
     else if (s.bands > 0)
@@ -1952,8 +1847,8 @@ void ChainEditor::refresh()
     {
         const auto& base = controller.getBase();
         for (auto& c : controls)
-            if (auto* row = dynamic_cast<SendRow*> (c.get()))
-                row->pull (strip >= 0 && strip < base.numStrips ? base.strips[size_t (strip)].sendDb[size_t (row->slot)] : kSilenceDb,
+            if (auto* knob = dynamic_cast<SendKnob*> (c.get()))
+                knob->pull (strip >= 0 && strip < base.numStrips ? base.strips[size_t (strip)].sendDb[size_t (knob->slot)] : kSilenceDb,
                            ! bypassed);
     }
     else if (s.bands > 0)
@@ -2068,9 +1963,10 @@ void ChainEditor::resized()
     std::vector<juce::Component*> knobs, extras, choices;
     for (auto& c : controls)
     {
-        if (dynamic_cast<Knob*> (c.get()) != nullptr) knobs.push_back (c.get());
+        // A send is a knob like any other, so it wraps into the same row: one family of cells
+        // under the drawing, whatever the stage is.
+        if (dynamic_cast<DineKnob*> (c.get()) != nullptr) knobs.push_back (c.get());
         else if (auto* g = dynamic_cast<ChoiceGroup*> (c.get())) (g->isPopup() ? extras : choices).push_back (c.get());
-        else if (dynamic_cast<SendRow*> (c.get()) != nullptr) { /* laid inside the drawing */ }
         else extras.push_back (c.get());
     }
 
@@ -2080,7 +1976,7 @@ void ChainEditor::resized()
         int x = 0;
         for (auto* c : knobs)
         {
-            const int w = static_cast<Knob*> (c)->cellWidth();
+            const int w = static_cast<DineKnob*> (c)->cellWidth();
             if (knobLines.empty() || x + w > inner) { knobLines.emplace_back(); x = 0; }
             knobLines.back().push_back (c);
             x += w;
@@ -2111,26 +2007,13 @@ void ChainEditor::resized()
     const int width = r.getWidth();
     graph->setBounds (r.removeFromTop (graphH));
 
-    // The sends are real controls, so they are laid over the drawing rather than painted by it.
-    {
-        auto rows = graph->getBounds().reduced (kWellPad, kWellPad);
-        int n = 0;
-        for (auto& c : controls) if (dynamic_cast<SendRow*> (c.get()) != nullptr) ++n;
-        if (n > 0)
-        {
-            rows = rows.withSizeKeepingCentre (rows.getWidth(), juce::jmin (rows.getHeight(), n * kSendRowH));
-            for (auto& c : controls)
-                if (dynamic_cast<SendRow*> (c.get()) != nullptr) c->setBounds (rows.removeFromTop (kSendRowH));
-        }
-    }
-
     if (! knobLines.empty())
     {
         r.removeFromTop (kRowGap);
         for (const auto& row : knobLines)
         {
             auto line = r.removeFromTop (knobCellH);
-            for (auto* c : row) c->setBounds (line.removeFromLeft (static_cast<Knob*> (c)->cellWidth()));
+            for (auto* c : row) c->setBounds (line.removeFromLeft (static_cast<DineKnob*> (c)->cellWidth()));
         }
     }
     if (! extras.empty())
@@ -2300,12 +2183,23 @@ void SignalPath::paint (juce::Graphics& g)
         Dine::fillRounded (g, chip.toFloat(), ground, Dine::Radius::chip);
 
         auto r = chip.reduced (10, 0);
-        auto lamp = r.removeFromLeft (5).withSizeKeepingCentre (5, 5).toFloat();
-        // The lamp says where the setting came from: DLIVE's, a hand edit, or out of the chain.
-        g.setColour (! v.on ? Dine::ink4.withAlpha (0.5f) : v.edited ? Dine::monitor : Dine::accent);
-        g.fillEllipse (lamp);
+        auto lamp = r.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat();
+        // THE LAMP IS A READING, NOT A SWITCH. It says where the setting came from - DLIVE's,
+        // a hand edit - and an empty ring says the stage is out of the chain. Nothing on this
+        // row is two controls in one place: the whole chip opens the stage, and Off | On at the
+        // top of the card is what switches it.
+        if (v.on)
+        {
+            g.setColour (v.edited ? Dine::monitor : Dine::accent);
+            g.fillEllipse (lamp);
+        }
+        else
+        {
+            g.setColour (Dine::ink4);
+            g.drawEllipse (lamp.reduced (0.5f), 1.2f);
+        }
         r.removeFromLeft (6);
-        g.setColour (v.on ? Dine::ink2 : Dine::ink4);
+        g.setColour (! v.on ? Dine::ink4 : sel ? Dine::ink : Dine::ink2);
         g.setFont (chipFont());
         Dine::drawText (g, chipName (v.label), r, juce::Justification::centredLeft, true);
     }
@@ -2323,15 +2217,33 @@ void SignalPath::paint (juce::Graphics& g)
     if (scrollX < maxScroll())   fade (false);
 }
 
+// A CHIP DOES ONE THING: it opens the stage. It used to switch the stage in or out when the
+// click landed in its left 18 pt - a hit zone with nothing drawn under it - so the same
+// press selected or toggled depending on a pixel, and picking a stage read as broken. The
+// switch lives where it is written in words: Off | On at the top of the card, and the
+// stage's own entry on this row's menu.
 void SignalPath::mouseUp (const juce::MouseEvent& e)
 {
     if (e.mouseWasDraggedSinceMouseDown()) return;
     const int i = chipAt (e.getPosition());
     if (i < 0) return;
-    auto chip = chipBounds (i);
-    const bool onLamp = e.x < chip.getX() + 18;
-    if (onLamp && chain.stageViews()[size_t (i)].switchable) chain.toggleStage (i);
-    else chain.selectStage (i);
+    if (e.mods.isPopupMenu()) { chain.selectStage (i); showMenu (i); return; }
+    chain.selectStage (i);
+}
+
+// The one shortcut the lamp used to be, said in words instead.
+void SignalPath::showMenu (int index)
+{
+    const auto& views = chain.stageViews();
+    if (index < 0 || index >= int (views.size())) return;
+    const auto& v = views[size_t (index)];
+    if (! v.switchable) return;
+    juce::PopupMenu m;
+    m.addSectionHeader (chipName (v.label));
+    m.addItem (1, v.on ? "Switch it off" : "Switch it on");
+    m.showMenuAsync (juce::PopupMenu::Options {}.withTargetComponent (this)
+                         .withTargetScreenArea (localAreaToGlobal (chipBounds (index))),
+                     [this, index] (int r) { if (r == 1) chain.toggleStage (index); });
 }
 
 void SignalPath::mouseMove (const juce::MouseEvent& e)
@@ -2340,6 +2252,16 @@ void SignalPath::mouseMove (const juce::MouseEvent& e)
     if (i == hover) return;
     hover = i;
     setMouseCursor (i >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    // What this stage is for, or why TUNE MIX set it the way it is, without opening it.
+    const auto& views = chain.stageViews();
+    if (i >= 0 && i < int (views.size()))
+    {
+        const auto& v = views[size_t (i)];
+        auto tip = v.why.isNotEmpty() ? v.why : chipName (v.label);
+        if (! v.on) tip = chipName (v.label) + " is out of the chain. " + tip;
+        setTooltip (tip);
+    }
+    else setTooltip ({});
     repaint();
 }
 

@@ -2,6 +2,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -515,6 +516,64 @@ public:
 
 private:
     juce::String onText, offText;
+};
+
+// THE PRODUCT'S ONE ROTARY - the design's `Knob` (62:9301).
+//
+// A number an engineer turns is a knob, not a bar lying on its side: a send, a trim, a
+// monitor level. A 270 degree ring drawn from the left stop, a raised body with one
+// pointer, and - where the cell has the room for them - what it reads and what it is
+// called, under it and centred. Drag up and down (shift for fine); a double-click puts it
+// back to its default.
+//
+// The one place a horizontal track is still right is a fader lying down in a LIST row,
+// where the whole point is that a column of channels line up - and that one is drawn as a
+// real fader cap, not as a slider.
+class DineKnob : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    DineKnob();
+
+    // `mid` is the value at the middle of the sweep: 120 Hz halfway up a 20 Hz - 1 kHz
+    // travel rather than down in the corner. Left out - or put outside the range - the travel
+    // is linear. It is not defaulted to 0, which would quietly skew every range that does not
+    // happen to be centred on zero.
+    void setRange (double min, double max, double step = 0.0,
+                   double mid = std::numeric_limits<double>::quiet_NaN());
+    void setDefaultValue (double v)          { defaultValue = v; }
+    void setValue (double v);                                  // no callback: this is the pull
+    double getValue() const noexcept         { return value; }
+    void setCaption (const juce::String& c)  { caption = c; repaint(); }
+    void setFormat (std::function<juce::String (double)> f) { format = std::move (f); repaint(); }
+    void setTint (juce::Colour c)            { tint = c; repaint(); }
+    void setDial (int px);                                     // the ring's diameter; 48 by default
+    void setShowsText (bool readout, bool name);               // a knob in a list row says neither
+
+    std::function<void (double)> onChange;
+
+    // What one costs where it is laid out in a grid: the design's 80 pt cell, widened for a
+    // caption that will not fit in it, because a knob you cannot name is a knob you cannot use.
+    int cellWidth() const;
+    int cellHeight() const;
+    static int cellHeight (int dial);
+
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+    void enablementChanged() override        { repaint(); }
+
+private:
+    void apply (double v);
+
+    std::function<juce::String (double)> format;
+    juce::String caption;
+    std::optional<juce::Colour> tint;        // unset = the accent, read when painted
+    double value = 0.0, minimum = 0.0, maximum = 1.0, step = 0.0, mid = std::numeric_limits<double>::quiet_NaN();
+    double defaultValue = 0.0, dragFrom = 0.0;
+    float anchor = 0.0f;
+    int dial = 48;
+    bool showReadout = true, showCaption = true;
 };
 
 // A balance control: a 4 px track, the throw in the accent from the centre, an 11 px dot.

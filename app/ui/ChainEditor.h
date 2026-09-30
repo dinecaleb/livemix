@@ -78,7 +78,7 @@ private:
     class Graph;
     class Knob;
     class ChoiceGroup;
-    class SendRow;
+    class SendKnob;
 
     ChannelParameters read() const;
     void write (const ChannelParameters&);
@@ -121,9 +121,12 @@ private:
 
 // The whole chain as one row of small chips, the way the design draws it (`Signal path`,
 // 73:10380): a lamp and the stage's name, nothing else. The chosen chip is a lit plane; a
-// stage that is out of the chain is quiet. Click a chip to open that stage; click its lamp
-// to switch it in or out. The row scrolls when the chain is longer than the width.
-class SignalPath : public juce::Component
+// stage that is out of the chain is quiet, and its lamp is an empty ring.
+//
+// A CHIP DOES ONE THING - it opens that stage. The lamp is a reading, not a switch: the
+// stage is switched in or out by Off | On at the top of the card it opens, or from this
+// row's own menu. The row scrolls when the chain is longer than the width.
+class SignalPath : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     explicit SignalPath (ChainEditor&);
@@ -144,6 +147,7 @@ private:
     int chipWidth (int index) const;
     juce::Rectangle<int> chipBounds (int index) const;
     int chipAt (juce::Point<int>) const;
+    void showMenu (int index);
     int contentWidth() const;
     int maxScroll() const;
     void clampScroll();
