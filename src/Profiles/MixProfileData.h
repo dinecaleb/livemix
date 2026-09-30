@@ -96,6 +96,16 @@ namespace MixProfile
         // Backing vocals <-> lead: N voices add up. The group is held this far under the lead.
         float backingGroupBelowLeadDb = 3.0f;
 
+        // The top end of the whole mix: everything every source puts above 6 kHz, summed where
+        // it lands, is held this far under what they put between 1 and 3 kHz (where the words
+        // live). Most of it is the kit's cymbals, which reach every microphone on the stage, so
+        // no single channel is too bright and the sum still is. Past it the cymbal microphones'
+        // high shelf comes down by at most cymbalShelfMaxCutDb below the profile's own, then the
+        // overhead and hi-hat faders by at most cymbalFaderMaxCutDb.
+        float topEndBelowUpperMidDb = 8.0f;
+        float cymbalShelfMaxCutDb = 3.0f;
+        float cymbalFaderMaxCutDb = 3.0f;
+
         // Bus balance: where each group's output sits relative to the voices, dB. Loudness, for
         // the same reason the per-source numbers are (see mixLevelTargetDb): a kit and a choir
         // at the same peak are nowhere near the same level in a mix.

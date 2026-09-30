@@ -242,6 +242,13 @@ TEST_CASE ("MixPlanner: one listen tunes every source, balances the faders and r
         expected = std::max (-R.maxFaderMoveDb, std::min (R.maxFaderMoveDb, expected));
         // ... and a move not worth making is not made.
         if (std::fabs (expected - s.faderBeforeDb) < R.faderDeadbandDb) expected = s.faderBeforeDb;
+        // The overheads and the hi-hat may then come down further for the mix's top end, never up.
+        if (f == RoleFamily::Overhead || f == RoleFamily::HiHat)
+        {
+            CHECK (s.faderDb <= expected + 0.01f);
+            CHECK (s.faderDb >= expected - R.cymbalFaderMaxCutDb - 0.01f);
+            continue;
+        }
         CHECK_NEAR (s.faderDb, expected, 0.01f);
     }
     CHECK (stripNamed (plan, "Bass").balanced);
@@ -325,6 +332,40 @@ namespace
             for (const auto& c : diffParameters (a.proposed.buses[size_t (bus)].channel, b.proposed.buses[size_t (bus)].channel))
                 std::printf ("      %s bus: %s -> %.3g\n", mixBusName (MixBus (bus)), c.paramId.c_str(), double (c.value));
     }
+}
+
+TEST_CASE ("MixPlanner: the cymbals are held back when the whole mix's top end is too much, through their own microphones")
+{
+    Rig rig (band());
+    auto in = bandAudio();
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    const auto ctx = rig.context (cap);
+    const auto& R = MixProfile::relationships (StyleProfileId::ModernGospel);
+
+    // The synthetic kit's overheads are noise: far brighter than any mix wants, so the rule acts.
+    const auto plan = MixPlanner::plan (ctx);
+    REQUIRE (plan.valid);
+    REQUIRE (hasRelationship (plan, "Cymbals held back"));
+    const int oh = stripIndex (plan, "OH");
+    const auto& ohShelf = plan.proposed.strips[size_t (oh)].channel.toneBands[3];
+    const auto tpl = Profiles::baseline (StyleProfileId::ModernGospel, ChannelRole::Overhead).toneBands[3];
+    // The overheads' top end comes down from the profile's own shelf, and never further than the profile allows.
+    CHECK (ohShelf.enabled);
+    CHECK (ohShelf.gainDb < (tpl.enabled ? tpl.gainDb : 0.0f));
+    CHECK (ohShelf.gainDb >= (tpl.enabled ? tpl.gainDb : 0.0f) - R.cymbalShelfMaxCutDb - 0.01f);
+
+    // The shelves that come down are the cymbal microphones' own (the room and the overheads here).
+    for (const auto& r : plan.relationships)
+        if (r.what.rfind ("Softened the cymbals in ", 0) == 0)
+            CHECK ((r.what.find ("OH") != std::string::npos || r.what.find ("ROOM") != std::string::npos));
+
+    // Deterministic: the same listen lands in the same place, and a re-plan changes nothing.
+    MixPlanContext again = ctx;
+    again.current = plan.proposed;
+    const auto second = MixPlanner::plan (again);
+    if (! second.noChangeRequired) dumpDifferences (plan, second);
+    CHECK (second.noChangeRequired);
 }
 
 TEST_CASE ("MixPlanner: planning again on the same listen changes nothing (idempotent)")

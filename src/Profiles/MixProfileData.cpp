@@ -321,6 +321,7 @@ const Relationships& relationships (StyleProfileId profile)
         r.backingBelowLeadDb = 6.0f;
         r.busBelowVocalsDb[size_t (MixBus::Vocals)] = -4.0f;      // ... and the group with them
         r.vocalPocketMaxCutDb = 3.0f;                            // the guitars have to make room, or nobody hears the words
+        r.topEndBelowUpperMidDb = 7.0f;                          // a rock kit is allowed to be a little brighter
         return r;
     }();
     static const Relationships rnb = []
@@ -346,6 +347,7 @@ const Relationships& relationships (StyleProfileId profile)
         r.busBelowVocalsDb[size_t (MixBus::Vocals)] = -2.0f;    // the backing voices are part of the arrangement
         r.vocalPocketMaxCutDb = 1.5f;                            // the piano keeps its tone
         r.tomGateMaxRangeWithOverheadsDb = 0.0f;                 // no gates on a jazz kit (the profile says so; this keeps a hand-set one gentle)
+        r.topEndBelowUpperMidDb = 6.5f;                          // the ride and the brushes are the kit here
         return r;
     }();
     static const Relationships talk = []

@@ -104,6 +104,10 @@ namespace tune
     void shapeAttack (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d);
     void controlHarshness (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d);
     void shapeAir (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d);
+    // The high shelf gain shapeAir aims at from the capture and the profile alone, whatever the
+    // channel runs now: what the mix-level rules measure the top end with, so a rule that
+    // changes a shelf is never measuring its own earlier change.
+    float airShelfAimDb (const TuneContext& ctx, const SourceTargets& t);
     void setCompression (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d);
     void setGate (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d, float fundamentalHz);
     // Sample replacement (kick / snare / toms): the detector's threshold, band, mask and the

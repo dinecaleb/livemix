@@ -260,6 +260,24 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   +30/+37 dB to +14/+18, the snare's gain from +13 to 0, and the toms from a 5 dB spread to 1 dB. The recording is
   `~/Music/DLIVE/QUEEENSVIEW WIRED/Audio Files` (take `_002`, 534 s, 21 inputs; symlink the files under role names
   for `dlive_mix_stems`, windows at 30 / 120 / 200 / 300 s).
+- **THE CYMBALS ARE THE SUM, NOT A CHANNEL (2026-09-30, from the QUEENSVIEW recording).** "Sometimes the cymbals are
+  a lot" after TUNE: no channel was too bright on its own, but the overheads and hi-hat were ~60 % of the mix's
+  6-12 kHz and ~94 % above 12 kHz, and every microphone near the kit hears them. Nothing summed the top end.
+  `MixPlanner` now measures, after the balance and before the group faders, every balanced strip's Brilliance + Air
+  where it lands (processed level + fader + that band's share + the shelf its own Tune *aims* at +
+  its group's template shelf) against the same sum for Upper-Mid, and holds it
+  `Relationships::topEndBelowUpperMidDb` under (8 Gospel, 7 Rock, 6.5 Jazz). Past it, in order: a `spillLimited`
+  microphone that is not a cymbal mic loses its top-end lift; the overhead / hi-hat / room high shelf goes to the
+  profile's own shelf minus up to `cymbalShelfMaxCutDb` (3); then the overhead and hi-hat faders come down by up to
+  `cymbalFaderMaxCutDb` (3). The measurement uses `tune::airShelfAimDb` (what `shapeAir` aims at from the capture
+  and the profile), never the shelf the strip runs, so the rule never measures its own earlier cut and a re-tune
+  says NO CHANGE REQUIRED. `shapeAir` itself no longer leaves a lift on a source measured *brighter* than its
+  profile: the drum bus used to be "smoothed" to +0.5 dB. Measured (6-12 kHz vs 1-3 kHz of the `after` render,
+  `dlive_mix_stems ... gospel <t> livestream --check`): 30 s -5.0 -> -6.5, 120 s -7.4 -> -7.7, 200 s -7.6 -> -8.0,
+  300 s -4.6 -> -6.9 dB; the bright windows move most, the balanced ones barely, all four pass `--check`. What is
+  left above 6 kHz in the bright windows is the voices' own air and the spill-limited microphones' level, not the
+  cymbal mics. Levels are still unweighted RMS; a K-weighted balance would read the cymbals ~4 dB louder, but it
+  retunes every level number and is a separate piece of work.
 - **LIVE SAFE is a policy, not a tooltip** (`src/Mix/LiveSafe.h`), enforced in `MixController` rather than in a menu
   handler - a guard in `MainView` only covers the menu, and the AI, the chat, a macro and a keyboard shortcut all
   reach the mix without passing one. It never locks the emergency controls (mute, solo, the monitor, the transport,

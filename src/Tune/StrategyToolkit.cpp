@@ -581,18 +581,47 @@ void controlHarshness (const TuneContext& ctx, const SourceTargets& t, TuneDecis
     }
 }
 
+namespace
+{
+    float airExcess (const TuneContext& ctx, const SourceTargets& t)
+    {
+        return 0.7f * bandExcess (ctx, t, Band::Brilliance) + 0.3f * bandExcess (ctx, t, Band::Air);
+    }
+    float airBoostDb (const SourceTargets& t, float excess)
+    {
+        return roundDb (clamp (1.0f + 0.4f * -excess, 1.0f, 0.8f * t.maxEqBoostDb));
+    }
+    float airCutDb (const TuneContext& ctx, const SourceTargets& t, float excess)
+    {
+        // A source measured brighter than its profile allows keeps no lift up here: the
+        // profile's own shelf comes down by half the excess, and never stays above flat. It
+        // used to keep what was left of the template's boost, so a drum bus measured too
+        // bright was "smoothed" to +0.5 dB - still brighter than it arrived.
+        const auto tpl = Profiles::baseline (ctx.profile, ctx.role).toneBands[3];
+        const float templateGain = tpl.enabled ? tpl.gainDb : 0.0f;
+        return roundDb (clamp (std::min (templateGain - 0.5f * excess, 0.0f), -0.6f * t.maxEqCutDb, t.maxEqBoostDb));
+    }
+}
+
+float airShelfAimDb (const TuneContext& ctx, const SourceTargets& t)
+{
+    const float excess = airExcess (ctx, t);
+    if (excess < -0.5f) return airBoostDb (t, excess);
+    if (excess > 0.5f)  return airCutDb (ctx, t, excess);
+    const auto tpl = Profiles::baseline (ctx.profile, ctx.role).toneBands[3];
+    return tpl.enabled ? tpl.gainDb : 0.0f;
+}
+
 void shapeAir (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d)
 {
-    const float brilliance = bandExcess (ctx, t, Band::Brilliance);
-    const float air = bandExcess (ctx, t, Band::Air);
-    const float excess = 0.7f * brilliance + 0.3f * air;
+    const float excess = airExcess (ctx, t);
     auto& shelf = d.proposed.toneBands[3];
     const float currentGain = shelf.enabled ? shelf.gainDb : 0.0f;
     const float freq = roundHz (t.airHz);
 
     if (excess < -0.5f)
     {
-        const float desired = roundDb (clamp (1.0f + 0.4f * -excess, 1.0f, 0.8f * t.maxEqBoostDb));
+        const float desired = airBoostDb (t, excess);
         if (currentGain >= desired - 0.5f) return;
         d.move (Recommendation::Kind::EQ, TuneSection::Tone, "Opened the top end: " + fmtDb (desired) + " high shelf at " + fmtHz (freq),
                 "Brilliance and air are " + num ("%.0f dB", double (-excess)) + " under the profile target; a gentle shelf adds detail.",
@@ -600,9 +629,7 @@ void shapeAir (const TuneContext& ctx, const SourceTargets& t, TuneDecisions& d)
     }
     else if (excess > 0.5f)
     {
-        const auto tpl = Profiles::baseline (ctx.profile, ctx.role).toneBands[3];
-        const float templateGain = tpl.enabled ? tpl.gainDb : 0.0f;
-        const float gain = roundDb (clamp (templateGain - 0.5f * excess, -0.6f * t.maxEqCutDb, t.maxEqBoostDb));
+        const float gain = airCutDb (ctx, t, excess);
         if (currentGain - gain < 0.5f) return;
         const bool disable = std::fabs (gain) < 0.5f;
         d.move (Recommendation::Kind::EQ, TuneSection::Tone, disable ? "Removed the high shelf boost" : "Smoothed the top end: " + fmtDb (gain) + " high shelf at " + fmtHz (freq),

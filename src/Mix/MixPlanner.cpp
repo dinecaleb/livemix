@@ -963,6 +963,150 @@ MixPlan plan (const MixPlanContext& ctx)
         }
     }
 
+    // ---- The top end of the whole mix: the cymbals ----
+    // Every source is placed and shaped on its own, and nothing on its own is too bright: the
+    // overheads sit at their level, the hi-hat at its, each voice gets the air its own capture
+    // asks for. But a kit's cymbals arrive through every microphone on the stage, and it is
+    // the sum of all of that above 6 kHz that a listener hears as "the cymbals are a lot". On
+    // the QUEENSVIEW service the overheads and the hi-hat were 60 % of the mix between 6 and
+    // 12 kHz and nearly all of it above 12, and the top end landed anywhere from 5 to 8 dB
+    // under the 1-3 kHz band depending on which thirty seconds the listen caught.
+    //
+    // So the mix's top end is measured where every source will land - its level, the band's
+    // share of it, and the high shelf its chain now carries - against the band the words live
+    // in, and held R.topEndBelowUpperMidDb under it. Two moves, in order: a microphone that
+    // mostly hears the stage gives back any top it was given (a brighter one is brighter
+    // cymbals, not a clearer voice), then the cymbal microphones' own top end comes down, and
+    // only what that cannot reach comes off the overhead and hi-hat faders. Everything is
+    // computed from the capture and the profile, so the same listen always lands here.
+    if (! sermonListen)
+    {
+        auto isCymbalMic = [] (RoleFamily f) { return f == RoleFamily::Overhead || f == RoleFamily::HiHat || f == RoleFamily::Room; };
+        auto isCymbalFader = [] (RoleFamily f) { return f == RoleFamily::Overhead || f == RoleFamily::HiHat; };
+        // How much of a shelf's gain reaches 6-20 kHz: nearly all of it from 8 kHz, less the
+        // higher the corner sits above the band's bottom edge.
+        auto reach = [] (float hz) { return hz <= 8000.0f ? 1.0f : hz <= 10000.0f ? 0.8f : 0.5f; };
+        auto powerSum = [] (float accDb, float db) { return 10.0f * std::log10 (std::pow (10.0f, accDb / 10.0f) + std::pow (10.0f, db / 10.0f)); };
+        // The shelf each strip's own Tune aims at, from the capture and the profile: never the
+        // shelf it runs now, which may be this rule's own earlier cut.
+        std::vector<float> aim (size_t (n), 0.0f), aimHz (size_t (n), 10000.0f), tplShelf (size_t (n), 0.0f);
+        for (int i = 0; i < n; ++i)
+        {
+            if (! plan.strips[size_t (i)].balanced) continue;
+            TuneContext tc;
+            tc.analysis = ctx.capture.strips[size_t (i)];
+            tc.role = plan.strips[size_t (i)].role;
+            tc.profile = profile;
+            tc.current = plan.proposed.strips[size_t (i)].channel;
+            const auto t = Profiles::targets (profile, tc.role);
+            aim[size_t (i)] = tune::airShelfAimDb (tc, t);
+            aimHz[size_t (i)] = t.airHz;
+            const auto tpl = Profiles::baseline (profile, tc.role).toneBands[3];
+            tplShelf[size_t (i)] = tpl.enabled ? tpl.gainDb : 0.0f;
+        }
+        const auto stageMic = [&] (int i) { return plan.strips[size_t (i)].spillLimited && ! isCymbalMic (roleFamily (plan.strips[size_t (i)].role)); };
+        // The mix's top end against its words with the three moves below taken to the given depth.
+        auto excessWith = [&] (bool stageMicsFlat, float shelfCut, float faderDrop) -> float
+        {
+            float top = -200.0f, words = -200.0f;
+            for (int i = 0; i < n; ++i)
+            {
+                const auto& sp = plan.strips[size_t (i)];
+                if (! sp.balanced) continue;
+                const auto& a = ctx.capture.strips[size_t (i)];
+                const RoleFamily f = roleFamily (sp.role);
+                float shelf = aim[size_t (i)];
+                if (stageMicsFlat && stageMic (i)) shelf = std::min (shelf, 0.0f);
+                if (isCymbalMic (f) && shelfCut > 0.0f) shelf = std::min (shelf, tplShelf[size_t (i)] - shelfCut);
+                const float level = predictedProcessedRmsDb (ctx, i, plan.proposed.strips[size_t (i)]) + sp.faderDb
+                                  - (isCymbalFader (f) ? faderDrop : 0.0f);
+                const float band = powerSum (a.bandEnergyDb[size_t (Band::Brilliance)], a.bandEnergyDb[size_t (Band::Air)]);
+                // ... and the shelf its group adds on the way to the master (the drum bus carries
+                // one in most profiles): the cymbals reach the listener through both.
+                const auto busShelf = Profiles::baseline (profile, busRole (ctx.graph.strips[size_t (i)].bus, ctx.session.purpose)).toneBands[3];
+                const float busLift = busShelf.enabled && busShelf.type == FilterType::HighShelf ? busShelf.gainDb * reach (busShelf.freqHz) : 0.0f;
+                top = powerSum (top, level + band + shelf * reach (aimHz[size_t (i)]) + busLift);
+                words = powerSum (words, level + a.bandEnergyDb[size_t (Band::UpperMid)]);
+            }
+            return words > -150.0f ? (top - words) + R.topEndBelowUpperMidDb : -100.0f;
+        };
+        const float excess = excessWith (false, 0.0f, 0.0f);
+        if (excess > 0.5f)
+        {
+            std::vector<std::string> shaped;
+            // 1. A microphone that mostly hears the stage keeps no lift above 6 kHz.
+            for (int i = 0; i < n; ++i)
+            {
+                auto& sp = plan.strips[size_t (i)];
+                auto& ch = plan.proposed.strips[size_t (i)].channel;
+                const auto& b = ch.toneBands[3];
+                if (! sp.balanced || ! stageMic (i) || ! (ch.toneEqEnabled && b.enabled && b.gainDb > 0.0f)) continue;
+                TuneDecisions d (ch);
+                d.move (Recommendation::Kind::EQ, TuneSection::Tone, "Took the top-end lift back out of " + upper (sp.name),
+                        "This microphone mostly hears the stage, and above 6 kHz what the stage sends it is the cymbals. A brighter top end "
+                        "here would not make the voice clearer; it would make the kit louder through the wrong microphone.",
+                        Confidence::Medium, [] (ChannelParameters& q) { q.toneBands[3].enabled = false; q.toneBands[3].gainDb = 0.0f; });
+                commit (d, ch, sp.mixItems, plan.relationships);
+                shaped.push_back (upper (sp.name));
+            }
+            // 2. The cymbal microphones' own top end: a cut below the profile's own shelf, as
+            //    deep as the excess asks for and never deeper than the profile allows.
+            float shelfCut = 0.0f;
+            while (shelfCut < R.cymbalShelfMaxCutDb && excessWith (true, shelfCut, 0.0f) > 0.5f) shelfCut += 0.5f;
+            if (shelfCut >= 0.5f)
+            {
+                for (int i = 0; i < n; ++i)
+                {
+                    auto& sp = plan.strips[size_t (i)];
+                    auto& ch = plan.proposed.strips[size_t (i)].channel;
+                    if (! sp.balanced || ! isCymbalMic (roleFamily (sp.role))) continue;
+                    const auto tpl = Profiles::baseline (profile, sp.role).toneBands[3];
+                    const float freq = tpl.type == FilterType::HighShelf && tpl.freqHz > 0.0f ? tpl.freqHz : 8000.0f;
+                    const float want = roundHalf (tplShelf[size_t (i)] - shelfCut);
+                    const auto& cur = ch.toneBands[3];
+                    const bool curShelf = ch.toneEqEnabled && cur.enabled && cur.type == FilterType::HighShelf;
+                    const float gain = curShelf ? std::min (cur.gainDb, want) : want;
+                    if (curShelf && cur.gainDb - gain < 0.5f) continue;
+                    TuneDecisions d (ch);
+                    d.move (Recommendation::Kind::EQ, TuneSection::Tone,
+                            "Softened the cymbals in " + upper (sp.name) + ": high shelf down to " + fmtDb (gain) + " at " + fmtHz (freq),
+                            "Across every microphone on the stage the mix carries more above 6 kHz than a " + std::string (styleProfileName (profile))
+                            + " mix does, and most of it is the kit's cymbals. Their own microphones give up the top end first, so the voices keep theirs.",
+                            Confidence::Medium, [=] (ChannelParameters& q)
+                            {
+                                q.toneEqEnabled = true;
+                                q.toneBands[3] = { true, FilterType::HighShelf, freq, gain, 0.7f };
+                            });
+                    commit (d, ch, sp.mixItems, plan.relationships);
+                    shaped.push_back (upper (sp.name));
+                }
+            }
+            // 3. What the shelves could not reach comes off the overhead and hi-hat faders.
+            float drop = 0.0f;
+            while (drop < R.cymbalFaderMaxCutDb && excessWith (true, shelfCut, drop) > 0.5f) drop += 0.5f;
+            if (drop >= 0.5f)
+            {
+                for (int i = 0; i < n; ++i)
+                {
+                    auto& sp = plan.strips[size_t (i)];
+                    if (! sp.balanced || ! isCymbalFader (roleFamily (sp.role))) continue;
+                    sp.faderDb = clamp (sp.faderDb - drop, -R.maxFaderMoveDb, R.maxFaderMoveDb);
+                    shaped.push_back (upper (sp.name) + " " + fmtDb (-drop, 1));
+                }
+            }
+            if (! shaped.empty())
+            {
+                std::string names;
+                for (size_t k = 0; k < shaped.size(); ++k) names += (k == 0 ? "" : ", ") + shaped[k];
+                plan.relationships.push_back (info (Recommendation::Kind::MixGain, "Cymbals held back: " + names,
+                                                     "Where every source lands, the mix carried " + fmtDb (excess, 1) + " more above 6 kHz than a "
+                                                     + std::string (styleProfileName (profile)) + " mix does against the band the words live in. A kit's cymbals reach "
+                                                     "every microphone on the stage, so no single channel looked too bright - the sum was. The top came off the "
+                                                     "microphones that are there for the cymbals, and off the ones that only hear them.", Confidence::Medium));
+            }
+        }
+    }
+
     // ---- A sermon listen: the spoken word, and no band behind it ----
     // A service is not one performance, it is a sequence of them, and the listen only ever
     // hears the one that is happening. When the only thing playing is the speech group, the
