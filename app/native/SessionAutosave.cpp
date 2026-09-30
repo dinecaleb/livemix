@@ -57,6 +57,12 @@ juce::File SessionAutosave::autosaveFor (const juce::File& document)
     return document.getSiblingFile (beside (document, ".autosave.json"));
 }
 
+juce::File SessionAutosave::heldFor (const juce::File& document)
+{
+    if (document == juce::File()) return {};
+    return document.getSiblingFile (beside (document, ".recovered.json"));
+}
+
 juce::File SessionAutosave::markerFor (const juce::File& document)
 {
     if (document == juce::File()) return {};
@@ -138,6 +144,13 @@ void SessionAutosave::discard (const juce::File& document)
     markerFor (document).deleteFile();
 }
 
+void SessionAutosave::dismissRecovery (const juce::File& document)
+{
+    if (document == juce::File()) return;
+    heldFor (document).deleteFile();
+    autosaveFor (document).deleteFile();
+}
+
 void SessionAutosave::run()
 {
     while (! threadShouldExit())
@@ -167,7 +180,9 @@ void SessionAutosave::run()
 void SessionAutosave::writeNow (const SessionState& state, const juce::File& target)
 {
     if (target == juce::File()) return;
-    writeAtomically (target, juce::JSON::toString (SessionStore::toVar (state), false));
+    // Only a write that landed is reported as one: the status foot saying "autosaved" over a
+    // full disk would be the one lie that matters.
+    if (! writeAtomically (target, juce::JSON::toString (SessionStore::toVar (state), false))) return;
     wroteAt.store (juce::Time::getCurrentTime().toMilliseconds(), std::memory_order_release);
 }
 
@@ -180,10 +195,28 @@ SessionAutosave::Recovery SessionAutosave::check (const juce::File& document)
 {
     Recovery r;
     if (document == juce::File()) return r;
+    r.documentWhen = document.existsAsFile() ? document.getLastModificationTime() : juce::Time (0);
+
+    // A question asked before and never answered comes first: it holds the work from the
+    // crash it was asked about, and the ordinary autosave has been written since by a session
+    // that only ever held the document.
+    const auto held = heldFor (document);
+    if (held.existsAsFile())
+    {
+        if (held.getLastModificationTime() > r.documentWhen)
+        {
+            r.autosave = held;
+            r.when = held.getLastModificationTime();
+            r.offer = true;
+            r.sentence = "DLIVE found work from " + whenSentence (r.when) + " that was not saved.";
+            return r;
+        }
+        held.deleteFile();              // the document has been saved since: nothing is owed
+    }
+
     r.autosave = autosaveFor (document);
     if (! r.autosave.existsAsFile()) return r;
     r.when = r.autosave.getLastModificationTime();
-    r.documentWhen = document.existsAsFile() ? document.getLastModificationTime() : juce::Time (0);
 
     // A marker still here means DLIVE was killed rather than closed. On its own that is a
     // crash that lost nothing; what makes it worth asking about is an autosave holding work
@@ -191,6 +224,13 @@ SessionAutosave::Recovery SessionAutosave::check (const juce::File& document)
     const bool unclean = markerFor (document).existsAsFile();
     if (! unclean || r.when <= r.documentWhen) return r;
 
+    // Set aside before anything else can write the autosave (see heldFor). A copy that fails
+    // leaves the offer pointing at the autosave itself, which is what it always did.
+    if (r.autosave.copyFileTo (held))
+    {
+        held.setLastModificationTime (r.when);
+        r.autosave = held;
+    }
     r.offer = true;
     r.sentence = "DLIVE found work from " + whenSentence (r.when) + " that was not saved.";
     return r;

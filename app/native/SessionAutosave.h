@@ -77,9 +77,20 @@ public:
         juce::Time documentWhen;      // when the document was last saved
         juce::String sentence;        // "DLIVE found work from 8:42 PM that was not saved."
     };
+    //
+    // When it offers, the autosave is first copied aside to `heldFor(document)`, and `autosave`
+    // names that copy. Everything between the check and the answer - the session reopening,
+    // the devices it touches, the autosave worker writing the session that was just loaded -
+    // may write the ordinary autosave, and none of it may touch the work being offered back.
+    // A held copy nobody answered (DLIVE quit, or crashed again, with the question on screen)
+    // is offered again next time, for as long as it is newer than the document.
     static Recovery check (const juce::File& document);
-    // Stop offering: the user chose. Removes the autosave and the marker.
+    // The user answered the recovery question: the held copy and the autosave it came from go.
+    // The open session's marker stays, so a crash later this morning is still caught.
+    static void dismissRecovery (const juce::File& document);
+    // A clean goodbye: the autosave and the marker go. A held copy nobody has answered stays.
     static void discard (const juce::File& document);
+    static juce::File heldFor (const juce::File& document);
 
 private:
     void run() override;

@@ -2904,8 +2904,9 @@ TEST_CASE ("Autosave: a crash is offered back, a clean quit is not, and neither 
     CHECK (recovered.mix.buses[size_t (MixBus::Ambience)].mute);
 
     // The user chose. Stop offering it.
-    SessionAutosave::discard (document);
+    SessionAutosave::dismissRecovery (document);
     CHECK (! SessionAutosave::check (document).offer);
+    CHECK (! SessionAutosave::heldFor (document).existsAsFile());
 
     // A clean quit leaves nothing behind at all.
     {
@@ -2929,6 +2930,61 @@ TEST_CASE ("Autosave: a crash is offered back, a clean quit is not, and neither 
     REQUIRE (SessionStore::save (captureSession (live.controller, live.daw, kDevices, 260), document));
     CHECK (SessionAutosave::markerFor (document).existsAsFile());     // it still crashed...
     CHECK (! SessionAutosave::check (document).offer);                // ...and still lost nothing
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("Autosave: the work offered back survives everything that happens before the answer")
+{
+    // At launch the last session reopens before the recovery question is on screen, and the
+    // session it reopens is the *document*: its first change is autosaved over the file that
+    // held the crash's work. What is offered has to be out of that file's way by then.
+    const auto folder = autosaveScratch();
+    const auto document = folder.getChildFile ("Crash.dlive.json");
+    FullSession live (true);
+    live.daw.setLiveSafe (false);
+
+    REQUIRE (SessionStore::save (captureSession (live.controller, live.daw, kDevices, 0), document));
+    juce::Thread::sleep (1100);
+    {
+        SessionAutosave autosave;
+        autosave.open (document);
+        live.controller.setStripFader (1, -17.5f);
+        autosave.note (captureSession (live.controller, live.daw, kDevices, 0), true);
+        REQUIRE (waitForIdle (autosave));
+    }                                                   // killed: the marker stays
+
+    const auto found = SessionAutosave::check (document);
+    REQUIRE (found.offer);
+    CHECK (found.autosave == SessionAutosave::heldFor (document));
+
+    // The document reopens and its autosave is written, as the launch does while the
+    // question waits on screen.
+    {
+        SessionState reopened;
+        REQUIRE (SessionStore::load (document, reopened));
+        SessionAutosave autosave;
+        autosave.open (document);
+        autosave.note (reopened, true);
+        REQUIRE (waitForIdle (autosave));
+        // ... and DLIVE is quit with the question never answered.
+        autosave.closeCleanly();
+    }
+    SessionState recovered;
+    REQUIRE (SessionStore::load (found.autosave, recovered));
+    CHECK_NEAR (recovered.mix.strips[1].faderDb, -17.5f, 1e-3f);
+
+    // Still owed, so still offered next launch, and still the same work.
+    const auto again = SessionAutosave::check (document);
+    REQUIRE (again.offer);
+    SessionState second;
+    REQUIRE (SessionStore::load (again.autosave, second));
+    CHECK_NEAR (second.mix.strips[1].faderDb, -17.5f, 1e-3f);
+
+    // Answering keeps the open session's marker: a crash after the answer is still a crash.
+    SessionAutosave::markerFor (document).replaceWithText ("open");
+    SessionAutosave::dismissRecovery (document);
+    CHECK (SessionAutosave::markerFor (document).existsAsFile());
+    CHECK (! SessionAutosave::check (document).offer);
     folder.deleteRecursively();
 }
 

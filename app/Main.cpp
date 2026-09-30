@@ -262,6 +262,19 @@ namespace
             if (! writeDocument (documentFileOrDefault())) trackError ("session", "save_failed", false);
         }
 
+        // The last write before quitting. It says whether the document landed, because a clean
+        // goodbye deletes the autosave - and when the document could not be written (a full
+        // disk, a drive that has gone) the autosave is the only copy of the morning's work.
+        bool saveForQuit()
+        {
+            if (controller.getSession().inputs.empty()) return true;
+            autosaveNow (true);
+            autosave.flush();
+            if (writeDocument (documentFileOrDefault())) return true;
+            trackError ("session", "save_failed", false);
+            return false;
+        }
+
         juce::String saveSessionAs (const juce::String& name) override
         {
             juce::String n = name.trim();
@@ -919,7 +932,7 @@ public:
         offer.onOpenSaved = [document, afterCrash]
         {
             trackEvent ("session_recovery", { { "choice", "open_saved" }, { "ok", true }, { "after_crash", afterCrash } });
-            SessionAutosave::discard (document);
+            SessionAutosave::dismissRecovery (document);
         };
         offer.onRecover = [this, view, srv, autosave, document, when, afterCrash]
         {
@@ -930,10 +943,10 @@ public:
             {
                 trackError ("session", "autosave_unreadable", false);
                 view->showToast ("That autosave could not be read, so the session on disk is the one you have.");
-                SessionAutosave::discard (document);
+                SessionAutosave::dismissRecovery (document);
                 return;
             }
-            SessionAutosave::discard (document);
+            SessionAutosave::dismissRecovery (document);
             srv->openState (recovered, "recovery");
             srv->saveSession();                  // the recovery is committed, not left in a sidecar
             view->sessionReplaced();
@@ -949,10 +962,10 @@ public:
             {
                 trackError ("session", "autosave_unreadable", false);
                 view->showToast ("That autosave could not be read, so the session on disk is the one you have.");
-                SessionAutosave::discard (document);
+                SessionAutosave::dismissRecovery (document);
                 return;
             }
-            SessionAutosave::discard (document);
+            SessionAutosave::dismissRecovery (document);
             // Keep both: the recovered work becomes a session of its own, beside the one that
             // was saved, and the takes stay where they are (saveSessionAs makes their clips
             // absolute for exactly this).
@@ -972,8 +985,13 @@ public:
         if (dawEngine != nullptr) dawEngine->stop();
         // A clean goodbye: the document is written, and the marker and the autosave go with
         // it. One that is still there on the next launch is how DLIVE knows it was killed.
-        if (services != nullptr && controller != nullptr && ! controller->getSession().inputs.empty()) services->saveSession();
-        if (services != nullptr) services->autosaveWriter().closeCleanly();
+        // A document that could not be written leaves the autosave and the marker where they
+        // are, so the next launch offers the work back instead of finding nothing.
+        if (services != nullptr)
+        {
+            if (services->saveForQuit()) services->autosaveWriter().closeCleanly();
+            else                         services->autosaveWriter().flush();
+        }
         if (telemetry != nullptr) telemetry->end();
         if (controller != nullptr) controller->onUsage = nullptr;
         window.reset();
