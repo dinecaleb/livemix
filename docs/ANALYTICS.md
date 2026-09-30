@@ -60,6 +60,26 @@ anon key, which is why the function exists.
 Tested on 2026-09-29: the call returns 204, a repeated `event_id` is stored once, and a
 read or a direct insert with the anon key returns 401.
 
+### Security: what the shipped key can and cannot do
+
+Anyone can take the anon key out of the app. With it they **cannot** read, change or delete
+a single event, or touch any other table. The service-role key is never in the app, the repo
+or `telemetry.local.cmake` (git-ignored, which holds only the URL and the anon key). The one
+thing the key **can** do is send events, so the risk is spam, not a leak. `ingest_events`
+(migration `20260929140000_dlive_analytics_rate_limit.sql`) bounds it:
+
+| Limit | Value | Over it |
+| --- | --- | --- |
+| Rows per call | 1-100, all from one `install_id` | 400; the app drops that batch and counts it |
+| Per install | 600 events per hour (normal use is well under 150) | 429 with `Retry-After: 60`; the app keeps its rows and backs off from 30 s to 15 min, so an offline backlog drains over a few hours |
+| Everyone | 30,000 events per hour | 429, the same way. Minting a new install ID for every call can delay real events, but it can't grow the database without bound |
+
+Both limits count on the server's clock (`received_at`), never the Mac's. Tested on
+2026-09-29 against the project: six batches of 100 went in, the seventh got 429, a batch
+mixing two installs got 400, and another install was unaffected. Spam still gets through at
+up to the limit; it can be found by `received_at` and deleted. A per-IP limit would need an
+Edge Function in front, which isn't built yet.
+
 ## Local files (`~/Library/DLIVE/`)
 
 | File | What | Lifetime |

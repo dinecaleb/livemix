@@ -203,6 +203,19 @@ TEST_CASE ("Telemetry: rows that were never sent go out on the next launch")
     next.end();
 }
 
+TEST_CASE ("Telemetry: over the server's rate limit (429) the rows wait and back off, they are not dropped")
+{
+    const auto dir = scratch ("rate-limited");
+    FakeServer server;
+    server.status = 429;
+    Telemetry t (config (dir, &server));
+    t.start();
+    CHECK (! t.flushNow());
+    CHECK (t.getPending() == 1);
+    CHECK (t.getFailedSends() == 1);
+    t.end();
+}
+
 TEST_CASE ("Telemetry: a batch the server refuses outright is dropped, not retried for ever")
 {
     const auto dir = scratch ("rejected");
