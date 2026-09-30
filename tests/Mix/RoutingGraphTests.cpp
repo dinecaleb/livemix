@@ -296,3 +296,25 @@ TEST_CASE ("carryMix: moving a channel keeps every chain, level and send with it
     for (int i = 0; i < mix.numStrips; ++i)
         CHECK_NEAR (same.strips[size_t (i)].faderDb, mix.strips[size_t (i)].faderDb, 0.001f);
 }
+
+TEST_CASE ("carryMix: whether a return exists is the new routing's to say, never the old mix's")
+{
+    // An empty session (what DLIVE holds before a folder is imported) uses no returns...
+    MixSession empty = churchSession();
+    empty.inputs.clear();
+    const auto emptyMix = startingPoint (empty, RoutingGraph::build (empty));
+    for (const auto& fx : emptyMix.fx) CHECK (! fx.enabled);
+
+    // ... and a band imported over it does. The returns it sends to come on; carrying the empty
+    // session's "off" across held every return at silence while the effects still ran.
+    const auto band = churchSession();
+    const auto graph = RoutingGraph::build (band);
+    const auto carried = carryMix (emptyMix, empty, startingPoint (band, graph), band);
+    int used = 0;
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+    {
+        CHECK (carried.fx[size_t (f)].enabled == graph.fxUsed[size_t (f)]);
+        if (graph.fxUsed[size_t (f)]) ++used;
+    }
+    CHECK (used > 0);
+}

@@ -2974,6 +2974,9 @@ void MixController::setKept (const MixParameters& p)
 {
     kept = p;
     kept.numStrips = std::min (kept.numStrips, graph.numStrips());
+    // Whether a return exists belongs to the routing, not to whatever mix is being put back: a
+    // document saved while the carry-across bug held every return off opens with them working.
+    for (int f = 0; f < int (FxSlot::Count); ++f) kept.fx[size_t (f)].enabled = graph.fxUsed[size_t (f)];
     mixed = true;
     if (stage == Stage::Ready) stage = Stage::Mixed;
     publish();

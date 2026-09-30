@@ -144,6 +144,11 @@ inline MixParameters carryMix (const MixParameters& from, const MixSession& prev
 
     out.buses = from.buses;
     out.fx = from.fx;
+    // ... except whether a return exists. That is the new routing's to say (RoutingGraph's
+    // fxUsed: something sends to it), never the old one's. An empty session has no returns in
+    // use, and carrying its "off" across an import left every effect processing with its return
+    // held at silence - the meters lit and nothing heard, whatever the sends were set to.
+    for (size_t f = 0; f < out.fx.size(); ++f) out.fx[f].enabled = baseline.fx[f].enabled;
     out.tempoBpm = from.tempoBpm;
     out.fxReturnDb = from.fxReturnDb;
     out.fxMute = from.fxMute;

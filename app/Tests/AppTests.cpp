@@ -807,6 +807,33 @@ TEST_CASE ("MixController: editing the session keeps the sound; preparing again 
     CHECK (c.hasKeptMix());
 }
 
+TEST_CASE ("MixController: a band imported over an empty session can hear its effects")
+{
+    // What DLIVE holds before a folder is imported: no inputs, so no return in use. The import
+    // used to carry that "off" across, and every effect ran with its return held at silence.
+    MixController c;
+    MixSession empty;
+    empty.name = "Untitled";
+    c.setSession (empty);
+    c.prepare (kSr, kBlock);
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    const auto& graph = c.getGraph();
+    REQUIRE (graph.fxUsed[size_t (FxSlot::VocalPlate)]);
+    CHECK (c.getBase().fx[size_t (FxSlot::VocalPlate)].enabled);
+
+    // Heard: with only the lead playing, a plate send makes a tail after the voice stops.
+    for (int i = 0; i < c.getBase().numStrips; ++i) c.setStripMute (i, i != 3);
+    c.setStripSend (3, FxSlot::VocalPlate, 0.0f);
+    Feeder f (c);
+    f.play (1.0, false);
+    f.leadGain = 0.0f;
+    f.play (0.05, false);                     // the voice's own chain empties
+    float tail = 0.0f;
+    for (int k = 0; k < 10; ++k) { f.play (double (kBlock) / kSr, false); tail = std::max (tail, f.outputPeak()); }
+    CHECK (tail > 1.0e-4f);
+}
+
 TEST_CASE ("MixController: rebuilding the graph does not reach into the engineer's headphones")
 {
     // The monitor belongs to the device and the person at the desk, not to the mix. Rebuilding
