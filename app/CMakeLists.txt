@@ -102,7 +102,7 @@ juce_add_gui_app(DLive
 target_sources(DLive PRIVATE Main.cpp native/AudioHost.cpp native/MonitorDevice.cpp native/MicPermission.mm native/WindowChrome.mm ${DLIVE_UI_SOURCES})
 target_include_directories(DLive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
 # The Supabase project the usage events go to (docs/ANALYTICS.md). Empty: nothing is sent.
-# The anon key is public by design - the table lets it insert and nothing else.
+# The anon key is public by design - it can call public.ingest_events and nothing else.
 set(DLIVE_SUPABASE_URL "" CACHE STRING "Supabase project URL for DLIVE usage events (empty = off)")
 set(DLIVE_SUPABASE_ANON_KEY "" CACHE STRING "Supabase anon key for DLIVE usage events")
 target_compile_definitions(DLive PRIVATE ${DLIVE_DEFINES}

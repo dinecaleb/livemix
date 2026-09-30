@@ -7,8 +7,11 @@ is added to this file in the same commit as the code that sends it.
 - Code: `app/native/Telemetry.{h,cpp}` (the one service), `app/native/UsageIds.h` (the fixed
   words for instruments), `MixController::onUsage` (the mix's events, no JUCE), wired in
   `app/Main.cpp`. Tests: `app/Tests/TelemetryTests.cpp`, and the last test in `AppTests.cpp`.
-- Database: `supabase/migrations/20260929120000_dlive_analytics.sql` - one `events` table,
-  insert-only for the anon key, and the `analytics.*` views that answer the questions.
+- Database: the Supabase project **DineAudio** (`sagthwycbpdcwdwzpiia`, ca-central-1).
+  `supabase/migrations/20260929120000_dlive_analytics.sql` holds one `events` table and the
+  `analytics.*` views that answer the questions. `20260929130000_dlive_analytics_ingest.sql`
+  adds `public.ingest_events(rows)`, which is the only way in for the anon key. Both are
+  applied.
 
 ## The rules
 
@@ -45,8 +48,16 @@ is added to this file in the same commit as the code that sends it.
 | Environment variables of the same names | Override the build: a developer pointing a run at a test project. |
 | Neither | Off. Nothing is queued or sent; milestones still work. |
 
-The anon key is public by design: the table grants it `INSERT` on the listed columns and
-nothing else, and RLS is on. Apply the migration before the first build that carries a key.
+The anon key is public by design. It can call `POST /rest/v1/rpc/ingest_events` with
+`{"rows": [...]}` (at most 100 rows) and nothing else: it can't read, insert into, change or
+delete from `events`. RLS is on with no policy, so the table is closed to the API. The
+function inserts the batch and skips an `event_id` that has already landed. Supabase's
+advisor flags both of these (`rls_enabled_no_policy`, `anon_security_definer_function_executable`);
+both are intended. A direct insert with ignore-duplicates would have needed `SELECT` for the
+anon key, which is why the function exists.
+
+Tested on 2026-09-29: the call returns 204, a repeated `event_id` is stored once, and a
+read or a direct insert with the anon key returns 401.
 
 ## Local files (`~/Library/DLIVE/`)
 
@@ -61,7 +72,7 @@ nothing else, and RLS is on. Apply the migration before the first build that car
 
 | Column | Meaning |
 | --- | --- |
-| `event_id` | UUID made on the Mac; the retry key (`on_conflict=event_id`, duplicates ignored) |
+| `event_id` | UUID made on the Mac; the retry key (`ingest_events` skips one that has already landed) |
 | `install_id`, `session_id` | as above |
 | `event` | the name, from the tables below |
 | `ts` | the Mac's clock, ISO 8601 with offset. `received_at` is the server's |

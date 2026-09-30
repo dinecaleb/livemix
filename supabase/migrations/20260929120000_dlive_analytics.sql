@@ -1,10 +1,9 @@
 -- DLIVE usage and stability events. docs/ANALYTICS.md is the contract for every row.
 --
--- One table. The app (app/native/Telemetry) inserts batches with the project's anon key via
--- PostgREST: POST /rest/v1/events?on_conflict=event_id with
--- "Prefer: return=minimal,resolution=ignore-duplicates", so a retried batch that had in fact
--- landed is ignored rather than counted twice. The anon key may insert and nothing else: it
--- cannot read, change or delete a single row. The questions are answered by the views in the
+-- One table. As first written the anon key inserted into it directly; PostgREST's
+-- ignore-duplicates upsert turned out to need SELECT as well, so the next migration
+-- (*_dlive_analytics_ingest.sql) takes INSERT away again and routes every batch through
+-- public.ingest_events. Either way the anon key cannot read, change or delete a single row. The questions are answered by the views in the
 -- `analytics` schema, which PostgREST does not expose.
 
 create table if not exists public.events (

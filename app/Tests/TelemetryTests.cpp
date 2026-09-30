@@ -48,7 +48,7 @@ namespace
         juce::Array<juce::var> out;
         for (const auto& b : s.bodies)
         {
-            const auto parsed = juce::JSON::parse (b);
+            const auto parsed = juce::JSON::parse (b)["rows"];
             if (auto* arr = parsed.getArray())
                 for (const auto& r : *arr) out.add (r);
         }

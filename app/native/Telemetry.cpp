@@ -85,12 +85,11 @@ namespace
     int defaultSend (const juce::String& url, const juce::String& body, const juce::String& key,
                      const std::atomic<bool>* cancel)
     {
-        // PostgREST: insert the batch, ignore a row whose event_id is already there (a retry
-        // after a timeout that had in fact landed), and send nothing back.
-        const juce::String headers = "apikey: " + key + "\r\n"
-                                     "Prefer: return=minimal,resolution=ignore-duplicates\r\n";
-        const auto r = http::postJson (url.trimCharactersAtEnd ("/") + "/rest/v1/events?on_conflict=event_id",
-                                       body, key, 15, cancel, headers);
+        // One call to public.ingest_events: it inserts the batch and skips an event_id that is
+        // already there (a retry after a timeout that had in fact landed). The anon key can
+        // call it and cannot touch the table (supabase/migrations/*_ingest.sql).
+        const auto r = http::postJson (url.trimCharactersAtEnd ("/") + "/rest/v1/rpc/ingest_events",
+                                       body, key, 15, cancel, "apikey: " + key + "\r\n");
         return r.error.isNotEmpty() ? 0 : r.status;
     }
 
@@ -830,9 +829,9 @@ int Telemetry::sendBatch()
     }
     if (batch.empty()) return 0;
 
-    juce::String body = "[";
+    juce::String body = "{\"rows\":[";
     for (size_t i = 0; i < batch.size(); ++i) body << (i > 0 ? "," : "") << batch[i].json;
-    body << "]";
+    body << "]}";
 
     const int status = config.send ? config.send (config.url, body, config.anonKey)
                                    : defaultSend (config.url, body, config.anonKey, &stopping);
