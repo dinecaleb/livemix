@@ -66,6 +66,11 @@ juce::String Recorder::start (const juce::File& audioFolder,
                "or save this session somewhere with more room, and record again.";
 
     juce::WavAudioFormat wav;
+    // BROADCAST WAV: every take says when it began - the date, the time, and the time of day as
+    // a sample count - so a service recorded here lines up with the video recorded beside it.
+    const auto began = juce::Time::getCurrentTime();
+    const auto sinceMidnight = juce::int64 ((began.getHours() * 3600 + began.getMinutes() * 60 + began.getSeconds()) * rate
+                                            + began.getMilliseconds() * 0.001 * rate);
     std::vector<Writer> made;
     made.reserve (specs.size());
 
@@ -86,7 +91,8 @@ juce::String Recorder::start (const juce::File& audioFolder,
             for (auto& done : made) done.file.deleteFile();
             return "Could not write to " + audioFolder.getFullPathName() + ". Check the disk and its permissions.";
         }
-        if (auto* writer = wav.createWriterFor (stream.get(), rate, (unsigned int) w.channels, kBitDepth, {}, 0))
+        const auto bext = juce::WavAudioFormat::createBWAVMetadata (spec.name, "DLIVE", {}, began, sinceMidnight, {});
+        if (auto* writer = wav.createWriterFor (stream.get(), rate, (unsigned int) w.channels, kBitDepth, bext, 0))
         {
             stream.release();
             w.writer = std::make_unique<juce::AudioFormatWriter::ThreadedWriter> (writer, thread, fifoSamples);

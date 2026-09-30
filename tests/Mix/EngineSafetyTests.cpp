@@ -7,6 +7,9 @@
 #include "TestSignals.h"
 #include "Mix/MixEngine.h"
 #include "DSP/ChannelProcessor.h"
+#include "AllocationTracker.h"
+#include <chrono>
+#include <string>
 #include "Core/DbUtils.h"
 #include <algorithm>
 #include <cmath>
@@ -211,4 +214,78 @@ TEST_CASE ("ChannelProcessor: a stage switched on or off mid-stream is a fade, n
     run (40, true);
     const float slope = float (2.0 * M_PI * 1000.0 / kSr) * 0.1f * dbToGain (12.0f);
     CHECK (worst < slope * 1.3f);
+}
+
+TEST_CASE ("Engine soak: five minutes of a 32-channel service - finite, allocation-free, and no slower at the end")
+{
+    // A shortened service: every channel playing, the mix republished every second (a fader,
+    // an EQ band, a compressor threshold moving), speech priority on. What a three-hour service
+    // would expose - a denormal slowly creeping in, a buffer growing, a NaN latching - shows up
+    // here as a later minute that is slower, an allocation, or a sample that is not a number.
+    MixSession s;
+    const ChannelRole roles[] = { ChannelRole::KickIn, ChannelRole::SnareTop, ChannelRole::HiHat, ChannelRole::RackTom,
+                                  ChannelRole::FloorTom, ChannelRole::OverheadLeft, ChannelRole::OverheadRight, ChannelRole::Room,
+                                  ChannelRole::BassDI, ChannelRole::Piano, ChannelRole::Organ, ChannelRole::SynthPad,
+                                  ChannelRole::AcousticGuitar, ChannelRole::ElectricGuitarClean, ChannelRole::LeadVocal, ChannelRole::BackingVocal };
+    for (int i = 0; i < 32; ++i)
+        s.inputs.push_back ({ "In " + std::to_string (i + 1), i == 31 ? ChannelRole::Speech : roles[i % 16], i, -1 });
+    MixEngine e;
+    e.prepare (kSr, 64, s);
+    auto p = startingPoint (s, RoutingGraph::build (s));
+    p.speechDuck.enabled = true;
+    e.setParameters (p);
+
+    std::vector<std::vector<float>> in (32, std::vector<float> (64, 0.0f));
+    std::vector<const float*> ip (32);
+    std::vector<float> l (64), r (64);
+    float* op[2] = { l.data(), r.data() };
+    const long long blocksPerSecond = (long long) (kSr / 64);
+    const int seconds = 300;
+    double firstMinute = 0.0, lastMinute = 0.0;
+    bool finite = true;
+    long long pos = 0;
+    int allocations = 0;
+    for (int sec = 0; sec < seconds; ++sec)
+    {
+        // Once a second, as a person or TUNE would: something moves.
+        auto& strip = p.strips[size_t (sec % 32)];
+        strip.faderDb = -6.0f + float (sec % 7);
+        strip.channel.compThresholdDb = -30.0f + float (sec % 11);
+        strip.channel.toneBands[1] = { true, FilterType::Peak, 800.0f + 100.0f * float (sec % 9), float (sec % 5) - 2.0f, 1.0f };
+        e.setParameters (p);
+
+        const auto t0 = std::chrono::steady_clock::now();
+        for (long long b = 0; b < blocksPerSecond; ++b)
+        {
+            for (int c = 0; c < 32; ++c)
+            {
+                const double hz = 60.0 + 37.0 * c;
+                for (int i = 0; i < 64; ++i)
+                {
+                    const long long n = pos + i;
+                    const bool hit = (n % 24000) < 1200;                          // a pulse every half second
+                    in[size_t (c)][size_t (i)] = sine (hz, n, c < 8 ? (hit ? 0.5f : 0.001f) : 0.15f);
+                }
+                ip[size_t (c)] = in[size_t (c)].data();
+            }
+            if (sec >= 2)
+            {
+                alloctrack::Scope scope;
+                e.process (ip.data(), 32, op, 2, 64);
+                allocations += alloctrack::getCount();
+            }
+            else e.process (ip.data(), 32, op, 2, 64);
+            for (int i = 0; i < 64; ++i) finite = finite && std::isfinite (l[size_t (i)]) && std::isfinite (r[size_t (i)]);
+            pos += 64;
+        }
+        const double spent = std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
+        if (sec >= 5 && sec < 65) firstMinute += spent;
+        if (sec >= seconds - 60) lastMinute += spent;
+    }
+    CHECK (finite);
+    CHECK (e.getNonFiniteBlocks() == 0);
+    CHECK (allocations == 0);
+    // The last minute costs what the first did (with room for a busy machine).
+    CHECK_MESSAGE (lastMinute < firstMinute * 1.5 + 0.05,
+                   "first minute " + std::to_string (firstMinute) + " s, last minute " + std::to_string (lastMinute) + " s");
 }

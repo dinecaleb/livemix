@@ -91,9 +91,19 @@ void CheckSheet::refresh()
         State next;
         if (r.clipped) next = State::Clip;
         else if (r.lastHeard < 0.0 ? now >= 3.0 : now - r.lastHeard >= 3.0) next = State::Silent;
-        else if (r.holdDb > -6.0f) next = State::Hot;
-        else if (r.holdDb < -30.0f) next = State::Low;
-        else next = State::Ok;
+        else
+        {
+            // The same verdict the set-up page and a tune give, from the same numbers: this
+            // source's own healthy range in this profile, not one range for every microphone.
+            // A soundcheck and a tune must never disagree about an input.
+            using Level = MixController::InputAdvice::Level;
+            const auto& inputs = controller.getSession().inputs;
+            const auto role = i < int (inputs.size()) ? inputs[size_t (i)].role : ChannelRole::LeadVocal;
+            const auto level = controller.liveCaptureAdvice (role, r.holdDb).level;
+            next = (level == Level::Hot || level == Level::Clipping) ? State::Hot
+                 : (level == Level::Low || level == Level::Faint)    ? State::Low
+                                                                     : State::Ok;
+        }
         if (next != r.state) { r.state = next; changed = true; }
     }
     if (changed) repaint();

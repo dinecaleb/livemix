@@ -139,3 +139,24 @@ TEST_CASE ("DawEngine: a device that hands over a bigger callback than it was pr
     CHECK (finite);
     CHECK (peakLate > 0.01f);             // the second half of every callback was processed too
 }
+
+TEST_CASE ("Recorder: a take says when it began, so it lines up with the video beside it")
+{
+    const auto folder = scratch ("bwf");
+    Recorder recorder;
+    std::vector<Recorder::Spec> specs { { 0, "Pastor", 0, -1 } };
+    REQUIRE (recorder.start (folder, specs, kSr, 0).isEmpty());
+    std::vector<float> in (static_cast<size_t> (kBlock), 0.1f);
+    const float* ip[1] = { in.data() };
+    for (int b = 0; b < 20; ++b) recorder.write (ip, 1, kBlock);
+    const auto takes = recorder.stop();
+    REQUIRE (takes.size() == 1u);
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> r (formats.createReaderFor (folder.getChildFile (takes[0].fileName)));
+    REQUIRE (r != nullptr);
+    CHECK (r->metadataValues[juce::WavAudioFormat::bwavOriginationDate].isNotEmpty());
+    CHECK (r->metadataValues[juce::WavAudioFormat::bwavOriginator] == "DLIVE");
+    CHECK (r->metadataValues[juce::WavAudioFormat::bwavTimeReference].isNotEmpty());
+    folder.deleteRecursively();
+}
