@@ -117,6 +117,7 @@ private:
     std::unique_ptr<DinePanelTab> railTab, trailTab;
     bool railShown = true, trailShown = true, railAvailable = true;
     int builtForStrips = -1;
+    bool rebuilding = false;   // rebuild() selects, and a selection refreshes: never re-entered
     int historyCount = -1, historyStrip = -2;   // what the trail's HISTORY was last built from
     long long historyNewest = 0;
     // What this page's own paint last drew. A full repaint of the Inspector on a large

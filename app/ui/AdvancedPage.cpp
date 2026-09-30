@@ -922,6 +922,8 @@ AdvancedPage::~AdvancedPage() = default;
 
 void AdvancedPage::rebuild()
 {
+    if (rebuilding) return;
+    const juce::ScopedValueSetter<bool> guard (rebuilding, true);
     listItems.clear();
     rows.clear();
     listHolder.removeAllChildren();
@@ -1176,7 +1178,11 @@ void AdvancedPage::refresh()
     if (simple != nullptr && simple->isVisible()) simple->refresh();
     const auto& engine = controller.getEngine();
     const auto& graph = engine.getGraph();
-    if (graph.numStrips() != builtForStrips) rebuild();
+    // Rebuilt against the same list rebuild() reads - the controller's. The engine's catches up
+    // with an import a moment later (a large folder, the device re-opening), and comparing
+    // against it here while rebuild() counted the controller's turned the two into a loop:
+    // rebuild -> select -> the chain rebuilds -> refresh -> rebuild, until the stack ran out.
+    if (controller.getGraph().numStrips() != builtForStrips && ! rebuilding) rebuild();
     const auto& kept = controller.getBase();
 
     for (auto* r : rows)

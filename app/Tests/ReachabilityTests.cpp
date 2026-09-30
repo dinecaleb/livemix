@@ -666,3 +666,24 @@ TEST_CASE ("Recording: one stray key never stops a service take")
     CHECK (! w.dawEngine.isRecording());                      // the second press means it
     folder.deleteRecursively();
 }
+
+// ---------------------------------------------------------------------------- the Inspector
+TEST_CASE ("Inspector: a session the engine has not caught up with yet is shown, not rebuilt forever")
+{
+    // An import hands the controller its new inputs at once, and the engine a moment later (a
+    // large folder, the device re-opening). The Inspector used to rebuild from one list and check
+    // itself against the other, and on a 31-file import it recursed until the stack ran out.
+    Window window;
+    auto session = window.controller.getSession();
+    for (int i = int (session.inputs.size()); i < 12; ++i)
+        session.inputs.push_back ({ "Extra " + std::to_string (i), ChannelRole::BackingVocal, 20 + i, -1 });
+    window.controller.setSession (session);
+    REQUIRE (window.controller.getGraph().numStrips() != window.controller.getEngine().getGraph().numStrips());
+
+    auto& inspector = window.view->getAdvancedPage();
+    inspector.rebuild();
+    inspector.refresh();
+    inspector.refresh();
+    window.pump (40);
+    CHECK (true);   // reaching here is the test
+}
