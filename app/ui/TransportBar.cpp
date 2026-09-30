@@ -225,6 +225,16 @@ void TransportBar::refresh()
         if (onToast) onToast (notice);
         if (onTimelineChanged) onTimelineChanged();
     }
+    // The disk fell behind and some of the take is silence - every track still lines up, and
+    // the take goes on. Said once per take, because the volunteer needs to know before Monday.
+    if (! nowRecording) dropSaid = false;
+    else if (! dropSaid && daw.getRecorder().getDroppedSeconds() > 0.0)
+    {
+        dropSaid = true;
+        if (onToast)
+            onToast ("The recording disk fell behind for a moment, so a short gap in this take is silent on every track. "
+                     "Recording goes on. Close other apps, or record to a faster drive.");
+    }
     const auto err = daw.getRecorder().getError();
     if (err.isNotEmpty() && nowRecording)
     {

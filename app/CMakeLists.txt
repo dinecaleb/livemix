@@ -137,6 +137,7 @@ if (LIVEMIX_BUILD_TESTS)
     add_executable(dlive_app_tests
         Tests/AppTests.cpp
         Tests/DawTests.cpp
+        Tests/RecordingTests.cpp
         Tests/ThemeTests.cpp
         Tests/TelemetryTests.cpp
         ${DLIVE_APP_SOURCES}

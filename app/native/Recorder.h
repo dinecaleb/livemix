@@ -29,7 +29,8 @@ namespace livemix
 class Recorder
 {
 public:
-    Recorder (double sidecarSeconds = 20.0, double headerFlushSeconds = 15.0);
+    // `fifoSamples` 0 = the product's size; a test passes a small one to make the disk fall behind.
+    Recorder (double sidecarSeconds = 20.0, double headerFlushSeconds = 15.0, int fifoSamples = 0);
     ~Recorder();
 
     // One armed track: which device channels it captures and what to call the file.
@@ -47,6 +48,7 @@ public:
         juce::String name;
         juce::String fileName;
         juce::int64 length = 0;
+        int inputA = -1, inputB = -1;           // the device channels it recorded: which input it is, however the list moved
     };
 
     // Message thread. Creates the files and starts the writer thread. "" on success.
@@ -63,6 +65,13 @@ public:
     juce::int64 getFramesWritten() const noexcept { return frames.load (std::memory_order_relaxed); }
     // Non-empty once a write failed (a full or too-slow disk). Recording should be stopped and the user told.
     juce::String getError() const;
+    // How much of the take, in seconds of one track, had to become silence because the disk fell
+    // behind (every track kept its place; see write()). Zero on a healthy take. Any thread.
+    double getDroppedSeconds() const noexcept
+    {
+        const auto n = droppedSamples.load (std::memory_order_relaxed);
+        return writers.empty() || rate <= 0.0 ? 0.0 : double (n) / rate / double (writers.size());
+    }
     // The same, as a fixed word for the stability events: "buffer_too_large", "disk_too_slow" or "".
     const char* getErrorCode() const noexcept;
 
@@ -118,6 +127,7 @@ private:
         // stopped taking it (see checkDisk).
         juce::int64 lastSize = 0;
         juce::int64 framesAtGrowth = 0;
+        juce::int64 owedSilence = 0;            // audio thread only: samples this track could not take, still to be written as silence
     };
     // Writer thread, every sidecar interval: is the take still landing? JUCE's threaded writer
     // drops a failed write without saying so, so this is where a full disk or a drive pulled
@@ -146,6 +156,7 @@ private:
     juce::TimeSliceThread thread { "DLIVE recorder" };
     SidecarWriter sidecarWriter { *this };
     std::vector<Sidecar> sidecars;
+    int fifoSamples = 0;
     int sidecarMs = 20000;
     double headerFlushSeconds = 15.0;
     std::vector<Writer> writers;
@@ -153,6 +164,7 @@ private:
     std::atomic<bool> active { false };
     std::atomic<bool> inCallback { false };
     std::atomic<juce::int64> frames { 0 };
+    std::atomic<juce::int64> droppedSamples { 0 };   // summed over tracks: audio the disk fell too far behind to take
     std::atomic<bool> failed { false };
     std::atomic<bool> oversized { false };
     std::atomic<int> diskFault { 0 };        // 1 = the disk is full, 2 = the take stopped reaching the disk

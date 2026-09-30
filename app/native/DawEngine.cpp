@@ -225,7 +225,29 @@ int DawEngine::stopRecording()
 
     for (const auto& take : takes)
     {
-        if (take.trackIndex < 0 || take.trackIndex >= int (project.tracks.size())) continue;
+        // WHICH TRACK: the one listening to the channels it recorded. The list of inputs may
+        // have changed while it ran (an input added, one taken away), and the index the take
+        // began with can now name somebody else - or nothing. Its own index first when that
+        // still listens to the same channels, else the input that does; else the file is kept
+        // on disk and the person is told where it is, never dropped.
+        auto listensTo = [&] (int t)
+        {
+            return t >= 0 && t < int (project.tracks.size()) && t < int (session.inputs.size())
+                && session.inputs[size_t (t)].inputA == take.inputA && session.inputs[size_t (t)].inputB == take.inputB;
+        };
+        int track = listensTo (take.trackIndex) ? take.trackIndex : -1;
+        for (int t = 0; track < 0 && t < int (session.inputs.size()); ++t)
+            if (listensTo (t)) track = t;
+        if (track < 0 && take.trackIndex >= 0 && take.trackIndex < int (project.tracks.size())
+            && int (session.inputs.size()) == 0)
+            track = take.trackIndex;                 // no session inputs to compare against (a bare timeline)
+        if (track < 0)
+        {
+            stopNotice += juce::String (stopNotice.isEmpty() ? "" : " ")
+                        + "The take of " + take.name + " is kept in Audio Files as \"" + take.fileName
+                        + "\", but its input is no longer in this session, so it is not on a track.";
+            continue;
+        }
         AudioClip clip;
         clip.name = take.name;
         clip.file = take.fileName;
@@ -233,7 +255,7 @@ int DawEngine::stopRecording()
         clip.offset = 0;
         clip.length = take.length;
         clip.fileSampleRate = sampleRate;
-        auto& clips = project.tracks[size_t (take.trackIndex)].clips;
+        auto& clips = project.tracks[size_t (track)].clips;
         clips.push_back (clip);
         std::sort (clips.begin(), clips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.start < b.start; });
     }

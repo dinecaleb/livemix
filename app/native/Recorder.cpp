@@ -7,13 +7,16 @@ namespace livemix
 namespace
 {
     constexpr int kBitDepth = 24;
-    constexpr int kFifoSamples = 1 << 17;     // ~2.7 s at 48 kHz per track, preallocated
+    // ~11 s at 48 kHz per track, preallocated. A disk that stalls for a couple of seconds - Spotlight,
+    // Time Machine, a USB hub - is ordinary; 2.7 s (the old size) was not enough to ride it out.
+    constexpr int kFifoSamples = 1 << 19;
+    constexpr int kCatchUpBlocks = 8;             // silence chunks one callback may write to realign a track
     constexpr int kMaxBlock = 8192;
     constexpr double kMinMinutes = 10.0;          // less room than this and a take will stop in the middle
 }
 
-Recorder::Recorder (double sidecarSeconds, double flushSeconds)
-    : sidecarMs (juce::jmax (1, int (sidecarSeconds * 1000.0))), headerFlushSeconds (juce::jmax (0.001, flushSeconds))
+Recorder::Recorder (double sidecarSeconds, double flushSeconds, int fifo)
+    : fifoSamples (fifo > 0 ? fifo : kFifoSamples), sidecarMs (juce::jmax (1, int (sidecarSeconds * 1000.0))), headerFlushSeconds (juce::jmax (0.001, flushSeconds))
 {
     silence.assign (kMaxBlock, 0.0f);
 }
@@ -51,6 +54,7 @@ juce::String Recorder::start (const juce::File& audioFolder,
     failed.store (false, std::memory_order_relaxed);
     oversized.store (false, std::memory_order_relaxed);
     diskFault.store (0, std::memory_order_relaxed);
+    droppedSamples.store (0, std::memory_order_relaxed);
 
     // A service is an hour; a disk that cannot hold kMinMinutes of it will fail in the middle
     // of it. Better to refuse now, in words, than to stop recording during the sermon.
@@ -85,7 +89,7 @@ juce::String Recorder::start (const juce::File& audioFolder,
         if (auto* writer = wav.createWriterFor (stream.get(), rate, (unsigned int) w.channels, kBitDepth, {}, 0))
         {
             stream.release();
-            w.writer = std::make_unique<juce::AudioFormatWriter::ThreadedWriter> (writer, thread, kFifoSamples);
+            w.writer = std::make_unique<juce::AudioFormatWriter::ThreadedWriter> (writer, thread, fifoSamples);
             // The header is rewritten from the writer thread every few seconds of audio, so a
             // crash leaves a file that is short by at most that much, not one that is unreadable.
             w.writer->setFlushInterval (juce::jmax (1, int (rate * headerFlushSeconds)));
@@ -129,6 +133,14 @@ void Recorder::checkDisk()
     if (free > 0 && double (free) < perSecond * 30.0)
     {
         diskFault.store (1, std::memory_order_relaxed);
+        failed.store (true, std::memory_order_relaxed);
+        return;
+    }
+
+    // Falling behind for good: more than a minute of the take has had to become silence. A
+    // stall is ridden out; a disk that cannot keep up at all is a take to stop and say so.
+    if (double (droppedSamples.load (std::memory_order_relaxed)) > rate * 60.0 * double (writers.size()))
+    {
         failed.store (true, std::memory_order_relaxed);
         return;
     }
@@ -183,9 +195,13 @@ std::vector<Recorder::Take> Recorder::stop()
         writers.clear();
         return takes;
     }
-    // Let any callback that is already inside write() finish before the writers go.
+    // Let any callback that is already inside write() finish before the writers go. A callback
+    // that is still inside after two seconds belongs to a device that has hung; freeing the
+    // writers under it would be a crash on the audio thread, so in that one case they are
+    // let go of without being freed (a few kilobytes, once, against a crash mid-service).
     for (int spins = 0; inCallback.load (std::memory_order_acquire) && spins < 2000; ++spins)
         juce::Thread::sleep (1);
+    const bool stuck = inCallback.load (std::memory_order_acquire);
 
     // Blocks until a sidecar write in progress has finished, so nothing below races it.
     thread.removeTimeSliceClient (&sidecarWriter);
@@ -193,6 +209,15 @@ std::vector<Recorder::Take> Recorder::stop()
     const juce::int64 length = frames.load (std::memory_order_relaxed);
     for (auto& w : writers)
     {
+        // What the disk still owed this track, as silence, so every file ends at the same sample.
+        const float* quiet[2] = { silence.data(), silence.data() };
+        for (int tries = 0; w.owedSilence > 0 && tries < 4000 && ! stuck; ++tries)
+        {
+            const int n = int (std::min<juce::int64> (w.owedSilence, std::min (kMaxBlock, fifoSamples / 4)));
+            if (w.writer->write (quiet, n)) w.owedSilence -= n;
+            else juce::Thread::sleep (1);
+        }
+        if (stuck) { (void) w.writer.release(); continue; }
         w.writer.reset();                 // flushes and closes the file: the header is final now
         sidecarFor (w.file).deleteFile(); // and the take is no longer "in progress"
         if (length > 0)
@@ -202,6 +227,8 @@ std::vector<Recorder::Take> Recorder::stop()
             t.name = w.name;
             t.fileName = w.file.getFileName();
             t.length = length;
+            t.inputA = w.inputA;
+            t.inputB = w.inputB;
             takes.push_back (t);
         }
         else
@@ -394,17 +421,31 @@ void Recorder::write (const float* const* deviceInputs, int numInputChannels, in
     }
     else if (active.load (std::memory_order_seq_cst) && numSamples > 0)
     {
-        bool ok = true;
+        // EVERY TRACK STAYS ON THE SAME CLOCK. A track whose FIFO is full cannot take this block;
+        // the others can. Dropping it on that track alone left it short and every later sample
+        // early against the rest - a multitrack that no longer lines up. So what one track could
+        // not take is owed to it as silence, written ahead of its next audio once there is room:
+        // the take has an honest gap, in the same place on every clock, and the gap is counted.
+        const float* quiet[2] = { silence.data(), silence.data() };
         for (auto& w : writers)
         {
+            for (int chunk = 0; w.owedSilence > 0 && chunk < kCatchUpBlocks; ++chunk)
+            {
+                const int n = int (std::min<juce::int64> (w.owedSilence, std::min (kMaxBlock, fifoSamples / 4)));
+                if (! w.writer->write (quiet, n)) break;
+                w.owedSilence -= n;
+            }
             const int a = w.inputA, b = w.inputB;
             w.ptrs[0] = (a >= 0 && a < numInputChannels && deviceInputs[a] != nullptr) ? deviceInputs[a] : silence.data();
             if (w.channels == 2)
                 w.ptrs[1] = (b >= 0 && b < numInputChannels && deviceInputs[b] != nullptr) ? deviceInputs[b] : silence.data();
-            ok = w.writer->write (w.ptrs.data(), numSamples) && ok;
+            if (w.owedSilence > 0 || ! w.writer->write (w.ptrs.data(), numSamples))
+            {
+                w.owedSilence += numSamples;
+                droppedSamples.fetch_add (numSamples, std::memory_order_relaxed);
+            }
         }
-        if (ok) frames.fetch_add (numSamples, std::memory_order_relaxed);
-        else    failed.store (true, std::memory_order_relaxed);
+        frames.fetch_add (numSamples, std::memory_order_relaxed);
     }
     inCallback.store (false, std::memory_order_seq_cst);
 }

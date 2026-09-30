@@ -55,6 +55,7 @@ private:
     juce::String timeText { "00:00:00.000" }, lengthText { "0:00.0" };
     bool playing = false, recording = false, looping = false;
     juce::int64 lastPosition = -1, lastLength = -1;
+    bool dropSaid = false;                      // this take's "the disk fell behind" has been said
 
     juce::Rectangle<int> keysWell, clockWell, timeCell, lengthCell, divider;
     bool showLength = true, showClock = true;
