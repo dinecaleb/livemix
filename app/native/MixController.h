@@ -449,18 +449,25 @@ public:
     // ---- AUTOPILOT: the operator's own mix, held where they left it ----
     //
     // The rules it lives under are in CLAUDE.md. The shape of it here: engaging measures where
-    // each group sits against the master right now and keeps that as the target; `poll()` reads
-    // the engine's meters a few times a second, asks `Autopilot::decide` (a pure function in
-    // src/Mix, with no AI in it anywhere) and applies whatever comes back through
-    // `setBusFader` - the same path a hand uses, so LIVE SAFE and the validator are already in
-    // it. Group faders only. Never a channel, a chain, the master fader, the returns or the
-    // engineer's listen, and never the audio thread.
+    // each group sits against the mix, *learnt* over the first seconds (a single meter reading
+    // taken on a fill or a breath is not a mix), and keeps that as the target; `poll()` reads
+    // the engine's meters a few times a second, averages them over several seconds so a
+    // section of a song is not a drift, asks `Autopilot::decide` (a pure function in src/Mix,
+    // with no AI in it anywhere) and applies whatever comes back through `setBusFader` - the
+    // same path a hand uses, so LIVE SAFE is already in it. Group faders only. Never a
+    // channel, a chain, the master fader, the returns or the engineer's listen, and never the
+    // audio thread.
     //
-    // WITHIN TOLERANCE IT DOES NOTHING, which is the usual answer.
+    // WITHIN TOLERANCE IT DOES NOTHING, which is the usual answer. It also does nothing while
+    // the arrangement differs from the one it learnt, while it is settling after one comes
+    // back, while the meters are not moving (the device has stopped), and during a solo in
+    // place.
     //
-    // An engineer's own move on a group Autopilot has been holding hands that group straight
-    // back: `setBusFader` from anywhere but here releases it, because the person at the desk
-    // outranks the machine that was standing in for them.
+    // THE PERSON AT THE DESK OUTRANKS IT. A move on a group fader from anywhere but here
+    // releases that group, and any fader move by the engineer - group or channel - is the new
+    // mix to hold, so Autopilot learns it again rather than pulling the others back to the
+    // old balance. A mix replaced whole (UNDO, a scene, KEEP, going back in the history) is
+    // learnt afresh the same way.
     struct AutopilotState
     {
         bool on = false;
@@ -478,6 +485,9 @@ public:
     const AutopilotState& getAutopilot() const noexcept { return autopilot; }
     const AutopilotLimits& getAutopilotLimits() const noexcept { return autopilotLimits; }
     void setAutopilotLimits (const AutopilotLimits& l) { autopilotLimits = l; }
+    // How often it looks, ms. 400 in the product; a test sets 0 so every poll() is a look and
+    // a closed loop can be run through the real engine faster than the wall clock.
+    void setAutopilotIntervalMs (int ms) noexcept { autopilotIntervalMs = ms < 0 ? 0 : ms; }
     // What Autopilot can see right now, for the panel that shows it and for the tests.
     AutopilotReading readAutopilotMeters() const;
     float autopilotDrift (MixBus bus) const noexcept { return Autopilot::driftDb (autopilotTarget, readAutopilotMeters(), bus); }
@@ -859,8 +869,26 @@ private:
     AutopilotLimits autopilotLimits;
     bool autopilotMoving = false;
     long long autopilotLastMs = 0;
+    int autopilotIntervalMs = 400;
     std::array<float, int (MixBus::Count)> autopilotSinceHistoryDb {};
+    // The slow ear: each group's landing level and the groups together, as mean squares
+    // averaged over several seconds of audio. `autopilotLearn` is the audio still to hear before
+    // a target is taken from them; `autopilotSettle` what is left after the arrangement came back.
+    std::array<double, int (MixBus::Count)> autopilotAvgMs {};
+    double autopilotMixMs = 0.0;
+    double autopilotAvgSeconds = 0.0;        // how much audio the average holds since it was last reset
+    double autopilotSinceDecide = 0.0;       // seconds of audio since it last decided anything
+    // Whether each group is playing, with a memory: a kick between hits or a singer between
+    // lines is not a group that has stopped, and reading it so would call every bar a new
+    // arrangement.
+    std::array<bool, int (MixBus::Count)> autopilotPlaying {};
+    std::array<double, int (MixBus::Count)> autopilotFlipFor {};   // seconds the meter has disagreed with it
+    double autopilotLearn = 0.0;             // seconds of audio still to learn from
+    double autopilotSettle = 0.0;            // seconds of audio still to settle for
+    long long autopilotLastSamples = -1;
     void pollAutopilot();
+    void autopilotRelearn();                 // a new mix to hold: learn it before moving anything
+    void autopilotFlushHistory (const char* why);
 
     std::vector<MixScene> scenes = std::vector<MixScene> (size_t (kMixScenes));
     MixFingerprint measureNow() const;      // what the mix that is running actually sounds like

@@ -790,6 +790,7 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
     lastMicros.store (micros, std::memory_order_relaxed);
     if (micros > peakMicros.load (std::memory_order_relaxed)) peakMicros.store (micros, std::memory_order_relaxed);
     blockCount.fetch_add (1, std::memory_order_relaxed);
+    processedSamples.fetch_add (numSamples, std::memory_order_relaxed);
     samplePosition += numSamples;
 }
 

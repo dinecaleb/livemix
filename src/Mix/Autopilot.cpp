@@ -56,8 +56,9 @@ float Autopilot::driftDb (const AutopilotTarget& target, const AutopilotReading&
     if (! target.valid || int (bus) < 0 || int (bus) >= int (MixBus::Master)) return 0.0f;
     if (! target.measured[b] || ! now.busActive[b]) return 0.0f;
     if (now.masterRmsDb <= -100.0f || now.busRmsDb[b] <= -100.0f) return 0.0f;
-    // Where it sits now, against the master, minus where it sat when the mix was set.
-    return (now.busRmsDb[b] - now.masterRmsDb) - target.busBelowMasterDb[b];
+    // Where it sits now, against the mix, minus where it sat when the mix was set.
+    const float drift = (now.busRmsDb[b] - now.masterRmsDb) - target.busBelowMasterDb[b];
+    return std::isfinite (drift) ? drift : 0.0f;       // a reading that is not a number is not a drift
 }
 
 std::vector<AutopilotMove> Autopilot::decide (const AutopilotTarget& target, const AutopilotReading& now,
@@ -69,7 +70,15 @@ std::vector<AutopilotMove> Autopilot::decide (const AutopilotTarget& target, con
     if (! target.valid) return out;
     // Nothing to hold a mix against: no master, no decision. This is the sermon case and the
     // between-songs case, and in both of them doing nothing is the right answer.
-    if (now.masterRmsDb <= -100.0f) return out;
+    if (! (now.masterRmsDb > -100.0f)) return out;      // also a NaN
+
+    // A DIFFERENT ARRANGEMENT IS NOT A DRIFT. The band dropping out under the pastor, the
+    // drums stopping for a ballad verse, a group muted or brought in: the relationships it
+    // learnt belong to the groups that were playing then, and holding them across a change
+    // like that is how a lead gets pulled down 4 dB because the band stopped. It holds still
+    // until the arrangement it knows comes back.
+    for (int i = 0; i < int (MixBus::Master); ++i)
+        if (target.playing[size_t (i)] != now.busActive[size_t (i)]) return out;
 
     for (int i = 0; i < int (MixBus::Master); ++i)
     {
@@ -78,6 +87,7 @@ std::vector<AutopilotMove> Autopilot::decide (const AutopilotTarget& target, con
         if (! target.measured[b] || ! now.busActive[b]) continue;
         if (now.busRmsDb[b] <= limits.quietGroupDb) continue;      // not playing: leave it alone
 
+        if (! std::isfinite (now.busRmsDb[b])) continue;
         const float drift = driftDb (target, now, bus);
         // WITHIN TOLERANCE IT DOES NOTHING. Once it is holding a group it keeps holding until
         // the error is well inside the tolerance again, so a group sitting on the boundary is

@@ -42,6 +42,7 @@ namespace
         std::vector<float> l = std::vector<float> (static_cast<size_t> (kBlock), 0.0f);
         std::vector<float> r = std::vector<float> (static_cast<size_t> (kBlock), 0.0f);
         long long pos = 0;
+        float leadGain = 1.0f;          // the singer stepping in to, or back from, the microphone
         explicit Feeder (MixController& controller) : c (controller) {}
 
         // Plays the band for `seconds`, paced like a real callback so the listen worker keeps up.
@@ -57,7 +58,7 @@ namespace
                     in[1][size_t (i)] = 0.4f * std::sin (2.0f * float (M_PI) * 41.0f * t);
                     in[2][size_t (i)] = 0.2f * std::sin (2.0f * float (M_PI) * 262.0f * t) + 0.1f * std::sin (2.0f * float (M_PI) * 2600.0f * t);
                     in[3][size_t (i)] = 0.2f * std::sin (2.0f * float (M_PI) * 330.0f * t) + 0.1f * std::sin (2.0f * float (M_PI) * 2800.0f * t);
-                    in[4][size_t (i)] = 0.3f * std::sin (2.0f * float (M_PI) * 220.0f * t);
+                    in[4][size_t (i)] = leadGain * 0.3f * std::sin (2.0f * float (M_PI) * 220.0f * t);
                     in[5][size_t (i)] = 0.2f * std::sin (2.0f * float (M_PI) * 330.0f * t);
                 }
                 for (size_t ch = 0; ch < ip.size(); ++ch) ip[ch] = in[ch].data();
@@ -2200,10 +2201,13 @@ TEST_CASE ("MixController: Autopilot holds the mix it was given, and hands a fad
 
     // THE ENGINEER OUTRANKS IT. A move on a group it had been correcting hands that group
     // back for this engagement.
+    // back for this engagement - whether or not it had moved it yet: a first move by the
+    // engineer (the piano up for a solo) must not be pulled back either.
     CHECK (! c.getAutopilot().released[size_t (MixBus::Drums)]);
+    said.clear();
     c.setBusFader (MixBus::Drums, -2.0f);
-    CHECK (! c.getAutopilot().released[size_t (MixBus::Drums)]);   // it had not moved this one, so there is nothing to hand back
-    // ...and once it has, a touch releases it.
+    CHECK (c.getAutopilot().released[size_t (MixBus::Drums)]);
+    CHECK (said.find ("is yours again") != std::string::npos);
     {
         MixController::AutopilotState& state = const_cast<MixController::AutopilotState&> (c.getAutopilot());
         state.movedDb[size_t (MixBus::Music)] = 0.5f;               // as though it had corrected MUSIC
@@ -2230,6 +2234,70 @@ TEST_CASE ("MixController: Autopilot holds the mix it was given, and hands a fad
         CHECK_NEAR (underBypass.buses[size_t (b)].faderDb, c.getKept().buses[size_t (b)].faderDb, 0.001f);
     c.setBypass (false);
     c.setAutopilot (false);
+}
+
+TEST_CASE ("MixController: Autopilot, closed loop through the engine - it converges, it is bounded, and the master is not a drift")
+{
+    // The pure decision is tested in tests/Mix/AutopilotTests.cpp. This is the loop: what it
+    // measures has to move when it moves a fader, or it walks every group to the end of its
+    // travel - which is what it did while it measured each group before its own fader.
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    c.setAutopilotIntervalMs (0);
+    // The lead with nothing holding its level, so a step back at the microphone is a step back
+    // in the mix and the loop has something to close.
+    {
+        auto lead = c.getKept().strips[3].channel;
+        lead.compEnabled = false;
+        lead.gateEnabled = false;
+        lead.deEssEnabled = false;
+        c.setStripChannel (3, lead);
+        auto group = c.getKept().buses[size_t (MixBus::Lead)].channel;     // ... and the group's own compressor
+        group.compEnabled = false;
+        c.setBusChannel (MixBus::Lead, group);
+    }
+    Feeder f (c);
+    f.play (1.0);
+    REQUIRE (c.setAutopilot (true));
+    f.play (10.0);                                          // learnt, over seconds of the band
+    const MixParameters learnt = c.getKept();
+    for (int b = 0; b < int (MixBus::Count); ++b)
+        CHECK_NEAR (c.getKept().buses[size_t (b)].faderDb, learnt.buses[size_t (b)].faderDb, 0.001f);
+
+    // THE MASTER IS NOT A DRIFT. Pulling the master down 3 dB used to read as every group 3 dB
+    // too loud, and every one of them was walked down.
+    c.setBusFader (MixBus::Master, learnt.master().faderDb - 3.0f);
+    f.play (12.0);
+    for (int b = 0; b < int (MixBus::Master); ++b)
+        CHECK_MESSAGE (std::fabs (c.getKept().buses[size_t (b)].faderDb - learnt.buses[size_t (b)].faderDb) < 0.001f,
+                       std::string ("Autopilot moved ") + mixBusName (MixBus (b)) + " because the master moved");
+
+    // The singer steps back 6 dB. LEAD comes up - by less than the whole 6 (it is bounded) and
+    // it stops: it does not keep stepping once the lead is back where it was.
+    f.leadGain = 0.5f;                                      // a step back: 6 dB at the microphone
+    f.play (16.0);
+    const float leadMove = c.getKept().buses[size_t (MixBus::Lead)].faderDb - learnt.buses[size_t (MixBus::Lead)].faderDb;
+    // It came up - and it stopped once the lead was back inside the tolerance, short of both
+    // the whole 4 dB and its bound. A loop that could not see its own moves ran to the bound.
+    CHECK (leadMove > 0.9f);
+    CHECK (leadMove < c.getAutopilotLimits().maxTotalDb - 0.4f);
+    const float settled = c.getKept().buses[size_t (MixBus::Lead)].faderDb;
+    f.play (6.0);
+    CHECK_NEAR (c.getKept().buses[size_t (MixBus::Lead)].faderDb, settled, 0.51f);
+    // ...and nothing else was pulled around to make room for it.
+    for (int b = 0; b < int (MixBus::Master); ++b)
+    {
+        if (MixBus (b) == MixBus::Lead) continue;
+        CHECK_MESSAGE (std::fabs (c.getKept().buses[size_t (b)].faderDb - learnt.buses[size_t (b)].faderDb) <= 1.01f,
+                       std::string ("Autopilot pulled ") + mixBusName (MixBus (b)) + " around for the lead");
+    }
+
+    // Everything it did is in the history, including what had not added up to an entry yet.
+    c.setAutopilot (false);
+    bool logged = false;
+    for (const auto& cp : c.getCheckpoints()) logged = logged || cp.what.find ("Autopilot: LEAD") == 0;
+    CHECK (logged);
 }
 
 TEST_CASE ("MixController: a tune says what it was about in fixed words, and never with a channel's name")

@@ -28,6 +28,7 @@ namespace
         {
             t.busBelowMasterDb[size_t (s.bus)] = s.below;
             t.measured[size_t (s.bus)] = true;
+            t.playing[size_t (s.bus)] = true;
         }
         return t;
     }
@@ -190,4 +191,46 @@ TEST_CASE ("Autopilot: it never touches anything but a group fader")
     now.busRmsDb[size_t (MixBus::Music)] -= 3.5f;
     CHECK_NEAR (Autopilot::driftDb (target, now, MixBus::Music), -3.5f, 0.001f);
     CHECK_NEAR (Autopilot::driftDb (target, now, MixBus::Master), 0.0f, 0.001f);   // not a group
+}
+
+TEST_CASE ("Autopilot: a different arrangement is not a drift, and it holds still until the one it knows comes back")
+{
+    const AutopilotLimits limits;
+    auto target = aMix();
+    target.playing[size_t (MixBus::Speech)] = false;          // learnt during the worship set
+    target.measured[size_t (MixBus::Speech)] = false;
+
+    // The band stops and the pastor starts: the lead's group reads far above where it was
+    // against the (now much smaller) mix, and pulling it down would be exactly wrong.
+    auto sermon = steady (target);
+    sermon.busActive[size_t (MixBus::Drums)] = false;
+    sermon.busActive[size_t (MixBus::Bass)] = false;
+    sermon.busActive[size_t (MixBus::Music)] = false;
+    sermon.busActive[size_t (MixBus::Speech)] = true;
+    sermon.busRmsDb[size_t (MixBus::Lead)] += 8.0f;
+    CHECK (Autopilot::decide (target, sermon, nothingMoved(), nothingHeld(), limits).empty());
+
+    // A verse with the drums out is the same: a different mix, not a louder lead.
+    auto verse = steady (target);
+    verse.busActive[size_t (MixBus::Drums)] = false;
+    verse.busRmsDb[size_t (MixBus::Lead)] += 4.0f;
+    CHECK (Autopilot::decide (target, verse, nothingMoved(), nothingHeld(), limits).empty());
+
+    // The arrangement it learnt comes back, and so does the holding.
+    auto chorus = steady (target);
+    chorus.busRmsDb[size_t (MixBus::Lead)] -= 4.0f;
+    CHECK (moveFor (Autopilot::decide (target, chorus, nothingMoved(), nothingHeld(), limits), MixBus::Lead) != nullptr);
+}
+
+TEST_CASE ("Autopilot: a reading that is not a number moves nothing")
+{
+    const AutopilotLimits limits;
+    const auto target = aMix();
+    auto broken = steady (target);
+    broken.busRmsDb[size_t (MixBus::Lead)] = std::nanf ("");
+    CHECK (moveFor (Autopilot::decide (target, broken, nothingMoved(), nothingHeld(), limits), MixBus::Lead) == nullptr);
+    auto noMix = steady (target);
+    noMix.masterRmsDb = std::nanf ("");
+    CHECK (Autopilot::decide (target, noMix, nothingMoved(), nothingHeld(), limits).empty());
+    CHECK_NEAR (Autopilot::driftDb (target, broken, MixBus::Lead), 0.0f, 0.001f);
 }

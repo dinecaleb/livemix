@@ -145,6 +145,10 @@ public:
     // The two last-resort guards (see MixEngine.cpp): how many blocks a stage produced that
     // were not numbers, and how many blocks an output had to be held at full scale. Both are
     // zero in a mix that is right; a number here is a fault somebody should be told about.
+    // How much audio has gone through, for anything on the message thread that needs time in
+    // the audio's own terms (Autopilot's averages): a UI thread that stalls must not make a
+    // second of music count as three.
+    long long getProcessedSamples() const noexcept { return processedSamples.load (std::memory_order_relaxed); }
     int getNonFiniteBlocks() const noexcept { return nonFinite.load (std::memory_order_relaxed); }
     int getClampedOutputBlocks() const noexcept { return outputClamped.load (std::memory_order_relaxed); }
 
@@ -241,6 +245,7 @@ private:
     long long samplePosition = 0;                                // running, from prepare()
     std::atomic<float> lastMicros { 0.0f }, peakMicros { 0.0f };
     std::atomic<int> blockCount { 0 };
+    std::atomic<long long> processedSamples { 0 };
     std::atomic<int> nonFinite { 0 };        // blocks a stage produced that were not numbers
     std::atomic<int> outputClamped { 0 };    // blocks where an output had to be held at full scale
 };

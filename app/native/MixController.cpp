@@ -387,6 +387,8 @@ bool MixController::restoreCheckpoint (int index)
     if (liveSafeRefuses (LiveAction::KeepPlan)) return false;
 
     markMixChange ("going back to " + taking.what);
+    autopilotRelearn();
+    autopilot.movedDb.fill (0.0f);
     // Where the mix is now, before it goes: coming back from a way back is the same request.
     checkpoint ("Before going back to " + taking.what);
 
@@ -543,6 +545,8 @@ bool MixController::recallScene (int slot)
         return false;
     }
     markMixChange ("recalling " + s.name);
+    autopilotRelearn();
+    autopilot.movedDb.fill (0.0f);
     const MixParameters was = kept;
     kept = s.mix;
     kept.numStrips = std::min (kept.numStrips, graph.numStrips());
@@ -835,22 +839,63 @@ bool MixController::setInputRole (int strip, ChannelRole role)
 // ---------------------------------------------------------------------------
 AutopilotReading MixController::readAutopilotMeters() const
 {
+    // Every group where it LANDS: its own meter (after its chain, before its fader) plus its
+    // fader, a muted one silent. The mix is those summed. See AutopilotReading for why this is
+    // not the master meter and not the group meter alone.
     AutopilotReading r;
     if (! prepared) return r;
+    double mixMs = 0.0;
     for (int b = 0; b < int (MixBus::Master); ++b)
     {
         if (! engine.isBusUsed (MixBus (b))) continue;
-        const auto& m = engine.getBus (MixBus (b)).getOutputMeter();
-        r.busRmsDb[size_t (b)] = m.getMaxRmsDb();
-        r.busActive[size_t (b)] = r.busRmsDb[size_t (b)] > -100.0f;
+        const auto& bus = kept.buses[size_t (b)];
+        const float meter = engine.getBus (MixBus (b)).getOutputMeter().getMaxRmsDb();
+        const float lands = bus.mute || ! std::isfinite (meter) || meter <= -100.0f ? kSilenceDb : meter + bus.faderDb;
+        r.busRmsDb[size_t (b)] = lands;
+        r.busActive[size_t (b)] = lands > autopilotLimits.quietGroupDb;
+        if (lands > kSilenceDb) mixMs += std::pow (10.0, double (lands) / 10.0);
     }
-    const auto& master = engine.getBus (MixBus::Master).getOutputMeter();
-    r.masterRmsDb = master.getMaxRmsDb();
+    r.masterRmsDb = mixMs > 1.0e-12 ? float (10.0 * std::log10 (mixMs)) : kSilenceDb;
     const auto loud = getMasterLoudness();
     r.masterShortLufs = loud.shortTermLufs;
     r.masterTruePeakDb = loud.truePeakDb;
-    r.clipping = master.hasClipped();
+    r.clipping = engine.getBus (MixBus::Master).getOutputMeter().hasClipped();
     return r;
+}
+
+namespace
+{
+    // Seconds of audio, measured by the engine, never by the clock on the wall.
+    constexpr double kAutopilotLearnSeconds = 8.0;     // to learn a mix before holding it
+    constexpr double kAutopilotSettleSeconds = 6.0;    // after the arrangement it knows comes back
+    constexpr double kAutopilotAverageSeconds = 6.0;   // how slow its ear is
+}
+
+void MixController::autopilotRelearn()
+{
+    if (! autopilot.on) return;
+    autopilotTarget.valid = false;
+    autopilotLearn = kAutopilotLearnSeconds;
+    autopilotSettle = 0.0;
+    autopilotAvgMs.fill (0.0);
+    autopilotMixMs = 0.0;
+    autopilotAvgSeconds = 0.0;
+    autopilotSinceDecide = 0.0;
+}
+
+void MixController::autopilotFlushHistory (const char* why)
+{
+    // EVERY MOVE IS A MIX HISTORY ENTRY: whatever had not yet added up to an entry of its own
+    // is written now, so nothing Autopilot did is missing from the history.
+    for (int b = 0; b < int (MixBus::Master); ++b)
+    {
+        const float d = autopilotSinceHistoryDb[size_t (b)];
+        if (std::fabs (d) < 0.05f) continue;
+        char line[96];
+        std::snprintf (line, sizeof (line), "Autopilot: %s %+.1f dB", mixBusName (MixBus (b)), double (d));
+        checkpoint (std::string (line) + ". " + why, false);
+        autopilotSinceHistoryDb[size_t (b)] = 0.0f;
+    }
 }
 
 bool MixController::setAutopilot (bool on)
@@ -858,6 +903,7 @@ bool MixController::setAutopilot (bool on)
     if (on == autopilot.on) return on;
     if (! on)
     {
+        autopilotFlushHistory ("Written as Autopilot was switched off.");
         autopilot = AutopilotState {};
         autopilotTarget = AutopilotTarget {};
         autopilotSinceHistoryDb.fill (0.0f);
@@ -884,26 +930,20 @@ bool MixController::setAutopilot (bool on)
                        "and it will keep that mix.");
         return false;
     }
-    AutopilotTarget target;
-    target.valid = true;
-    target.deliveryLufs = deliveryLoudnessLufs (session.delivery);
-    for (int b = 0; b < int (MixBus::Master); ++b)
-    {
-        if (! now.busActive[size_t (b)] || now.busRmsDb[size_t (b)] <= autopilotLimits.quietGroupDb) continue;
-        target.busBelowMasterDb[size_t (b)] = now.busRmsDb[size_t (b)] - now.masterRmsDb;
-        target.measured[size_t (b)] = true;
-    }
-    autopilotTarget = target;
     autopilot = AutopilotState {};
     autopilot.on = true;
     autopilot.holding = true;
     autopilotSinceHistoryDb.fill (0.0f);
     autopilotLastMs = 0;
+    autopilotLastSamples = -1;
+    for (int b = 0; b < int (MixBus::Master); ++b) autopilotPlaying[size_t (b)] = now.busActive[size_t (b)];
+    autopilotFlipFor.fill (0.0);
+    autopilotRelearn();        // the target is learnt over the next seconds, not taken from one reading
     checkpoint ("Before Autopilot", false);
     if (onMessage)
-        onMessage ("Autopilot is holding this mix. It moves group faders only, by the smallest step, and never "
-                   "more than " + std::to_string (int (autopilotLimits.maxTotalDb)) + " dB from here. Touch a fader "
-                   "and that group is yours again.");
+        onMessage ("Autopilot is listening to this mix for a few seconds, then holds it. It moves group faders "
+                   "only, by the smallest step, and never more than " + std::to_string (int (autopilotLimits.maxTotalDb))
+                   + " dB from here. Touch a fader and that group is yours again.");
     usage ({ "autopilot", { { "state", "on" } }, {} });
     mark ("Autopilot on");
     return true;
@@ -912,13 +952,13 @@ bool MixController::setAutopilot (bool on)
 // Called from poll(), on the message thread, a few times a second. Never the audio thread.
 void MixController::pollAutopilot()
 {
-    if (! autopilot.on || ! autopilotTarget.valid || ! prepared) return;
+    if (! autopilot.on || ! prepared) return;     // no target yet is learning, not nothing to do
 
     // A few times a second is plenty: a mix drifts over minutes, and a fader that moves at
     // video rate is a fader somebody can hear moving.
     const long long nowMs = (long long) std::chrono::duration_cast<std::chrono::milliseconds> (
                                 std::chrono::steady_clock::now().time_since_epoch()).count();
-    if (autopilotLastMs != 0 && nowMs - autopilotLastMs < 400) return;
+    if (autopilotLastMs != 0 && nowMs - autopilotLastMs < autopilotIntervalMs) return;
     autopilotLastMs = nowMs;
 
     // It never works against something the engineer is in the middle of: a listen, a plan on
@@ -926,8 +966,99 @@ void MixController::pollAutopilot()
     if (stage == Stage::Listening || stage == Stage::Planning || stage == Stage::Preview || liveRun || bypassed)
         return;
 
-    const auto reading = readAutopilotMeters();
-    autopilot.holding = reading.masterRmsDb > -100.0f;
+    // A meter that is not moving is not a reading: the device stopped, a Dante clock went
+    // away. Acting on the last values it held would walk the faders on a frozen picture.
+    const long long samples = engine.getProcessedSamples();
+    const double sr = engine.getSampleRate() > 0.0 ? engine.getSampleRate() : 48000.0;
+    const double elapsed = autopilotLastSamples < 0 ? 0.0 : double (samples - autopilotLastSamples) / sr;
+    const bool stale = autopilotLastSamples >= 0 && samples == autopilotLastSamples;
+    autopilotLastSamples = samples;
+    // A solo in place takes everything else out of the mix, so the mix is not the one to hold.
+    bool soloInPlace = false;
+    if (kept.monitor.mode == SoloMode::InPlace)
+    {
+        for (int i = 0; i < kept.numStrips; ++i) soloInPlace = soloInPlace || kept.strips[size_t (i)].solo;
+        for (int b = 0; b < int (MixBus::Count); ++b) soloInPlace = soloInPlace || kept.buses[size_t (b)].solo;
+    }
+    if (stale || soloInPlace) { autopilot.holding = false; return; }
+
+    auto now = readAutopilotMeters();
+    autopilot.holding = now.masterRmsDb > -100.0f;
+
+    // PLAYING, WITH A MEMORY. A group stops after two seconds below the quiet line and starts
+    // after one above it, so the gaps between hits and between lines are not arrangements.
+    for (int b = 0; b < int (MixBus::Master); ++b)
+    {
+        const bool meter = now.busActive[size_t (b)];
+        auto& playing = autopilotPlaying[size_t (b)];
+        auto& flip = autopilotFlipFor[size_t (b)];
+        if (meter == playing) flip = 0.0;
+        else if ((flip += elapsed) >= (playing ? 2.0 : 1.0)) { playing = meter; flip = 0.0; }
+        now.busActive[size_t (b)] = playing;
+    }
+
+    // THE SLOW EAR. A mix drifts over minutes; a chorus is a few seconds of the same mix
+    // getting bigger. Everything decided is decided on an average over several seconds of
+    // audio - the audio's seconds, so a stalled UI thread does not shorten it. Straight after a
+    // reset it is the plain mean of what it has heard so far, so the first reading is never
+    // the whole of it; once it holds a full window it becomes the slow average.
+    const double alpha = 1.0 - std::exp (-elapsed / kAutopilotAverageSeconds);
+    const double k = autopilotAvgSeconds + elapsed > 0.0 ? std::max (alpha, elapsed / (autopilotAvgSeconds + elapsed)) : 1.0;
+    auto ms = [] (float db) { return db > kSilenceDb && std::isfinite (db) ? std::pow (10.0, double (db) / 10.0) : 0.0; };
+    auto average = [&]
+    {
+        for (int b = 0; b < int (MixBus::Master); ++b)
+        {
+            auto& a = autopilotAvgMs[size_t (b)];
+            a += k * (ms (now.busRmsDb[size_t (b)]) - a);
+        }
+        autopilotMixMs += k * (ms (now.masterRmsDb) - autopilotMixMs);
+        autopilotAvgSeconds += elapsed;
+    };
+
+    // A different arrangement from the one it learnt: hold still, and start the average again,
+    // so the gap is not in it when the arrangement it knows comes back.
+    bool arrangementChanged = false;
+    if (autopilotTarget.valid)
+        for (int b = 0; b < int (MixBus::Master); ++b)
+            arrangementChanged = arrangementChanged || autopilotTarget.playing[size_t (b)] != now.busActive[size_t (b)];
+    if (arrangementChanged)
+    {
+        autopilotAvgSeconds = 0.0;
+        autopilotSettle = kAutopilotSettleSeconds;
+        return;
+    }
+    average();
+
+    AutopilotReading reading = now;
+    auto db = [] (double m) { return m > 1.0e-12 ? float (10.0 * std::log10 (m)) : kSilenceDb; };
+    for (int b = 0; b < int (MixBus::Master); ++b) reading.busRmsDb[size_t (b)] = db (autopilotAvgMs[size_t (b)]);
+    reading.masterRmsDb = db (autopilotMixMs);
+
+    if (autopilotLearn > 0.0)
+    {
+        // LEARNING: nothing moves. When it is done, what it heard is the mix it holds.
+        autopilotLearn -= std::max (elapsed, 1.0e-6);
+        if (autopilotLearn > 0.0) return;
+        if (reading.masterRmsDb <= -100.0f) { autopilotLearn = 1.0e-6; return; }   // learn once something plays
+        AutopilotTarget target;
+        target.valid = true;
+        target.deliveryLufs = deliveryLoudnessLufs (session.delivery);
+        for (int b = 0; b < int (MixBus::Master); ++b)
+        {
+            target.playing[size_t (b)] = now.busActive[size_t (b)];
+            if (! now.busActive[size_t (b)] || reading.busRmsDb[size_t (b)] <= autopilotLimits.quietGroupDb) continue;
+            target.busBelowMasterDb[size_t (b)] = reading.busRmsDb[size_t (b)] - reading.masterRmsDb;
+            target.measured[size_t (b)] = true;
+        }
+        autopilotTarget = target;
+        return;
+    }
+    if (autopilotSettle > 0.0) { autopilotSettle -= std::max (elapsed, 1.0e-6); return; }
+    // One decision per 400 ms of audio at most, whatever the clock on the wall did.
+    autopilotSinceDecide += elapsed;
+    if (autopilotSinceDecide < 0.4) return;
+    autopilotSinceDecide = 0.0;
 
     // A group the engineer has taken back is not offered to the decision at all.
     auto target = autopilotTarget;
@@ -947,6 +1078,16 @@ void MixController::pollAutopilot()
         const float applied = kept.buses[b].faderDb - before;
         if (std::fabs (applied) < 0.005f) continue;          // LIVE SAFE, or the end of the fader
 
+        // ITS OWN MOVE IS KNOWN EXACTLY, so the slow ear hears it at once: where the group lands
+        // moved by `applied`, and so did its share of the mix. Waiting seconds for the average
+        // to catch up is how a slow loop overshoots - it keeps stepping on an old picture.
+        {
+            const double scale = std::pow (10.0, double (applied) / 10.0);
+            const double was = autopilotAvgMs[b];
+            autopilotAvgMs[b] = was * scale;
+            autopilotMixMs = std::max (0.0, autopilotMixMs + was * (scale - 1.0));
+        }
+
         if (std::fabs (autopilot.movedDb[b]) < 0.001f) ++autopilot.groupsCorrected;
         autopilot.movedDb[b] += applied;
         autopilotSinceHistoryDb[b] += applied;
@@ -963,13 +1104,16 @@ void MixController::pollAutopilot()
             std::snprintf (line, sizeof (line), "Autopilot: %s %+.1f dB", mixBusName (move.bus), double (autopilotSinceHistoryDb[b]));
             checkpoint (std::string (line) + ". " + move.why, false);
             autopilotSinceHistoryDb[b] = 0.0f;
+            // Said when it adds up to something, not on every half-decibel step: a toast every
+            // 400 ms is noise on the one screen the volunteer is watching.
+            if (onMessage) onMessage (std::string (line) + ". " + move.why);
         }
-        if (onMessage) onMessage (move.what + ". " + move.why);
     }
 }
 
 bool MixController::resetMixToRaw()
 {
+    autopilotRelearn();
     if (! built) return false;
     if (liveSafeRefuses (LiveAction::ResetMix)) return false;
 
@@ -1683,6 +1827,7 @@ void MixController::setCompare (Compare c)
 
 void MixController::keepPlan()
 {
+    autopilotRelearn();
     if (! plan || stage != Stage::Preview) return;
     if (liveSafeRefuses (LiveAction::KeepPlan)) return;
     // What AFTER is playing is what KEEP applies: with a KEEP SOME selection that is the
@@ -1757,6 +1902,7 @@ void MixController::clearPlanSelection()
 
 void MixController::keepPlanSelection (const PlanSelection& sel)
 {
+    autopilotRelearn();
     if (! plan || stage != Stage::Preview) return;
     setPlanSelection (sel);
     keepPlan();
@@ -1822,6 +1968,8 @@ void MixController::markMixChange (const std::string& what)
 
 void MixController::applySnapshot (const MixSnapshot& s)
 {
+    autopilotRelearn();
+    autopilot.movedDb.fill (0.0f);          // a different mix: its bound starts from here
     kept = s.mix;
     kept.numStrips = std::min (kept.numStrips, graph.numStrips());
     macros = s.macros;
@@ -2080,6 +2228,7 @@ namespace
 void MixController::setStripFader (int strip, float db, bool withLink)
 {
     if (! validStrip (kept, strip)) return;
+    if (autopilot.on) autopilotRelearn();        // the engineer is setting a new balance: learn it
     float want = clamp (db, -60.0f, 12.0f);
     liveSafe::Verdict v;
     const float from = kept.strips[size_t (strip)].faderDb;
@@ -2334,14 +2483,16 @@ void MixController::setBusFader (MixBus bus, float db)
     // Autopilot has been holding hands that group straight back: it stops correcting it for
     // this engagement, and says so once.
     if (autopilot.on && ! autopilotMoving && int (bus) < int (MixBus::Master)
-        && ! autopilot.released[size_t (bus)]
-        && std::fabs (autopilot.movedDb[size_t (bus)]) > 0.001f)
+        && ! autopilot.released[size_t (bus)])
     {
         autopilot.released[size_t (bus)] = true;
         if (onMessage)
             onMessage (std::string (mixBusName (bus)) + " is yours again. Autopilot stops correcting it until "
                        "you engage it afresh.");
     }
+    // Any move by the engineer is the new mix: learn it, rather than pull the other groups back
+    // towards a balance the person at the desk has just changed.
+    if (autopilot.on && ! autopilotMoving) autopilotRelearn();
     float want = clamp (db, -60.0f, 12.0f);
     liveSafe::Verdict v;
     want = liveSafe::limitStepDb (safety, bus == MixBus::Master ? LiveAction::MasterFader : LiveAction::Fader,

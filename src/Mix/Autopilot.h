@@ -38,18 +38,33 @@ namespace livemix
 struct AutopilotTarget
 {
     bool valid = false;
-    std::array<float, int (MixBus::Count)> busBelowMasterDb {};   // each group against the master, dB
-    std::array<bool, int (MixBus::Count)> measured {};
+    // Each group against the mix the groups make together, dB. (Named for the master it was
+    // first measured against; see AutopilotReading for why it is not the master any more.)
+    std::array<float, int (MixBus::Count)> busBelowMasterDb {};
+    std::array<bool, int (MixBus::Count)> measured {};   // held: the controller clears a group the engineer took back
+    // THE ARRANGEMENT it was learnt on: which groups were playing. The relationships it holds
+    // mean something only while the same groups are playing - the band dropping to piano and
+    // voice, the pastor starting to speak, a group muted, are a different mix, not a drifted
+    // one, and while the arrangement differs Autopilot holds still.
+    std::array<bool, int (MixBus::Count)> playing {};
     float deliveryLufs = -14.0f;        // what the session is aiming the master at
     float deliveryToleranceLu = 1.0f;
 };
 
 // What is true right now, from the engine's own meters. Nothing here is a fader position.
+//
+// WHERE IT IS MEASURED. Each group where it lands in the mix - its own meter plus its fader -
+// against every group summed. Not against the master meter: that sits after the master
+// fader and the limiter, so pulling the master down, or the limiter working, read as every
+// group having drifted at once. And not the group's own meter alone: that sits before the
+// group fader, so a move Autopilot made never showed up in what it measured, and it walked
+// every group to the end of its travel. Speech priority is left out on purpose (it is applied
+// after the fader), so a duck it was asked for never reads as a band that has dropped back.
 struct AutopilotReading
 {
-    std::array<float, int (MixBus::Count)> busRmsDb {};
-    std::array<bool, int (MixBus::Count)> busActive {};   // making sound at all: a silent group is not a problem
-    float masterRmsDb = -120.0f;
+    std::array<float, int (MixBus::Count)> busRmsDb {};   // where the group lands, dB
+    std::array<bool, int (MixBus::Count)> busActive {};   // playing right now, above the quiet line
+    float masterRmsDb = -120.0f;                          // the groups together, dB
     float masterShortLufs = -120.0f;    // the last 3 seconds: what a mix is judged by
     float masterTruePeakDb = -120.0f;
     bool clipping = false;
