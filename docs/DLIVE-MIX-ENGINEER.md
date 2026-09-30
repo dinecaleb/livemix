@@ -304,12 +304,16 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   never more than 12 dB under the microphone's musical peak on a tom, 18 dB on a kick or snare - QUEENSVIEW showed
   a tom's "events" are mostly the rest of the kit), the sample's level at the microphone's musical peak, the drum's
   fundamental (`replaceDrumHz`, for a sample that follows the drum), the profile's band (its low edge under that
-  fundamental), mask and rise - and never the switch, the blend, the sound or the tuning, which are the engineer's.
+  fundamental), mask and rise - and never the sound or the tuning, which are the engineer's. It **does** switch the
+  stage on (with the profile's blend) on a kick, snare or tom whose hits it can tell from the bleed
+  (`willSample`, `StrategyToolkit.cpp`); that is a proposal like every other, seen on BEFORE / AFTER and kept only
+  by KEEP. (Earlier text here said TUNE never sets the switch; the code has done so since the kit work of
+  2026-09-25. Whether it should, for toms especially, is an open product question in `docs/AUDIT-2026-09-30.md`.)
   Kick-out and snare-bottom are never fitted, so two samples never land on one hit. Every number is absolute from
   the capture: a re-tune on the same listen fits the same numbers (tested). `dlive_trigger_check` runs the fit and
   the detector over real takes (`docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md`).
   **A sampled kit is tuned as one** (`TuneContext::sampled` / `kitSampled`, filled by `MixPlanner` from the strips'
-  own switches - TUNE never turns a sample on, so the same settings and listen still give the same plan). A
+  own switches and from the ones this TUNE turns on, so the same settings and listen still give the same plan). A
   microphone whose sample is on is gated far harder (`setGate`: threshold at 0.6 of the floor-to-hit gap, range
   15 dB past the profile's, hold and release at 0.4 / 0.5 of the decay, ratio 10:1) because the sample carries the
   body and the microphone only supplies the attack. Once any kick, snare or tom is sampled, what the other drum
