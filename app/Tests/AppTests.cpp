@@ -1627,6 +1627,11 @@ TEST_CASE ("DIM and MUTE: the broadcast drops or goes silent on every feed but t
     const auto muted = run (240);
     CHECK (muted.first < 1.0e-4f);
     CHECK_NEAR (muted.second, plain.second, 0.01f);
+    // BYPASS is a comparison of the mix, and MUTE is not part of the mix: pressing it after
+    // MUTE must not put what was muted back on the air.
+    c.setBypass (true);
+    CHECK (run (240).first < 1.0e-4f);
+    c.setBypass (false);
     // LIVE SAFE never locks them.
     c.setLiveSafe (true);
     c.setBroadcastMute (false);

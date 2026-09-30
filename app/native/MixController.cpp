@@ -452,6 +452,10 @@ MixParameters MixController::compose() const
         }
         for (int f = 0; f < int (FxSlot::Count); ++f) raw.fx[size_t (f)].solo = base.fx[size_t (f)].solo;
         raw.monitor = base.monitor;      // the engineer's listen is not part of the mix being bypassed
+        // The emergency keys are not part of the mix either. MUTE pressed during a howl and then
+        // BYPASS pressed to compare must not put the howl back on the air.
+        raw.broadcastDim = broadcastDim;
+        raw.broadcastMute = broadcastMute;
         return raw;
     }
     auto out = MixMacros::applyVoicing (MixMacros::apply (base, macros, graph, session.profile),
