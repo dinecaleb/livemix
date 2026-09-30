@@ -42,6 +42,7 @@ inline constexpr const char* roleFamilyId (RoleFamily f) noexcept
         case RoleFamily::Percussion:     return "percussion";
         case RoleFamily::Shaker:         return "shaker";
         case RoleFamily::Brass:          return "brass";
+        case RoleFamily::DrumPad:        return "drum_pad";
         case RoleFamily::Count:          break;
     }
     return "other";
@@ -55,7 +56,7 @@ inline constexpr const char* roleKindId (RoleFamily f) noexcept
     {
         case RoleFamily::Kick: case RoleFamily::Snare: case RoleFamily::HiHat: case RoleFamily::Tom:
         case RoleFamily::Overhead: case RoleFamily::Room: case RoleFamily::Bus:
-        case RoleFamily::Percussion: case RoleFamily::Shaker:
+        case RoleFamily::Percussion: case RoleFamily::Shaker: case RoleFamily::DrumPad:
             return "drums";
         case RoleFamily::ElectricBass: case RoleFamily::SynthBass: case RoleFamily::BassBus:
             return "bass";

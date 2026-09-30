@@ -97,6 +97,12 @@ enum class ChannelRole : int
     SpeechHeadset,
     SpeechHandheld,
     SpeechLectern,
+    // ---- A drum pad (2026-09-30) ----
+    // A Roland SPD, a sample pad, an electronic kit's output: finished electronic hits and
+    // loops, played with the kit. It is not a microphone - there is no bleed to gate and no
+    // drum to replace - and a loop never stops, so it is glued like the drum group rather
+    // than cleaned up like a close mic.
+    DrumPad,
     Count
 };
 
@@ -135,6 +141,8 @@ enum class RoleFamily : int
     Shaker,
     // Trumpet, trombone, a horn line on one microphone.
     Brass,
+    // A sample pad: finished electronic hits and loops played with the kit.
+    DrumPad,
     Count
 };
 
@@ -153,7 +161,8 @@ inline constexpr std::array<const char*, int (ChannelRole::Count)> kChannelRoleN
     "Alto Sax", "Tenor Sax", "Baritone Sax",
     "Congas", "Bongos", "Djembe", "Timbales", "Shaker",
     "Trumpet", "Trombone", "Brass Section",
-    "Lapel Mic", "Headset Mic", "Handheld Mic", "Lectern Mic"
+    "Lapel Mic", "Headset Mic", "Handheld Mic", "Lectern Mic",
+    "Drum Pad"
 };
 
 inline constexpr const char* channelRoleName (ChannelRole r) noexcept
@@ -219,6 +228,7 @@ inline constexpr RoleFamily roleFamily (ChannelRole r) noexcept
         case ChannelRole::Trumpet:
         case ChannelRole::Trombone:
         case ChannelRole::BrassSection:        return RoleFamily::Brass;
+        case ChannelRole::DrumPad:             return RoleFamily::DrumPad;
         case ChannelRole::Count:
         default:                          return RoleFamily::Kick;
     }
@@ -251,7 +261,8 @@ inline constexpr Product productOf (RoleFamily f) noexcept
         case RoleFamily::Saxophone:    return Product::Keys;
         // Percussion is played with the kit and mixed with it, so it is a Drums source.
         case RoleFamily::Percussion:
-        case RoleFamily::Shaker:       return Product::Drums;
+        case RoleFamily::Shaker:
+        case RoleFamily::DrumPad:      return Product::Drums;
         case RoleFamily::Brass:        return Product::Keys;
         default:                       return Product::Drums;
     }

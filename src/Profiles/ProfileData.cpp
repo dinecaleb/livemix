@@ -1162,6 +1162,40 @@ namespace
         return p;
     }
 
+    // ------------------------------------------------------------------ drum pad
+    // A sample pad (Roland SPD and the like): electronic kicks, claps, hits and loops that
+    // arrive finished. A documented delta on the drum group, which is the measured source
+    // that is also "a finished drum sound, glued rather than cleaned": the low end is kept
+    // (an 808 lives down there), nothing is gated, nothing replaced, and it sits under the
+    // live kit rather than level with it. Not yet fitted against a pad take on its own; the
+    // Praise stems (2026-09-30) are the first recording that has one.
+    SourceTargets gospelDrumPadTargets()
+    {
+        SourceTargets t = gospelBusTargets();
+        t.intent = "Finished electronic hits and loops, glued to the kit: the low end kept, nothing gated, "
+                   "sitting just under the live drums.";
+        t.capturePeakMinDb = -24.0f; t.capturePeakMaxDb = -3.0f;   // a line-level output
+        t.hpfMinHz = 20.0f; t.hpfMaxHz = 35.0f;
+        t.bandToleranceDb = { 8.0f, 6.0f, 6.0f, 6.0f, 6.0f, 6.0f, 6.0f, 8.0f };   // a pad is whatever the patch is
+        t.compTargetGrDb = 2.0f; t.compRatioMin = 1.5f; t.compRatioMax = 2.5f;
+        t.gateAppropriate = false;
+        t.transientAppropriate = false;
+        t.sampleAppropriate = false;
+        t.saturationAppropriate = false;
+        t.mixPeakTargetDb = -12.0f; t.kitBalanceRelDb = -4.0f;
+        return t;
+    }
+
+    ChannelParameters gospelDrumPadBaseline()
+    {
+        ChannelParameters p = gospelBusBaseline();
+        p.toneBands[0].enabled = false; p.toneBands[0].gainDb = 0.0f;   // the patch already has its low end
+        p.toneBands[3].enabled = false; p.toneBands[3].gainDb = 0.0f;   // ... and its top
+        p.satEnabled = false; p.satDrive = 0.0f;
+        p.compThresholdDb = -20.0f; p.compRatio = 2.0f;
+        return p;
+    }
+
     // ------------------------------------------------------------------ brass
     // Louder than a saxophone, harder at the top, and pointed: a trumpet's edge sits at
     // 2-4 kHz where a sax's honk sits at 1-2, and a trombone reaches an octave below either.
@@ -1236,6 +1270,7 @@ namespace
         t[int (RoleFamily::Percussion)]     = gospelPercussionTargets();     b[int (RoleFamily::Percussion)]     = gospelPercussionBaseline();
         t[int (RoleFamily::Shaker)]         = gospelShakerTargets();         b[int (RoleFamily::Shaker)]         = gospelShakerBaseline();
         t[int (RoleFamily::Brass)]          = gospelBrassTargets();          b[int (RoleFamily::Brass)]          = gospelBrassBaseline();
+        t[int (RoleFamily::DrumPad)]        = gospelDrumPadTargets();        b[int (RoleFamily::DrumPad)]        = gospelDrumPadBaseline();
         return d;
     }
 

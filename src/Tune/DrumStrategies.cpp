@@ -233,6 +233,9 @@ const SourceStrategy& strategyFor (RoleFamily family)
         case RoleFamily::Percussion:  return tom;
         case RoleFamily::Shaker:      return hihat;
         case RoleFamily::Brass:       return saxophoneStrategy();
+        // A drum pad's output is already a small finished drum mix: broad tone and glue, the
+        // drum group's decisions, never a close microphone's gate or replacement.
+        case RoleFamily::DrumPad:     return bus;
         case RoleFamily::Count:
         default:                   return bus;
     }

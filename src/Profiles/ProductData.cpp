@@ -192,6 +192,7 @@ const char* roleHint (ChannelRole r) noexcept
         case ChannelRole::Djembe:              return "Deep slap and body · ring left alone · under the kit";
         case ChannelRole::Timbales:            return "Crack and shell · ring left alone · clear of the snare";
         case ChannelRole::Shaker:              return "All top, no body · never gated · felt, not heard";
+        case ChannelRole::DrumPad:             return "Electronic hits and loops · never gated · glued to the kit";
         case ChannelRole::Trumpet:             return "Bright and pointed · edge taken off · clear of the voices";
         case ChannelRole::Trombone:            return "Round and full · edge taken off · clear of the bass";
         case ChannelRole::BrassSection:        return "The horn line as one · edge taken off · lifts the chorus";
@@ -228,6 +229,7 @@ const char* roleHint (ChannelRole r) noexcept
         case RoleFamily::Saxophone:    return "Reedy and singing · honk removed · shares the voice's air";
         case RoleFamily::Percussion:   return "Tuned hand drums · the ring kept · under the kit";
         case RoleFamily::Shaker:       return "All top, no body · never gated · felt, not heard";
+        case RoleFamily::DrumPad:      return "Electronic hits and loops · never gated · glued to the kit";
         case RoleFamily::Brass:        return "Bright and brassy · edge taken off · clear of the voices";
         case RoleFamily::Count:
         default:                       return "";

@@ -917,7 +917,8 @@ const std::vector<Dine::RoleGroup>& Dine::roleGroups()
 {
     static const std::vector<RoleGroup> groups {
         { "Drums", { ChannelRole::KickIn, ChannelRole::KickOut, ChannelRole::SnareTop, ChannelRole::SnareBottom, ChannelRole::HiHat,
-                     ChannelRole::RackTom, ChannelRole::FloorTom, ChannelRole::Overhead, ChannelRole::OverheadLeft, ChannelRole::OverheadRight, ChannelRole::Room, ChannelRole::DrumBus } },
+                     ChannelRole::RackTom, ChannelRole::FloorTom, ChannelRole::Overhead, ChannelRole::OverheadLeft, ChannelRole::OverheadRight, ChannelRole::Room, ChannelRole::DrumBus,
+                     ChannelRole::DrumPad } },
         { "Bass",  { ChannelRole::BassDI, ChannelRole::BassAmp, ChannelRole::SynthBass } },
         { "Music", { ChannelRole::Piano, ChannelRole::ElectricPiano, ChannelRole::Organ, ChannelRole::SynthPad, ChannelRole::SynthLead,
                      ChannelRole::AcousticGuitar, ChannelRole::ElectricGuitarClean, ChannelRole::ElectricGuitarDrive,
@@ -959,6 +960,7 @@ juce::String Dine::friendlyRoleName (ChannelRole r)
         case ChannelRole::SaxAlto:   return "Saxophone (alto)";
         case ChannelRole::SaxTenor:  return "Saxophone (tenor)";
         case ChannelRole::SaxBari:   return "Saxophone (baritone)";
+        case ChannelRole::DrumPad:   return "Drum pad (SPD / samples)";
         default:                     return channelRoleName (r);
     }
 }
@@ -969,7 +971,7 @@ Dine::Icon Dine::iconForRole (ChannelRole r) noexcept
     {
         case ChannelRole::KickIn: case ChannelRole::KickOut: case ChannelRole::SnareTop:
         case ChannelRole::SnareBottom: case ChannelRole::RackTom: case ChannelRole::FloorTom:
-        case ChannelRole::DrumBus:
+        case ChannelRole::DrumBus: case ChannelRole::DrumPad:
             return Icon::Drum;
         case ChannelRole::HiHat: case ChannelRole::Overhead: case ChannelRole::OverheadLeft:
         case ChannelRole::OverheadRight:

@@ -182,6 +182,7 @@ float mixLevelTargetDb (StyleProfileId profile, RoleFamily family)
         case RoleFamily::HiHat:          db = -29.0f; break;
         case RoleFamily::Overhead:       db = -27.0f; break;
         case RoleFamily::Room:           db = -31.0f; break;
+        case RoleFamily::DrumPad:        db = -25.0f; break;   // under the kick and snare, with the toms
         // Ambience is felt before it is heard. Well under everything on the stage, so the
         // broadcast gets the building without the building competing with the band.
         case RoleFamily::Ambience:       db = -33.0f; break;

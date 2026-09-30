@@ -327,7 +327,8 @@ inline constexpr MixBus mixBusForFamily (RoleFamily f) noexcept
         // Percussion is played with the kit and balanced against it, so it belongs on DRUMS -
         // pulling the drums down and leaving the congas where they were is not a balance.
         case RoleFamily::Percussion:
-        case RoleFamily::Shaker:         return MixBus::Drums;
+        case RoleFamily::Shaker:
+        case RoleFamily::DrumPad:        return MixBus::Drums;
         case RoleFamily::ElectricBass:
         case RoleFamily::SynthBass:
         case RoleFamily::BassBus:        return MixBus::Bass;

@@ -65,12 +65,14 @@ namespace StemNames
             { "alto", ChannelRole::SaxAlto }, { "tenor", ChannelRole::SaxTenor }, { "bari", ChannelRole::SaxBari },
             { "saxophone", ChannelRole::SaxTenor }, { "sax", ChannelRole::SaxTenor },
             { "bass",  ChannelRole::BassDI },
+            // A sample pad (Roland SPD, "Drum Pad", "Samples"): electronic hits and loops played with the kit.
+            // Before "pad", which is a synth pad on its own.
+            { "spd", ChannelRole::DrumPad, true }, { "drum pad", ChannelRole::DrumPad }, { "drumpad", ChannelRole::DrumPad },
+            { "sample pad", ChannelRole::DrumPad }, { "sampler", ChannelRole::DrumPad }, { "samples", ChannelRole::DrumPad },
             { "organ", ChannelRole::Organ }, { "keys", ChannelRole::Piano }, { "piano", ChannelRole::Piano }, { "pad", ChannelRole::SynthPad },
             // Playback from the stage or the booth: a loop, a backing track, a click, the computer feed
             // a desk calls "Computer Audio" or "USB". It is music, so it joins the music bus.
             { "playback", ChannelRole::SynthPad }, { "loop", ChannelRole::SynthPad },
-            // A sample pad (Roland SPD, "Pad", "Samples") plays loops and hits along with the band.
-            { "spd", ChannelRole::SynthPad, true }, { "sampler", ChannelRole::SynthPad }, { "samples", ChannelRole::SynthPad },
             { "click", ChannelRole::SynthPad }, { "synth", ChannelRole::SynthLead },
             { "computer", ChannelRole::SynthPad }, { "usb", ChannelRole::SynthPad, true }, { "media", ChannelRole::SynthPad },
             { "video", ChannelRole::SynthPad }, { "laptop", ChannelRole::SynthPad },

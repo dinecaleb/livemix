@@ -66,6 +66,7 @@ namespace
             case ChannelRole::SaxBari:              return "Bari sax";
             case ChannelRole::BrassSection:         return "Horns";
             case ChannelRole::Timbales:             return "Timbs";
+            case ChannelRole::DrumPad:              return "Pad";
             default:                                return channelRoleName (r);
         }
     }

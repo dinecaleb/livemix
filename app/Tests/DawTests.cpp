@@ -1056,7 +1056,11 @@ TEST_CASE ("StemNames: the labels a live desk actually writes, and no accidents 
     CHECK (guess ("Snare Bottom") == ChannelRole::SnareBottom);
     CHECK (guess ("14-E.GUIT L-240927_2117") == ChannelRole::ElectricGuitarClean);
     CHECK (guess ("Guitar") == ChannelRole::ElectricGuitarClean);
-    CHECK (guess ("12-SPD-240927_2117") == ChannelRole::SynthPad);
+    CHECK (guess ("12-SPD-240927_2117") == ChannelRole::DrumPad);
+    CHECK (guess ("drum pad") == ChannelRole::DrumPad);
+    CHECK (guess ("Pad") == ChannelRole::SynthPad);           // a pad on its own is still a synth pad
+    CHECK (roleFamily (ChannelRole::DrumPad) == RoleFamily::DrumPad);
+    CHECK (mixBusForRole (ChannelRole::DrumPad) == MixBus::Drums);
     CHECK (guess ("10-OH L-240927_2117") == ChannelRole::OverheadLeft);
     CHECK (guess ("audienceL") == ChannelRole::CrowdMic);
 }
@@ -3595,7 +3599,10 @@ TEST_CASE ("Percussion and brass: the stored enum only grew, the names are guess
     CHECK (int (ChannelRole::BrassSection) == 48);
     // ... and the four speaking microphones after them, which is where 2026-09-29 appended.
     CHECK (int (ChannelRole::SpeechLapel) == 49);
-    CHECK (int (ChannelRole::SpeechLectern) == int (ChannelRole::Count) - 1);
+    CHECK (int (ChannelRole::SpeechLectern) == 52);
+    // ... and the drum pad after those (2026-09-30).
+    CHECK (int (ChannelRole::DrumPad) == 53);
+    CHECK (int (ChannelRole::DrumPad) == int (ChannelRole::Count) - 1);
     // `Speech` did not move: a session saved before the split opens on exactly the role it
     // was saved with, and that role still means "somebody talking".
     CHECK (int (ChannelRole::Speech) == 15);
