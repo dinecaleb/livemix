@@ -100,9 +100,11 @@ void CheckSheet::refresh()
             const auto& inputs = controller.getSession().inputs;
             const auto role = i < int (inputs.size()) ? inputs[size_t (i)].role : ChannelRole::LeadVocal;
             const auto level = controller.liveCaptureAdvice (role, r.holdDb).level;
+            // Nothing arriving yet (before the three seconds that make it SILENT) is not OK.
             next = (level == Level::Hot || level == Level::Clipping) ? State::Hot
-                 : (level == Level::Low || level == Level::Faint)    ? State::Low
-                                                                     : State::Ok;
+                 : (level == Level::Low || level == Level::Faint || level == Level::NotHeard
+                    || level == Level::Unknown || r.holdDb <= -100.0f) ? State::Low
+                                                                       : State::Ok;
         }
         if (next != r.state) { r.state = next; changed = true; }
     }
