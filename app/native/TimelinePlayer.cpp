@@ -138,8 +138,10 @@ void TimelinePlayer::run()
         {
             seekHandled = request;
             fillPosition = seekTo.load (std::memory_order_acquire);
-            streamRead.store (0, std::memory_order_release);
-            streamWrite.store (0, std::memory_order_release);
+            // The ring is emptied from where the reader is, never rewound under it: read() may be
+            // storing its own position at this very moment, and a reset to zero it then overwrote
+            // left the reader ahead of the writer for good - playback silent until the next seek.
+            streamWrite.store (streamRead.load (std::memory_order_acquire), std::memory_order_release);
         }
         topUp();
         if (streamWrite.load (std::memory_order_relaxed) - streamRead.load (std::memory_order_relaxed)
@@ -154,8 +156,16 @@ void TimelinePlayer::topUp()
     const int target = ringSize - maxBlock * 2;
     for (int guard = 0; guard < 64 && ! threadShouldExit(); ++guard)
     {
-        const juce::int64 wp = streamWrite.load (std::memory_order_relaxed);
+        juce::int64 wp = streamWrite.load (std::memory_order_relaxed);
         const juce::int64 rp = streamRead.load (std::memory_order_relaxed);
+        // The reader has run past what was written (a seek raced a block, or the disk fell far
+        // behind): catch the writer up to it, and the file position with it, so the two meet again.
+        if (wp < rp)
+        {
+            fillPosition += rp - wp;
+            wp = rp;
+            streamWrite.store (wp, std::memory_order_release);
+        }
         const int used = int (juce::jlimit ((juce::int64) 0, (juce::int64) ringSize, wp - rp));
         if (used >= target) return;
 
