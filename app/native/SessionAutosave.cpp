@@ -9,6 +9,10 @@ namespace
     // ~2 s after the last change. A knob drag is one write, not thirty; a service that is
     // being mixed hard still lands on disk inside a breath.
     constexpr int kQuietMs = 2000;
+    // ...but never longer than this after the first change it owes: a mix being moved without a
+    // pause (a fader ridden through a song, Autopilot at work) used to put the write off for as
+    // long as the moving went on.
+    constexpr int kMostMs = 10000;
 
     juce::String beside (const juce::File& document, const char* suffix)
     {
@@ -81,8 +85,10 @@ void SessionAutosave::note (const SessionState& state, bool immediately)
     if (file == juce::File()) return;
     // The snapshot is taken here, on the message thread, and the worker never looks at the
     // live objects: what lands on disk is one coherent moment, not a session being edited.
+    const auto now = juce::Time::getMillisecondCounter();
+    if (pending == nullptr) owedSince = now;
     pending = std::make_unique<SessionState> (state);
-    dueAt = juce::Time::getMillisecondCounter() + (immediately ? 0u : (juce::uint32) kQuietMs);
+    dueAt = immediately ? now : std::min (now + (juce::uint32) kQuietMs, owedSince + (juce::uint32) kMostMs);
     notify();
 }
 

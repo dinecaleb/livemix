@@ -3915,3 +3915,44 @@ TEST_CASE ("SessionStore: a favourite and what it sounded like survive the round
     for (int i = 0; i < kMixScenes; ++i) CHECK (! other.getScene (i).favourite);
     file.deleteFile();
 }
+
+TEST_CASE ("Autosave: a mix that never stops moving is still written, within ten seconds")
+{
+    const auto folder = autosaveScratch();
+    const auto document = folder.getChildFile ("Moving.dlive.json");
+    FullSession live (true);
+    SessionAutosave autosave;
+    autosave.open (document);
+    const auto sidecar = SessionAutosave::autosaveFor (document);
+    // A change every half second - never two seconds of quiet - for twelve seconds.
+    const auto start = juce::Time::getMillisecondCounter();
+    bool written = false;
+    for (int i = 0; i < 24 && ! written; ++i)
+    {
+        live.controller.setStripFader (1, -float (i % 10));
+        autosave.note (captureSession (live.controller, live.daw, kDevices, 0), false);
+        juce::Thread::sleep (500);
+        written = sidecar.existsAsFile();
+    }
+    CHECK (written);
+    CHECK (juce::Time::getMillisecondCounter() - start < 11500u);
+    autosave.closeCleanly();
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("SessionStore: a session from a newer DLIVE is not opened, and says why")
+{
+    const auto folder = autosaveScratch();
+    const auto file = folder.getChildFile ("Future.dlive.json");
+    FullSession live (true);
+    REQUIRE (SessionStore::save (captureSession (live.controller, live.daw, kDevices, 0), file));
+    CHECK (! SessionStore::savedByNewerBuild (file));
+    auto v = juce::JSON::parse (file);
+    REQUIRE (v.getDynamicObject() != nullptr);
+    v.getDynamicObject()->setProperty ("version", SessionStore::kVersion + 1);
+    REQUIRE (file.replaceWithText (juce::JSON::toString (v)));
+    CHECK (SessionStore::savedByNewerBuild (file));
+    SessionState state;
+    CHECK (! SessionStore::load (file, state));
+    folder.deleteRecursively();
+}

@@ -337,11 +337,19 @@ namespace
             const auto newSounds = file.getParentDirectory().getChildFile ("Samples");
             if (oldFolder != juce::File() && oldSounds.isDirectory() && ! newSounds.exists())
                 oldSounds.copyDirectoryTo (newSounds);
+            const auto oldDocument = documentFile();
             dawEngine.getProject().folder = file.getParentDirectory();
             if (! writeDocument (file))
             {
                 trackError ("session", "save_failed", false, { { "save_as", true } });
                 return "Could not save the session.";
+            }
+            // The session lives here now: the old folder's autosave and "open" marker go, so the
+            // copy it left behind is never offered back as a crash.
+            if (oldDocument != juce::File() && oldDocument != file)
+            {
+                autosave.closeCleanly();
+                SessionAutosave::discard (oldDocument);
             }
             return {};
         }
@@ -351,6 +359,8 @@ namespace
             SessionState state;
             if (dawEngine.isRecording())
                 return "Recording is running. Stop recording first - opening another session would close the one it is recording into.";
+            if (SessionStore::savedByNewerBuild (file))
+                return "That session was saved by a newer DLIVE. Update DLIVE to open it - opening it here would lose what the newer version added.";
             if (! SessionStore::load (file, state))
             {
                 trackError ("session", "load_failed", true);
@@ -662,7 +672,7 @@ namespace
         }
 
         int trackPanelWidth() override { return panelWidth; }
-        void setTrackPanelWidth (int px) override { panelWidth = px; }
+        void setTrackPanelWidth (int px) override { if (panelWidth != px) { panelWidth = px; touchSession(); } }
 
         // The session remembers which device solo went to; the pairing is rebuilt from that
         // after the console is open, so a Mac that lost the built device still comes back right.
@@ -953,7 +963,26 @@ public:
 
         // Found before the session is restored, because the two sheets are one at a time and a
         // recovery is the bigger question: when there is one, it is what the window opens with.
-        const auto found = SessionAutosave::check (lastDocument);
+        auto found = SessionAutosave::check (lastDocument);
+        // A DOCUMENT THAT CANNOT BE READ IS NOT THE END OF THE MIX. A clean quit deletes the
+        // autosave, so one still here means the work in it is newer than anything that quit
+        // wrote - and with the document unreadable, it is the only copy there is.
+        const bool newer = SessionStore::savedByNewerBuild (lastDocument);
+        if (! restored && ! newer && lastDocument.existsAsFile() && ! found.offer)
+        {
+            const auto a = SessionAutosave::autosaveFor (lastDocument);
+            SessionState probe;
+            if (a.existsAsFile() && SessionStore::load (a, probe))
+            {
+                found.offer = true;
+                found.autosave = a;
+                found.when = a.getLastModificationTime();
+                found.sentence = "The saved session could not be read, but its autosave could.";
+            }
+        }
+        if (newer && window != nullptr)
+            juce::MessageManager::callAsync ([this] { if (window != nullptr) window->view().showToast (
+                "The last session was saved by a newer DLIVE, so it was not opened. Update DLIVE to open it."); });
 
         if (restored)
         {
@@ -1182,9 +1211,10 @@ public:
                 ? "Both are here: the recovered work is now \"" + name + "\", and the session you saved is untouched."
                 : err);
         };
-        // Never saved: there is no "last saved" to choose instead, so the only answer that
-        // does not lose the work is the one given without asking.
-        if (! document.existsAsFile())
+        // Never saved, or saved and now unreadable: there is no "last saved" to choose instead,
+        // so the only answer that does not lose the work is the one given without asking.
+        SessionState readable;
+        if (! document.existsAsFile() || ! SessionStore::load (document, readable))
         {
             offer.onRecover();
             return;

@@ -86,7 +86,7 @@ public:
     // the devices it touches, the autosave worker writing the session that was just loaded -
     // may write the ordinary autosave, and none of it may touch the work being offered back.
     // A held copy nobody answered (DLIVE quit, or crashed again, with the question on screen)
-    // is offered again next time, for as long as it is newer than the document.
+    // is offered again next time, until somebody answers it - whatever the document's date.
     static Recovery check (const juce::File& document);
     // The user answered the recovery question: the held copy and the autosave it came from go.
     // The open session's marker stays, so a crash later this morning is still caught.
@@ -103,6 +103,7 @@ private:
     juce::File file;                                  // the document; the sidecars hang off it
     std::unique_ptr<SessionState> pending;            // the snapshot still owed to the disk
     juce::uint32 dueAt = 0;                           // millisecond counter; 0 = nothing owed
+    juce::uint32 owedSince = 0;                       // when the oldest unwritten change was made
     bool writing = false;
     // Written by the worker, read by the message thread: when the last write landed.
     std::atomic<juce::int64> wroteAt { 0 };

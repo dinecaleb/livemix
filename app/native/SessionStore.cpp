@@ -860,9 +860,17 @@ bool save (const Document& d, const juce::File& file)
     return writeTextAtomically (file, juce::JSON::toString (toVar (d), false));
 }
 
-bool load (const juce::File& file, Document& d)
+bool savedByNewerBuild (const juce::File& file)
 {
     if (! file.existsAsFile()) return false;
+    const juce::var v = juce::JSON::parse (file);
+    auto* obj = v.getDynamicObject();
+    return obj != nullptr && obj->hasProperty ("version") && int (obj->getProperty ("version")) > kVersion;
+}
+
+bool load (const juce::File& file, Document& d)
+{
+    if (! file.existsAsFile() || savedByNewerBuild (file)) return false;
     const juce::var v = juce::JSON::parse (file);
     if (! fromVar (v, d)) return false;
     // Recorded takes are named relative to the document, so the folder comes from where it was found.

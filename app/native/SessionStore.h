@@ -81,6 +81,10 @@ namespace SessionStore
     // write and renames anyway, which is why nothing in DLIVE that must survive uses it.
     bool writeTextAtomically (const juce::File& target, const juce::String& text);
     bool load (const juce::File& file, Document& d);
+    // Written by a newer DLIVE than this one (its version is above kVersion). Such a file is not
+    // opened: this build would drop what the newer one added, and the next save would make that
+    // loss permanent. The caller says so in a sentence.
+    bool savedByNewerBuild (const juce::File& file);
     juce::Array<Listing> listSessions();                // newest first
 }
 
