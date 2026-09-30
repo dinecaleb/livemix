@@ -764,6 +764,19 @@ MixPlan plan (const MixPlanContext& ctx)
                 }
                 TuneDecisions d (plan.proposed.strips[size_t (i)].channel);
                 const float hz = R.vocalPocketHz, q = R.vocalPocketQ;
+                // A boost and a cut never land inside the same octave in one pass: a lift this
+                // source carries near the pocket (a guitar's definition at 2.5 kHz, a synth's
+                // presence at 3 kHz) comes out, the way the tuner takes its own lift back out
+                // over a measured cut. The pocket is the measured decision; it stands.
+                bool liftTakenOut = false;
+                {
+                    const auto& cur = plan.proposed.strips[size_t (i)].channel;
+                    for (int k = 0; k < int (cur.toneBands.size()); ++k)
+                    {
+                        const auto& b = cur.toneBands[size_t (k)];
+                        if (k != 1 && b.enabled && b.gainDb > 0.5f && b.freqHz < hz * 2.0f && hz < b.freqHz * 2.0f) liftTakenOut = true;
+                    }
+                }
                 d.move (Recommendation::Kind::EQ, TuneSection::Tone,
                         "Made room for the lead vocal in " + upper (sp.name) + ": " + fmtDb (-cut, 1) + " at " + fmtHz (hz),
                         // Past ~24 dB the figure has stopped meaning "this is masking the voice" and
@@ -773,8 +786,20 @@ MixPlan plan (const MixPlanContext& ctx)
                         + (masking > 24.0f ? std::string ("far more energy than")
                                            : masking >= 0.0f ? fmtDb (masking, 0) + " more energy than"
                                                              : std::string ("almost as much energy as"))
-                        + " the lead vocal at mix level. Rather than pushing the voice brighter, the music steps aside where the words live.",
-                        Confidence::Medium, [=] (ChannelParameters& p) { p.toneEqEnabled = true; p.toneBands[1] = { true, FilterType::Peak, hz, -cut, q }; });
+                        + " the lead vocal at mix level. Rather than pushing the voice brighter, the music steps aside where the words live."
+                        + (liftTakenOut ? std::string (" The lift this source carried in the same octave was taken out: a cut and a boost in one octave only argue.")
+                                        : std::string()),
+                        Confidence::Medium, [=] (ChannelParameters& p)
+                        {
+                            p.toneEqEnabled = true;
+                            p.toneBands[1] = { true, FilterType::Peak, hz, -cut, q };
+                            for (int k = 0; k < int (p.toneBands.size()); ++k)
+                            {
+                                auto& b = p.toneBands[size_t (k)];
+                                if (k != 1 && b.enabled && b.gainDb > 0.5f && b.freqHz < hz * 2.0f && hz < b.freqHz * 2.0f)
+                                    { b.enabled = false; b.gainDb = 0.0f; }
+                            }
+                        });
                 commit (d, plan.proposed.strips[size_t (i)].channel, sp.mixItems, plan.relationships);
             }
         }
@@ -961,7 +986,7 @@ MixPlan plan (const MixPlanContext& ctx)
             const float stripShift = faderShiftDb (ctx, ctx.atCapture, plan.proposed, MixBus::Speech, false);
             const auto& masterChain = ctx.atCapture.master().channel;
             const auto& ma = ctx.capture.buses[size_t (MixBus::Master)];
-            const float absorbed = ma.valid ? compressorAverageDeltaDb (masterChain, masterChain, ma.rmsDb, ma.peakDb, stripShift, R.compDetectorCrestShareBus) : 0.0f;
+            const float absorbed = ma.valid ? compressorAverageDeltaDb (masterChain, masterChain, ma.rmsDb, ma.peakDb, stripShift, R.compDetectorCrestShareMaster) : 0.0f;
             const float correction = roundHalf (wantedLufs - (delivered + stripShift + absorbed));
             if (std::fabs (correction) >= 0.5f)
             {
@@ -1155,7 +1180,7 @@ MixPlan plan (const MixPlanContext& ctx)
             tc.analysis.truePeakDb = ctx.capture.masterOutput.truePeakDb + shift;
             const TuneResult first = TuneEngine::tune (tc);
             const ChannelParameters& chosen = first.valid ? first.proposed : ctx.current.master().channel;
-            const float compDelta = compressorAverageDeltaDb (chosen, ctx.atCapture.master().channel, a.rmsDb, a.peakDb, shift, R.compDetectorCrestShareBus);
+            const float compDelta = compressorAverageDeltaDb (chosen, ctx.atCapture.master().channel, a.rmsDb, a.peakDb, shift, R.compDetectorCrestShareMaster);
             tc.analysis.loudnessLufs = measuredIn + compDelta;
             tc.analysis.loudnessGatedLufs = tc.analysis.loudnessLufs;
             tc.analysis.truePeakDb += compDelta;
@@ -1205,6 +1230,9 @@ MixPlan plan (const MixPlanContext& ctx)
         // however many times the same listen is planned.
         auto baseOut = [&] (MixBus bus) -> float
         {
+            // The whole listen's level, not the level while it plays: on the QUEENSVIEW service the
+            // active level made a fresh listen through the tuned mix move the groups further, not less
+            // (34 dB against 31.5 over four windows), so the average that the prediction was built on stays.
             const auto& a = ctx.capture.buses[size_t (bus)];
             if (! a.valid || a.rmsDb <= -100.0f) return -120.0f;
             return a.rmsDb + busOutShiftDb[size_t (bus)]

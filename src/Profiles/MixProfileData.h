@@ -189,7 +189,15 @@ namespace MixProfile
         // the value has to serve a quiet capture (faders up ~10 dB) and a hot one at once, and 0.32 lands both
         // inside 1 LU of the -23 target. Re-check the `after` LUFS line on both folders when changing it.
         float compDetectorCrestShareStrip = 0.25f;
-        float compDetectorCrestShareBus = 0.32f;
+        // A group's compressor, predicted from its RMS alone. Calibrated on the QUEENSVIEW service
+        // (2026-09-30, four 40 s windows): how far a fresh listen through the tuned mix still moved
+        // the group faders was 31.5 dB in all at 0.32, 22.5 at 0.2, 14 at 0.1 and 9.5 at 0 - the
+        // crest term made every large threshold change look like far more reduction than a group's
+        // compressor really applies, so TUNE lifted the group and the next listen took it back.
+        float compDetectorCrestShareBus = 0.0f;
+        // The master's compressor keeps the crest term: the delivery loudness is fitted through it,
+        // and at 0 the same windows came out 2-3.5 LU under their target.
+        float compDetectorCrestShareMaster = 0.32f;
     };
     const Relationships& relationships (StyleProfileId profile);
 

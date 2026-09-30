@@ -777,7 +777,16 @@ TEST_CASE ("MixPlanner: a sermon never moves the master, and the song comes back
     const auto songCtx = rig.context (songCap);
     const auto songPlan = MixPlanner::plan (songCtx);
     REQUIRE (songPlan.valid && songPlan.headline == "MIX TUNED");
-    const float songDelivered = songCap.masterOutput.loudnessGatedLufs;
+    // What the song delivers through the mix that TUNE set - the mix the sermon comes after.
+    float songDelivered = -120.0f;
+    {
+        Rig tunedRig (band());
+        tunedRig.engine.setParameters (songPlan.proposed);
+        auto tuned = bandAudio();
+        const auto tunedCap = tunedRig.listen (tuned);
+        REQUIRE (tunedCap.valid);
+        songDelivered = tunedCap.masterOutput.loudnessGatedLufs;
+    }
 
     for (float spill : { 0.0f, 0.06f })
     {

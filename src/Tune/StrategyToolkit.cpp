@@ -2,6 +2,8 @@
 // and returns without a decision when the measurement is inside tolerance.
 #include "SourceStrategy.h"
 #include "Core/DbUtils.h"
+#include "DSP/Compressor.h"
+#include "Profiles/MixProfileData.h"
 #include "State/ParameterIDs.h"
 #include "Core/ProductDefinition.h"
 #include <cmath>
@@ -1136,7 +1138,22 @@ void setLoudness (const TuneContext& ctx, const SourceTargets& t, TuneDecisions&
     // time, so the move is bounded by what the limiter can honestly absorb rather than by a human step: a
     // live sum at -22 LUFS asked for a -14 stream is a 15 dB move, and stopping at 12 left every such mix a
     // few LU short with a RE-TUNE that still had something to say.
-    const float bounded = clamp (std::round (delta * 2.0f) * 0.5f, -18.0f, 18.0f);
+    float bounded = clamp (std::round (delta * 2.0f) * 0.5f, -18.0f, 18.0f);
+    // ... and never past what the limiter can take without squashing it. The peak the capture
+    // measured, less what the compressor this Tune chose takes off it, plus the trim, is what
+    // arrives at the limiter; more than maxLimiterGrDb over the ceiling is a mix made loud by
+    // flattening it (RAISE LOUDNESS has always held this line; the fit did not).
+    bool heldByPeaks = false;
+    if (a.peakDb > -100.0f && bounded > 0.0f)
+    {
+        const auto& chosen = d.proposed;
+        const float intoLimiter = chosen.compEnabled
+            ? Compressor::computeGain (a.peakDb, chosen.compThresholdDb, chosen.compRatio, chosen.compKneeDb) + chosen.compMakeupDb
+            : a.peakDb;
+        const float mostTrim = ceiling + MixProfile::loudnessLift().maxLimiterGrDb - intoLimiter;
+        const float mostLift = std::floor ((mostTrim - cur.outputTrimDb) * 2.0f) * 0.5f;
+        if (bounded > mostLift) { bounded = std::max (0.0f, mostLift); heldByPeaks = true; }
+    }
     const float newTrim = clamp (cur.outputTrimDb + bounded, -24.0f, 24.0f);
     std::string what = std::fabs (delta) > t.loudnessToleranceLu
         ? (bounded > 0 ? "Raised the output " : "Lowered the output ") + fmtDb (bounded, 1) + " toward " + num ("%.0f LUFS", double (t.targetLufs))
@@ -1145,6 +1162,10 @@ void setLoudness (const TuneContext& ctx, const SourceTargets& t, TuneDecisions&
                     + " with true peaks under " + fmtDb (ceiling, 1) + ". The limiter catches what the extra level pushes over the ceiling";
     if (bounded > 6.0f) why += " (a large push: check the limiter's gain reduction stays under a few dB)";
     why += ".";
+    if (heldByPeaks)
+        why += " It stops short of the target: the rest would have the limiter taking more than "
+             + num ("%.0f dB", double (MixProfile::loudnessLift().maxLimiterGrDb)) + " off the peaks, which is a mix made loud by "
+               "flattening it. Its peaks are the limit, not its level - more compression on the loudest sources closes the gap honestly.";
     d.move (Recommendation::Kind::MixGain, TuneSection::Mix, what, why, std::fabs (delta) > 3.0f ? Confidence::High : Confidence::Medium,
             [=] (ChannelParameters& p) { p.outputTrimDb = newTrim; p.limiterEnabled = true; p.limiterCeilingDb = ceiling; });
 }

@@ -550,7 +550,10 @@ namespace
         t.crestFactorMaxDb = 18.0f; t.crestFactorMinDb = 6.0f;
         t.compTargetGrDb = 3.0f; t.compRatioMin = 2.0f; t.compRatioMax = 4.0f;
         t.compAttackMinMs = 15.0f; t.compAttackMaxMs = 40.0f; t.compReleaseMinMs = 100.0f; t.compReleaseMaxMs = 300.0f;
-        t.bleedGateThreshold = 0.35f; t.gateMaxRangeDb = 30.0f; t.gateDetectorHpfHz = 80.0f;
+        // An expander on an electric guitar takes the amp's hum and hiss out between phrases, and
+        // nothing more: 12 dB is enough for that. At 30 dB it closed on the delay and reverb tails
+        // of a strummed part - the sound of the part itself, chopped.
+        t.bleedGateThreshold = 0.35f; t.gateMaxRangeDb = 12.0f; t.gateDetectorHpfHz = 80.0f;
         t.saturationAppropriate = true; t.satMaxDrive = 0.2f;
         t.widthTarget = 1.0f; t.widthMin = 0.8f; t.widthMax = 1.3f; t.monoBelowHz = 150.0f;
         return t;

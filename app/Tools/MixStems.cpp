@@ -1,7 +1,7 @@
 // DLIVE offline success test: a folder of recorded stems goes through the complete
 // standalone pipeline with no audio device and no UI.
 //
-//   dlive_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dlive-out] [gospel|worship|rock|rnb|jazz|talk] [offsetSeconds] [broadcast|livestream|recording[:LUFS]] [reference.wav]
+//   dlive_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dlive-out] [gospel|worship|rock|rnb|jazz|talk] [offsetSeconds] [broadcast|livestream|recording[:LUFS]] [reference.wav] [--check]
 //
 // The delivery target can be named outright: "broadcast:-14" aims the whole gain structure at
 // -14 LUFS instead of the purpose's own standard, which is the one knob that decides whether a
@@ -146,7 +146,7 @@ int main (int argc, char** argv)
 
     // REFERENCE MIX: the record the mix is aimed at, measured the same way the band is.
     ReferenceProfile reference;
-    if (argc > 7)
+    if (argc > 7 && juce::String (argv[7]) != "--check")
     {
         const juce::File refFile { juce::String (argv[7]) };
         const auto measured = ReferenceAudio::measure (refFile, profile);
@@ -447,6 +447,43 @@ int main (int argc, char** argv)
         for (int b = 0; b < int (MixBus::Count); ++b)
             for (const auto& c : diffParameters (again.before.buses[size_t (b)].channel, again.proposed.buses[size_t (b)].channel))
                 std::printf ("  %s bus: %s -> %.3g\n", mixBusName (MixBus (b)), c.paramId.c_str(), double (c.value));
+    }
+
+    // ---- 7. --check: the numbers a broadcast has to meet, asserted rather than printed ----
+    // Exit 0 only when the tuned mix is under its ceiling, near its loudness target and mono-safe,
+    // and a re-tune on the same listen changes nothing. The convergence line - how far a fresh
+    // listen through the tuned mix still moves the groups - is printed for the record; it is what
+    // a listener hears as "TUNE changes its mind", and a regression there shows up as a bigger number.
+    bool check = false;
+    for (int i = 1; i < argc; ++i) if (juce::String (argv[i]) == "--check") check = true;
+    {
+        double moved = 0.0, worst = 0.0;
+        for (int b = 0; b < int (MixBus::Master); ++b)
+        {
+            const double d = std::fabs (double (retune.proposed.buses[size_t (b)].faderDb - plan.proposed.buses[size_t (b)].faderDb));
+            moved += d;
+            worst = std::max (worst, d);
+        }
+        std::printf ("\nCONVERGENCE: a fresh listen through the tuned mix moved the groups %.1f dB in all, %.1f dB at most\n", moved, worst);
+    }
+    if (check)
+    {
+        const auto m = measure (afterMix, sr);
+        const float ceiling = plan.proposed.master().channel.limiterCeilingDb;
+        const float target = deliveryLoudnessLufs (session.delivery);
+        const float lufs = m.loudnessGatedLufs > -100.0f ? m.loudnessGatedLufs : m.loudnessLufs;
+        int failures = 0;
+        auto require = [&failures] (bool ok, const char* what, double value, double limit)
+        {
+            std::printf ("  %s %-34s %7.2f (limit %.2f)\n", ok ? "ok  " : "FAIL", what, value, limit);
+            if (! ok) ++failures;
+        };
+        std::printf ("\nCHECK\n");
+        require (m.truePeakDb <= ceiling + 0.3f, "true peak under the ceiling (dBTP)", double (m.truePeakDb), double (ceiling + 0.3f));
+        require (std::fabs (lufs - target) <= 2.0f, "loudness near the target (LU off)", double (std::fabs (lufs - target)), 2.0);
+        require (m.stereoCorrelation > 0.3f, "mono-safe (correlation)", double (m.stereoCorrelation), 0.3);
+        require (again.noChangeRequired, "re-tune on the same listen: no change", again.noChangeRequired ? 0.0 : 1.0, 0.0);
+        if (failures > 0) return 4;
     }
     return again.noChangeRequired ? 0 : 3;
 }
