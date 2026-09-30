@@ -117,6 +117,7 @@ public:
     void refresh();
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseUp (const juce::MouseEvent&) override;     // the Buffer row: choose another size
     // Opens whatever is selected. Public because the microphone prompt answers asynchronously
     // and the continue button's work happens when it does.
     void openChosenDevice();

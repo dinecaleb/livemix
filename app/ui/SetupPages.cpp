@@ -860,7 +860,7 @@ void DevicePage::paint (juce::Graphics& g)
     const Line lines[3] = {
         { "Sample rate", running ? "Matched to the console" : "Set when the device opens",
           running ? juce::String (services.sampleRate() / 1000.0, 0) + " kHz" : juce::String (Glyph::dash()), Dine::ink },
-        { "Buffer", "The lower it is, the sooner you hear it",
+        { "Buffer", running ? "Lower is sooner. Click to change" : "The lower it is, the sooner you hear it",
           running ? juce::String (services.bufferSize()) + " samples  " + Glyph::dot() + "  "
                         + juce::String (1000.0 * services.bufferSize() / juce::jmax (1.0, services.sampleRate()), 1) + " ms"
                   : juce::String (Glyph::dash()), Dine::ink },
@@ -962,6 +962,29 @@ void DevicePage::paint (juce::Graphics& g)
         g.setFont (Dine::text (12.0f));
         Dine::drawText (g, note, r, juce::Justification::centredRight, true);
     }
+}
+
+// The Buffer row is the second of the three spec rows (64 pt each, see paint).
+void DevicePage::mouseUp (const juce::MouseEvent& e)
+{
+    const auto spec = column().spec;
+    const juce::Rectangle<int> bufferRow (spec.getX(), spec.getY() + 64, spec.getWidth(), 64);
+    if (! bufferRow.contains (e.getPosition()) || ! services.isAudioRunning()) return;
+    const auto sizes = services.bufferSizes();
+    if (sizes.isEmpty()) return;
+    juce::PopupMenu m;
+    const double rate = juce::jmax (1.0, services.sampleRate());
+    for (int n : sizes)
+        m.addItem (n, juce::String (n) + " samples  " + Glyph::dot() + "  " + juce::String (1000.0 * n / rate, 1) + " ms",
+                   true, n == services.bufferSize());
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (bufferRow)),
+                     [safe = juce::Component::SafePointer<DevicePage> (this)] (int chosen)
+                     {
+                         if (safe == nullptr || chosen <= 0) return;
+                         const auto err = safe->services.setBufferSize (chosen);
+                         if (err.isNotEmpty() && safe->onToast) safe->onToast (err);
+                         safe->repaint();
+                     });
 }
 
 void DevicePage::resized()

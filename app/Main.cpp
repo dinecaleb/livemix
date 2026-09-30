@@ -172,6 +172,28 @@ namespace
         juce::StringArray outputChannelNames() override { return host.getOutputChannelNames(); }
         double sampleRate() override { return host.getSampleRate(); }
         int bufferSize() override { return host.getBufferSize(); }
+        juce::Array<int> bufferSizes() override
+        {
+            juce::Array<int> out;
+            if (auto* d = host.getDeviceManager().getCurrentAudioDevice())
+                for (int n : d->getAvailableBufferSizes())
+                    if (n >= 32 && n <= 2048) out.add (n);
+            return out;
+        }
+        juce::String setBufferSize (int samples) override
+        {
+            if (! host.isOpen()) return "Open an audio device first.";
+            if (const auto locked = deviceChangeLocked(); locked.isNotEmpty()) return locked;
+            // Changing it restarts the audio for a moment, and a take would get a hole in it.
+            if (dawEngine.isRecording()) return "Recording is running. Stop recording first - changing the buffer restarts the audio for a moment.";
+            auto& dm = host.getDeviceManager();
+            auto setup = dm.getAudioDeviceSetup();
+            if (setup.bufferSize == samples) return {};
+            setup.bufferSize = samples;
+            const auto err = dm.setAudioDeviceSetup (setup, true);
+            return err.isEmpty() && host.getBufferSize() == samples ? juce::String()
+                 : "The device would not run at " + juce::String (samples) + " samples" + (err.isNotEmpty() ? " (" + err + ")." : ".");
+        }
         int xrunCount() override { return host.getXRunCount(); }
         double cpuLoad() override { return host.isOpen() ? host.getDeviceManager().getCpuUsage() : -1.0; }
         bool deviceStopped() override { return host.deviceStoppedUnexpectedly(); }

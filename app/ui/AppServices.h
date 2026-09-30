@@ -38,6 +38,11 @@ public:
     virtual juce::StringArray outputChannelNames() { return {}; }
     virtual double sampleRate() = 0;
     virtual int bufferSize() = 0;
+    // The buffers the open device offers, and a change to one of them. The same device, the
+    // same channels and the same rate: only how much audio is handed over at a time. Empty /
+    // a sentence when it cannot be done (nothing open, recording, LIVE SAFE).
+    virtual juce::Array<int> bufferSizes() { return {}; }
+    virtual juce::String setBufferSize (int samples) { juce::ignoreUnused (samples); return "Not here."; }
     virtual int xrunCount() = 0;
     // How much of the audio thread's time the engine is using, 0..1; below 0 when nobody can say.
     virtual double cpuLoad() { return -1.0; }
