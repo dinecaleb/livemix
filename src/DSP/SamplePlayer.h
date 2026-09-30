@@ -25,7 +25,9 @@ public:
 
     // Start a hit `startOffset` samples from the beginning of the next render() call, at a
     // linear gain, `rateMul` times the bank's own rate (1 = as recorded at this sample rate).
-    void trigger (int startOffset, float velocity01, float gainLin, double rateMul) noexcept;
+    // `skipSamples`: how far into the hit to start (output samples), so a hit recognised late is
+    // not played late (SampleTrigger::Hit::lateBy). The skipped start is faded in over 0.3 ms.
+    void trigger (int startOffset, float velocity01, float gainLin, double rateMul, int skipSamples = 0) noexcept;
 
     // Adds the voices to every channel, scaled by `gain` (the blend, with polarity in its sign).
     void render (AudioBlockView& block, float gain) noexcept;
@@ -39,6 +41,7 @@ private:
         double pos = 0.0, rate = 1.0;
         float gain = 0.0f;
         int delay = 0;                  // samples to wait before the first output sample
+        int fadeLeft = 0, fadeLength = 0;   // a start taken mid-attack is faded in, never a click
         bool on = false;
     };
     Voice voices[kVoices];

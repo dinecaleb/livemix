@@ -215,6 +215,7 @@ private:
     RoutingGraph graph;
 
     std::vector<std::unique_ptr<Strip>> strips;
+    std::vector<int> stripOrder;                                 // processing order: kicks, snares, then everything else
     ChannelProcessor idle;              // never prepared, never processed: what getStrip() reads past the end
     std::array<Bus, int (MixBus::Count)> buses;
     std::array<Fx, int (FxSlot::Count)> fx;

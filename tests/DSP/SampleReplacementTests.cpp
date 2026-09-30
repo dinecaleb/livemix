@@ -588,3 +588,70 @@ TEST_CASE ("SampleBank: the hi-hat is a sample family with placeholders of its o
     CHECK (hat.getHitCount() == 2);
     CHECK (hat.getVetoCount() == 1);
 }
+
+TEST_CASE ("SampleTrigger: a hit knows how late it was recognised, so the sample can start on time")
+{
+    // Reported 2.5-5 ms after the drum began; a sample started there combs against the
+    // microphone at any blend under 100 %. lateBy is how far behind the onset the report is, and
+    // the report minus lateBy is the onset, to within half a millisecond.
+    testsig::Buffer b (1, int (kSr * 4));
+    const auto onsets = kickWithSnareBleed (b, 0.5f, 0.03f, 0.002f);
+    SampleTrigger t;
+    t.prepare (kSr);
+    SampleTrigger::Params p;
+    p.enabled = true; p.thresholdDb = -30.0f; p.riseDb = 6.0f; p.hpfHz = 30.0f; p.lpfHz = 250.0f; p.maskMs = 40.0f;
+    t.setParams (p);
+    std::vector<int> started;
+    SampleTrigger::Hit hits[SampleTrigger::kMaxHits];
+    for (int i = 0; i + 128 <= b.numSamples(); i += 128)
+    {
+        const int n = t.process (b.data[0].data() + i, 128, hits, SampleTrigger::kMaxHits);
+        for (int h = 0; h < n; ++h)
+        {
+            CHECK (hits[h].lateBy >= int (0.0015 * kSr));   // at least the measuring time
+            started.push_back (i + hits[h].offset - hits[h].lateBy);
+        }
+    }
+    REQUIRE (started.size() == onsets.size());
+    for (size_t i = 0; i < onsets.size(); ++i)
+        CHECK_MESSAGE (std::abs (started[i] - onsets[i]) <= int (0.0005 * kSr),
+                       "hit " + std::to_string (i) + " starts " + std::to_string (started[i] - onsets[i]) + " samples from its onset");
+}
+
+TEST_CASE ("KitTriggerTable: a soft snare hit at the moment of a hard hi-hat is the hat through the air")
+{
+    auto snareBank = synthesizeBank (RoleFamily::Snare, 0, kSr);
+    auto hatBank = synthesizeBank (RoleFamily::HiHat, 0, kSr);
+    KitTriggerTable kit;
+    SampleReplacer hat, snare;
+    hat.prepare (kSr, 128, 1);
+    snare.prepare (kSr, 128, 1);
+    hat.setBank (&hatBank);
+    snare.setBank (&snareBank);
+    hat.setKit (&kit, RoleFamily::HiHat);
+    snare.setKit (&kit, RoleFamily::Snare);
+    SampleReplacer::Params p;
+    p.enabled = true; p.blend = 1.0f; p.thresholdDb = -36.0f; p.riseDb = 6.0f; p.detHpfHz = 30.0f; p.detLpfHz = 12000.0f;
+    hat.setParams (p);
+    snare.setParams (p);
+    auto burst = [] (testsig::Buffer& b, int at, float amp, float hz)
+    {
+        for (int i = 0; i < 480 && at + i < b.numSamples(); ++i)
+            b.data[0][size_t (at + i)] = amp * std::sin (2.0f * float (M_PI) * hz * float (i) / float (kSr)) * std::exp (-float (i) / 240.0f);
+    };
+    // The snare is hit hard at 100 ms; at 400 ms the hat is hit hard and the snare microphone
+    // hears it 20 dB down. The hat runs first in the block, as the engine's kit order has it.
+    testsig::Buffer hatMic (1, int (kSr * 0.6)), snareMic (1, int (kSr * 0.6));
+    burst (snareMic, 4800, 0.5f, 200.0f);
+    burst (hatMic, 19200, 0.5f, 6000.0f);
+    burst (snareMic, 19200 + 24, 0.05f, 6000.0f);
+    long long pos = 0;
+    for (int i = 0; i + 128 <= snareMic.numSamples(); i += 128)
+    {
+        auto vh = hatMic.view (i, 128); hat.detect (vh, pos); hat.apply (vh);
+        auto vs = snareMic.view (i, 128); snare.detect (vs, pos); snare.apply (vs);
+        pos += 128;
+    }
+    CHECK (snare.getHitCount() == 2);          // it heard both...
+    CHECK (snare.getVetoCount() == 1);         // ... and played only its own
+}

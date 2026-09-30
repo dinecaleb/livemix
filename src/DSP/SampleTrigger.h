@@ -38,6 +38,10 @@ public:
         float levelDb = -120.0f;        // the detector's peak in the 1.5 ms after the crossing
         float velocity = 0.0f;          // 0 .. 1
         float confidence = 1.0f;        // 0 .. 1, a gain: doubtful triggers are quiet, not absent
+        // How far `offset` is behind the drum's own onset, in samples: the 1.5 ms the hit is
+        // measured for, plus the time the drum took to rise to the crossing. The player starts
+        // the sample this far into itself, so its attack lands where the microphone's did.
+        int lateBy = 0;
     };
     static constexpr int kMaxHits = 16;
 
@@ -65,6 +69,8 @@ private:
     static constexpr int kMaxJumpSamples = 512;    // two milliseconds at up to 256 kHz
     float history[kMaxJumpSamples] {};             // the follower, two milliseconds back
     int historyIndex = 0, jumpSamples = 96;
+    int pendingLate = 0;                           // the hit being measured: how far behind its onset it already was
+    int filterDelaySamples = 0;                    // the detector's low-pass group delay
     float thresholdLin = 0.03f, riseLin = 2.0f, retriggerLin = 2.0f;
     int maskSamples = 1920, maskLeft = 0, maskAge = 0, measureSamples = 72, maskMeasureSamples = 480;
     float maskPeak = 0.0f;

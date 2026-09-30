@@ -98,6 +98,16 @@ void MixEngine::prepare (double sampleRate, int maxBlockSize, const MixSession& 
     auditionRequest.store (nullptr, std::memory_order_relaxed);
     strips.clear();
     strips.reserve (size_t (numStrips));
+    // The order strips are processed in (see process()): kicks, then snares, then the rest.
+    stripOrder.clear();
+    stripOrder.reserve (size_t (numStrips));
+    for (int pass = 0; pass < 3; ++pass)
+        for (int i = 0; i < numStrips; ++i)
+        {
+            const auto f = roleFamily (graph.strips[size_t (i)].role);
+            const int rank = f == RoleFamily::Kick ? 0 : f == RoleFamily::Snare ? 1 : 2;
+            if (rank == pass) stripOrder.push_back (i);
+        }
     for (int i = 0; i < numStrips; ++i)
     {
         const auto& route = graph.strips[size_t (i)];
@@ -429,8 +439,12 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             auditionRequest.store (nullptr, std::memory_order_relaxed);   // nowhere to hear it: the request is dropped, never kept for later
 
         // ---- Strips ----
-        for (int i = 0; i < numStrips; ++i)
+        // In kit order, not console order: a tom or hi-hat asks the kick's and snare's triggers
+        // whether a hit on its microphone was really theirs, and can only hear an answer from a
+        // strip that has already run this block. Summing is the same in any order.
+        for (int oi = 0; oi < numStrips; ++oi)
         {
+            const int i = stripOrder[size_t (oi)];
             Strip& s = *strips[size_t (i)];
             for (int ch = 0; ch < s.channels; ++ch)
             {

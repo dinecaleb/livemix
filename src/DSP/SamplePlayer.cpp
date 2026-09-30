@@ -1,4 +1,5 @@
 #include "SamplePlayer.h"
+#include <algorithm>
 
 namespace livemix
 {
@@ -21,7 +22,7 @@ bool SamplePlayer::isPlaying() const noexcept
     return false;
 }
 
-void SamplePlayer::trigger (int startOffset, float velocity01, float gainLin, double rateMul) noexcept
+void SamplePlayer::trigger (int startOffset, float velocity01, float gainLin, double rateMul, int skipSamples) noexcept
 {
     const SampleBank* b = bank.load (std::memory_order_acquire);
     if (b == nullptr) return;
@@ -43,6 +44,15 @@ void SamplePlayer::trigger (int startOffset, float velocity01, float gainLin, do
     if (slot->rate > 4.0) slot->rate = 4.0;
     slot->gain = gainLin;
     slot->delay = startOffset < 0 ? 0 : startOffset;
+    // Late by `skipSamples`: start that far in, so the attack lines up with the microphone's.
+    // Never past the first quarter of the hit - a recognition that late is not worth chasing.
+    if (skipSamples > 0)
+    {
+        const double skip = std::min (double (skipSamples) * slot->rate, double (hit->size()) * 0.25);
+        slot->pos += skip;
+        slot->fadeLength = slot->fadeLeft = std::max (1, int (0.0003 * sr));
+    }
+    else slot->fadeLength = slot->fadeLeft = 0;
     slot->on = true;
 }
 
@@ -68,7 +78,8 @@ void SamplePlayer::render (AudioBlockView& block, float gain) noexcept
             const float c1 = 0.5f * (y2 - y0);
             const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
             const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
-            const float s = g * (((c3 * t + c2) * t + c1) * t + y1);
+            float s = g * (((c3 * t + c2) * t + c1) * t + y1);
+            if (v.fadeLeft > 0) { s *= 1.0f - float (v.fadeLeft) / float (v.fadeLength + 1); --v.fadeLeft; }
             for (int ch = 0; ch < block.numChannels; ++ch) block.channels[ch][i] += s;
             v.pos += v.rate;
         }

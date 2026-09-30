@@ -99,15 +99,21 @@ void SampleReplacer::detect (const AudioBlockView& preGate, long long blockStart
         {
             // The veto: on a tom or a hat, a hit well under its own loudest within two
             // milliseconds of a hard kick or snare is that drum through the air.
-            if ((family == RoleFamily::Tom || family == RoleFamily::HiHat) && underDb > 9.0f)
+            // The same for a snare hearing the hi-hat: a soft snare hit at the moment of a hard
+            // hat hit is the hat through the air (the snare detector's band reaches the hat).
+            const bool quietHere = underDb > 9.0f;
+            const bool tomOrHat = family == RoleFamily::Tom || family == RoleFamily::HiHat;
+            if (quietHere && (tomOrHat || family == RoleFamily::Snare))
             {
                 const long long window = (long long) (0.002 * sr);
                 bool veto = false;
-                for (auto other : { RoleFamily::Kick, RoleFamily::Snare })
+                auto heard = [&] (RoleFamily other)
                 {
                     const auto& e = kit->last[size_t (other)];
-                    if (e.time >= 0 && e.underDb <= 6.0f && when - e.time <= window && when - e.time >= -window) veto = true;
-                }
+                    return e.time >= 0 && e.underDb <= 6.0f && when - e.time <= window && when - e.time >= -window;
+                };
+                if (tomOrHat) veto = heard (RoleFamily::Kick) || heard (RoleFamily::Snare);
+                else          veto = heard (RoleFamily::HiHat);
                 if (veto) { vetoed.fetch_add (1, std::memory_order_relaxed); continue; }
             }
             kit->note (family, when, underDb);
@@ -116,7 +122,10 @@ void SampleReplacer::detect (const AudioBlockView& preGate, long long blockStart
         // dB; STEADY plays every hit at the full level. Confidence scales a doubtful hit down.
         const float velocityGain = params.steady ? 1.0f : velocityDepthLin + (1.0f - velocityDepthLin) * hit.velocity;
         const float gain = sampleGainLin * velocityGain * hit.confidence;
-        player.trigger (hit.offset + offsetSamples, hit.velocity, gain, rate);
+        // On time: the sample starts as far into itself as the hit was recognised late, so its
+        // attack lands on the microphone's (a partial blend combed at 3-5 ms of lag). ALIGN
+        // then moves it later from there, for taste - it is no longer making up for lateness.
+        player.trigger (hit.offset + offsetSamples, hit.velocity, gain, rate, hit.lateBy);
         if (hitOffsetCount < SampleTrigger::kMaxHits) hitOffsetsBlock[hitOffsetCount++] = hit.offset;
     }
 }

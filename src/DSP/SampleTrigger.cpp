@@ -32,6 +32,7 @@ void SampleTrigger::reset() noexcept
     armed = true;
     pendingLeft = 0;
     pendingPeak = 0.0f;
+    pendingLate = 0;
     hitCount.store (0, std::memory_order_relaxed);
     lastLevelDb.store (-120.0f, std::memory_order_relaxed);
 }
@@ -43,6 +44,10 @@ void SampleTrigger::setParams (const Params& p) noexcept
     const float lp = clamp (p.lpfHz, hp * 1.5f, 20000.0f);
     hpf.setCoefficients (BiquadCoefficients::make (FilterType::HighPass, sr, hp, 0.707f, 0.0f));
     lpf.setCoefficients (BiquadCoefficients::make (FilterType::LowPass, sr, lp, 0.707f, 0.0f));
+    // The detector hears the drum through its own band-pass, and the low-pass holds it back by
+    // its group delay - sqrt(2) / (2 pi fc) for this Butterworth, about 0.9 ms on a kick's
+    // 250 Hz. That is time the hit is late by before the follower sees anything.
+    filterDelaySamples = int (std::lround (0.2251 / double (lp) * sr));
     thresholdLin = dbToGain (clamp (p.thresholdDb, -80.0f, 0.0f));
     riseLin = dbToGain (clamp (p.riseDb, 0.0f, 40.0f));
     retriggerLin = dbToGain (clamp (p.retriggerDb, 0.0f, 24.0f));
@@ -88,6 +93,7 @@ int SampleTrigger::process (const float* mono, int n, Hit* out, int maxHits) noe
                     h.levelDb = levelDb;
                     h.velocity = clamp ((levelDb - params.thresholdDb) / range, 0.0f, 1.0f);
                     h.confidence = clamp ((levelDb - params.thresholdDb) / conf, 0.0f, 1.0f);
+                    h.lateBy = pendingLate + measureSamples + filterDelaySamples;
                 }
             }
         }
@@ -118,6 +124,20 @@ int SampleTrigger::process (const float* mono, int n, Hit* out, int maxHits) noe
         armed = false;
         pendingLeft = measureSamples;
         pendingPeak = f;
+        // Where the drum began: the follower's history (two milliseconds of it) read back from
+        // now until it was under a tenth of this level. That rise is time the sample would
+        // otherwise be late by.
+        // Measured from what was there before - silence, or the last hit's tail - rather than
+        // from zero: the onset is where the rise had covered a tenth of the way from that to here.
+        pendingLate = 0;
+        const float floorLevel = before + 0.1f * (f - before);
+        for (int back = 1; back < jumpSamples; ++back)
+        {
+            int idx = historyIndex - 1 - back;
+            while (idx < 0) idx += jumpSamples;
+            if (history[size_t (idx)] <= floorLevel) break;
+            pendingLate = back;
+        }
     }
     return hits;
 }
