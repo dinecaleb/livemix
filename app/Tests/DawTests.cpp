@@ -3091,7 +3091,11 @@ TEST_CASE ("Autosave: the work offered back survives everything that happens bef
         autosave.open (document);
         autosave.note (reopened, true);
         REQUIRE (waitForIdle (autosave));
-        // ... and DLIVE is quit with the question never answered.
+        // ... and DLIVE is quit with the question never answered. Quitting writes the
+        // document, so it is now newer than the work that is owed.
+        autosave.flush();
+        juce::Thread::sleep (1100);
+        REQUIRE (SessionStore::save (reopened, document));
         autosave.closeCleanly();
     }
     SessionState recovered;
@@ -3142,6 +3146,39 @@ TEST_CASE ("Autosave: a half-written file never replaces a good one")
     REQUIRE (SessionStore::load (sidecar, back));
     CHECK_NEAR (back.mix.strips[1].faderDb, -11.0f, 1e-3f);
     autosave.closeCleanly();
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("SessionStore: a save that does not land says so, and leaves the file that was there")
+{
+    // JUCE's replaceWithText ignores the write and renames anyway, so a full disk could leave
+    // a truncated document behind a "saved". The write DLIVE uses answers for every byte.
+    const auto folder = autosaveScratch();
+    const auto document = folder.getChildFile ("Sunday.dlive.json");
+    REQUIRE (SessionStore::writeTextAtomically (document, "{\"first\": 1}"));
+
+    // A folder nothing may write into stands in for a disk that has stopped taking data.
+    REQUIRE (folder.setReadOnly (true, false));
+    CHECK (! SessionStore::writeTextAtomically (document, "{\"second\": 2}"));
+    CHECK (! SessionStore::writeTextAtomically (folder.getChildFile ("Other.dlive.json"), "{}"));
+    CHECK (document.loadFileAsString() == "{\"first\": 1}");
+
+    // ...and the autosave says it is failing until a write lands again.
+    {
+        FullSession live (true);
+        SessionAutosave autosave;
+        autosave.open (document);
+        autosave.note (captureSession (live.controller, live.daw, kDevices, 0), true);
+        REQUIRE (waitForIdle (autosave));
+        CHECK (autosave.isFailing());
+
+        REQUIRE (folder.setReadOnly (false, false));
+        autosave.note (captureSession (live.controller, live.daw, kDevices, 0), true);
+        REQUIRE (waitForIdle (autosave));
+        CHECK (! autosave.isFailing());
+        autosave.closeCleanly();
+    }
+    folder.setReadOnly (false, false);
     folder.deleteRecursively();
 }
 

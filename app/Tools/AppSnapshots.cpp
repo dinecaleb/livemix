@@ -186,7 +186,7 @@ namespace
         // no document here to write, so the fake states a write that has just landed - which is
         // the state every screen in the design is drawn in.
         juce::Time lastAutosave() override { return autosaved; }
-        void saveSession() override {}
+        bool saveSession() override { return true; }
         void newSession() override {}
         juce::String saveSessionAs (const juce::String& name) override { sessionName = name; return {}; }
         juce::String loadSession (const juce::File&) override { return {}; }

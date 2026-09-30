@@ -99,7 +99,10 @@ public:
     // nothing has been written yet - a session with no inputs, or none since it was opened.
     virtual juce::Time lastAutosave() { return {}; }
     virtual bool autosavePending() { return false; }   // something is still owed to the disk
-    virtual void saveSession() = 0;
+    virtual bool autosaveFailing() { return false; }   // the last autosave did not reach the disk
+    // True when the document is on the disk (or there was nothing to write). A caller never
+    // says "saved" on false: the engineer has to know the one time it did not land.
+    virtual bool saveSession() = 0;
     // Start over: clears the assignments, the timeline and the mix, keeping the device open.
     virtual void newSession() = 0;
     // Save under a new name (Save As). Updates the live session name and its folder. "" on success.

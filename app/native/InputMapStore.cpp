@@ -123,7 +123,7 @@ bool saveAs (const InputMap& m, const juce::File& destination)
 {
     if (! m.valid()) return false;
     destination.getParentDirectory().createDirectory();
-    return destination.replaceWithText (juce::JSON::toString (toVar (m), false));
+    return SessionStore::writeTextAtomically (destination, juce::JSON::toString (toVar (m), false));
 }
 
 bool load (const juce::File& file, InputMap& m)

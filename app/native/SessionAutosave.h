@@ -58,6 +58,9 @@ public:
     // When the last autosave actually landed on the disk, for the toolbar and the status foot
     // to say so. A default-constructed Time means nothing has been written this session.
     juce::Time lastWrite() const;
+    // The last write did not land (a full disk, a folder that has gone). Cleared by the next
+    // one that does. The status foot says so: an autosave that quietly stops is no autosave.
+    bool isFailing() const noexcept { return failing.load (std::memory_order_acquire); }
     // Blocks until everything owed has landed. Message thread, only on the way out.
     void flush (int timeoutMs = 4000);
 
@@ -103,6 +106,7 @@ private:
     bool writing = false;
     // Written by the worker, read by the message thread: when the last write landed.
     std::atomic<juce::int64> wroteAt { 0 };
+    std::atomic<bool> failing { false };
 };
 
 } // namespace livemix

@@ -825,10 +825,23 @@ juce::File fileFor (const juce::String& sessionName)
     return folder.getChildFile (folder.getFileName() + ".dlive.json");
 }
 
+bool writeTextAtomically (const juce::File& target, const juce::String& text)
+{
+    if (! target.getParentDirectory().createDirectory()) return false;
+    juce::TemporaryFile temp (target);
+    {
+        auto stream = temp.getFile().createOutputStream();
+        if (stream == nullptr) return false;
+        if (! stream->writeText (text, false, false, nullptr)) return false;
+        stream->flush();                                   // fsync, and the status says whether it landed
+        if (stream->getStatus().failed()) return false;
+    }
+    return temp.overwriteTargetFileWithTemporary();
+}
+
 bool save (const Document& d, const juce::File& file)
 {
-    file.getParentDirectory().createDirectory();
-    return file.replaceWithText (juce::JSON::toString (toVar (d), false));
+    return writeTextAtomically (file, juce::JSON::toString (toVar (d), false));
 }
 
 bool load (const juce::File& file, Document& d)

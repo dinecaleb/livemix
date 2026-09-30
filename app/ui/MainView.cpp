@@ -356,8 +356,11 @@ public:
             }
             diskLow = seconds > 0.0 && seconds < 15.0 * 60.0;
         }
-        next.disk = diskText;
-        next.diskTint = diskLow ? Dine::warn : Dine::ink;
+        // An autosave that stopped landing outranks how much room is left: it is the one thing
+        // about the disk that is already losing work.
+        const bool notSaving = services.autosaveFailing();
+        next.disk = notSaving ? juce::String ("not saving") : diskText;
+        next.diskTint = notSaving ? Dine::crit : diskLow ? Dine::warn : Dine::ink;
 
         const auto loud = controller.getMasterLoudness();
         next.loudness = ! loud.known || loud.integratedLufs <= -100.0f ? juce::String (Glyph::dash()) + " LUFS"
@@ -2468,7 +2471,11 @@ bool MainView::keyPressed (const juce::KeyPress& key)
 void MainView::newSession()
 {
     if (liveSafeBlocks ("starting a new session")) return;
-    if (! controller.getSession().inputs.empty()) services.saveSession();
+    if (! services.saveSession())
+    {
+        showToast ("\"" + services.currentSessionName() + "\" could not be saved, so it is still open. Check the disk, then try again.");
+        return;
+    }
     services.newSession();
     assignPage->refresh();
     tracksPage->rebuild();
@@ -2575,8 +2582,9 @@ void MainView::exportMix (AppServices::ExportFormat format)
 void MainView::saveNow()
 {
     if (services.currentSessionName().isEmpty()) { saveAs(); return; }
-    services.saveSession();
-    showToast ("Session saved.");
+    showToast (services.saveSession() ? juce::String ("Session saved.")
+                                      : "\"" + services.currentSessionName() + "\" could not be saved. Check the disk - "
+                                        "the autosave still holds this work.");
 }
 
 void MainView::saveAs()
@@ -2687,6 +2695,12 @@ void MainView::timerCallback()
 
     const bool slow = (++slowTicks % 30) == 0;
     statusBar->update (slow);
+    {
+        const bool failing = services.autosaveFailing();
+        if (failing && ! saidAutosaveFailing)
+            showToast ("The autosave could not be written. Check the disk - until it lands, only what is saved is safe.");
+        saidAutosaveFailing = failing;
+    }
     if (slow || slowTicks % 10 == 0) sidebar->refresh (services.daw().isRecording());
     if (chainFoot->isVisible() && slowTicks % 3 == 0) updateChainFoot();
 

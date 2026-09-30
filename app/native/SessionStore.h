@@ -70,6 +70,12 @@ namespace SessionStore
     juce::File folderFor (const juce::String& sessionName);
     juce::File fileFor (const juce::String& sessionName);
     bool save (const Document& d, const juce::File& file);
+
+    // Written whole or not at all: a temporary file beside the target, flushed to the disk and
+    // checked, then renamed over it. False when any byte did not land - a full disk leaves the
+    // file that was there, never half of the new one. JUCE's own replaceWithText ignores the
+    // write and renames anyway, which is why nothing in DLIVE that must survive uses it.
+    bool writeTextAtomically (const juce::File& target, const juce::String& text);
     bool load (const juce::File& file, Document& d);
     juce::Array<Listing> listSessions();                // newest first
 }

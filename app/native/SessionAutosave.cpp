@@ -17,22 +17,6 @@ namespace
         return document.getFileName().upToLastOccurrenceOf (".json", false, false) + suffix;
     }
 
-    // Written whole or not at all: a temporary file beside the target, then a rename. A
-    // session file must never be half a session, whatever the power does in the middle.
-    bool writeAtomically (const juce::File& target, const juce::String& text)
-    {
-        target.getParentDirectory().createDirectory();
-        juce::TemporaryFile temp (target);
-        {
-            auto stream = temp.getFile().createOutputStream();
-            if (stream == nullptr) return false;
-            if (! stream->writeText (text, false, false, nullptr)) return false;
-            stream->flush();
-            if (stream->getStatus().failed()) return false;
-        }
-        return temp.overwriteTargetFileWithTemporary();
-    }
-
     juce::String whenSentence (juce::Time when)
     {
         const auto today = juce::Time::getCurrentTime();
@@ -182,7 +166,12 @@ void SessionAutosave::writeNow (const SessionState& state, const juce::File& tar
     if (target == juce::File()) return;
     // Only a write that landed is reported as one: the status foot saying "autosaved" over a
     // full disk would be the one lie that matters.
-    if (! writeAtomically (target, juce::JSON::toString (SessionStore::toVar (state), false))) return;
+    if (! SessionStore::writeTextAtomically (target, juce::JSON::toString (SessionStore::toVar (state), false)))
+    {
+        failing.store (true, std::memory_order_release);
+        return;
+    }
+    failing.store (false, std::memory_order_release);
     wroteAt.store (juce::Time::getCurrentTime().toMilliseconds(), std::memory_order_release);
 }
 
@@ -200,18 +189,17 @@ SessionAutosave::Recovery SessionAutosave::check (const juce::File& document)
     // A question asked before and never answered comes first: it holds the work from the
     // crash it was asked about, and the ordinary autosave has been written since by a session
     // that only ever held the document.
+    // Only an answer puts it away (dismissRecovery). Never a date: quitting writes the
+    // document, so a question left on screen at quit would otherwise find the document
+    // "newer" next launch and delete the only copy of the crash's work without a word.
     const auto held = heldFor (document);
     if (held.existsAsFile())
     {
-        if (held.getLastModificationTime() > r.documentWhen)
-        {
-            r.autosave = held;
-            r.when = held.getLastModificationTime();
-            r.offer = true;
-            r.sentence = "DLIVE found work from " + whenSentence (r.when) + " that was not saved.";
-            return r;
-        }
-        held.deleteFile();              // the document has been saved since: nothing is owed
+        r.autosave = held;
+        r.when = held.getLastModificationTime();
+        r.offer = true;
+        r.sentence = "DLIVE found work from " + whenSentence (r.when) + " that was not saved.";
+        return r;
     }
 
     r.autosave = autosaveFor (document);

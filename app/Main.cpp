@@ -255,13 +255,15 @@ namespace
             autosave.note (state, immediately);
         }
 
-        void saveSession() override
+        bool saveSession() override
         {
-            if (controller.getSession().inputs.empty()) return;
+            if (controller.getSession().inputs.empty()) return true;
             // Anything the autosave still owes goes first, so the document is never written
             // from behind an autosave that is about to land on top of it.
             autosave.flush();
-            if (! writeDocument (documentFileOrDefault())) trackError ("session", "save_failed", false);
+            if (writeDocument (documentFileOrDefault())) return true;
+            trackError ("session", "save_failed", false);
+            return false;
         }
 
         // The last write before quitting. It says whether the document landed, because a clean
@@ -307,8 +309,18 @@ namespace
                 trackError ("session", "load_failed", true);
                 return "That file is not a DLIVE session.";
             }
+            // WHAT IS OPEN IS SAVED BEFORE ANYTHING REPLACES IT. Opening closes the current
+            // session cleanly, and a clean close throws its autosave away - so without this a
+            // morning of unsaved work went with one click in the sessions list. If it cannot be
+            // written it stays open, and nothing has been lost.
+            if (! controller.getSession().inputs.empty() && ! writeDocument (documentFileOrDefault()))
+            {
+                trackError ("session", "save_failed", false);
+                return "\"" + juce::String (controller.getSession().name) + "\" could not be saved, so it is still open "
+                       "and nothing was opened in its place. Check the disk, then try again.";
+            }
             openState (state);
-            lastSessionPointer().replaceWithText (file.getFullPathName());
+            SessionStore::writeTextAtomically (lastSessionPointer(), file.getFullPathName());
             return {};
         }
 
@@ -598,6 +610,7 @@ namespace
 
         juce::Time lastAutosave() override { return autosave.lastWrite(); }
         bool autosavePending() override { return ! autosave.isIdle(); }
+        bool autosaveFailing() override { return autosave.isFailing(); }
     private:
 
         // One line, and it is the tested one: SessionState.cpp reads the session out of the
@@ -609,7 +622,7 @@ namespace
             if (samples != nullptr) readSampleChoices (controller, *samples, state.samples);
             if (! SessionStore::save (state, file)) return false;
             dawEngine.getProject().folder = file.getParentDirectory();
-            lastSessionPointer().replaceWithText (file.getFullPathName());
+            SessionStore::writeTextAtomically (lastSessionPointer(), file.getFullPathName());
             return true;
         }
 
@@ -991,12 +1004,21 @@ public:
                 SessionAutosave::dismissRecovery (document);
                 return;
             }
-            SessionAutosave::dismissRecovery (document);
             srv->openState (recovered, "recovery");
-            srv->saveSession();                  // the recovery is committed, not left in a sidecar
             view->sessionReplaced();
-            view->showToast ("Recovered. The work from " + when.toString (false, true, false, true)
-                             + " is back, and the session has been saved.");
+            // The copy that was offered goes only once the recovery is on the disk as the
+            // document: until then it is the only copy, and it is offered again next launch.
+            if (srv->saveSession())
+            {
+                SessionAutosave::dismissRecovery (document);
+                view->showToast ("Recovered. The work from " + when.toString (false, true, false, true)
+                                 + " is back, and the session has been saved.");
+            }
+            else
+            {
+                view->showToast ("Recovered, but it could not be saved - check the disk and press Save. "
+                                 "Until it is saved, DLIVE keeps offering it back.");
+            }
         };
         offer.onKeepBoth = [this, view, srv, autosave, document, afterCrash]
         {
@@ -1010,13 +1032,13 @@ public:
                 SessionAutosave::dismissRecovery (document);
                 return;
             }
-            SessionAutosave::dismissRecovery (document);
             // Keep both: the recovered work becomes a session of its own, beside the one that
             // was saved, and the takes stay where they are (saveSessionAs makes their clips
-            // absolute for exactly this).
+            // absolute for exactly this). The offered copy goes once that has landed.
             const auto name = juce::String (recovered.session.name) + " (recovered)";
             srv->openState (recovered, "recovery");
             const auto err = srv->saveSessionAs (name);
+            if (err.isEmpty()) SessionAutosave::dismissRecovery (document);
             view->sessionReplaced();
             view->showToast (err.isEmpty()
                 ? "Both are here: the recovered work is now \"" + name + "\", and the session you saved is untouched."

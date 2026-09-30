@@ -62,7 +62,7 @@ namespace
         // File > Save and to replacing the document, and to nothing else.
         void touchSession() override { ++touches; }
         unsigned long long sessionRevision() override { return touches; }
-        void saveSession() override { ++saves; }
+        bool saveSession() override { ++saves; return true; }
         unsigned long long touches = 0, saves = 0;
         void newSession() override {}
         juce::String saveSessionAs (const juce::String& name) override { sessionName = name; return {}; }
