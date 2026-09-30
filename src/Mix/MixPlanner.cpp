@@ -847,7 +847,12 @@ MixPlan plan (const MixPlanContext& ctx)
         if (lead >= 0)
         {
             const float effectiveLevel = predictedProcessedActiveRmsDb (ctx, lead, plan.proposed.strips[size_t (lead)]);
-            const float needed = roundHalf (MixProfile::mixLevelTargetDb (profile, RoleFamily::LeadVocal) - effectiveLevel);
+            // Measured against the focal's OWN target: a pinned pastor or sax was fitted to its
+            // family's level, and reading it against the lead vocal's number moved every other
+            // fader by the difference between two profile entries (+2 dB for speech, -6 for a sax)
+            // and called it a fader at its limit.
+            const float needed = roundHalf (MixProfile::mixLevelTargetDb (profile, roleFamily (ctx.graph.strips[size_t (lead)].role))
+                                            - effectiveLevel);
             const float shortfall = needed - plan.strips[size_t (lead)].faderDb;   // > 0: the lead is quieter than planned
             if (std::fabs (shortfall) >= 0.5f)
             {
@@ -1181,7 +1186,16 @@ MixPlan plan (const MixPlanContext& ctx)
         // THE LEAD IS WHAT THE MIX IS BUILT AROUND, so it is what the groups are set against.
         // Backing voices are a texture under it and cannot be the reference; with no lead
         // singing the backing group is the nearest thing to one, and a sermon has only speech.
-        const auto playing = [&] (MixBus b) { return busPlayed[size_t (b)] && ctx.graph.busUsed[size_t (b)]; };
+        // A reference group has to have somebody really singing (or speaking) into it: an open
+        // spare microphone on a wedge, held back because it mostly hears the stage, would set the
+        // whole band against stage spill. The focal rule excludes those microphones; so does this.
+        std::array<bool, int (MixBus::Count)> busSung {};
+        for (int i = 0; i < n; ++i)
+        {
+            const auto& sp = plan.strips[size_t (i)];
+            if (sp.heard && ! sp.bleedOnly && ! sp.spillLimited) busSung[size_t (ctx.graph.strips[size_t (i)].bus)] = true;
+        }
+        const auto playing = [&] (MixBus b) { return busSung[size_t (b)] && busPlayed[size_t (b)] && ctx.graph.busUsed[size_t (b)]; };
         const MixBus ref = playing (MixBus::Lead)   ? MixBus::Lead
                          : playing (MixBus::Vocals) ? MixBus::Vocals
                          : playing (MixBus::Speech) ? MixBus::Speech
