@@ -81,7 +81,8 @@ namespace
                 trackError ("samples", "import_failed", true, { { "instrument", roleFamilyId (family) } });
                 return problem;
             }
-            controller.setSampleBanks (samples->table());
+            // The new table and every strip's new place in it reach the audio in one publish.
+            controller.setSampleBanks (samples->table(), false);
             resolveSampleChoices (playing, *samples, controller);
             touchSession();
             return "\"" + name + "\" is in this session's sounds"

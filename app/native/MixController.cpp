@@ -2776,10 +2776,27 @@ void MixController::setStripChannel (int strip, const ChannelParameters& c)
 // The engine reads the table from a pointer on the audio thread, and every strip picks its
 // own bank out of it when a parameter snapshot arrives - so a table published on its own
 // (the engineer imported a sound) reaches nobody until the mix is published again.
-void MixController::setSampleBanks (const SampleBankTable* table)
+void MixController::setSampleBanks (const SampleBankTable* table, bool publishNow)
 {
     engine.setSampleBanks (table);
+    if (publishNow) publish();
+}
+
+void MixController::repointSamples (const std::vector<std::pair<int, ChannelParameters>>& changes)
+{
+    for (const auto& [strip, c] : changes)
+    {
+        if (! validStrip (kept, strip)) continue;
+        auto safe = c;
+        sanitizeChannelParameters (safe);
+        kept.strips[size_t (strip)].channel = safe;
+        atCapture.strips[size_t (strip)].channel.replaceSound = safe.replaceSound;
+        atCapture.strips[size_t (strip)].channel.replaceEnabled = safe.replaceEnabled;
+        bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].channel.replaceSound = safe.replaceSound;
+                                            m.strips[size_t (strip)].channel.replaceEnabled = safe.replaceEnabled; });
+    }
     publish();
+    if (! changes.empty()) touch();
 }
 
 bool MixController::auditionSample (int strip)

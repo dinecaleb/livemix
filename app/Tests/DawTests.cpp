@@ -3956,3 +3956,41 @@ TEST_CASE ("SessionStore: a session from a newer DLIVE is not opened, and says w
     CHECK (! SessionStore::load (file, state));
     folder.deleteRecursively();
 }
+
+TEST_CASE ("Samples: finding a stored sound again is not an edit - nothing to undo, nothing in the history")
+{
+    SampleLibrary library;
+    library.load();
+    const auto kicks = library.sounds (RoleFamily::Kick);
+    REQUIRE (kicks.size() >= 2);
+    MixSession s;
+    s.name = "Sampled";
+    s.inputs = { { "Kick", ChannelRole::KickIn, 0, -1 } };
+    MixController c;
+    DawEngine daw { c };
+    c.setSession (s);
+    daw.setSession (s);
+    c.setSampleBanks (library.table());
+    c.prepare (kSr, kBlock);
+    auto chain = c.getKept().strips[0].channel;
+    chain.replaceEnabled = true;
+    chain.replaceSound = 1;
+    c.setStripChannel (0, chain);
+    auto state = captureSession (c, daw, kDevices, 0);
+    readSampleChoices (c, library, state.samples);
+
+    MixController reopened;
+    DawEngine reopenedDaw { reopened };
+    applySession (state, reopened, reopenedDaw);
+    reopened.setSampleBanks (library.table());
+    reopened.prepare (kSr, kBlock);
+    auto stale = reopened.getKept().strips[0].channel;
+    stale.replaceSound = 0;
+    reopened.setStripChannel (0, stale);
+    const bool couldUndo = reopened.canUndoMix();
+    const auto history = reopened.getAllStripHistory().size();
+    resolveSampleChoices (state.samples, library, reopened);
+    CHECK (reopened.getKept().strips[0].channel.replaceSound == 1);
+    CHECK (reopened.canUndoMix() == couldUndo);
+    CHECK (reopened.getAllStripHistory().size() == history);
+}

@@ -136,7 +136,12 @@ public:
     // them for the app's lifetime). Message thread; the engine reads a pointer, never a copy.
     // Publishing a new table (the engineer imported a sound) re-applies the mix so every
     // drum strip picks its bank out of the new table on the next block.
-    void setSampleBanks (const SampleBankTable* table);
+    void setSampleBanks (const SampleBankTable* table, bool publishNow = true);
+    // The library moved under names the session stored (an import re-sorted the slots, a session
+    // opened on another Mac): each strip is pointed at where its sound now is. Not an edit - no
+    // history, no UNDO step, no Autopilot re-learn - and published once with the table, so no
+    // block ever plays a slot from the old table against the new one.
+    void repointSamples (const std::vector<std::pair<int, ChannelParameters>>& changes);
     const SampleBankTable* getSampleBanks() const noexcept { return engine.getSampleBanks(); }
     // HEAR IT: play the strip's chosen sound once, where solo goes, at the level the stage would
     // play it. Monitoring, never mix: the broadcast does not hear it and nothing is kept. False,

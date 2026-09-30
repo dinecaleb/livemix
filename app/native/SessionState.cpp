@@ -150,6 +150,7 @@ std::vector<std::string> resolveSampleChoices (const std::array<SampleChoice, kM
                                                std::array<SampleChoice, kMaxStrips>* unresolved)
 {
     std::vector<std::string> missing;
+    std::vector<std::pair<int, ChannelParameters>> changes;
     if (unresolved != nullptr) *unresolved = {};
     forEachSampledStrip (controller, [&] (int strip, RoleFamily family)
     {
@@ -161,7 +162,7 @@ std::vector<std::string> resolveSampleChoices (const std::array<SampleChoice, kM
         {
             if (params.replaceSound == slot) return;
             params.replaceSound = slot;
-            controller.setStripChannel (strip, params);
+            changes.emplace_back (strip, params);
             return;
         }
         // Gone. Saying so and switching the stage off is the only honest answer: leaving the
@@ -170,12 +171,14 @@ std::vector<std::string> resolveSampleChoices (const std::array<SampleChoice, kM
         if (unresolved != nullptr) (*unresolved)[size_t (strip)] = want;
         if (! params.replaceEnabled) return;
         params.replaceEnabled = false;
-        controller.setStripChannel (strip, params);
+        changes.emplace_back (strip, params);
         missing.push_back ("The " + std::string (sampleFamilyFolder (family)) + " sound \""
                            + want.name + "\" is not in your samples any more, so "
                            + controller.getGraph().strips[size_t (strip)].name
                            + " is back on its own microphone.");
     });
+    // One publish for every strip, and not an edit (MixController::repointSamples).
+    controller.repointSamples (changes);
     return missing;
 }
 
