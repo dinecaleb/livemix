@@ -1111,15 +1111,10 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     };
     devicePage->onContinueToAssign = [this] { showPage (Page::Assign); };
     devicePage->onSetUpOutputs = [this] { showOutputs(); };
-    devicePage->onImportRecording = [this] (const juce::File& folder)
-    {
-        const auto err = services.importMultitrack (folder);
-        if (err.isNotEmpty()) { showToast (err); return; }
-        assignPage->refresh();
-        tracksPage->rebuild();
-        showToast ("Imported " + folder.getFileName() + ".");
-        showPage (Page::Assign);
-    };
+    // The same import as File > Import Multitrack Folder, not a copy of it: the copy here
+    // rebuilt the setup and TRACKS but never the console, so the MIXER, its window and the
+    // Inspector kept the strips of whatever was open before and the import looked partial.
+    devicePage->onImportRecording = [this] (const juce::File& folder) { importMultitrackFolder (folder); };
     assignPage->onBack = [this] { showPage (Page::Device); };
     assignPage->onContinue = [this] { showPage (Page::Purpose); };
     assignPage->onSaveMapping = [this] { saveInputMapping(); };
@@ -2544,16 +2539,27 @@ void MainView::importMultitrack()
                           {
                               const auto folder = fc.getResult();
                               if (folder == juce::File()) return;
-                              const auto err = services.importMultitrack (folder);
-                              if (err.isNotEmpty()) { showToast (err); return; }
-                              assignPage->refresh();
-                              tracksPage->rebuild();
-                              mixerPage->rebuild();
-                              if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
-                              advancedPage->rebuild();
-                              showToast ("Imported " + folder.getFileName() + ". Check the inputs, then build the mix.");
-                              showPage (Page::Assign);
+                              importMultitrackFolder (folder);
                           });
+}
+
+void MainView::importMultitrackFolder (const juce::File& folder)
+{
+    if (liveSafeBlocks ("importing")) return;
+    if (services.daw().isRecording())
+    {
+        showToast ("Recording is running. Stop recording first - importing replaces the tracks it is recording onto.");
+        return;
+    }
+    const auto err = services.importMultitrack (folder);
+    if (err.isNotEmpty()) { showToast (err); return; }
+    assignPage->refresh();
+    tracksPage->rebuild();
+    mixerPage->rebuild();
+    if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+    advancedPage->rebuild();
+    showToast ("Imported " + folder.getFileName() + ". Check the inputs, then build the mix.");
+    showPage (Page::Assign);
 }
 
 // EXPORT: the sheet asks what, how much and where, then the render happens on a worker while

@@ -220,6 +220,7 @@ private:
     void sessionMenu();
     void chooseOutput();
     void importMultitrack();
+    void importMultitrackFolder (const juce::File&);   // both import buttons land here
     void exportMix (AppServices::ExportFormat format);
     bool exporting = false;
     void timelineChanged();
