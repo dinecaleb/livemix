@@ -180,6 +180,13 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    // The empty toolbar is the window's title bar: a press there moves the window and a
+    // double-click does what macOS says a title-bar double-click does. The application
+    // answers these (app/native/WindowChrome.mm); a MainView with no window leaves them empty.
+    std::function<void()> onToolbarPressed, onToolbarDoubleClicked;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
+
 private:
     class Toast;
     class Menu;

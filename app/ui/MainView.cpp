@@ -2870,6 +2870,17 @@ void MainView::paint (juce::Graphics& g)
     }
 }
 
+void MainView::mouseDown (const juce::MouseEvent& e)
+{
+    // The second press of a double-click is the zoom, not the start of a drag.
+    if (e.y < Dine::Metric::toolbar && e.getNumberOfClicks() == 1 && onToolbarPressed) onToolbarPressed();
+}
+
+void MainView::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    if (e.y < Dine::Metric::toolbar && onToolbarDoubleClicked) onToolbarDoubleClicked();
+}
+
 void MainView::resized()
 {
     // ------------------------------------------------------------------ the toolbar

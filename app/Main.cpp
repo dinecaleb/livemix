@@ -27,7 +27,12 @@ using namespace livemix;
 
 #if JUCE_MAC
 // app/native/WindowChrome.mm: the three macOS window buttons, put inside DLIVE's own toolbar.
-namespace livemix { void putWindowButtonsInTheToolbar (juce::Component&); }
+namespace livemix
+{
+    void putWindowButtonsInTheToolbar (juce::Component&);
+    void dragWindowFromToolbar (juce::Component&);
+    void toolbarDoubleClicked (juce::Component&);
+}
 #endif
 
 // The Supabase project the usage events go to, from the build (-DDLIVE_SUPABASE_URL=...) or,
@@ -877,6 +882,8 @@ namespace
             // The three window buttons belong inside the toolbar (app/native/WindowChrome.mm);
             // the peer exists only once the window is on screen, so this is asked for here.
             putWindowButtonsInTheToolbar (*this);
+            view().onToolbarPressed = [this] { dragWindowFromToolbar (*this); };
+            view().onToolbarDoubleClicked = [this] { toolbarDoubleClicked (*this); };
            #endif
            #if JUCE_MAC
             juce::MenuBarModel::setMacMainMenu (view().getMenuModel());
