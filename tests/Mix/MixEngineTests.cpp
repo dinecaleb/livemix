@@ -491,7 +491,7 @@ TEST_CASE ("OutputFeeds: the broadcast and the engineer's listen are always a st
     // Feed 2: a monitor feed somebody made mono.
     f.feeds[2] = { 2, 3, MixBus::Master, 0.0f, false, true, true };
     // Feed 3: an ordinary extra feed, deliberately mono - a single fill speaker.
-    f.feeds[3] = { 6, 7, MixBus::Drums, -6.0f, false, true, false };
+    f.feeds[3] = { 7, 8, MixBus::Drums, -6.0f, false, true, false };
 
     normaliseOutputs (f);
 
@@ -511,7 +511,26 @@ TEST_CASE ("OutputFeeds: the broadcast and the engineer's listen are always a st
     CHECK (! f.feeds[2].mono);                  // a monitor feed is stereo too
 
     CHECK (f.feeds[3].mono);                    // ...but a fill speaker keeps its mono switch
-    CHECK (f.feeds[3].left == 6);
+    CHECK (f.feeds[3].left == 7);
+
+    // One feed per channel. Two on one pair are summed - the mix 6 dB over its own ceiling -
+    // and a listen sharing a pair with the broadcast is every solo on the air. The earlier
+    // feed keeps the channel; the one that collides comes off the device.
+    OutputFeeds stacked;
+    stacked.count = 3;
+    stacked.feeds[0] = { 0, 1, MixBus::Master, 0.0f, false, false, false };
+    stacked.feeds[1] = { 0, 1, MixBus::Master, 0.0f, false, false, true };    // the listen, on the broadcast's pair
+    stacked.feeds[2] = { 1, 2, MixBus::Drums, 0.0f, false, false, false };    // half on it
+    normaliseOutputs (stacked, 8);
+    CHECK (stacked.feeds[0].left == 0);
+    CHECK (! stacked.feeds[1].routed());
+    CHECK (! stacked.feeds[2].routed());
+    // And one channel named twice is that channel once, not the mix doubled onto it.
+    OutputFeeds twice;
+    twice.count = 2;
+    twice.feeds[1] = { 4, 4, MixBus::Master, 0.0f, false, false, false };
+    normaliseOutputs (twice, 8);
+    CHECK (twice.feeds[1].mono);
 
     // A device smaller than the routing expects never gets written past its end.
     OutputFeeds small;

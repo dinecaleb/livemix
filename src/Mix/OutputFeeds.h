@@ -93,6 +93,28 @@ inline void normaliseOutputs (OutputFeeds& feeds, int availableChannels = 0) noe
             f.left = f.right = -1;
         }
     }
+
+    // ONE FEED PER CHANNEL. Feeds are summed onto the device, so two on one pair is the mix
+    // +6 dB over its own ceiling - and a listen sharing a pair with the broadcast is every
+    // solo on the air. The earlier feed keeps the channel (feed 0, the broadcast, always
+    // does); a later one that collides is taken off the device, where the Outputs sheet shows
+    // it as not routed rather than quietly doubling something.
+    for (int i = 0; i < feeds.count; ++i)
+    {
+        auto& f = feeds.feeds[size_t (i)];
+        if (! f.mono && f.left >= 0 && f.left == f.right) f.mono = true;   // one channel is mono, not the mix twice
+        if (i == 0 || ! f.routed()) continue;
+        bool collides = false;
+        for (int j = 0; j < i && ! collides; ++j)
+        {
+            const auto& e = feeds.feeds[size_t (j)];
+            if (! e.routed()) continue;
+            for (int a : { f.left, f.right })
+                for (int b : { e.left, e.right })
+                    collides = collides || (a >= 0 && a == b);
+        }
+        if (collides) f.left = f.right = -1;
+    }
 }
 
 // Did only the engineer's own listen change between two routings? A monitor feed is not

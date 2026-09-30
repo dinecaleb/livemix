@@ -386,7 +386,13 @@ void OutputsSheet::addFeed()
         for (int i = 0; i < feeds.count; ++i) taken = taken || feeds.feeds[size_t (i)].left / 2 == pair;
         if (! taken) break;
     }
-    if (pair >= numPairs()) pair = juce::jmax (0, numPairs() - 1);
+    if (pair >= numPairs())
+    {
+        // Every pair already carries something, and two feeds on one pair are summed: the
+        // mix twice, 6 dB over its own ceiling. Say so rather than doubling it.
+        if (onToast) onToast ("Every output on this device is already in use. Move a feed first, or choose a bigger device.");
+        return;
+    }
 
     OutputFeed added;
     added.left = pair * 2;
