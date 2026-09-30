@@ -96,7 +96,7 @@ struct MixParameters
         bool enabled = false;
         float depthDb = 4.0f;
         float thresholdDb = -38.0f;
-        float attackMs = 150.0f, releaseMs = 800.0f, holdMs = 250.0f;
+        float attackMs = 150.0f, releaseMs = 800.0f, holdMs = 1200.0f;   // MixProfile::SpeechPriority sets these
     };
     SpeechDuck speechDuck;
 

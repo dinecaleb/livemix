@@ -67,6 +67,7 @@ public:
     bool isActive() const noexcept override { return active.load (std::memory_order_relaxed); }
     void pushStripInput (int strip, const AudioBlockView& raw) noexcept override;
     void pushStripProcessed (int strip, const AudioBlockView& processed) noexcept override;
+    void countConverterClips (int strip, const AudioBlockView& raw) noexcept override;
     void pushBus (MixBus bus, const AudioBlockView& input) noexcept override;
     void pushMasterOutput (const AudioBlockView& output) noexcept override;
 
@@ -96,6 +97,7 @@ private:
     std::array<std::atomic<float>, kMaxStrips> postPeak {};
     std::array<std::atomic<double>, kMaxStrips> postSumSquares {};
     std::array<std::atomic<long long>, kMaxStrips> postSamples {};
+    std::array<std::atomic<int>, kMaxStrips> converterClips {};   // full-scale samples before the digital gain
 
     Settings settings;
     int targetFrames = 0;

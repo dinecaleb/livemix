@@ -207,10 +207,16 @@ namespace MixProfile
     struct SpeechPriority
     {
         float depthDb = 4.0f;          // how far the band steps back at most
-        float thresholdDb = -38.0f;    // the speech group's own level that counts as somebody speaking
+        // The speech group's level in the voice band (150 Hz - 4 kHz), a level and not a peak, that
+        // counts as somebody speaking; it closes again 6 dB under it. As a level this sits about
+        // 10 dB above where the old peak detector's -38 did, which is what keeps the band's
+        // bleed into an open lectern microphone from ducking the band during worship.
+        float thresholdDb = -38.0f;
         float attackMs = 150.0f;       // slow enough that a word does not sound like a gate opening
         float releaseMs = 800.0f;      // ... and slow enough that the band does not surge between sentences
-        float holdMs = 250.0f;         // the gap between two sentences is not the end of the sermon
+        // The gap between two phrases is not the end of the sermon. At 250 ms the band came back
+        // up at every breath and went down at the next word - a pad breathing under the pastor.
+        float holdMs = 1200.0f;
     };
     const SpeechPriority& speechPriority (StyleProfileId profile);
 

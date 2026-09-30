@@ -56,9 +56,11 @@ CheckSheet::CheckSheet (MixController& c, AppServices& s) : controller (c), serv
 void CheckSheet::resetClips()
 {
     for (auto& r : rows) { r.clipped = false; r.holdDb = -120.0f; }
+    // The flag at the converter too, or the next refresh reads the old clip straight back.
+    if (controller.isPrepared()) controller.getEngine().clearConverterClips();
     if (controller.isPrepared())
         for (int i = 0; i < int (rows.size()) && i < controller.getGraph().numStrips(); ++i)
-            (void) controller.getEngine().getStrip (i).getInputMeter().consumeMaxPeakDb();
+            (void) controller.getEngine().consumeConverterPeakDb (i);
     repaint();
 }
 
@@ -74,8 +76,8 @@ void CheckSheet::refresh()
     for (int i = 0; i < strips; ++i)
     {
         auto& r = rows[size_t (i)];
-        const auto& m = engine.getStrip (i).getInputMeter();
-        const float peak = m.consumeMaxPeakDb();
+        // At the converter, before DLIVE's digital gain: this sheet is about what the console sends.
+        const float peak = engine.consumeConverterPeakDb (i);
         if (peak > -119.0f)
         {
             // A one-second hold on the bar, falling 30 dB a second.
@@ -84,7 +86,7 @@ void CheckSheet::refresh()
             if (peak > -60.0f) r.lastHeard = now;
         }
         else r.peakDb = std::max (-120.0f, r.peakDb - 1.0f);
-        if (m.hasClipped()) r.clipped = true;
+        if (engine.converterClipped (i)) r.clipped = true;
 
         State next;
         if (r.clipped) next = State::Clip;

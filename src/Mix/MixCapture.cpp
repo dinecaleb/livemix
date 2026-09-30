@@ -131,6 +131,16 @@ void MixCapture::pushStripInput (int strip, const AudioBlockView& raw) noexcept
     strips[size_t (strip)]->fifo.push (raw);
 }
 
+void MixCapture::countConverterClips (int strip, const AudioBlockView& raw) noexcept
+{
+    if (! active.load (std::memory_order_relaxed) || strip < 0 || strip >= numStrips) return;
+    int clips = 0;
+    for (int ch = 0; ch < raw.numChannels; ++ch)
+        for (int i = 0; i < raw.numSamples; ++i)
+            if (std::fabs (raw.channels[ch][i]) >= 0.9999f) ++clips;
+    if (clips > 0) converterClips[size_t (strip)].fetch_add (clips, std::memory_order_relaxed);
+}
+
 void MixCapture::pushStripProcessed (int strip, const AudioBlockView& processed) noexcept
 {
     if (! active.load (std::memory_order_relaxed) || strip < 0 || strip >= numStrips) return;
@@ -223,7 +233,7 @@ void MixCapture::workerLoop()
             for (auto& s : strips) { s->accumulator.reset(); s->captured = 0; s->heard.store (false); s->fifo.clear(); s->fifo.resetDropped(); }
             for (auto& b : buses) if (b.used) { b.accumulator.reset(); b.captured = 0; b.fifo.clear(); b.fifo.resetDropped(); }
             if (masterOut.used) { masterOut.accumulator.reset(); masterOut.captured = 0; masterOut.fifo.clear(); masterOut.fifo.resetDropped(); }
-            for (int i = 0; i < kMaxStrips; ++i) { postPeak[size_t (i)].store (0.0f); postSumSquares[size_t (i)].store (0.0); postSamples[size_t (i)].store (0); }
+            for (int i = 0; i < kMaxStrips; ++i) { postPeak[size_t (i)].store (0.0f); postSumSquares[size_t (i)].store (0.0); postSamples[size_t (i)].store (0); converterClips[size_t (i)].store (0); }
             progressFrames.store (0);
         }
         if (numStrips == 0) { state.store (int (State::Failed), std::memory_order_release); continue; }
@@ -312,6 +322,9 @@ void MixCapture::workerLoop()
         {
             auto& s = *strips[size_t (i)];
             r.strips[size_t (i)] = s.accumulator.finalise (s.fifo.getDroppedFrames());
+            // A clip is counted where it happened, at the converter - not after DLIVE's digital
+            // gain, which moves a real clip below full scale and a clean peak above it.
+            r.strips[size_t (i)].clipCount = converterClips[size_t (i)].load();
             r.droppedFrames += s.fifo.getDroppedFrames();
             maxCaptured = std::max (maxCaptured, s.captured);
             const long long count = postSamples[size_t (i)].load();

@@ -627,9 +627,11 @@ TEST_CASE ("Outputs: a feed lands on its own pair, at its own level, and mute si
     CHECK (peaks[2] < peaks[0] * 0.5f);                // -12 dB is a quarter of the level
     CHECK (peaks[2] > peaks[0] * 0.1f);
 
-    // Muting the cue silences that pair and leaves the main one alone.
+    // Muting the cue silences that pair and leaves the main one alone - as a 20 ms fade, never a
+    // click, so it is measured once the fade has run.
     feeds.feeds[1].mute = true;
     controller.setOutputFeeds (feeds);
+    run (100, 0.5f, peaks);
     run (40, 0.5f, peaks);
     CHECK (peaks[0] > 0.001f);
     CHECK (peaks[2] < 1.0e-6f);

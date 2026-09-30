@@ -700,6 +700,11 @@ TEST_CASE ("MixEngine: the device is never handed more than full scale")
     auto p = rawMix (e);
     p.strips[4].faderDb = 12.0f;
     e.setParameters (p);
+    // A feed turned up past the master's own ceiling: +12 dB after the limiter.
+    OutputFeeds hot;
+    hot.count = 1;
+    hot.feeds[0] = { 0, 1, MixBus::Master, 12.0f, false, false, false };
+    e.setOutputFeeds (hot);
     Device d (8, 2, 24000);
     sineOnInput (d, 5, 440.0f, 0.9f);
     d.run (e, 64);

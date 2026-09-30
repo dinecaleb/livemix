@@ -38,6 +38,7 @@ add_executable(livemix_tests
     Analysis/VoiceAnalysisTests.cpp
     Mix/RoutingGraphTests.cpp
     Mix/MixEngineTests.cpp
+    Mix/EngineSafetyTests.cpp
     Mix/MixCaptureTests.cpp
     Mix/MixPlannerTests.cpp
     Mix/AutopilotTests.cpp

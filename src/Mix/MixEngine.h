@@ -23,7 +23,11 @@ class MixTap
 public:
     virtual ~MixTap() = default;
     virtual bool isActive() const noexcept = 0;
-    virtual void pushStripInput (int strip, const AudioBlockView& raw) noexcept = 0;         // what the converter delivered
+    virtual void pushStripInput (int strip, const AudioBlockView& raw) noexcept = 0;         // what the chain receives: after DLIVE's digital gain
+    // What the converter delivered, before DLIVE's digital gain: the only place a clip is a clip.
+    // A converter clipping under a -6 dB digital trim arrives at -6 dBFS after it and reads
+    // healthy; a clean input under a +6 dB trim reads as clipping. Default: nothing counted.
+    virtual void countConverterClips (int, const AudioBlockView&) noexcept {}
     virtual void pushStripProcessed (int strip, const AudioBlockView& processed) noexcept = 0; // after the chain, before the fader
     virtual void pushBus (MixBus bus, const AudioBlockView& input) noexcept = 0;               // what the bus chain receives (after summing and the bus fader, before its processing)
     virtual void pushMasterOutput (const AudioBlockView& output) noexcept = 0;                  // what leaves the master (the broadcast)
@@ -110,6 +114,12 @@ public:
     // no strips at all. So an index past what is running reads an idle strip: silent meters,
     // default options, nothing allocated. A page that draws a channel DLIVE is not yet
     // playing draws it quiet, which is the truth, instead of reading past the end of a vector.
+    // What arrived from the console on a strip's channels, before anything DLIVE does: the
+    // loudest sample since the last call (one reader: CHECK INPUTS), and whether any sample has
+    // reached full scale since the clip was last cleared. Message thread.
+    float consumeConverterPeakDb (int strip) const noexcept;
+    bool converterClipped (int strip) const noexcept;
+    void clearConverterClips() const noexcept;
     const ChannelProcessor& getStrip (int index) const noexcept
     {
         if (index < 0 || index >= numStrips) return idle;
@@ -164,6 +174,10 @@ private:
         std::array<Smoother, int (FxSlot::Count)> send;         // linear
         std::array<std::vector<float>, kMaxChannels> scratch;
         std::array<float*, kMaxChannels> ptrs {};
+        // AT THE CONVERTER, before the digital gain (see MixTap::countConverterClips): the peak
+        // since it was last read, and whether it has hit full scale. CHECK INPUTS reads these.
+        std::atomic<float> converterPeak { 0.0f };
+        std::atomic<bool> converterClipped { false };
     };
     struct Bus
     {
@@ -215,7 +229,18 @@ private:
     MixParameters applied;                                       // audio thread's copy of the last snapshot
     TripleBuffer<OutputFeeds> feedMailbox;
     OutputFeeds appliedFeeds;                                    // audio thread's copy of the output routing
-    std::array<float, kMaxOutputFeeds> feedGain { { 1.0f, 1.0f, 1.0f, 1.0f } };   // dB resolved once per publish
+    // Each feed's level and mute, ramped like every other gain: a feed turned down or muted is
+    // a move, never a step (and never a click on the broadcast).
+    std::array<Smoother, kMaxOutputFeeds> feedLevel;
+    std::vector<float> feedRamp;                                 // this block's per-sample feed gain (sized in prepare)
+    bool feedsSettled = false;                                   // the first routing after prepare lands at once
+    OutputFeeds previousFeeds;                                   // the routing before this one, to tell a new feed from a moved level
+    // The last mix the controller published (message thread), so a prepare - a device coming
+    // back, a rebuild - starts from the mix that was running rather than from the profile's
+    // baseline with every mute off and the broadcast un-MUTEd. See prepare().
+    MixParameters lastPublished;
+    bool hasPublished = false;
+    bool snapNextApply = false;                                  // audio thread: the first publish after prepare lands at once
     bool haveApplied = false;
 
     std::atomic<MixTap*> tap { nullptr };
@@ -235,6 +260,12 @@ private:
     float speechHoldSamples = 0.0f;
     float speechHoldLeft = 0.0f;       // samples of hold still owed
     bool speechWasOpen = false;
+    // The detector itself: the speech group's voice band (150 Hz - 4 kHz), as a level rather
+    // than a peak, with a gap between opening and closing. A peak of the band bleeding into an
+    // open lectern microphone opened the old one; a pastor's breath between phrases closed it.
+    float speechLow = 0.0f, speechLow2 = 0.0f, speechHigh = 0.0f, speechHigh2 = 0.0f, speechEnv = 0.0f;
+    float speechLowCoeff = 0.0f, speechHighCoeff = 0.0f, speechEnvUp = 0.0f, speechEnvDown = 0.0f;
+    bool speechVoiced = false;           // the detector's own state, before the hold
     std::atomic<float> speechDuckDb { 0.0f };   // what it is doing, for the UI
     KitTriggerTable kitTriggers;                                 // the drum strips' word to each other (audio thread only)
     Smoother broadcastGain;                                      // DIM (-20 dB) / MUTE on every feed but the listen
