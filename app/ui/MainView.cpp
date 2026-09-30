@@ -2738,6 +2738,15 @@ void MainView::timerCallback()
 
     const bool slow = (++slowTicks % 30) == 0;
     statusBar->takeStopped = transportBar->takeStoppedByItself();
+    // Once, a few seconds in, on the first run that could share anything: what is sent and how
+    // to stop it. Nothing is sent before this has been said (Telemetry::needsNotice).
+    if (slowTicks == 90)
+        if (auto* t = Telemetry::instance(); t != nullptr && t->needsNotice())
+        {
+            showToast ("DLIVE shares anonymous usage and crash reports - which features are used and what went wrong. "
+                       "Never audio, names, files or anything you type. Help > Share anonymous usage data turns it off.");
+            t->markNoticeShown();
+        }
     statusBar->update (slow);
     {
         const bool failing = services.autosaveFailing();

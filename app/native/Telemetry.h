@@ -96,6 +96,11 @@ public:
     bool isConfigured() const noexcept { return config.url.isNotEmpty() && config.anonKey.isNotEmpty(); }
     bool isSharing() const;
     void setSharing (bool on);      // off also empties the queue: nothing already waiting is sent
+    // TOLD BEFORE ANYTHING LEAVES. Sharing is on by default, so the first run says so - what
+    // is sent, what never is, and where to switch it off - and the worker sends nothing until
+    // it has been said. True until markNoticeShown(); kept in telemetry.json.
+    bool needsNotice() const;
+    void markNoticeShown();
     juce::String getInstallId() const;
     juce::String getSessionId() const { return sessionId; }
     bool previousRunEndedBadly() const noexcept { return previousCrashed; }
@@ -154,6 +159,7 @@ private:
     juce::Time firstSeen;
     int launches = 0;
     bool sharing = true;
+    bool noticeShown = false;
     double mixingSeconds = 0.0;     // every run, the whole life of the install
     std::map<juce::String, juce::String> milestonesGot, featuresUsed;
     int failedSends = 0, droppedRows = 0;

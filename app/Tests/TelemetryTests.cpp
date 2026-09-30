@@ -401,3 +401,28 @@ TEST_CASE ("Telemetry: a stack is frame, module and symbol - never an address or
     CHECK (Telemetry::sanitiseValue ("model", "Scarlett 18i20").toString() == "Scarlett 18i20");
     CHECK (Telemetry::sanitiseValue ("model", juce::String::repeatedString ("a", 300)).toString().length() == 80);
 }
+
+TEST_CASE ("Telemetry: the first run is told before anything is shared, once")
+{
+    const auto dir = scratch ("notice");
+    FakeServer server;
+    {
+        Telemetry t (config (dir, &server));
+        t.start();
+        CHECK (t.needsNotice());                 // sharing is on by default, so it has to be said
+        t.markNoticeShown();
+        CHECK (! t.needsNotice());
+        t.end();
+    }
+    Telemetry again (config (dir, &server));
+    again.start();
+    CHECK (! again.needsNotice());               // said once, remembered
+    again.end();
+
+    // With nothing configured there is nothing to be told about.
+    const auto quiet = scratch ("notice-off");
+    Telemetry off (config (quiet, nullptr));
+    off.start();
+    CHECK (! off.needsNotice());
+    off.end();
+}

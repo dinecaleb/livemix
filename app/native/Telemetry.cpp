@@ -263,6 +263,7 @@ Telemetry::Telemetry (Config c)
         firstSeen = juce::Time::fromISO8601 (o->getProperty ("first_seen").toString());
         launches = (int) o->getProperty ("launches");
         sharing = o->hasProperty ("sharing") ? (bool) o->getProperty ("sharing") : true;
+        noticeShown = (bool) o->getProperty ("notice_shown");
         mixingSeconds = (double) o->getProperty ("mixing_seconds");
         failedSends = (int) o->getProperty ("failed_sends");
         droppedRows = (int) o->getProperty ("dropped_rows");
@@ -290,6 +291,14 @@ Telemetry::~Telemetry()
 }
 
 bool Telemetry::isSharing() const { const juce::ScopedLock sl (lock); return sharing; }
+bool Telemetry::needsNotice() const { const juce::ScopedLock sl (lock); return isConfigured() && ! noticeShown; }
+void Telemetry::markNoticeShown()
+{
+    const juce::ScopedLock sl (lock);
+    if (noticeShown) return;
+    noticeShown = true;
+    stateDirty = true;
+}
 juce::String Telemetry::getInstallId() const { const juce::ScopedLock sl (lock); return installId; }
 bool Telemetry::hasMilestone (const juce::String& id) const { const juce::ScopedLock sl (lock); return milestonesGot.count (id) > 0; }
 bool Telemetry::hasUsed (const juce::String& f) const { const juce::ScopedLock sl (lock); return featuresUsed.count (f) > 0; }
@@ -809,7 +818,7 @@ void Telemetry::run()
         {
             const juce::ScopedLock sl (lock);
             const auto now = juce::Time::getMillisecondCounter();
-            due = sharing && isConfigured() && ! queue.empty()
+            due = sharing && noticeShown && isConfigured() && ! queue.empty()
                && (nextAttemptMs == 0 || now >= nextAttemptMs)
                && (int (queue.size()) >= kBatch || now - oldestQueuedMs >= kSendAfterMs || flushWanted.load());
         }
@@ -887,6 +896,7 @@ juce::String Telemetry::stateJson() const
     o->setProperty ("first_seen", firstSeen.toISO8601 (true));
     o->setProperty ("launches", launches);
     o->setProperty ("sharing", sharing);
+    o->setProperty ("notice_shown", noticeShown);
     o->setProperty ("mixing_seconds", std::round (mixingSeconds));
     o->setProperty ("failed_sends", failedSends);
     o->setProperty ("dropped_rows", droppedRows);

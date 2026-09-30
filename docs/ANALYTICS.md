@@ -36,6 +36,10 @@ is added to this file in the same commit as the code that sends it.
 5. **The user can switch it off.** Help > *Share anonymous usage data* (shown only when a
    project is configured). Off also empties the queue. The milestones keep working, because
    they are the user's and live on the Mac.
+   **Told first.** Sharing is on by default, so the first run with a project configured says
+   so a few seconds in - what is sent, what never is, and where to switch it off - and the
+   worker sends nothing until it has (`Telemetry::needsNotice`, `notice_shown` in
+   `telemetry.json`). Rows queued before then wait in the queue like any other.
 6. **Milestones never wait for the network.** They are decided in `Telemetry::learn()` from the
    local state file and shown as a toast the moment they are earned. `milestone_unlocked` is
    only the record of it.
