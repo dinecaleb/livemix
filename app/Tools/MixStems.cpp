@@ -29,6 +29,7 @@
 #include "Analysis/AnalysisAccumulator.h"
 #include "native/ReferenceAudio.h"
 #include "Profiles/MixProfileData.h"
+#include "Profiles/Profile.h"
 #include "Core/DbUtils.h"
 #include <cstdio>
 #include <memory>
@@ -470,7 +471,11 @@ int main (int argc, char** argv)
     {
         const auto m = measure (afterMix, sr);
         const float ceiling = plan.proposed.master().channel.limiterCeilingDb;
-        const float target = deliveryLoudnessLufs (session.delivery);
+        // The target TUNE aimed at: the session's own delivery setting when it has one, else the
+        // delivery role's standard - the same resolution MixController::getMasterLoudness makes.
+        const auto masterTargets = Profiles::targets (session.profile, session.masterRole());
+        const float wanted = session.deliveryTargetLufs();
+        const float target = wanted < 0.0f && masterTargets.loudnessTargetAppropriate ? wanted : masterTargets.targetLufs;
         const float lufs = m.loudnessGatedLufs > -100.0f ? m.loudnessGatedLufs : m.loudnessLufs;
         int failures = 0;
         auto require = [&failures] (bool ok, const char* what, double value, double limit)
