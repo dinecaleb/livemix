@@ -37,10 +37,12 @@ file under `docs/` — read the one for the area you are touching before changin
   monitor has taken its copy.
   *Autopilot* is the second, added 2026-09-28. It is **deterministic - no AI anywhere in it** - off by default,
   engaged only by explicit action, shown as AUTOPILOT on every workspace while it is on, bounded by
-  `MixSafetyValidator`, limited to **group faders only** and to +/- `maxTotalDb` of the mix it was engaged on,
+  LIVE SAFE and its own `AutopilotLimits`, limited to **group faders only** and to +/- `maxTotalDb` of the mix it was engaged on,
   and every move it makes is a Mix history entry with the sentence that says why. It never touches EQ,
   dynamics, a channel, the room, the returns, the master fader or the engineer's listen. It runs on the
-  message thread off `MixController::poll` and never on the audio thread. **Within tolerance it does nothing,
+  message thread off `MixController::poll` and never on the audio thread. It measures each group where it
+  lands (meter + fader) against the groups summed - never the master meter - learns the mix over seconds of
+  audio, and holds still while the arrangement differs from the one it learnt. **Within tolerance it does nothing,
   and that is the default outcome** (`tests/Mix/AutopilotTests.cpp` asserts it). One press turns it off, and an
   engineer's own move on a fader it had been correcting hands that fader straight back.
 - **AI is optional, validated and never auto-applied.** Default Off, explicit user action only, a
@@ -48,8 +50,10 @@ file under `docs/` — read the one for the area you are touching before changin
   failure, AI output never enters the proposed parameters, nothing AI-related on the audio thread, and a
   reopened session never contacts a provider. The plug-ins' AI assist is switched off on purpose
   (`kAIAssistAvailable = false`); keep the code paths, do not re-enable without being asked. In DLIVE the
-  reasoning layer (TUNE LIVE MIX, MIX BUDDY) sits **above** `MixPlanner`, never instead of it: the
-  deterministic plan is built first and always.
+  reasoning layer (TUNE LIVE MIX) sits **above** `MixPlanner`, never instead of it: the
+  deterministic plan is built first and always. **MIX BUDDY is help, not mixing**: a question never changes
+  the mix; its one path to a change is an explicit "Propose it" that becomes an ordinary proposal on
+  BEFORE / AFTER. Nothing is ever kept by starting something else.
 - **Never rename a released parameter ID**; sessions, presets and automation depend on them. Enums that are
   stored (`StyleProfileId`, `MixBus`, roles) are appended to, never reordered; a stored-layout change bumps
   `SessionStore`'s version and remaps the old one. A group bus goes in immediately before `MASTER`, so

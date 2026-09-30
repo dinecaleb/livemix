@@ -1499,22 +1499,17 @@ int main (int argc, char** argv)
     rig.feed (0.2);
 
 
-    // MIX CHAT: a change asked for in words. It works with no account and no network - with no
-    // cloud model configured the sentence is read by DLIVE's own parser, which is deterministic
-    // and offline - so these two shots are of the built-in reasoning, which is what a church
-    // booth with no internet actually gets. The empty sheet says what it can be asked; the
-    // answered one shows the sentence, what DLIVE decided line by line, and the same
-    // BEFORE / AFTER / KEEP / REVERT the rest of the app decides a plan with.
+    // MIX BUDDY: help, in plain words. The empty panel says what it can be asked; the answered
+    // one shows a question about the mix answered from the session as it is - the facts it
+    // read, a line each - and the buttons for the next step. Nothing about the mix changes.
     view.closeSheets();
     view.showPage (MainView::Page::Mixer);
     view.showChat();
     rig.feed (0.4);
     rig.snap (dir, "27-chat");
-    rig.controller.sendChatRequest ("bring the lead vocal forward and take some boom out of the kick");
-    for (int i = 0; i < 900 && rig.controller.isChatBusy(); ++i) { rig.controller.poll(); rig.feed (0.05); }
+    rig.controller.askBuddy ("Why is the lead vocal quiet?");
     rig.feed (0.6);
     rig.snap (dir, "27b-chat-answered");
-    rig.controller.revertPlan();
     view.closeSheets();
     rig.feed (0.3);
 

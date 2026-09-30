@@ -1288,7 +1288,7 @@ std::string MixController::getTuningName() const
 
 void MixController::addTuneScope (UsageEvent& e) const
 {
-    const char* scope = chatRun ? "mix_buddy" : liveRun || liveKept ? "live"
+    const char* scope = chatRun || ! buddyRequest.empty() ? "mix_buddy" : liveRun || liveKept ? "live"
                       : tuningStrip >= 0 ? "channel" : tuningBus >= 0 ? "group"
                       : ! tuningStrips.empty() ? "channels" : "mix";
     e.words.push_back ({ "scope", scope });
@@ -1416,7 +1416,26 @@ void MixController::startTuneLiveMix (const LiveTuneSettings& s)
 {
     if (! prepared || stage == Stage::Listening || stage == Stage::Planning || liveRun) return;
     if (liveSafeRefuses (LiveAction::TuneLive)) return;
-    if (stage == Stage::Preview) keepPlan();     // a new run starts from what is audible now
+    // NOTHING IS KEPT BY STARTING SOMETHING ELSE. A proposal waiting on BEFORE / AFTER is the
+    // engineer's to decide. Another reading of TUNE LIVE MIX replaces the one on preview (it
+    // is an alternative to it, from the same starting point); anything else waiting is left
+    // for KEEP or REVERT, and this run does not start.
+    if (stage == Stage::Preview && plan)
+    {
+        if (! liveKept)
+        {
+            if (onMessage) onMessage ("A TUNE proposal is waiting on BEFORE / AFTER. KEEP it or REVERT it first.");
+            return;
+        }
+        kept = plan->before;
+        plan.reset();
+        liveKept = false;
+        buddyRequest.clear();
+        clearTuningScope();
+        stage = restingStage();
+        compare = Compare::After;
+        publish();
+    }
 
     liveSettings = s;
     liveBefore = kept;                            // the complete pre-Tune snapshot: what REVERT goes back to
@@ -1427,11 +1446,8 @@ void MixController::startTuneLiveMix (const LiveTuneSettings& s)
     ts.refinementPass = s.refinementPass;
     ts.userRequest = s.userRequest;
     ts.variation = s.variation;
-    for (const auto& turn : chat)
-    {
-        if (turn.failed) continue;
-        ts.conversation.push_back ({ turn.fromEngineer, turn.text });
-    }
+    // The Mix Buddy conversation does not steer TUNE LIVE MIX: a question asked there is help,
+    // not an instruction. Only the request a button asked for (userRequest) reaches it.
     tuneLive.setSettings (ts);
     tuneLive.beginListening (session.name);
 
@@ -1557,10 +1573,10 @@ void MixController::endTuneLive (const std::string& message, bool keepProposal, 
         {
             reply.text = message.empty() ? std::string ("DLIVE could not do that.") : message;
         }
+        if (! reply.applied) buddyRequest.clear();
+        else reply.text += " It is on BEFORE / AFTER now: KEEP makes it part of the mix, REVERT puts it back.";
         chat.push_back (reply);
-        // A request that changed nothing should not leave an undo step that undoes nothing.
-        if (! reply.applied && ! history.empty()) history.pop_back();
-        return;                      // the chat already said it; no toast on top
+        return;                      // the conversation already said it; no toast on top
     }
 
     if (onMessage && ! message.empty()) onMessage (message);
@@ -1834,13 +1850,15 @@ void MixController::keepPlan()
     // narrowed proposal, and the rest of the mix stays exactly as the listen found it.
     const MixParameters& taking = planSelection ? selectedProposed : plan->proposed;
     // KEEP replaces the whole mix, which is exactly the kind of change somebody wants a way
-    // back from. A chat turn has already marked its own step, so it does not mark a second.
-    if (! chatRun) markMixChange (isTuningPart() ? "tune " + getTuningName() : std::string ("TUNE MIX"));
+    // back from: one undo step, named for what asked for it.
+    const bool fromBuddy = ! buddyRequest.empty();
+    markMixChange (isTuningPart() ? "tune " + getTuningName()
+                 : fromBuddy ? "Mix Buddy: " + buddyRequest : std::string ("TUNE MIX"));
     // Every channel the plan moved remembers it: what did it, what the strip was, what it is now.
     {
         std::string what = isTuningChannel() ? std::string ("TUNE CHANNEL")
                          : isTuningBus() ? "TUNE " + getTuningName()
-                         : chatRun ? "Mix Buddy: " + (history.empty() ? std::string() : history.back().what)
+                         : fromBuddy ? "Mix Buddy: " + buddyRequest
                          : liveKept ? std::string ("TUNE LIVE MIX") : std::string ("TUNE MIX");
         const int n = std::min (plan->before.numStrips, taking.numStrips);
         for (int i = 0; i < n; ++i)
@@ -1859,6 +1877,7 @@ void MixController::keepPlan()
                                                     { "by", "tune" } }, {} });
     }
     liveKept = false;
+    buddyRequest.clear();
     kept = taking;
     // The proposal is kept for the Inspector to read "what DLIVE set" from; the selection
     // that narrowed it has done its work and never outlives the decision.
@@ -1869,7 +1888,7 @@ void MixController::keepPlan()
     publish();
     mark (isTuningChannel() ? std::string ("TUNE CHANNEL")
         : isTuningBus() ? "TUNE " + getTuningName()
-        : chatRun ? std::string ("Mix Buddy")
+        : fromBuddy ? std::string ("Mix Buddy")
         : tuneCount > 1 ? std::string ("RE-TUNE") : std::string ("TUNE MIX"));
 }
 
@@ -1920,6 +1939,8 @@ void MixController::revertPlan()
     }
     kept = plan->before;
     plan.reset();
+    liveKept = false;
+    buddyRequest.clear();
     clearTuningScope();
     stage = restingStage();
     compare = Compare::After;
@@ -2013,50 +2034,128 @@ void MixController::redoMix()
     if (onMessage) onMessage (forward.what.empty() ? std::string ("Redone.") : "Redone: " + forward.what + ".");
 }
 
-bool MixController::sendChatRequest (const std::string& text)
+void MixController::askBuddy (const std::string& text)
 {
-    if (text.find_first_not_of (" \t\n") == std::string::npos) return false;
-    if (! prepared)
-    {
-        if (onMessage) onMessage ("No mix is running yet.");
-        return false;
-    }
-    // The chat is a change to the mix, so LIVE SAFE decides whether it may happen. It is
-    // allowed while locked - each change is asked for by name and shown before it lands -
-    // but everything the reasoning layer proposes is still bounded by the policy.
-    if (liveRun || stage == Stage::Listening || stage == Stage::Planning)
-    {
-        if (onMessage) onMessage ("DLIVE is busy. Wait for it to finish, then ask again.");
-        return false;
-    }
-    if (! canChat())
-    {
-        chat.push_back ({ true, text, {}, false, false });
-        chat.push_back ({ false, "DLIVE has not heard the band yet. Run TUNE MIX (or TUNE LIVE MIX) once, "
-                                 "then ask for anything you like - the chat works from what it heard.", {}, true, false });
-        if (onMessage) onMessage ("Run TUNE MIX first: the chat works from what DLIVE heard.");
-        return false;
-    }
+    if (text.find_first_not_of (" \t\n") == std::string::npos) return;
+    chat.push_back ({ true, text, {}, false, false, {} });
+    // Read from a copy, answered at once, and nothing about the mix changes: no parameter, no
+    // history entry, no undo step. That is the whole contract (see MixBuddy.h).
+    const auto a = MixBuddy::answer (text, buddySnapshot());
+    ChatTurn reply;
+    reply.fromEngineer = false;
+    reply.text = a.text;
+    reply.detail = a.detail;
+    reply.actions = a.actions;
+    reply.failed = a.notUnderstood;
+    chat.push_back (std::move (reply));
+    usage ({ "mix_buddy_used", {}, {} });
+}
 
-    chat.push_back ({ true, text, {}, false, false });
+BuddySnapshot MixController::buddySnapshot() const
+{
+    BuddySnapshot b;
+    b.running = prepared && built;
+    b.heard = listened && lastCapture.valid;
+    b.bypass = bypassed;
+    b.broadcastMute = broadcastMute;
+    b.broadcastDim = broadcastDim;
+    b.liveSafe = safety.on;
+    b.autopilot = autopilot.on;
+    b.speechPriority = session.speechPriority;
+    b.monitorOutput = hasMonitorOutput();
+    const auto& base = getBase();
+    bool anySolo = false;
+    for (int i = 0; i < base.numStrips; ++i) anySolo = anySolo || base.strips[size_t (i)].solo;
+    for (int g = 0; g < int (MixBus::Count); ++g) anySolo = anySolo || base.buses[size_t (g)].solo;
+    b.soloInPlace = anySolo && base.monitor.mode == SoloMode::InPlace;
+    if (prepared) b.speechDuckDb = engine.getSpeechDuckDb();
+
+    for (int i = 0; i < int (session.inputs.size()) && i < base.numStrips; ++i)
+    {
+        const auto& in = session.inputs[size_t (i)];
+        const auto& sp = base.strips[size_t (i)];
+        BuddyStrip s;
+        s.name = in.name;
+        s.role = in.role;
+        s.bus = i < graph.numStrips() ? graph.strips[size_t (i)].bus : MixBus::Music;
+        s.input = in.inputA >= 0 ? in.inputA + 1 : -1;
+        s.inputGainDb = sp.inputGainDb;
+        s.faderDb = sp.faderDb;
+        s.mute = sp.mute;
+        s.solo = sp.solo;
+        s.compOn = sp.channel.compEnabled;
+        s.gateOn = sp.channel.gateEnabled;
+        s.sampleOn = sp.channel.replaceEnabled;
+        if (prepared && i < engine.getNumStrips())
+        {
+            const auto& p = engine.getStrip (i);
+            s.inputRmsDb = p.getInputMeter().getMaxRmsDb();
+            s.inputPeakDb = p.getInputMeter().getMaxPeakDb();
+            s.clipped = p.getInputMeter().hasClipped();
+            s.compReductionDb = std::fabs (p.getCompressor().getGainReductionDb());
+            s.gateReductionDb = std::fabs (p.getGate().getGainReductionDb());
+        }
+        b.strips.push_back (s);
+    }
+    for (int g = 0; g < int (MixBus::Count); ++g)
+    {
+        auto& grp = b.groups[size_t (g)];
+        grp.used = g == int (MixBus::Master) || (built && graph.busUsed[size_t (g)]);
+        grp.faderDb = base.buses[size_t (g)].faderDb;
+        grp.mute = base.buses[size_t (g)].mute;
+        grp.solo = base.buses[size_t (g)].solo;
+    }
+    b.limiterOn = base.master().channel.limiterEnabled;
+    const auto loud = getMasterLoudness();
+    b.shortLufs = loud.shortTermLufs;
+    b.integratedLufs = loud.integratedLufs;
+    b.targetLufs = loud.targetLufs;
+    b.truePeakDb = loud.truePeakDb;
+    b.ceilingDb = loud.ceilingDb;
+    b.limiterReductionDb = loud.limiterReductionDb;
+    if (prepared)
+    {
+        b.masterClipped = engine.getBus (MixBus::Master).getOutputMeter().hasClipped();
+        b.outputHeldBlocks = engine.getClampedOutputBlocks();
+        b.nonFiniteBlocks = engine.getNonFiniteBlocks();
+    }
+    return b;
+}
+
+bool MixController::askForChange (const std::string& text)
+{
+    auto refuse = [this] (const std::string& why)
+    {
+        chat.push_back ({ false, why, {}, true, false, {} });
+        return false;
+    };
+    if (text.find_first_not_of (" \t\n") == std::string::npos) return false;
+    if (! prepared) return refuse ("No mix is running yet.");
+    if (liveRun || stage == Stage::Listening || stage == Stage::Planning)
+        return refuse ("DLIVE is busy. Wait for it to finish, then ask again.");
+    if (stage == Stage::Preview)
+        return refuse ("A proposal is already waiting on BEFORE / AFTER. KEEP it or REVERT it first - "
+                       "nothing is kept for you.");
+    if (safety.on)
+        return refuse ("LIVE SAFE is on, so the mix is not changed from here. Turn LIVE SAFE off first "
+                       "if this is not the middle of a service.");
+    if (! (listened && lastCapture.valid))
+        return refuse ("DLIVE has not heard the band yet. Run TUNE MIX once while they play; a change "
+                       "is worked out from what it heard.");
 
     LiveTuneSettings s = liveSettings;
     s.userRequest = text;
-    s.reuseListen = true;         // the band does not play again for every sentence
+    s.reuseListen = true;         // the band does not play again for every request
     s.refinementPass = false;     // one request, one change, reviewed by the person who asked
     s.variation = 0;
     chatRun = true;
-    markMixChange (text);
+    buddyRequest = text;
     startTuneLiveMix (s);
-    if (liveRun) usage ({ "mix_buddy_used", {}, {} });
-    if (! liveRun)
+    if (! liveRun && stage != Stage::Preview)
     {
-        // startTuneLiveMix refused (LIVE SAFE, or nothing heard): take the history entry back
-        // so an undo does not point at a change that never happened.
         chatRun = false;
-        if (! history.empty()) history.pop_back();
-        chat.push_back ({ false, "That could not be done right now.", {}, true, false });
-        return false;
+        buddyRequest.clear();
+        return refuse ("That could not be worked out right now.");
     }
     return true;
 }

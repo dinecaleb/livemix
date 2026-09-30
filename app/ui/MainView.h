@@ -115,6 +115,9 @@ public:
     void closeSheetsForSnapshot() { closeSheets(); }
     void exportMixForSnapshot() { exportMix (AppServices::ExportFormat::Wav); }
     void showChat();
+    // A button in a Mix Buddy answer. Everything here is navigation, a listen in the engineer's
+    // own headphones, or the start of a TUNE that ends on BEFORE / AFTER - never a change kept.
+    void performBuddyAction (const BuddyAction&);
     void closeSheets();
     // RECOVER SESSION? DLIVE did not close cleanly and there is unsaved work beside the
     // document. The two are compared side by side and nothing is deleted by any of the three

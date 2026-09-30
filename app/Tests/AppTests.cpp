@@ -2300,6 +2300,48 @@ TEST_CASE ("MixController: Autopilot, closed loop through the engine - it conver
     CHECK (logged);
 }
 
+TEST_CASE ("Mix Buddy: a question never changes the mix, and nothing is kept for you")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    f.play (0.5);
+
+    // Asking changes nothing: not a parameter, not the history, not the undo stack.
+    const auto kept = c.getKept();
+    const bool couldUndo = c.canUndoMix();
+    const auto marks = c.getCheckpoints().size();
+    c.askBuddy ("why can't I hear the lead?");
+    c.askBuddy ("turn the lead up");
+    c.askBuddy ("how do I save this mix?");
+    CHECK (MixPlanner::countParameterChanges (kept, c.getKept()) == 0);
+    CHECK (c.canUndoMix() == couldUndo);
+    CHECK (c.getCheckpoints().size() == marks);
+    REQUIRE (c.getChat().size() == 6);
+    CHECK (! c.getChat()[1].text.empty());
+
+    // A proposal waiting on BEFORE / AFTER is the engineer's to decide. A change asked for from
+    // Mix Buddy is refused rather than keeping it, and so is a TUNE LIVE MIX run.
+    c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    const auto proposed = c.getBase();
+    CHECK (! c.askForChange ("lead brighter"));
+    CHECK (c.getStage() == MixController::Stage::Preview);
+    c.startTuneLiveMix();
+    CHECK (c.getStage() == MixController::Stage::Preview);            // not kept, not replaced
+    CHECK (MixPlanner::countParameterChanges (proposed, c.getBase()) == 0);
+    c.revertPlan();
+
+    // LIVE SAFE refuses a proposed change outright, and says why in the conversation.
+    c.setLiveSafe (true);
+    CHECK (! c.askForChange ("lead brighter"));
+    CHECK (c.getChat().back().failed);
+    CHECK (c.getChat().back().text.find ("LIVE SAFE") != std::string::npos);
+    c.setLiveSafe (false);
+}
+
 TEST_CASE ("MixController: a tune says what it was about in fixed words, and never with a channel's name")
 {
     MixController c;

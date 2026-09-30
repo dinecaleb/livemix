@@ -279,19 +279,24 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   reading: `LiveTuneSettings::variation` 1, 2, 3 ... - asked for by name, and itself repeatable -
   and it works from the listen DLIVE already has (`reuseListen`), so two readings are compared against the same
   performance. Verify with the `Repeatability: ...` tests, which pin a deliberately drifting provider.
-- **MIX BUDDY** (the user-facing name since 2026-09-17 - "DLIVE's mix engineer, in plain words"; never "chat" or
-  "AI chat", so nobody types a request that is not about the mix, and the panel carries a permanent note saying
-  what it is for and what it cannot touch; `app/ui/ChatSheet`, `MixController::sendChatRequest`) is a **panel beside the
-  workspace**, never over it (`MainView::kRequestsW`; the pages and the chain foot give up its width, so a
-  page's own sheet stays whole next to it). It is not a second mixing engine: a sentence
-  goes through the same pipeline as TUNE LIVE MIX - intent, `CapabilityResolver`, `MixSafetyValidator` - and comes
-  out as an ordinary `MixPlan`, so BEFORE / AFTER, KEEP, REVERT and the Inspector work on it unchanged and nothing
-  typed into a chat can reach a parameter by a path the reasoning layer could not. With no cloud model configured
-  the request is read by `MixAI/MixRequestParser` - deterministic, offline, and honest: a sentence it cannot read
-  comes back with what to try instead rather than a confident change to something nobody asked about, and a capture
-  problem ("the singer is off mic") is named as a capture problem. The transcript and the conversation ride in
-  `MixReasoningRequest::conversation`. Beside it is mix-level UNDO / REDO (`markMixChange` / `undoMix` / `redoMix`),
-  which LIVE SAFE deliberately never locks.
+- **MIX BUDDY** is help, not a second mixing engine (rebuilt 2026-09-30; `src/MixAI/MixBuddy`, `app/ui/ChatSheet`,
+  `MixController::askBuddy`). TUNE MIX improves a mix, Autopilot holds one, and Mix Buddy explains, diagnoses and
+  shows you where. A question is answered deterministically and offline from `MixController::buddySnapshot()` - a
+  copy of the session as it is: each input's level, fader, mute, group, compressor and gate reduction, speech
+  priority's duck, the emergency keys, BYPASS, the master's loudness, true peak and limiter, the output guards. "Why
+  can't I hear channel 14" walks that path from the outside in and says the first thing that explains it (MUTE,
+  BYPASS, no signal at the input, a muted channel or group, a solo in place, a fader or group down, speech priority,
+  a weak preamp, a squashing compressor, else masking and TUNE MIX). "How do I" answers name only controls that
+  exist, checked against `app/ui`, and say so where DLIVE does not do a thing (a new bus, a shortcut for mix undo).
+  **Asking never changes the mix**: no parameter, no history entry, no undo step (`AppTests`: "Mix Buddy: a
+  question never changes the mix"). Answers end in buttons (`BuddyAction`, performed by
+  `MainView::performBuddyAction`): show a page, open a channel in the Inspector, solo it in the engineer's own
+  listen (never under SOLO IN PLACE), CHECK INPUTS, the Mix history, TUNE a channel, or **Propose it** - the one
+  button that can lead to a change, `askForChange`, which hands the request to TUNE LIVE MIX (`userRequest`,
+  `reuseListen`) and lands on BEFORE / AFTER; it is refused under LIVE SAFE, refused while any other proposal is
+  waiting, and kept only by KEEP, as one undo step named "Mix Buddy: <request>". The conversation no longer
+  reaches TUNE LIVE MIX. Nothing is kept by starting something else: a TUNE MIX proposal waiting on BEFORE / AFTER
+  makes TUNE LIVE MIX refuse, and TRY ANOTHER MIX replaces the reading on preview rather than keeping it.
 - **SAMPLE REPLACEMENT** (2026-09-24, `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md`): TUNE fits the stage's detector on
   the kick-in, snare-top and tom strips from the listen - `tune::setSampleReplacement`, an item of
   `Recommendation::Kind::Sample` in the Bleed section: the threshold between `bleedLevelDb` and the hits (never

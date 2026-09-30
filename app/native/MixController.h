@@ -15,6 +15,7 @@
 #include "Mix/MonitorBus.h"
 #include "Mix/Autopilot.h"
 #include "MixAI/TuneLiveCoordinator.h"
+#include "MixAI/MixBuddy.h"
 #include "MixHistory.h"
 
 namespace livemix
@@ -382,23 +383,32 @@ public:
     void carryStripHistory (const std::vector<StripTuneRecord>& records, const MixSession& previousSession);
     static constexpr int kMaxStripHistory = 24;         // per channel; the oldest goes first
 
-    // ---- AI MIX CHAT ----
-    // The chat is not a second mixing engine. A request in plain words goes through exactly
-    // the same pipeline as TUNE LIVE MIX - intent, resolve, validate, an ordinary MixPlan -
-    // so BEFORE / AFTER, KEEP, REVERT, the Inspector and the session record all work on it
-    // unchanged, and nothing a sentence asks for can reach a parameter by a path the reasoning
-    // layer could not. What the chat adds is the conversation and the history.
+    // ---- MIX BUDDY ----
+    // Help, not a second mixing engine (see src/MixAI/MixBuddy.h). A question is answered from
+    // a copy of the session's state and never changes it: no parameter, no history entry, no
+    // undo step. What it offers are buttons, each pressed on purpose; the one that can change
+    // the mix, AskForChange, is TUNE LIVE MIX with the request in words, which arrives on
+    // BEFORE / AFTER like any other proposal, is refused under LIVE SAFE, and is never kept by
+    // anything but KEEP.
     struct ChatTurn
     {
         bool fromEngineer = true;
         std::string text;
-        std::vector<std::string> detail;    // what DLIVE decided, a line each
+        std::vector<std::string> detail;    // the facts an answer was read from, or what a change did
         bool failed = false;
         bool applied = false;
+        std::vector<BuddyAction> actions;   // what to do next, as buttons
     };
-    // Ask for something. Returns false when the mix is busy or there is nothing to work from,
-    // with the reason on onMessage. The answer arrives through poll(), like every other run.
-    bool sendChatRequest (const std::string& text);
+    // Ask a question. Answered at once, deterministically, and nothing about the mix changes.
+    void askBuddy (const std::string& text);
+    // What Mix Buddy reads: the session right now, copied.
+    BuddySnapshot buddySnapshot() const;
+    // AskForChange, pressed: the request goes to TUNE LIVE MIX as a proposal. Returns false,
+    // with the reason in the conversation, when it cannot run (LIVE SAFE, a proposal already
+    // waiting for KEEP or REVERT, nothing heard yet, DLIVE busy).
+    bool askForChange (const std::string& request);
+    // A proposal Mix Buddy asked for is on BEFORE / AFTER, waiting for KEEP or REVERT.
+    bool hasBuddyProposal() const noexcept { return ! buddyRequest.empty() && plan.has_value() && stage == Stage::Preview; }
     const std::vector<ChatTurn>& getChat() const noexcept { return chat; }
     void clearChat() { chat.clear(); }
     bool isChatBusy() const noexcept { return liveRun && chatRun; }
@@ -900,7 +910,8 @@ private:
     std::array<std::vector<StripTuneRecord>, kMaxStrips> carriedStripHistory (const MixSession& previous) const;
 
     std::vector<ChatTurn> chat;
-    bool chatRun = false;               // this live run came from the chat, not from TUNE LIVE MIX
+    bool chatRun = false;               // this live run was asked for from Mix Buddy (AskForChange)
+    std::string buddyRequest;           // ... and what it asked for, until KEEP or REVERT decides it
 
     TuneLiveCoordinator tuneLive;
     LiveTuneSettings liveSettings;

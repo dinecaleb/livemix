@@ -53,6 +53,7 @@ add_library(livemix_engine STATIC
     MixAI/CapabilityResolver.cpp
     MixAI/MixSafetyValidator.cpp
     MixAI/MixRequestParser.cpp
+    MixAI/MixBuddy.cpp
     MixAI/MixReasoningProvider.cpp
     MixAI/TuneLiveCoordinator.cpp
     Communication/InstanceRegistry.cpp

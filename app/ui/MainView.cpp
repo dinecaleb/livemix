@@ -1873,6 +1873,53 @@ void MainView::tuneChannel (int strip, const MixController::ListenSettings& sett
 
 void MainView::showChat() { openChat(); }
 
+void MainView::performBuddyAction (const BuddyAction& a)
+{
+    const int strips = controller.isPrepared() ? controller.getEngine().getNumStrips() : 0;
+    const bool validStrip = a.strip >= 0 && a.strip < strips;
+    switch (a.kind)
+    {
+        case BuddyActionKind::ShowPage:
+        {
+            switch (a.page)
+            {
+                case BuddyPage::Tracks:    showPage (Page::Tracks); break;
+                case BuddyPage::Mixer:     showPage (Page::Mixer); break;
+                case BuddyPage::Tune:      showPage (Page::Tune); break;
+                case BuddyPage::Live:      showPage (Page::Live); break;
+                case BuddyPage::Inspector: showPage (Page::Inspector); break;
+                case BuddyPage::Routing:   showPage (Page::Routing); break;
+                case BuddyPage::Assign:    showPage (Page::Assign); break;
+                case BuddyPage::Device:    showPage (Page::Device); break;
+                case BuddyPage::Purpose:   showPage (Page::Purpose); break;
+                case BuddyPage::Outputs:   showOutputs(); break;
+                case BuddyPage::Sessions:  showPage (Page::Sessions); break;
+            }
+            break;
+        }
+        case BuddyActionKind::OpenInspector:
+            if (validStrip) { showPage (Page::Inspector); advancedPage->select (a.strip); }
+            break;
+        case BuddyActionKind::SoloStrip:
+            // Only ever the engineer's listen: with solo set to change the main mix, Mix Buddy
+            // does not press it - that would be Mix Buddy changing what the room hears.
+            if (! validStrip) break;
+            if (controller.getKept().monitor.mode == SoloMode::InPlace)
+            {
+                showToast ("Solo is set to SOLO IN PLACE, which changes the main mix, so Mix Buddy leaves it to you.");
+                break;
+            }
+            controller.setStripSolo (a.strip, ! controller.getKept().strips[size_t (a.strip)].solo);
+            break;
+        case BuddyActionKind::OpenCheckInputs: showCheck(); break;
+        case BuddyActionKind::OpenHistory:     showHistory(); break;
+        case BuddyActionKind::RunTuneMix:      showPage (Page::Tune); break;     // TUNE MIX asks what to tune, there
+        case BuddyActionKind::RunTuneChannel:  if (validStrip) tuneChannel (a.strip); break;
+        case BuddyActionKind::AskForChange:    controller.askForChange (a.request); break;
+    }
+    updateChrome();
+}
+
 void MainView::openChat()
 {
     if (chatSheet != nullptr)
@@ -1888,6 +1935,7 @@ void MainView::openChat()
     }
     chatSheet = std::make_unique<ChatSheet> (controller);
     chatSheet->onToast = [this] (const juce::String& t) { showToast (t); };
+    chatSheet->onAction = [this] (const BuddyAction& a) { performBuddyAction (a); };
     chatSheet->onClose = [this]
     {
         juce::Component::SafePointer<MainView> safe (this);
