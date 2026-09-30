@@ -1,6 +1,9 @@
 #include "AISettings.h"
 #include <mutex>
 #include <optional>
+#if JUCE_MAC || JUCE_LINUX
+ #include <sys/stat.h>
+#endif
 
 namespace livemix
 {
@@ -67,6 +70,10 @@ bool AISettings::save (const AISettings& s)
     xml.setAttribute ("effort", s.effort);
     xml.setAttribute ("timeoutSeconds", s.timeoutSeconds);
     const bool ok = xml.writeTo (getFile());
+   #if JUCE_MAC || JUCE_LINUX
+    // It can hold an API key: readable by this user and nobody else on the Mac.
+    ::chmod (getFile().getFullPathName().toRawUTF8(), S_IRUSR | S_IWUSR);
+   #endif
     std::lock_guard<std::mutex> lock (settingsCacheMutex);
     settingsCache = readSettingsFromDisk(); // normalised, env merged
     return ok;
