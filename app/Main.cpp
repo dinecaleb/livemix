@@ -110,17 +110,33 @@ namespace
         // taken and pushed back by hand, and it is what lost the reference mix every time.
         juce::String openDevices (const juce::String& input, const juce::String& output) override
         {
+            if (const auto locked = deviceChangeLocked(); locked.isNotEmpty()) return locked;
             forgetPairing();
-            return host.open (input, output);
+            return host.open (input, output, runningRate(), runningBlock());
         }
         juce::String openOutputOnly (const juce::String& output) override
         {
+            if (const auto locked = deviceChangeLocked(); locked.isNotEmpty()) return locked;
             forgetPairing();
-            return host.openOutputOnly (output);
+            return host.openOutputOnly (output, runningRate(), runningBlock());
         }
+
+        // LIVE SAFE: re-opening the audio device stops the broadcast for a moment. It was named
+        // in the policy and checked nowhere, so every device picker could still do it mid-service.
+        juce::String deviceChangeLocked()
+        {
+            const auto v = controller.checkLiveSafe (LiveAction::DeviceChange);
+            return v.allowed ? juce::String() : juce::String (v.reason);
+        }
+        // A device re-opened for DLIVE's own reasons (solo joined or parted, the broadcast moved)
+        // keeps the rate and the buffer it was running at. Re-opening at 48 kHz / 64 re-clocked a
+        // 44.1 or 96 kHz rig mid-service, split the take, and left a laptop on the smallest buffer.
+        double runningRate() const { return host.isOpen() && host.getSampleRate() > 0.0 ? host.getSampleRate() : 48000.0; }
+        int runningBlock() const { return host.isOpen() && host.getBufferSize() > 0 ? host.getBufferSize() : 64; }
 
         juce::String changeOutput (const juce::String& output) override
         {
+            if (const auto locked = deviceChangeLocked(); locked.isNotEmpty()) return locked;
             // Changing the broadcast while solo is set up is not a device swap - it is the same
             // pairing with a different half, so the joined device has to be rebuilt around it.
             // Without this, choosing a new broadcast from the toolbar would silently drop the
@@ -452,6 +468,12 @@ namespace
         MonitorSetup setSoloOutputDevice (const juce::String& wanted) override
         {
             const auto broadcast = broadcastOutputDevice();
+            const double rate = runningRate();
+            const int block = runningBlock();
+            // Solo on another pair of the device already open moves only the engineer's listen;
+            // anything else re-opens the device the broadcast is playing through.
+            if (wanted != broadcast || MonitorDevice::dliveDeviceExists())
+                if (const auto locked = deviceChangeLocked(); locked.isNotEmpty()) return { false, locked };
             // The console's own device, taken now: a failed open closes the device and forgets
             // it, and while the built device is open the host's input *is* the built device.
             // Putting the console back afterwards is the whole point of the fallback path.
@@ -486,9 +508,13 @@ namespace
                 if (numOutputChannels() < 4)
                     return { false, broadcast + " has only one pair of outputs, so there is nowhere separate for "
                                     "solo to go. Choose a different device - DLIVE will join the two for you." };
+                if (const auto* taken = feedUsing (2, 3))
+                    return { false, "Outputs 3-4 of " + broadcast + " already carry " + juce::String (outputFeedSourceName (taken->source))
+                                    + ". Move that feed under Outputs first, or choose a different device for solo." };
                 soloDevice = wanted;
                 broadcastDevice = broadcast;
-                routeOutputs (0, 2);
+                if (! routeOutputs (0, 2))
+                    return { false, "Solo could not be routed without moving the stream, and LIVE SAFE keeps the stream where it is." };
                 touchSession();
                 return { true, "Solo goes to outputs 3-4 of " + broadcast + ". The stream is on 1-2 and never changes." };
             }
@@ -541,7 +567,7 @@ namespace
             // and asking again, opening it fails with "No such device" on the device DLIVE has
             // just built. This is the whole reason the first attempt at this did not work.
             const bool appeared = host.waitForOutputDevice (built.deviceName);
-            const auto err = appeared ? host.open (built.carriesInput ? built.deviceName : input, built.deviceName, 48000.0, 64, channels)
+            const auto err = appeared ? host.open (built.carriesInput ? built.deviceName : input, built.deviceName, rate, block, channels)
                                       : juce::String ("this Mac did not publish it in time");
             if (err.isEmpty()) consoleInputDevice = built.carriesInput ? input : juce::String();
             const int broadcastSlot = err.isEmpty() ? host.slotForOutputChannel (built.broadcastChannel) : -1;
@@ -662,28 +688,56 @@ namespace
         // to the person who has no desk plugged in.
         juce::String openWith (const juce::String& outputDevice, const juce::String& inputDevice)
         {
-            return inputDevice.isNotEmpty() ? host.open (inputDevice, outputDevice)
-                                            : host.openOutputOnly (outputDevice);
+            return inputDevice.isNotEmpty() ? host.open (inputDevice, outputDevice, runningRate(), runningBlock())
+                                            : host.openOutputOnly (outputDevice, runningRate(), runningBlock());
         }
 
-        // Feed 0 is the broadcast, feed 1 is the engineer's listen. Written in one place so the
-        // three ways of setting solo up cannot end up disagreeing about which pair is which.
-        void routeOutputs (int broadcastChannel, int soloChannel)
+        // A feed other than the broadcast and the engineer's listen that uses either channel.
+        const OutputFeed* feedUsing (int left, int right) const
+        {
+            const auto& feeds = controller.getOutputFeeds();
+            for (int i = 1; i < juce::jmin (feeds.count, int (kMaxOutputFeeds)); ++i)
+            {
+                const auto& f = feeds.feeds[size_t (i)];
+                if (f.monitor || ! f.routed()) continue;
+                for (int c : { f.left, f.right })
+                    if (c == left || c == right) return &f;
+            }
+            return nullptr;
+        }
+
+        // Feed 0 is the broadcast, and the engineer's listen is the monitor feed (feed 1 unless
+        // the session put it elsewhere). Written in one place so the three ways of setting solo up
+        // cannot end up disagreeing about which pair is which. Every other feed - a room, a
+        // hearing loop, a record feed - is left exactly where it was: this used to cut the list
+        // back to two and delete them. False when the controller refused it (LIVE SAFE).
+        bool routeOutputs (int broadcastChannel, int soloChannel)
         {
             auto feeds = controller.getOutputFeeds();
-            feeds.count = 2;
+            int listen = -1;
+            for (int i = 1; i < juce::jmin (feeds.count, int (kMaxOutputFeeds)); ++i)
+                if (feeds.feeds[size_t (i)].monitor) { listen = i; break; }
+            if (listen < 0)
+            {
+                listen = juce::jmax (1, juce::jmin (feeds.count, int (kMaxOutputFeeds) - 1));
+                feeds.feeds[size_t (listen)] = {};
+                feeds.count = juce::jmax (feeds.count, listen + 1);
+            }
             feeds.feeds[0].monitor = false;
             feeds.feeds[0].source = MixBus::Master;
             feeds.feeds[0].left = broadcastChannel;
             feeds.feeds[0].right = broadcastChannel + 1;
             feeds.feeds[0].mono = false;          // the broadcast is never summed
             feeds.feeds[0].mute = false;
-            feeds.feeds[1].monitor = true;
-            feeds.feeds[1].left = soloChannel;
-            feeds.feeds[1].right = soloChannel + 1;
-            feeds.feeds[1].mono = false;
-            feeds.feeds[1].mute = false;
+            auto& solo = feeds.feeds[size_t (listen)];
+            solo.monitor = true;
+            solo.left = soloChannel;
+            solo.right = soloChannel + 1;
+            solo.mono = false;
+            solo.mute = false;
             controller.setOutputFeeds (feeds);
+            const auto& now = controller.getOutputFeeds();
+            return now.feeds[0].left == broadcastChannel && now.feeds[size_t (listen)].left == soloChannel;
         }
 
         MixController& controller;

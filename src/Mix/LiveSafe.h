@@ -61,6 +61,7 @@ enum class LiveAction : int
     DeviceChange,
     TimelineEdit,
     SessionChange,      // new / open / import
+    SoloInPlace,        // solo heard by everyone: the one solo setting that reaches the air
     Count
 };
 
@@ -137,6 +138,7 @@ namespace liveSafe
             case LiveAction::DeviceChange:      return "changing the audio device";
             case LiveAction::TimelineEdit:      return "editing the timeline";
             case LiveAction::SessionChange:     return "opening or starting a session";
+            case LiveAction::SoloInPlace:       return "solo in place";
             case LiveAction::Count:
             default:                            return "that";
         }
@@ -161,6 +163,7 @@ namespace liveSafe
             case LiveAction::DeviceChange:
             case LiveAction::TimelineEdit:
             case LiveAction::SessionChange:
+            case LiveAction::SoloInPlace:
                 return true;
             default:
                 return false;
@@ -188,6 +191,7 @@ namespace liveSafe
             case LiveAction::DeviceChange:  return "the audio device would have to be re-opened";
             case LiveAction::TimelineEdit:  return "an edit could remove what is being recorded";
             case LiveAction::SessionChange: return "the service that is running would be closed";
+            case LiveAction::SoloInPlace:   return "every solo would be heard by the room and the stream";
             default:                        return "it could interrupt the service";
         }
     }

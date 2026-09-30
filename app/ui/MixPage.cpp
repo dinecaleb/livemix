@@ -1312,8 +1312,8 @@ public:
         before.setClickingTogglesState (false); after.setClickingTogglesState (false);
         for (auto* b : { &before, &after, &keep, &revert, &another }) { b->setFontPx (12.5f); b->setPadX (14); }
         keep.setPadX (18);
-        before.onClick = [this] { controller.setCompare (MixController::Compare::Before); refresh(); if (page.onToast) page.onToast ("Auditioning BEFORE. Nothing is committed by listening."); };
-        after.onClick  = [this] { controller.setCompare (MixController::Compare::After); refresh(); if (page.onToast) page.onToast ("Auditioning AFTER."); };
+        before.onClick = [this] { controller.setCompare (MixController::Compare::Before); refresh(); if (page.onToast) page.onToast ("Playing BEFORE - to the room and the stream too. Nothing is kept until KEEP."); };
+        after.onClick  = [this] { controller.setCompare (MixController::Compare::After); refresh(); if (page.onToast) page.onToast ("Playing AFTER - to the room and the stream too. Nothing is kept until KEEP."); };
         keep.onClick   = [this] { controller.keepPlan(); if (page.onToast) page.onToast ("Kept. Every value it set is marked TUNED BY DLIVE and can be reverted stage by stage."); };
         revert.onClick = [this] { controller.revertPlan(); if (page.onToast) page.onToast ("Reverted to the mix you had before this run."); };
         another.onClick = [this] { controller.tryAnotherMix(); };
@@ -1552,7 +1552,12 @@ public:
                                               + juce::String (plan->parametersChanged) + " settings and "
                                               + juce::String (plan->fadersChanged) + " levels. " + juce::String (plan->headline)),
                               r.removeFromTop (18), juce::Justification::topLeft, 1);
-        r.removeFromTop (18);
+        // WHAT IS AUDITIONED IS ON AIR. BEFORE and AFTER are what the room and the stream hear,
+        // not a private listen, and the card says so where the eye already is.
+        g.setColour (Dine::warn);
+        g.setFont (Dine::text (12.0f, 500));
+        Dine::drawFittedText (g, "The room and the stream hear BEFORE and AFTER as you switch. Nothing is kept until KEEP.",
+                              r.removeFromTop (18), juce::Justification::centredLeft, 1);
 
         if (showChips())
         {

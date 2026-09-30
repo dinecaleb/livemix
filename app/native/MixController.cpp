@@ -741,11 +741,15 @@ void MixController::setOutputFeeds (const OutputFeeds& f)
     // Moving the broadcast to a different pair of outputs mid-service is the one routing
     // change that is silent until it is too late. Changing only the *monitor* feed is always
     // allowed - it is the engineer's own listen and nobody else hears it.
-    if (safety.on && ! onlyMonitorChanged (outputs, f) && liveSafeRefuses (LiveAction::OutputRouting)) return;
-    outputs = f;
+    // Judged on the routing as it will actually land: a listen moved onto a pair another feed
+    // uses is taken off the device by normaliseOutputs, and that must never be the way a
+    // room or stream feed changes under LIVE SAFE.
     // The broadcast and the engineer's listen are always a real stereo pair, whatever set
     // them - the sheet, a restored session, or the host wiring up two devices.
-    normaliseOutputs (outputs);
+    auto next = f;
+    normaliseOutputs (next);
+    if (safety.on && ! onlyMonitorChanged (outputs, next) && liveSafeRefuses (LiveAction::OutputRouting)) return;
+    outputs = next;
     if (prepared) engine.setOutputFeeds (outputs);
     touch();        // the session remembers where the cue goes
 }
@@ -1286,9 +1290,16 @@ void MixController::startTuneStrips (const std::vector<int>& strips, const Liste
 void MixController::startListening (const ListenSettings& s, int strip, int bus, const std::vector<int>& strips)
 {
     if (! prepared || stage == Stage::Listening || stage == Stage::Planning) return;
-    // A new listen starts from what is audible now - except the verify listen of a live run,
-    // which is deliberately listening to a proposal the user has not kept yet.
-    if (stage == Stage::Preview && ! liveVerifying) keepPlan();
+    // NOTHING IS KEPT BY STARTING SOMETHING ELSE. A proposal waiting on BEFORE / AFTER is the
+    // engineer's to KEEP or REVERT; a new TUNE (the button, a group tile, TUNE CHANNEL, a
+    // Mix Buddy chip) used to keep it on the way in, so the room jumped to AFTER from a press
+    // that meant "try again". The verify listen of a live run is the one listen that is meant
+    // to hear a proposal nobody has kept yet.
+    if (stage == Stage::Preview && ! liveVerifying)
+    {
+        if (onMessage) onMessage ("A proposal is still waiting on BEFORE / AFTER. KEEP it or REVERT it first, then TUNE again.");
+        return;
+    }
     // AN ORDINARY TUNE IS NOT THE LAST LIVE RUN. The coordinator stays Ready after TUNE LIVE
     // MIX finishes, and the result card reads that to decide what it is a card about - so a
     // TUNE DRUMS started afterwards would title itself TUNE LIVE MIX and list the reasoning
@@ -2288,6 +2299,9 @@ std::vector<MixController::SoloedItem> MixController::getSoloed() const
 void MixController::setSoloMode (SoloMode m)
 {
     if (kept.monitor.mode == m) return;
+    // Solo in place puts every solo on the air. Under LIVE SAFE that is exactly the kind of
+    // one-press change it exists to stop; going back to the engineer's own listen never is.
+    if (m == SoloMode::InPlace && liveSafeRefuses (LiveAction::SoloInPlace)) return;
     kept.monitor.mode = m;
     if (plan) { plan->proposed.monitor.mode = m; plan->before.monitor.mode = m; }
     publish();
@@ -2356,7 +2370,7 @@ void MixController::setFxSoloAll (bool solo)
     {
         const bool want = solo && used[size_t (f)];
         kept.fx[size_t (f)].solo = want;
-        if (plan && stage == Stage::Preview) plan->proposed.fx[size_t (f)].solo = want;
+        bothSides ([&] (MixParameters& m) { m.fx[size_t (f)].solo = want; });
     }
     publish();
     if (solo && ! hasMonitorOutput() && kept.monitor.mode == SoloMode::Monitor && onMessage)
@@ -2368,7 +2382,7 @@ void MixController::setFxSolo (FxSlot slot, bool solo)
 {
     if (int (slot) < 0 || int (slot) >= int (FxSlot::Count)) return;
     kept.fx[size_t (slot)].solo = solo;
-    if (plan && stage == Stage::Preview) plan->proposed.fx[size_t (slot)].solo = solo;
+    bothSides ([&] (MixParameters& m) { m.fx[size_t (slot)].solo = solo; });
     publish();
     if (solo && ! hasMonitorOutput() && kept.monitor.mode == SoloMode::Monitor && onMessage)
         onMessage ("Solo has nowhere to go yet. Pick the device you listen on: the Solo picker on LIVE, or Outputs > Solo.");
@@ -2392,7 +2406,7 @@ void MixController::setStripFader (int strip, float db, bool withLink)
     want = liveSafe::limitStepDb (safety, LiveAction::Fader, from, want, v);
     if (v.limited && onMessage) onMessage (v.reason);
     kept.strips[size_t (strip)].faderDb = want;
-    if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].faderDb = kept.strips[size_t (strip)].faderDb;
+    bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].faderDb = kept.strips[size_t (strip)].faderDb; });
     // The link: the same move, in dB, on every other member. The step was already limited on
     // the held strip, so under LIVE SAFE no member moves further than it could have on its own.
     // A member at the end of its travel stops there; the others keep going, the way a console's
@@ -2403,7 +2417,7 @@ void MixController::setStripFader (int strip, float db, bool withLink)
         {
             auto& s = kept.strips[size_t (other)];
             s.faderDb = clamp (s.faderDb + delta, -60.0f, 12.0f);
-            if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (other)].faderDb = s.faderDb;
+            bothSides ([&] (MixParameters& m) { m.strips[size_t (other)].faderDb = s.faderDb; });
         }
     publish();
     touch();
@@ -2478,7 +2492,7 @@ int MixController::linkStrips (const std::vector<int>& strips)
         liveSafe::Verdict v;
         s.faderDb = liveSafe::limitStepDb (safety, LiveAction::Fader, s.faderDb, lead, v);
         if (v.limited) { limited = true; verdict = v; }
-        if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (i)].faderDb = s.faderDb;
+        bothSides ([&] (MixParameters& m) { m.strips[size_t (i)].faderDb = s.faderDb; });
     }
     if (limited && onMessage) onMessage (verdict.reason);
     if (plan) for (int i = 0; i < kept.numStrips; ++i)
@@ -2519,7 +2533,7 @@ void MixController::setStripPan (int strip, float pan)
     want = liveSafe::limitStep (safety, LiveAction::Pan, kept.strips[size_t (strip)].pan, want, v);
     if (v.limited && onMessage) onMessage (v.reason);
     kept.strips[size_t (strip)].pan = want;
-    if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].pan = kept.strips[size_t (strip)].pan;
+    bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].pan = kept.strips[size_t (strip)].pan; });
     publish();
     touch();
 }
@@ -2532,7 +2546,7 @@ void MixController::setStripInputGain (int strip, float db)
     want = liveSafe::limitStepDb (safety, LiveAction::InputGain, kept.strips[size_t (strip)].inputGainDb, want, v);
     if (v.limited && onMessage) onMessage (v.reason);
     kept.strips[size_t (strip)].inputGainDb = want;
-    if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].inputGainDb = kept.strips[size_t (strip)].inputGainDb;
+    bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].inputGainDb = kept.strips[size_t (strip)].inputGainDb; });
     publish();
     touch();
 }
@@ -2541,7 +2555,7 @@ void MixController::setStripMute (int strip, bool mute)
 {
     if (! validStrip (kept, strip)) return;
     kept.strips[size_t (strip)].mute = mute;
-    if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].mute = mute;
+    bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].mute = mute; });
     publish();
     touch();
 }
@@ -2550,12 +2564,12 @@ void MixController::setStripSolo (int strip, bool solo)
 {
     if (! validStrip (kept, strip)) return;
     kept.strips[size_t (strip)].solo = solo;
-    if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].solo = solo;
+    bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].solo = solo; });
     // Solo follows the link: S on one overhead means "the overheads", from either member.
     for (int other : linkedWith (strip))
     {
         kept.strips[size_t (other)].solo = solo;
-        if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (other)].solo = solo;
+        bothSides ([&] (MixParameters& m) { m.strips[size_t (other)].solo = solo; });
     }
     publish();
     // Solo is safe (it never reaches the master) but it is only *useful* when a monitor
@@ -2577,7 +2591,7 @@ void MixController::setStripSend (int strip, FxSlot slot, float db)
         if (v.limited && onMessage) onMessage (v.reason);
     }
     kept.strips[size_t (strip)].sendDb[size_t (slot)] = want;
-    if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].sendDb[size_t (slot)] = kept.strips[size_t (strip)].sendDb[size_t (slot)];
+    bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].sendDb[size_t (slot)] = kept.strips[size_t (strip)].sendDb[size_t (slot)]; });
     publish();
     touch();
 }
@@ -2624,11 +2638,7 @@ void MixController::setStripEffects (int strip, bool on)
                     s.sendDb[size_t (f)] = MixProfile::defaultSendDb (session.profile, RoleFamily::LeadVocal, FxSlot (f));
     }
 
-    if (plan && stage == Stage::Preview)
-    {
-        plan->proposed.strips[size_t (strip)].effectsOff = s.effectsOff;
-        plan->proposed.strips[size_t (strip)].sendDb = s.sendDb;
-    }
+    bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].effectsOff = s.effectsOff; m.strips[size_t (strip)].sendDb = s.sendDb; });
     publish();
     touch();
 }
@@ -2656,7 +2666,7 @@ void MixController::setBusFader (MixBus bus, float db)
                                   kept.buses[size_t (bus)].faderDb, want, v);
     if (v.limited && onMessage) onMessage (v.reason);
     kept.buses[size_t (bus)].faderDb = want;
-    if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].faderDb = kept.buses[size_t (bus)].faderDb;
+    bothSides ([&] (MixParameters& m) { m.buses[size_t (bus)].faderDb = kept.buses[size_t (bus)].faderDb; });
     publish();
     touch();
 }
@@ -2665,7 +2675,7 @@ void MixController::setBusMute (MixBus bus, bool mute)
 {
     if (bus == MixBus::Count) return;
     kept.buses[size_t (bus)].mute = mute;
-    if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].mute = mute;
+    bothSides ([&] (MixParameters& m) { m.buses[size_t (bus)].mute = mute; });
     publish();
     touch();
 }
@@ -2673,7 +2683,7 @@ void MixController::setBusMute (MixBus bus, bool mute)
 void MixController::setFxReturn (float db)
 {
     kept.fxReturnDb = clamp (db, -60.0f, 12.0f);
-    if (plan && stage == Stage::Preview) plan->proposed.fxReturnDb = kept.fxReturnDb;
+    bothSides ([&] (MixParameters& m) { m.fxReturnDb = kept.fxReturnDb; });
     publish();
     touch();
 }
@@ -2681,7 +2691,7 @@ void MixController::setFxReturn (float db)
 void MixController::setFxMute (bool mute)
 {
     kept.fxMute = mute;
-    if (plan && stage == Stage::Preview) plan->proposed.fxMute = mute;
+    bothSides ([&] (MixParameters& m) { m.fxMute = mute; });
     publish();
     touch();
 }
@@ -2690,7 +2700,7 @@ void MixController::setBusSolo (MixBus bus, bool solo)
 {
     if (bus == MixBus::Master || bus == MixBus::Count) return;
     kept.buses[size_t (bus)].solo = solo;
-    if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].solo = solo;
+    bothSides ([&] (MixParameters& m) { m.buses[size_t (bus)].solo = solo; });
     publish();
     if (solo && ! hasMonitorOutput() && kept.monitor.mode == SoloMode::Monitor && onMessage)
         onMessage ("Solo has nowhere to go yet. Pick the device you listen on: the Solo picker on LIVE, or Outputs > Solo.");

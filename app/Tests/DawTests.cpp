@@ -1989,7 +1989,7 @@ TEST_CASE ("SessionStore: the delivery loudness, the monitor and the AMBIENCE bu
     CHECK (back.session.delivery == DeliveryLoudness::StreamingLoud);
     CHECK_NEAR (back.session.deliveryTargetLufs(), -14.0f, 0.01);
     CHECK (back.session.inputs.back().role == ChannelRole::CrowdMic);
-    CHECK (back.mix.monitor.mode == SoloMode::InPlace);
+    CHECK (back.mix.monitor.mode == SoloMode::Monitor);     // saved in place, opened on the engineer's own listen
     CHECK (back.mix.monitor.point == SoloPoint::PFL);
     CHECK_NEAR (back.mix.monitor.gainDb, -6.0f, 0.01);
     CHECK (back.mix.monitor.dim);

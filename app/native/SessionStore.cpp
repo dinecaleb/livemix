@@ -415,9 +415,11 @@ namespace
         // it was saved, which is the right direction for this particular default to move.
         if (auto* mon = obj->getProperty ("monitor").getDynamicObject())
         {
-            const int mode = int (mon->getProperty ("mode"));
+            // SOLO IN PLACE IS NEVER OPENED. It is chosen by hand for mixing a recording and puts
+            // every solo on the air; a session opened on Sunday morning starts on the engineer's
+            // own listen whatever it was saved with. ("mode" is still written, for older builds.)
+            m.monitor.mode = SoloMode::Monitor;
             const int point = int (mon->getProperty ("point"));
-            if (mode >= 0 && mode < int (SoloMode::Count)) m.monitor.mode = SoloMode (mode);
             if (point >= 0 && point < int (SoloPoint::Count)) m.monitor.point = SoloPoint (point);
             m.monitor.gainDb = storedDb (mon->getProperty ("gainDb"), -60.0f, 12.0f);
             m.monitor.mute = bool (mon->getProperty ("mute"));

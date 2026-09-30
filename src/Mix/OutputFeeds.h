@@ -96,24 +96,45 @@ inline void normaliseOutputs (OutputFeeds& feeds, int availableChannels = 0) noe
 
     // ONE FEED PER CHANNEL. Feeds are summed onto the device, so two on one pair is the mix
     // +6 dB over its own ceiling - and a listen sharing a pair with the broadcast is every
-    // solo on the air. The earlier feed keeps the channel (feed 0, the broadcast, always
-    // does); a later one that collides is taken off the device, where the Outputs sheet shows
-    // it as not routed rather than quietly doubling something.
+    // solo on the air. Among the feeds everyone hears, the earlier keeps the channel (feed 0,
+    // the broadcast, always does) and a later one that collides is taken off the device, where
+    // the Outputs sheet shows it as not routed rather than quietly doubling something. The
+    // engineer's listen never takes a pair from one of them, whatever its position: moving
+    // solo onto the room's outputs takes solo off the device, not the room.
+    auto overlaps = [] (const OutputFeed& x, const OutputFeed& y)
+    {
+        for (int a : { x.left, x.right })
+            for (int b : { y.left, y.right })
+                if (a >= 0 && a == b) return true;
+        return false;
+    };
     for (int i = 0; i < feeds.count; ++i)
     {
         auto& f = feeds.feeds[size_t (i)];
         if (! f.mono && f.left >= 0 && f.left == f.right) f.mono = true;   // one channel is mono, not the mix twice
-        if (i == 0 || ! f.routed()) continue;
-        bool collides = false;
-        for (int j = 0; j < i && ! collides; ++j)
+    }
+    for (int i = 1; i < feeds.count; ++i)
+    {
+        auto& f = feeds.feeds[size_t (i)];
+        if (f.monitor || ! f.routed()) continue;
+        for (int j = 0; j < i; ++j)
         {
             const auto& e = feeds.feeds[size_t (j)];
-            if (! e.routed()) continue;
-            for (int a : { f.left, f.right })
-                for (int b : { e.left, e.right })
-                    collides = collides || (a >= 0 && a == b);
+            if (e.monitor && j != 0) continue;
+            if (e.routed() && overlaps (f, e)) { f.left = f.right = -1; break; }
         }
-        if (collides) f.left = f.right = -1;
+    }
+    for (int i = 1; i < feeds.count; ++i)
+    {
+        auto& f = feeds.feeds[size_t (i)];
+        if (! f.monitor || ! f.routed()) continue;
+        for (int j = 0; j < feeds.count; ++j)
+        {
+            if (j == i) continue;
+            const auto& e = feeds.feeds[size_t (j)];
+            if (! e.routed() || (e.monitor && j > i)) continue;
+            if (overlaps (f, e)) { f.left = f.right = -1; break; }
+        }
     }
 }
 

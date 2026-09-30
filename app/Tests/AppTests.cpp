@@ -2381,6 +2381,87 @@ TEST_CASE ("MixController: MUTE, DIM and every fader still reach the audio while
     CHECK (heard.numStrips == band().numStrips());
 }
 
+TEST_CASE ("MixController: nothing is kept by pressing TUNE again, and a move made on BEFORE stays made")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    f.play (0.5);
+    const auto before = c.getKept();
+
+    c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+    f.play (2.6);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
+    const auto proposed = c.getBase();
+
+    // Re-tune while the proposal waits: refused, the proposal is still waiting, nothing kept.
+    c.startTuneMix ({ 2.0f, -200.0f, 0.0f });
+    CHECK (c.getStage() == MixController::Stage::Preview);
+    CHECK (MixPlanner::countParameterChanges (proposed, c.getBase()) == 0);
+    c.startTuneChannel (1);
+    CHECK (c.getStage() == MixController::Stage::Preview);
+
+    // On BEFORE a howling microphone is muted: heard at once, and REVERT does not un-mute it.
+    c.setCompare (MixController::Compare::Before);
+    c.setStripMute (3, true);
+    c.setBusFader (MixBus::Drums, -9.0f);
+    f.play (0.1);
+    CHECK (c.getEngine().getAppliedParameters().strips[3].mute);
+    CHECK_NEAR (c.getEngine().getAppliedParameters().buses[size_t (MixBus::Drums)].faderDb, -9.0f, 0.001f);
+    c.revertPlan();
+    f.play (0.1);
+    CHECK (c.getKept().strips[3].mute);
+    CHECK (c.getEngine().getAppliedParameters().strips[3].mute);
+    CHECK_NEAR (c.getKept().buses[size_t (MixBus::Drums)].faderDb, -9.0f, 0.001f);
+    // ...and the rest of the mix is the one from before the run.
+    CHECK_NEAR (c.getKept().strips[1].faderDb, before.strips[1].faderDb, 0.001f);
+}
+
+TEST_CASE ("MixController: solo in place is refused under LIVE SAFE, and a session never opens in it")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    c.setLiveSafe (true);
+    c.setSoloMode (SoloMode::InPlace);
+    CHECK (c.getMonitor().mode == SoloMode::Monitor);
+    c.setLiveSafe (false);
+    c.setSoloMode (SoloMode::InPlace);
+    REQUIRE (c.getMonitor().mode == SoloMode::InPlace);
+
+    SessionStore::Document d;
+    d.session = c.getSession();
+    d.mix = c.getKept();
+    SessionStore::Document back;
+    REQUIRE (SessionStore::fromVar (SessionStore::toVar (d), back));
+    CHECK (back.mix.monitor.mode == SoloMode::Monitor);
+}
+
+TEST_CASE ("MixController: the engineer's listen never takes the room's outputs")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    OutputFeeds feeds;
+    feeds.count = 3;
+    feeds.feeds[0] = { 0, 1 };                                 // the stream
+    feeds.feeds[1] = { 2, 3 }; feeds.feeds[1].monitor = true;  // the engineer's listen
+    feeds.feeds[2] = { 4, 5 };                                 // the room
+    c.setOutputFeeds (feeds);
+    REQUIRE (c.getOutputFeeds().feeds[2].left == 4);
+
+    // Solo moved onto the room's pair - with LIVE SAFE on, where only the listen may move.
+    c.setLiveSafe (true);
+    feeds.feeds[1].left = 4; feeds.feeds[1].right = 5;
+    c.setOutputFeeds (feeds);
+    const auto& now = c.getOutputFeeds();
+    CHECK (now.feeds[2].left == 4);
+    CHECK (now.feeds[2].right == 5);
+    CHECK (! now.feeds[1].routed());
+    CHECK (now.count == 3);
+}
+
 TEST_CASE ("Mix Buddy: a question never changes the mix, and nothing is kept for you")
 {
     MixController c;

@@ -906,6 +906,16 @@ private:
     void pollAutopilot();
     bool engineHasThisGraph() const noexcept;     // the graph the engine was prepared with is this one
     MixParameters onEngineGraph (const MixParameters& p) const;   // p, strip by strip, onto the graph the engine plays
+    // AN ENGINEER'S MOVE IS THE ENGINEER'S, WHICHEVER SIDE IS PLAYING. While a proposal is on
+    // BEFORE / AFTER a fader, a mute, a solo, a send or a pan goes into both sides: a mic muted
+    // over a howl on BEFORE is muted in what is heard, and REVERT or TRY ANOTHER never un-mutes
+    // it. A change to a channel's processing stays with the proposal it was made on.
+    template <typename Edit> void bothSides (Edit&& edit)
+    {
+        if (! plan || stage != Stage::Preview) return;
+        edit (plan->proposed);
+        edit (plan->before);
+    }
     void autopilotRelearn();                 // a new mix to hold: learn it before moving anything
     void autopilotFlushHistory (const char* why);
 

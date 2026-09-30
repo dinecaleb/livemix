@@ -424,8 +424,9 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         addAndMakeVisible (*modes[size_t (i)]);
     }
     modes[0]->onClick = [this] { controller.setSoloMode (SoloMode::Monitor); refreshMonitor(); };
-    modes[1]->onClick = [this] { controller.setSoloMode (SoloMode::InPlace); refreshMonitor();
-                                 if (onToast) onToast ("Solo in place: pressing S is heard by the room and the stream too. Use it for a recording, not a service."); };
+    // The controller says what happened - that solo is now heard by everyone, or that LIVE SAFE
+    // refused it - so the page adds nothing that could contradict it.
+    modes[1]->onClick = [this] { controller.setSoloMode (SoloMode::InPlace); refreshMonitor(); };
     modes[2]->onClick = [this] { controller.setSoloPoint (SoloPoint::AFL); refreshMonitor(); };
     modes[3]->onClick = [this] { controller.setSoloPoint (SoloPoint::PFL); refreshMonitor(); };
 
