@@ -18,3 +18,6 @@ external/JUCE/
 
 # Stray local artefacts
 .tmp-*
+
+# The Supabase URL and anon key for usage events (docs/ANALYTICS.md): local only
+telemetry.local.cmake

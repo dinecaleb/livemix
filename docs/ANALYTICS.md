@@ -44,7 +44,8 @@ is added to this file in the same commit as the code that sends it.
 
 | Where | What |
 | --- | --- |
-| CMake cache `DLIVE_SUPABASE_URL`, `DLIVE_SUPABASE_ANON_KEY` | Baked into a release build (`-DDLIVE_SUPABASE_URL=https://<ref>.supabase.co`). |
+| `telemetry.local.cmake` at the top of the tree (git-ignored, never committed) | `set(DLIVE_SUPABASE_URL "https://sagthwycbpdcwdwzpiia.supabase.co")` and `set(DLIVE_SUPABASE_ANON_KEY "<legacy anon key>")`. Every build on that Mac bakes them in, the packaged tester build included. |
+| CMake cache `DLIVE_SUPABASE_URL`, `DLIVE_SUPABASE_ANON_KEY` | The same, for one build directory (`-DDLIVE_SUPABASE_URL=...`). The local file wins when both are set. |
 | Environment variables of the same names | Override the build: a developer pointing a run at a test project. |
 | Neither | Off. Nothing is queued or sent; milestones still work. |
 
