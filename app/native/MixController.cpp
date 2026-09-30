@@ -2810,26 +2810,31 @@ bool MixController::auditionSample (int strip)
         if (onMessage) onMessage ("There is no sound to hear on " + route.name + ".");
         return false;
     }
-    if (! hasMonitorOutput())
+    // No private listen: with solo in place (everyone hears solo - a rehearsal, never under
+    // LIVE SAFE) the sound plays where solo does, on the main output. Otherwise it is refused
+    // with the sentence that says what to do.
+    const bool onMain = ! hasMonitorOutput() && kept.monitor.mode == SoloMode::InPlace && ! safety.on;
+    if (! hasMonitorOutput() && ! onMain)
     {
         if (onMessage)
         {
-            if (hasMonitorFeed (outputs))
+            const std::string here = " To hear it on this device, choose \"Here - everyone hears solo\" in the Solo picker on LIVE "
+                                     "(not during a service); for a listen only you hear, plug in headphones or an interface and pick it there.";
+            if (hasMonitorFeed (outputs) && engine.getDeviceOutputs() > 0)
             {
                 // Routed, but past the end of the device that is open: say which pair and how many there are.
                 int left = -1;
                 for (int i = 0; i < outputs.count && i < kMaxOutputFeeds; ++i)
                     if (outputs.feeds[size_t (i)].monitor && outputs.feeds[size_t (i)].routed()) { left = std::max (outputs.feeds[size_t (i)].left, 0); break; }
                 onMessage ("Your own listen is set to outputs " + std::to_string (left + 1) + "-" + std::to_string (left + 2)
-                           + ", and the device that is open has only " + std::to_string (engine.getDeviceOutputs())
-                           + ". Pick where you listen: the Solo picker on LIVE, or Outputs > Solo.");
+                           + ", and the device that is open has only " + std::to_string (engine.getDeviceOutputs()) + "." + here);
             }
             else
-                onMessage ("Solo has nowhere to go yet, so there is nowhere to hear it. Pick the device you listen on: the Solo picker on LIVE, or Outputs > Solo.");
+                onMessage ("Solo has nowhere to go yet, so there is nowhere to hear it." + here);
         }
         return false;
     }
-    engine.auditionSample (bank, kept.strips[size_t (strip)].channel.replaceGainDb);
+    engine.auditionSample (bank, kept.strips[size_t (strip)].channel.replaceGainDb, onMain);
     return true;
 }
 

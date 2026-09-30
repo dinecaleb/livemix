@@ -452,9 +452,9 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
                            "broadcast device. Solo a channel and it comes out here; the room and the stream never hear it.");
     soloDevice.onClick = [this]
     {
-        OutputsSheet::showSoloDeviceMenu (services, soloDevice, [this] (const juce::String& message)
+        OutputsSheet::showSoloDeviceMenu (controller, services, soloDevice, [this] (const juce::String& message)
         {
-            if (onToast) onToast (message);
+            if (onToast && message.isNotEmpty()) onToast (message);
             refreshMonitor();
         });
     };
@@ -489,8 +489,9 @@ void LivePage::refreshMonitor()
     monitorLevel->setTooltip ("Your headphones: " + dbText (m.gainDb) + " dB. Nothing to do with the mix anyone else hears. "
                               "Double-click for 0.0 dB.");
     const auto device = services.soloOutputDevice();
-    soloDevice.setValue (device.isEmpty() ? juce::String ("Choose headphones") : device);
-    soloDevice.setBriefValue (device.isEmpty() ? juce::String ("Pick") : device);
+    const auto choice = OutputsSheet::soloChoiceLabel (controller, services, "Choose headphones");
+    soloDevice.setValue (choice);
+    soloDevice.setBriefValue (device.isEmpty() ? (choice == "Choose headphones" ? juce::String ("Pick") : juce::String ("Here")) : device);
     soloDevice.setEnabled (services.isAudioRunning());
 }
 

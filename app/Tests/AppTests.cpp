@@ -1533,7 +1533,23 @@ TEST_CASE ("HEAR IT: an audition plays the strip's sound into the engineer's lis
     REQUIRE (! messages.empty());
     CHECK (messages.back().find ("outputs 3-4") != std::string::npos);
     CHECK (messages.back().find ("only 2") != std::string::npos);
-    // ... and back on the four-output device it plays again.
+    CHECK (messages.back().find ("everyone hears solo") != std::string::npos);   // ... and what to do about it
+    // With solo in place (everyone hears solo: a rehearsal) the sound plays on the main output
+    // instead, because that is where solo is heard.
+    c.setSoloMode (SoloMode::InPlace);
+    for (auto& o : out) std::fill (o.begin(), o.end(), 0.0f);
+    REQUIRE (c.auditionSample (0));
+    float main = 0.0f;
+    for (int b = 0; b < int (kSr / kBlock); ++b)
+    {
+        c.process (ip.data(), 6, op, 2, kBlock);
+        for (int i = 0; i < kBlock; ++i) main = std::max ({ main, std::fabs (out[0][size_t (i)]), std::fabs (out[1][size_t (i)]) });
+    }
+    CHECK (main > 0.05f);
+    CHECK (main <= 1.0f);
+    // ... never under LIVE SAFE, which does not allow solo in place.
+    c.setSoloMode (SoloMode::Monitor);
+    // ... and back on the four-output device it plays in the private listen again.
     c.process (ip.data(), 6, op, 4, kBlock);
     CHECK (c.hasMonitorOutput());
     CHECK (c.auditionSample (0));

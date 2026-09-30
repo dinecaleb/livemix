@@ -82,9 +82,13 @@ public:
     // Hear a sound before using it: plays the bank's loudest hit once, at `gainDb` peak, into the
     // engineer's listen (the monitor bus) and nowhere else - the broadcast never hears an
     // audition. Message thread; nothing happens when no feed carries the monitor.
-    void auditionSample (const SampleBank* bank, float gainDb) noexcept
+    // `onMain` is the one exception, and it is solo in place's: a device with one pair has no
+    // private listen, so with solo set to be heard by everyone the sound goes into the main
+    // mix, ahead of the master's chain so its ceiling still holds. MixController decides it.
+    void auditionSample (const SampleBank* bank, float gainDb, bool onMain = false) noexcept
     {
         auditionGainDb.store (gainDb, std::memory_order_relaxed);
+        auditionOnMain.store (onMain, std::memory_order_relaxed);
         auditionRequest.store (bank, std::memory_order_release);
     }
     double getSampleRate() const noexcept { return sr; }
@@ -277,6 +281,8 @@ private:
     SamplePlayer auditionPlayer;                                 // HEAR IT: one voice into the monitor bus
     std::atomic<const SampleBank*> auditionRequest { nullptr };
     std::atomic<float> auditionGainDb { -12.0f };
+    std::atomic<bool> auditionOnMain { false };
+    bool auditionPlayingOnMain = false;                          // audio thread: where the sound now playing was sent
     long long samplePosition = 0;                                // running, from prepare()
     std::atomic<float> lastMicros { 0.0f }, peakMicros { 0.0f };
     std::atomic<int> blockCount { 0 };

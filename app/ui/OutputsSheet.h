@@ -58,7 +58,9 @@ public:
     // The "where does solo go" menu, shared with the LIVE page: every usable output device, the
     // broadcast's own only when it has a second pair to spare, and "nowhere". `done` gets the
     // sentence to show once the choice has been made.
-    static void showSoloDeviceMenu (AppServices&, juce::Component& anchor, std::function<void (const juce::String&)> done);
+    static void showSoloDeviceMenu (MixController&, AppServices&, juce::Component& anchor, std::function<void (const juce::String&)> done);
+    // What the solo picker says it is set to: the device, "Here - everyone hears" in place, or `none`.
+    static juce::String soloChoiceLabel (MixController&, AppServices&, const juce::String& none);
 private:
 
     MixController& controller;

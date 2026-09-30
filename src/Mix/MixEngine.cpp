@@ -436,7 +436,7 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
                 for (int ch = 0; ch < 2; ++ch) std::memset (fx[size_t (f)].ptrs[size_t (ch)], 0, sizeof (float) * size_t (n));
         if (monitorRouted)
             for (int ch = 0; ch < 2; ++ch) std::memset (monitor.ptrs[size_t (ch)], 0, sizeof (float) * size_t (n));
-        else
+        else if (! auditionOnMain.load (std::memory_order_relaxed))
             auditionRequest.store (nullptr, std::memory_order_relaxed);   // nowhere to hear it: the request is dropped, never kept for later
 
         // ---- Strips ----
@@ -758,6 +758,19 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             if (g != 1.0f) for (int k = 0; k < n; ++k) { master.ptrs[0][k] *= g; master.ptrs[1][k] *= g; }
         }
         AudioBlockView masterView { master.ptrs.data(), 2, n };
+        // HEAR IT in place: no private listen, and solo is set to be heard by everyone.
+        if (auditionOnMain.load (std::memory_order_relaxed))
+            if (const SampleBank* want = auditionRequest.exchange (nullptr, std::memory_order_acq_rel))
+            {
+                auditionPlayer.setBank (want);
+                auditionPlayer.trigger (0, 1.0f, dbToGain (clamp (auditionGainDb.load (std::memory_order_relaxed), -60.0f, 0.0f)), 1.0);
+                auditionPlayingOnMain = true;
+            }
+        if (auditionPlayingOnMain)
+        {
+            if (auditionPlayer.isPlaying()) auditionPlayer.render (masterView, 1.0f);
+            else auditionPlayingOnMain = false;
+        }
         if (listening) t->pushBus (MixBus::Master, masterView);
         master.processor.process (masterView);
         guard (masterView, master.processor, nonFinite);
@@ -791,8 +804,9 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             {
                 auditionPlayer.setBank (want);
                 auditionPlayer.trigger (0, 1.0f, dbToGain (clamp (auditionGainDb.load (std::memory_order_relaxed), -60.0f, 0.0f)), 1.0);
+                auditionPlayingOnMain = false;
             }
-            if (auditionPlayer.isPlaying())
+            if (! auditionPlayingOnMain && auditionPlayer.isPlaying())
             {
                 AudioBlockView listen { monitor.ptrs.data(), 2, n };
                 auditionPlayer.render (listen, 1.0f);

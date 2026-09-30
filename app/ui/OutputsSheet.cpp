@@ -293,20 +293,36 @@ juce::String OutputsSheet::pairName (int pair) const
 // about - the host joins the two.
 void OutputsSheet::chooseSoloDevice()
 {
-    showSoloDeviceMenu (services, soloDeviceButton, [this] (const juce::String& message)
+    showSoloDeviceMenu (controller, services, soloDeviceButton, [this] (const juce::String& message)
     {
-        if (onToast) onToast (message);
+        if (onToast && message.isNotEmpty()) onToast (message);
         refresh();
     });
 }
 
-void OutputsSheet::showSoloDeviceMenu (AppServices& services, juce::Component& anchor, std::function<void (const juce::String&)> done)
+juce::String OutputsSheet::soloChoiceLabel (MixController& controller, AppServices& services, const juce::String& none)
+{
+    const auto device = services.soloOutputDevice();
+    if (device.isNotEmpty()) return device;
+    return controller.getMonitor().mode == SoloMode::InPlace ? juce::String ("Here - everyone hears") : none;
+}
+
+void OutputsSheet::showSoloDeviceMenu (MixController& controller, AppServices& services, juce::Component& anchor, std::function<void (const juce::String&)> done)
 {
     const auto current = services.soloOutputDevice();
     const auto broadcast = services.broadcastOutputDevice();
+    const bool inPlace = current.isEmpty() && controller.getMonitor().mode == SoloMode::InPlace;
 
     juce::PopupMenu m;
-    m.addItem (1, "Nowhere - I do not need solo", true, current.isEmpty());
+    m.addItem (1, "Nowhere - I do not need solo", true, current.isEmpty() && ! inPlace);
+    // A device with one pair (a laptop's speakers) has no private listen to offer. Solo and
+    // HEAR IT can still be heard there - by everyone, which is solo in place: fine for mixing a
+    // recording or setting up at home, and refused while LIVE SAFE is on.
+    bool onePair = true;
+    for (const auto& d : services.outputDevices())
+        if (d.name == broadcast && d.outputChannels >= 4) onePair = false;
+    if (onePair && broadcast.isNotEmpty())
+        m.addItem (2, "Here - everyone hears solo   (on " + broadcast + ", not for a service)", ! controller.isLiveSafe(), inPlace);
     m.addSeparator();
 
     juce::StringArray names;
@@ -334,11 +350,22 @@ void OutputsSheet::showSoloDeviceMenu (AppServices& services, juce::Component& a
     if (names.isEmpty()) m.addItem (-1, "No output devices found", false, false);
 
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&anchor).withMinimumWidth (320),
-                     [&services, names, done] (int chosen)
+                     [&controller, &services, names, current, done] (int chosen)
                      {
                          if (chosen <= 0) return;
+                         if (chosen == 2)
+                         {
+                             // In place: no separate listen, and solo is heard where the broadcast is.
+                             // setSoloMode says so itself ("Careful: solo is now heard by everyone").
+                             if (current.isNotEmpty()) services.setSoloOutputDevice ({});
+                             controller.setSoloMode (SoloMode::InPlace);
+                             if (done) done (juce::String());
+                             return;
+                         }
                          const juce::String wanted = chosen == 1 ? juce::String() : names[chosen - 100];
                          const auto result = services.setSoloOutputDevice (wanted);
+                         // A real listen, or none at all: solo goes back to being only yours.
+                         if (controller.getMonitor().mode == SoloMode::InPlace) controller.setSoloMode (SoloMode::Monitor);
                          if (done) done (result.message);
                      });
 }
@@ -347,7 +374,7 @@ void OutputsSheet::refresh()
 {
     channels = services.numOutputChannels();
     const auto solo = services.soloOutputDevice();
-    soloDeviceButton.setValue (solo.isEmpty() ? juce::String ("Nowhere yet") : solo);
+    soloDeviceButton.setValue (soloChoiceLabel (controller, services, "Nowhere yet"));
     soloDeviceButton.setEnabled (services.isAudioRunning());
     const auto& feeds = controller.getOutputFeeds();
     const int count = juce::jlimit (1, kMaxOutputFeeds, feeds.count);
@@ -499,9 +526,11 @@ void OutputsSheet::paint (juce::Graphics& g)
         Dine::drawText (g, "Solo", line.removeFromLeft (labelW), juce::Justification::centredLeft);
         auto after = line.withTrimmedLeft (300 + 12);
         const bool set = services.soloOutputDevice().isNotEmpty();
-        g.setColour (set ? Dine::ok : Dine::ink4);
+        const bool inPlace = ! set && controller.getMonitor().mode == SoloMode::InPlace;
+        g.setColour (set ? Dine::ok : inPlace ? Dine::warn : Dine::ink4);
         g.setFont (Dine::text (12.0f));
-        Dine::drawText (g, set ? "only you hear this" : "solo has nowhere to go yet", after, juce::Justification::centredLeft, true);
+        Dine::drawText (g, set ? "only you hear this" : inPlace ? "everyone hears solo" : "solo has nowhere to go yet",
+                        after, juce::Justification::centredLeft, true);
         r.removeFromTop (16);
     }
 
