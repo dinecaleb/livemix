@@ -5,6 +5,7 @@
 #include "Core/StyleId.h"
 #include "DSP/Biquad.h"
 #include "DSP/ChannelParameters.h"
+#include "DSP/SampleBank.h"
 #include "FX/FxParameterSpecs.h"
 #include <cmath>
 #include <map>
@@ -95,7 +96,13 @@ namespace
         v.push_back (c (replacePolarity, "Sample Polarity", { "Normal", "Flipped" }, d.replacePolarity));
         v.push_back (f (replaceRate, "Sample Pitch", -5.0f, 5.0f, d.replaceRateSemitones));
         v.push_back (f (replaceGain, "Sample Level", -60.0f, 12.0f, d.replaceGainDb, "dB"));
-        v.push_back (c (replaceSound, "Sample Sound", { "Sound 1", "Sound 2", "Sound 3", "Sound 4", "Sound 5", "Sound 6", "Sound 7", "Sound 8" }, d.replaceSound));
+        // One entry per slot the sound table holds (SampleBankTable::kSounds). Eight entries
+        // here clamped every sound after the eighth back to the eighth the moment
+        // sanitizeChannelParameters met it - on every edit and every open. DLIVE only; no
+        // plug-in exposes this, so the range can follow the table.
+        std::vector<std::string> soundNames;
+        for (int n = 1; n <= SampleBankTable::kSounds; ++n) soundNames.push_back ("Sound " + std::to_string (n));
+        v.push_back (c (replaceSound, "Sample Sound", soundNames, d.replaceSound));
         v.push_back (b (replaceFollow, "Sample Follows Drum", d.replaceFollowDrum));
         v.push_back (f (replaceDrumHz, "Sample Drum Pitch", 0.0f, 2000.0f, d.replaceDrumHz, "Hz"));
 

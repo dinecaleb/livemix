@@ -160,7 +160,17 @@ void readSampleChoices (const MixController&, const SampleLibrary&,
 // The other direction: turn each stored name back into the index the engine reads, in the
 // library as it is now. Returns one sentence per strip whose sound has gone (and switches
 // that strip's Sample stage off), so the caller can say so; empty when everything resolved.
+// `unresolved`, when given, receives the stored choice of every strip whose sound has gone -
+// so the next save can write the name that was asked for instead of forgetting it.
 std::vector<std::string> resolveSampleChoices (const std::array<SampleChoice, kMaxStrips>&,
-                                               const SampleLibrary&, MixController&);
+                                               const SampleLibrary&, MixController&,
+                                               std::array<SampleChoice, kMaxStrips>* unresolved = nullptr);
+
+// A choice that did not resolve on this Mac is still the session's choice. On capture, every
+// strip whose stored sound was missing, and whose Sample stage nobody has switched back on
+// since, keeps the name it was saved with; a strip whose stage is on again has been given a
+// sound by hand, and forgets the old one.
+void keepUnresolvedSampleChoices (std::array<SampleChoice, kMaxStrips>& unresolved, const MixController&,
+                                  std::array<SampleChoice, kMaxStrips>& out);
 
 } // namespace livemix

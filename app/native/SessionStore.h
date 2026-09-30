@@ -69,6 +69,10 @@ namespace SessionStore
     juce::File formerNameFolder();                      // ~/Music/DINELIVE, from before the rename: read, never written
     juce::File folderFor (const juce::String& sessionName);
     juce::File fileFor (const juce::String& sessionName);
+    // `base`, or "base 2", "base 3" ... - the first name no session on this Mac has yet. A new
+    // session is never "Untitled" on top of last week's Untitled, and a second "Keep both" never
+    // writes over the first one's recovered work.
+    juce::String unusedName (const juce::String& base);
     bool save (const Document& d, const juce::File& file);
 
     // Written whole or not at all: a temporary file beside the target, flushed to the disk and

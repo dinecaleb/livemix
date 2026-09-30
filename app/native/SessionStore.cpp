@@ -827,6 +827,15 @@ juce::File fileFor (const juce::String& sessionName)
     return folder.getChildFile (folder.getFileName() + ".dlive.json");
 }
 
+juce::String unusedName (const juce::String& base)
+{
+    auto taken = [] (const juce::String& n) { return folderFor (n).exists() || fileFor (n).existsAsFile(); };
+    if (! taken (base)) return base;
+    for (int k = 2; k < 10000; ++k)
+        if (! taken (base + " " + juce::String (k))) return base + " " + juce::String (k);
+    return base + " " + juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H%M%S");
+}
+
 bool writeTextAtomically (const juce::File& target, const juce::String& text)
 {
     if (! target.getParentDirectory().createDirectory()) return false;

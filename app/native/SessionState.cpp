@@ -132,10 +132,25 @@ void readSampleChoices (const MixController& controller, const SampleLibrary& li
     });
 }
 
+void keepUnresolvedSampleChoices (std::array<SampleChoice, kMaxStrips>& unresolved, const MixController& controller,
+                                  std::array<SampleChoice, kMaxStrips>& out)
+{
+    const auto& mix = controller.getKept();
+    for (int i = 0; i < kMaxStrips; ++i)
+    {
+        auto& was = unresolved[size_t (i)];
+        if (! was.set()) continue;
+        if (i < mix.numStrips && mix.strips[size_t (i)].channel.replaceEnabled) { was = {}; continue; }   // chosen again by hand
+        out[size_t (i)] = was;
+    }
+}
+
 std::vector<std::string> resolveSampleChoices (const std::array<SampleChoice, kMaxStrips>& choices,
-                                               const SampleLibrary& library, MixController& controller)
+                                               const SampleLibrary& library, MixController& controller,
+                                               std::array<SampleChoice, kMaxStrips>* unresolved)
 {
     std::vector<std::string> missing;
+    if (unresolved != nullptr) *unresolved = {};
     forEachSampledStrip (controller, [&] (int strip, RoleFamily family)
     {
         const auto& want = choices[size_t (strip)];
@@ -152,6 +167,7 @@ std::vector<std::string> resolveSampleChoices (const std::array<SampleChoice, kM
         // Gone. Saying so and switching the stage off is the only honest answer: leaving the
         // index where it is would play whatever sound has moved into that slot instead, which
         // is how a session comes back with the wrong drum and nothing to explain it.
+        if (unresolved != nullptr) (*unresolved)[size_t (strip)] = want;
         if (! params.replaceEnabled) return;
         params.replaceEnabled = false;
         controller.setStripChannel (strip, params);

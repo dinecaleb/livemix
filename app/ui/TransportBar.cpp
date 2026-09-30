@@ -201,7 +201,9 @@ void TransportBar::toggleRecord()
 
     if (services.sessionFolder() == juce::File())
     {
-        const juce::String name = services.currentSessionName().isNotEmpty() ? services.currentSessionName() : "Untitled";
+        // A name no other session has: REC must never be refused, or overwrite another
+        // session, because of what this one happens to be called.
+        const juce::String name = SessionStore::unusedName (services.currentSessionName().isNotEmpty() ? services.currentSessionName() : "Untitled");
         const auto saveError = services.saveSessionAs (name);
         if (saveError.isNotEmpty()) { if (onToast) onToast (saveError); return; }
         if (onToast) onToast ("Saved \"" + name + "\". The recordings go in its folder.");

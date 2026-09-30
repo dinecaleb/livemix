@@ -86,7 +86,8 @@ namespace
             touchSession();
             return "\"" + name + "\" is in this session's sounds"
                    + (dawEngine.getProject().folder == juce::File()
-                          ? juce::String (" (in your own folder - save the session and it will travel with it).")
+                          ? juce::String (" on this Mac only, because this session has not been saved yet. Save it, then import the "
+                                          "sound again, and it travels with the session.")
                           : juce::String (", so it travels with it. Pick it on the strip and press HEAR IT."));
         }
 
@@ -245,8 +246,12 @@ namespace
 
         void newSession() override
         {
+            // The one that was open goes cleanly (MainView saved it first): its marker and its
+            // autosave with it, so it is not offered back as a crash next launch.
+            autosave.closeCleanly();
+            unresolvedSounds = {};
             SessionState fresh;
-            fresh.session.name = "Untitled";
+            fresh.session.name = SessionStore::unusedName ("Untitled").toStdString();
             applySession (fresh, controller, dawEngine);
             trackEvent ("session_created");
             panelWidth = 0;
@@ -265,9 +270,18 @@ namespace
         void autosaveNow (bool immediately) override
         {
             if (controller.getSession().inputs.empty()) return;
-            autosave.open (documentFileOrDefault());     // cheap and idempotent once the file is the same
+            const auto doc = documentFileOrDefault();
+            autosave.open (doc);                         // cheap and idempotent once the file is the same
+            // A session that has never been saved is still the one a crash has to find: the
+            // next launch looks where this pointer says, and finds its autosave beside it.
+            if (! doc.existsAsFile() && pointedAt != doc)
+            {
+                SessionStore::writeTextAtomically (lastSessionPointer(), doc.getFullPathName());
+                pointedAt = doc;
+            }
             auto state = captureSession (controller, dawEngine, deviceChoice(), panelWidth);
             if (samples != nullptr) readSampleChoices (controller, *samples, state.samples);
+            keepUnresolvedSampleChoices (unresolvedSounds, controller, state.samples);
             autosave.note (state, immediately);
         }
 
@@ -302,8 +316,12 @@ namespace
             // The takes being written live in this session's folder; moving the document away
             // from under them mid-take left the new session pointing at files that are not there.
             if (dawEngine.isRecording()) return "Recording is running into this session's folder. Stop recording first, then save it under another name.";
-            controller.setSessionName (n.toStdString());
             const auto file = SessionStore::fileFor (n);
+            // Another session's name is another session: saving over it would throw its mix away
+            // (and orphan its takes). Saving under the name already open is just a save.
+            if ((file.existsAsFile() || file.getParentDirectory().exists()) && file != documentFile())
+                return "There is already a session called \"" + n + "\". Choose another name, or open that one.";
+            controller.setSessionName (n.toStdString());
             // Moving to a new folder: the takes stay where they are, and their clips keep absolute paths.
             const auto oldFolder = dawEngine.getProject().folder;
             if (oldFolder != juce::File() && oldFolder != file.getParentDirectory())
@@ -311,6 +329,11 @@ namespace
                     for (auto& clip : track.clips)
                         if (! juce::File::isAbsolutePath (clip.file))
                             clip.file = oldFolder.getChildFile ("Audio Files").getChildFile (clip.file).getFullPathName();
+            // The session's own drum sounds go with it: they are what its strips name.
+            const auto oldSounds = oldFolder.getChildFile ("Samples");
+            const auto newSounds = file.getParentDirectory().getChildFile ("Samples");
+            if (oldFolder != juce::File() && oldSounds.isDirectory() && ! newSounds.exists())
+                oldSounds.copyDirectoryTo (newSounds);
             dawEngine.getProject().folder = file.getParentDirectory();
             if (! writeDocument (file))
             {
@@ -367,7 +390,7 @@ namespace
             // that travelled with the session is one of the ones a choice can name.
             reloadSamplesForSession();
             if (samples != nullptr)
-                for (const auto& gone : resolveSampleChoices (state.samples, *samples, controller))
+                for (const auto& gone : resolveSampleChoices (state.samples, *samples, controller, &unresolvedSounds))
                     recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + juce::String (gone);
 
             // What could not be opened becomes a sentence on the toast, never a refusal: the
@@ -440,6 +463,8 @@ namespace
         }
 
         juce::String takeRecoveryNote() override { auto n = recoveryNote; recoveryNote.clear(); return n; }
+        juce::File pointedAt;                            // the unsaved document the last-session pointer names
+        std::array<SampleChoice, kMaxStrips> unresolvedSounds {};   // stored drum sounds this Mac does not have
 
         // The takes a crash left unfinished, repaired and put back on the session that is open
         // now - called once the recovery question has been answered. Returns what to say.
@@ -671,6 +696,7 @@ namespace
         {
             auto state = captureSession (controller, dawEngine, deviceChoice(), panelWidth);
             if (samples != nullptr) readSampleChoices (controller, *samples, state.samples);
+            keepUnresolvedSampleChoices (unresolvedSounds, controller, state.samples);
             if (! SessionStore::save (state, file)) return false;
             dawEngine.getProject().folder = file.getParentDirectory();
             SessionStore::writeTextAtomically (lastSessionPointer(), file.getFullPathName());
@@ -852,7 +878,9 @@ public:
         const juce::File lastDocument = pointer.existsAsFile() ? juce::File (pointer.loadFileAsString().trim()) : juce::File();
         const bool restored = lastDocument != juce::File() && SessionStore::load (lastDocument, state);
 
-        if (lastDocument != juce::File() && ! restored) trackError ("session", "restore_failed", true);
+        // A pointer at a document that was never written is a session that was never saved -
+        // its autosave is what the recovery below finds - not a failure to read one.
+        if (lastDocument.existsAsFile() && ! restored) trackError ("session", "restore_failed", true);
 
         window = std::make_unique<MainWindow> (getApplicationName(), *controller, *services);
         wireTelemetry();
@@ -1122,7 +1150,7 @@ public:
             // Keep both: the recovered work becomes a session of its own, beside the one that
             // was saved, and the takes stay where they are (saveSessionAs makes their clips
             // absolute for exactly this). The offered copy goes once that has landed.
-            const auto name = juce::String (recovered.session.name) + " (recovered)";
+            const auto name = SessionStore::unusedName (juce::String (recovered.session.name) + " (recovered)");
             srv->openState (recovered, "recovery");
             const auto err = srv->saveSessionAs (name);
             if (err.isEmpty()) SessionAutosave::dismissRecovery (document);
@@ -1131,6 +1159,13 @@ public:
                 ? "Both are here: the recovered work is now \"" + name + "\", and the session you saved is untouched."
                 : err);
         };
+        // Never saved: there is no "last saved" to choose instead, so the only answer that
+        // does not lose the work is the one given without asking.
+        if (! document.existsAsFile())
+        {
+            offer.onRecover();
+            return;
+        }
         window->view().offerRecovery (std::move (offer));
     }
 

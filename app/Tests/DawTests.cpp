@@ -5,6 +5,7 @@
 #include <limits>
 #include "State/ParameterIDs.h"
 #include "State/ParameterSpecs.h"
+#include "DSP/SampleBank.h"
 #include "native/DawEngine.h"
 #include "native/MixBounce.h"
 #include "DSP/LoudnessMeter.h"
@@ -2905,11 +2906,45 @@ TEST_CASE ("SessionState: a drum strip's sound is remembered by name, and a soun
     gone.samples[0].name = "A Kick That Was Deleted";
     gone.samples[0].user = true;
     gone.samples[0].path = "Kick/A Kick That Was Deleted.wav";
-    const auto notes = resolveSampleChoices (gone.samples, library, reopened);
+    std::array<SampleChoice, kMaxStrips> unresolved {};
+    const auto notes = resolveSampleChoices (gone.samples, library, reopened, &unresolved);
     REQUIRE (notes.size() == 1);
     CHECK (juce::String (notes[0]).contains ("A Kick That Was Deleted"));
     CHECK (juce::String (notes[0]).contains ("Kick"));
     CHECK (! reopened.getKept().strips[0].channel.replaceEnabled);
+
+    // ...and it is still the session's choice. The next save writes the name it was asked for,
+    // not whatever sound now sits in that slot: one open on a Mac without the sound must not
+    // rewrite the session for the Mac that has it.
+    auto again = captureSession (reopened, reopenedDaw, kDevices, 0);
+    readSampleChoices (reopened, library, again.samples);
+    keepUnresolvedSampleChoices (unresolved, reopened, again.samples);
+    CHECK (again.samples[0].name == "A Kick That Was Deleted");
+    CHECK (again.samples[0].user);
+
+    // Given a sound by hand, the strip forgets the old one.
+    auto chosen = reopened.getKept().strips[0].channel;
+    chosen.replaceEnabled = true;
+    chosen.replaceSound = 0;
+    reopened.setStripChannel (0, chosen);
+    auto third = captureSession (reopened, reopenedDaw, kDevices, 0);
+    readSampleChoices (reopened, library, third.samples);
+    keepUnresolvedSampleChoices (unresolved, reopened, third.samples);
+    CHECK (third.samples[0].name == kicks[0].name);
+    CHECK (! unresolved[0].set());
+}
+
+TEST_CASE ("Samples: a drum strip can play the ninth sound and every one after it, and keeps it")
+{
+    // The sound table holds 24 per drum; the parameter used to stop at 8, and the fence every
+    // value crosses clamped a ninth kick back to the eighth on every edit and every open.
+    ChannelParameters p;
+    p.replaceSound = 17;
+    CHECK (sanitizeChannelParameters (p) == 0);
+    CHECK (p.replaceSound == 17);
+    p.replaceSound = SampleBankTable::kSounds + 3;
+    sanitizeChannelParameters (p);
+    CHECK (p.replaceSound == SampleBankTable::kSounds - 1);
 }
 
 // ---------------------------------------------------------------------------
