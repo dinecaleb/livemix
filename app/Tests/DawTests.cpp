@@ -2699,6 +2699,30 @@ TEST_CASE ("SessionState: every change to the session moves its revision, and no
     CHECK (at() == quiet);
 }
 
+TEST_CASE ("SampleLibrary: a reload never frees or rewrites what the engine was given")
+{
+    // The audio thread holds the table it was published and every strip holds a bank out of
+    // it; a ringing voice holds that bank's samples. An import mid-service reloads the library,
+    // and nothing tells the message thread when the audio thread has let go - so what was
+    // published before a load() must still be there, unchanged, after it.
+    SampleLibrary library;
+    library.load();
+    const SampleBankTable* before = library.table();
+    const SampleBank* kick = before->bank (RoleFamily::Kick, 0);
+    REQUIRE (kick != nullptr);
+    const auto name = kick->name;
+    const auto layers = kick->layers.size();
+
+    library.load();
+    library.load();
+    CHECK (library.table() != before);                         // a new table, not the old one rewritten
+    CHECK (before->bank (RoleFamily::Kick, 0) == kick);        // the old table is untouched ...
+    CHECK (kick->name == name);                                // ... and so is the bank it points at
+    CHECK (kick->layers.size() == layers);
+    // An unchanged file is the same decoded bank, so reloading does not grow the library.
+    CHECK (library.table()->bank (RoleFamily::Kick, 0) == kick);
+}
+
 TEST_CASE ("SessionState: a drum strip's sound is remembered by name, and a sound that has gone says so")
 {
     SampleLibrary library;

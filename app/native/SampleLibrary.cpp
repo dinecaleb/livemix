@@ -32,6 +32,12 @@ namespace
     }
 }
 
+SampleLibrary::SampleLibrary()
+{
+    tables.push_back (std::make_unique<SampleBankTable>());
+    banks = tables.back().get();
+}
+
 juce::File SampleLibrary::builtInFolder()
 {
     const auto app = juce::File::getSpecialLocation (juce::File::currentApplicationFile);
@@ -91,8 +97,9 @@ juce::String SampleLibrary::importSound (RoleFamily family, const juce::File& so
 
 void SampleLibrary::load()
 {
-    owned.clear();
-    banks = SampleBankTable {};
+    // A new table, never the one the engine may be reading: see the note above the class.
+    tables.push_back (std::make_unique<SampleBankTable>());
+    banks = tables.back().get();
     counts.fill (0);
     sources.clear();
     overflowed.clear();
@@ -113,10 +120,10 @@ void SampleLibrary::load()
         if (counts[size_t (family)] > 0) continue;
         for (int variant = 0; variant < 3; ++variant)
         {
-            auto b = std::make_unique<SampleBank> (synthesizeBank (family, variant, 48000.0));
-            banks.set (family, variant, b.get());
+            auto& b = decoded["synth:" + std::to_string (int (family)) + ":" + std::to_string (variant)];
+            if (b == nullptr) b = std::make_unique<SampleBank> (synthesizeBank (family, variant, 48000.0));
+            banks->set (family, variant, b.get());
             catalogue[size_t (family)].push_back ({ b->name, false, {} });
-            owned.push_back (std::move (b));
         }
         counts[size_t (family)] = 3;
         sources.add ("synthesised placeholders for " + juce::String (family == RoleFamily::Kick ? "kick" : family == RoleFamily::Snare ? "snare" : "toms"));
@@ -143,13 +150,12 @@ void SampleLibrary::loadFolder (const juce::File& root, bool builtIn)
             // The cap is real, so it is said out loud: a ninth kick used to be dropped in
             // silence, which is indistinguishable from a file DLIVE could not read.
             if (slot >= SampleBankTable::kSounds) { ++dropped; continue; }
-            auto bank = decodeSound (entry, entry.getFileNameWithoutExtension());
+            const SampleBank* bank = findOrDecode (entry);
             if (bank == nullptr) continue;
-            banks.set (family, slot, bank.get());
+            banks->set (family, slot, bank);
             catalogue[size_t (family)].push_back ({ bank->name, ! builtIn,
                                                    entry.getRelativePathFrom (root).toStdString(),
                                                    session != juce::File() && root == session });
-            owned.push_back (std::move (bank));
             ++slot;
             ++loaded;
         }
@@ -160,6 +166,32 @@ void SampleLibrary::loadFolder (const juce::File& root, bool builtIn)
                             + " of them are not loaded. Take some out of the folder to reach the rest.");
     }
     if (loaded > 0) sources.add (juce::String (builtIn ? "built-in: " : "yours: ") + root.getFullPathName());
+}
+
+// The same file, unchanged since it was decoded, is the same bank: reusing it is what keeps a
+// reload from growing the library, and a changed file is a new key, so it is decoded afresh
+// and the old bank stays where a voice may still be reading it.
+const SampleBank* SampleLibrary::findOrDecode (const juce::File& entry)
+{
+    std::string key = entry.getFullPathName().toStdString();
+    auto stamp = [&key] (const juce::File& f)
+    {
+        key += "|" + std::to_string (f.getLastModificationTime().toMilliseconds()) + ":" + std::to_string (f.getSize());
+    };
+    if (entry.isDirectory())
+    {
+        auto files = entry.findChildFiles (juce::File::findFiles, false);
+        std::sort (files.begin(), files.end(), [] (const juce::File& a, const juce::File& b)
+                   { return a.getFileName() < b.getFileName(); });
+        for (const auto& f : files) { key += "|" + f.getFileName().toStdString(); stamp (f); }
+    }
+    else stamp (entry);
+
+    auto found = decoded.find (key);
+    if (found != decoded.end()) return found->second.get();
+    auto bank = decodeSound (entry, entry.getFileNameWithoutExtension());
+    if (bank == nullptr) return nullptr;
+    return (decoded[key] = std::move (bank)).get();
 }
 
 std::unique_ptr<SampleBank> SampleLibrary::decodeSound (const juce::File& entry, const juce::String& name)
@@ -219,7 +251,7 @@ juce::StringArray SampleLibrary::soundNames (RoleFamily family) const
 {
     juce::StringArray out;
     for (int i = 0; i < SampleBankTable::kSounds; ++i)
-        if (const auto* b = banks.bank (family, i)) out.add (juce::String (b->name));
+        if (const auto* b = banks->bank (family, i)) out.add (juce::String (b->name));
     return out;
 }
 

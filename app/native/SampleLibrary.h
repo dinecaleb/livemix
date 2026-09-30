@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_core/juce_core.h>
 #include <array>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -18,11 +19,16 @@ namespace livemix
 // synthesised placeholders so the stage always has something to play.
 //
 // Every bank lives for as long as the library does, and the library outlives the engine:
-// the audio thread reads bank pointers and never a freed one.
+// the audio thread reads bank pointers and never a freed one. That includes a reload: the
+// engine's strips hold the bank they were last given and a ringing voice holds its hit's
+// samples, and nothing tells the message thread when the audio thread has let go of them. So
+// load() never frees and never rewrites what it published before - it builds a new table,
+// and a sound whose file has not changed is the same decoded bank it was, which is what keeps
+// a reload (every session open, every import) from growing the library.
 class SampleLibrary
 {
 public:
-    SampleLibrary() = default;
+    SampleLibrary();
 
     // One loaded sound, in the slot order the engine's `replaceSound` indexes. `user` and
     // `path` are what makes a slot identifiable across a reload: the index moves whenever the
@@ -51,7 +57,9 @@ public:
     // Decodes everything it finds. Message thread; touches files and allocates.
     void load();
 
-    const SampleBankTable* table() const noexcept { return &banks; }
+    // The table the last load() built. A new pointer after every load(); the old ones stay
+    // valid for as long as the library lives.
+    const SampleBankTable* table() const noexcept { return banks; }
     juce::StringArray soundNames (RoleFamily family) const;
     int numSounds (RoleFamily family) const;
     // In slot order, so `sounds(family)[i]` is what `replaceSound == i` plays.
@@ -74,11 +82,15 @@ public:
 
 private:
     void loadFolder (const juce::File& root, bool builtIn);
+    const SampleBank* findOrDecode (const juce::File& fileOrFolder);
     std::unique_ptr<SampleBank> decodeSound (const juce::File& fileOrFolder, const juce::String& name);
     bool decodeHit (const juce::File& file, std::vector<float>& mono, double& sampleRate);
 
-    std::vector<std::unique_ptr<SampleBank>> owned;
-    SampleBankTable banks;
+    // Decoded sounds, keyed by where they came from and when that file last changed. Never
+    // erased: see the note above the class.
+    std::map<std::string, std::unique_ptr<SampleBank>> decoded;
+    std::vector<std::unique_ptr<SampleBankTable>> tables;   // every table ever published
+    SampleBankTable* banks = nullptr;                       // the newest of them
     std::array<std::vector<Sound>, int (RoleFamily::Count)> catalogue;
     std::array<int, int (RoleFamily::Count)> counts {};
     juce::File session;             // this session's own Samples folder, when it has one

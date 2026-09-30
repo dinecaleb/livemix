@@ -69,6 +69,10 @@ namespace
         {
             if (samples == nullptr) return "Sounds are not available here.";
             samples->setSessionFolder (dawEngine.getProject().folder);
+            // What every drum strip plays, by name, before the reload re-sorts the slots: a
+            // sound filed alphabetically ahead of the kick's must not change the kick mid-service.
+            std::array<SampleChoice, kMaxStrips> playing {};
+            readSampleChoices (controller, *samples, playing);
             juce::String problem;
             const auto name = samples->importSound (family, file, problem);
             if (name.isEmpty())
@@ -77,6 +81,7 @@ namespace
                 return problem;
             }
             controller.setSampleBanks (samples->table());
+            resolveSampleChoices (playing, *samples, controller);
             touchSession();
             return "\"" + name + "\" is in this session's sounds"
                    + (dawEngine.getProject().folder == juce::File()
