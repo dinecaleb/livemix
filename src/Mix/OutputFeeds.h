@@ -180,4 +180,21 @@ inline bool hasMonitorFeed (const OutputFeeds& f) noexcept
     return false;
 }
 
+// ... and does it land on a pair the open device actually has? A session keeps its routing
+// when it is opened on another device, so a listen on outputs 3-4 opened on a laptop's two
+// speakers is routed to nothing: HEAR IT and solo played into channels that were not there,
+// and nothing said so. `deviceOutputs` <= 0 is "not known yet", which trusts the routing.
+inline bool monitorFeedReaches (const OutputFeeds& f, int deviceOutputs) noexcept
+{
+    if (deviceOutputs <= 0) return hasMonitorFeed (f);
+    const int n = f.count < kMaxOutputFeeds ? f.count : kMaxOutputFeeds;
+    for (int i = 0; i < n; ++i)
+    {
+        const auto& feed = f.feeds[size_t (i)];
+        if (! feed.monitor || ! feed.routed() || feed.mute) continue;
+        if ((feed.left >= 0 && feed.left < deviceOutputs) || (feed.right >= 0 && feed.right < deviceOutputs)) return true;
+    }
+    return false;
+}
+
 } // namespace livemix

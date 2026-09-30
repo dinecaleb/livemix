@@ -1523,6 +1523,20 @@ TEST_CASE ("HEAR IT: an audition plays the strip's sound into the engineer's lis
     CHECK (! c.auditionSample (3));
     REQUIRE (! messages.empty());
     CHECK (messages.back().find ("no sound") != std::string::npos);
+
+    // The same session opened on a device with only two outputs (a laptop's speakers): the
+    // listen on 3-4 goes nowhere, so HEAR IT and solo say so instead of playing into nothing.
+    c.process (ip.data(), 6, op, 2, kBlock);
+    CHECK (! c.hasMonitorOutput());
+    messages.clear();
+    CHECK (! c.auditionSample (0));
+    REQUIRE (! messages.empty());
+    CHECK (messages.back().find ("outputs 3-4") != std::string::npos);
+    CHECK (messages.back().find ("only 2") != std::string::npos);
+    // ... and back on the four-output device it plays again.
+    c.process (ip.data(), 6, op, 4, kBlock);
+    CHECK (c.hasMonitorOutput());
+    CHECK (c.auditionSample (0));
 }
 
 // ---------------------------------------------------------------------------

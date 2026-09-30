@@ -88,6 +88,8 @@ public:
         auditionRequest.store (bank, std::memory_order_release);
     }
     double getSampleRate() const noexcept { return sr; }
+    // How many outputs the device handed the last block had; 0 before the first block.
+    int getDeviceOutputs() const noexcept { return deviceOutputs.load (std::memory_order_relaxed); }
     int getNumStrips() const noexcept { return numStrips; }
     const RoutingGraph& getGraph() const noexcept { return graph; }
 
@@ -224,6 +226,7 @@ private:
     bool monitorSoloActive = false;         // something is soloed
     bool monitorPfl = false;                // tap before the fader
     bool monitorRouted = false;             // a feed actually carries it: with none, the whole monitor path is skipped
+    std::atomic<int> deviceOutputs { 0 };   // written by process(), read by the message thread
     MixBus monitorSource = MixBus::Master;  // what it carries with nothing soloed
 
     TripleBuffer<MixParameters> mailbox;

@@ -379,6 +379,7 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
 {
     ScopedNoDenormals noDenormals;
     const auto start = std::chrono::steady_clock::now();
+    deviceOutputs.store (numOutputs, std::memory_order_relaxed);
 
     if (mailbox.hasNew())
     {

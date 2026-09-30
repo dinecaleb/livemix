@@ -570,7 +570,8 @@ public:
     bool anyFxSolo() const noexcept;
     // Is a monitor output actually routed? Solo with nowhere to go is an S key that does
     // nothing audible, so the app says so instead of letting it happen quietly.
-    bool hasMonitorOutput() const noexcept { return hasMonitorFeed (outputs); }
+    // Routed, and to a pair the device that is open actually has.
+    bool hasMonitorOutput() const noexcept { return monitorFeedReaches (outputs, prepared ? engine.getDeviceOutputs() : 0); }
     bool anySolo() const noexcept;
     int numSoloed() const noexcept;
     // WHAT IS SOLOED, by name. Solo is the one state that changes what the engineer hears and
