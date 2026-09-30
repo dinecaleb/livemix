@@ -21,6 +21,31 @@ namespace
     {
         for (int i = 0; i < n; ++i) dest[i] += src[i] * g;
     }
+
+    // NOT A NUMBER NEVER REACHES THE MIX. One NaN out of a stage - a filter handed a value
+    // nothing should have let through, a sound that decoded badly - is otherwise latched in
+    // that stage's state and summed into the bus, the master, the reverb's feedback and the
+    // limiter's delay line, and the broadcast carries it until the next prepare. Multiplying
+    // by zero keeps a NaN or an infinity and turns every number into 0, so one comparison at
+    // the end answers for the whole block, and a block that fails is silenced and its
+    // processor reset: one channel drops out for a block instead of the whole service.
+    inline bool allFinite (const AudioBlockView& v) noexcept
+    {
+        float acc = 0.0f;
+        for (int ch = 0; ch < v.numChannels; ++ch)
+            for (int i = 0; i < v.numSamples; ++i) acc += v.channels[ch][i] * 0.0f;
+        return acc == 0.0f;
+    }
+
+    template <typename P>
+    inline void guard (const AudioBlockView& v, P& processor, std::atomic<int>& caught) noexcept
+    {
+        if (allFinite (v)) return;
+        for (int ch = 0; ch < v.numChannels; ++ch)
+            std::memset (v.channels[ch], 0, sizeof (float) * size_t (v.numSamples));
+        processor.reset();
+        caught.fetch_add (1, std::memory_order_relaxed);
+    }
 }
 
 MixEngine::MixEngine() = default;
@@ -363,6 +388,7 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             if (listening) t->pushStripInput (i, view);
             s.processor.setBlockStart (samplePosition);
             s.processor.process (view);
+            guard (view, s.processor, nonFinite);
             if (listening) t->pushStripProcessed (i, view);
 
             Bus& bus = buses[size_t (s.bus)];
@@ -481,6 +507,7 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             AudioBlockView view { bus.ptrs.data(), 2, n };
             if (listening) t->pushBus (MixBus (b), view);
             bus.processor.process (view);
+            guard (view, bus.processor, nonFinite);
             // A soloed group goes to the engineer's listen and nowhere else. AFL takes it at
             // its fader (where it sits in the mix), PFL at unity (what the group sounds like).
             if (monitorRouted)
@@ -555,6 +582,7 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             Fx& slot = fx[size_t (f)];
             AudioBlockView view { slot.ptrs.data(), 2, n };
             slot.chain.process (view);
+            guard (view, slot.chain, nonFinite);
             if (monitorRouted)
             {
                 const bool ramping = slot.monitorGain.isSmoothing();
@@ -612,6 +640,7 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
         AudioBlockView masterView { master.ptrs.data(), 2, n };
         if (listening) t->pushBus (MixBus::Master, masterView);
         master.processor.process (masterView);
+        guard (masterView, master.processor, nonFinite);
         if (listening) t->pushMasterOutput (masterView);
 
         // ---- the monitor bus ----
@@ -732,6 +761,28 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
                     out[size_t (r)][k] += srcR[k] * g;
                 }
             }
+        }
+
+        // THE LAST THING BEFORE THE DEVICE. Nothing past the master limiter has a ceiling of
+        // its own - a feed's gain, two feeds summed onto one pair, a group feed, the listen -
+        // and a converter handed more than full scale clips anyway, so the device is never
+        // handed more than it can play, and never something that is not a number. The count
+        // is how the status foot knows it happened: in a mix that is right, it never does.
+        for (int o = 0; o < numOutputs; ++o)
+        {
+            float* x = out[size_t (o)];
+            if (x == nullptr) continue;
+            bool over = false;
+            for (int k = 0; k < n; ++k)
+            {
+                const float v = x[k];
+                if (! (v >= -1.0f && v <= 1.0f))           // also true for a NaN
+                {
+                    x[k] = v > 1.0f ? 1.0f : (v < -1.0f ? -1.0f : 0.0f);
+                    over = true;
+                }
+            }
+            if (over) outputClamped.fetch_add (1, std::memory_order_relaxed);
         }
     }
 

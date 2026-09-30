@@ -1,4 +1,5 @@
 #include "MixController.h"
+#include "State/ParameterSpecs.h"
 #include "MixAI/RelationshipEngine.h"
 #include "Core/DbUtils.h"
 #include "Profiles/MixProfileData.h"
@@ -2392,8 +2393,10 @@ void MixController::setStripChannel (int strip, const ChannelParameters& c)
     if (! was.channel.replaceEnabled && c.replaceEnabled && strip < int (session.inputs.size()))
         usage ({ "sample_replacement_on", { { "instrument", roleFamilyId (roleFamily (session.inputs[size_t (strip)].role)) },
                                             { "by", "hand" } }, {} });
-    kept.strips[size_t (strip)].channel = c;
-    if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].channel = c;
+    auto safe = c;
+    sanitizeChannelParameters (safe);          // the fence every value crosses on its way to the audio
+    kept.strips[size_t (strip)].channel = safe;
+    if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].channel = safe;
     recordStripTune (strip, "Inspector edit", was, kept.strips[size_t (strip)]);
     publish();
     touch();
@@ -2519,8 +2522,10 @@ void MixController::setBusChannel (MixBus bus, const ChannelParameters& c)
 {
     if (bus == MixBus::Count) return;
     markMixChange (std::string (mixBusName (bus)) + " processing");
-    kept.buses[size_t (bus)].channel = c;
-    if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].channel = c;
+    auto safe = c;
+    sanitizeChannelParameters (safe);
+    kept.buses[size_t (bus)].channel = safe;
+    if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].channel = safe;
     publish();
     touch();
 }

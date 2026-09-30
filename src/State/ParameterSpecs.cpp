@@ -6,8 +6,10 @@
 #include "DSP/Biquad.h"
 #include "DSP/ChannelParameters.h"
 #include "FX/FxParameterSpecs.h"
+#include <cmath>
 #include <map>
 #include <set>
+#include <type_traits>
 
 namespace livemix
 {
@@ -247,6 +249,40 @@ const ParameterSpec* findParameterSpec (const std::string& id)
     auto it = index.find (id);
     if (it != index.end()) return it->second;
     return findFxParameterSpec (id); // shared UI widgets look up any product's parameter by id
+}
+
+int sanitizeChannelParameters (ChannelParameters& p) noexcept
+{
+    // The specs in the order forEachDspField visits the fields, looked up once: after this the
+    // walk is an index, not a string per field.
+    static const std::vector<const ParameterSpec*> order = []
+    {
+        std::vector<const ParameterSpec*> v;
+        ChannelParameters probe;
+        forEachDspParameter (probe, [&v] (const std::string& id, auto&) { v.push_back (findParameterSpec (id)); });
+        return v;
+    }();
+
+    int changed = 0;
+    size_t i = 0;
+    forEachDspField (p, [&] (auto, auto& value)
+    {
+        const ParameterSpec* spec = i < order.size() ? order[i] : nullptr;
+        ++i;
+        if (spec == nullptr) return;
+        using T = std::decay_t<decltype (value)>;
+        if constexpr (std::is_same_v<T, float>)
+        {
+            float v = std::isfinite (value) ? spec->clamp (value) : spec->clamp (spec->defaultValue);
+            if (v != value || ! std::isfinite (value)) { value = v; ++changed; }
+        }
+        else if constexpr (std::is_same_v<T, int>)
+        {
+            const int lo = int (std::lround (spec->minValue)), hi = int (std::lround (spec->maxValue));
+            if (value < lo || value > hi) { value = value < lo ? lo : hi; ++changed; }
+        }
+    });
+    return changed;
 }
 
 } // namespace livemix

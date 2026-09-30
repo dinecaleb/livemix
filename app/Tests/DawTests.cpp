@@ -2,6 +2,9 @@
 // monitoring rule, clip editing and the offline bounce. No device and no UI — the audio
 // callback is played by the test, exactly as AudioHost would.
 #include "TestFramework.h"
+#include <limits>
+#include "State/ParameterIDs.h"
+#include "State/ParameterSpecs.h"
 #include "native/DawEngine.h"
 #include "native/MixBounce.h"
 #include "DSP/LoudnessMeter.h"
@@ -2634,6 +2637,64 @@ TEST_CASE ("SessionStore: a document from every version DLIVE has ever written s
         CHECK_NEAR (fresh.getKept().strips[0].faderDb, -4.5f, 1e-3f);
         CHECK_NEAR (fresh.getKept().master().channel.limiterCeilingDb, -1.5f, 1e-3f);
     }
+}
+
+TEST_CASE ("SessionStore: a corrupt file is held inside what a knob can reach, never played as written")
+{
+    // A file is not a knob. Hand-edited, half-restored from a backup, or written by a newer
+    // build, what it says has to cross the same fence a value from the Inspector does.
+    FullSession live (true);
+    auto doc = SessionStore::toVar (captureSession (live.controller, live.daw, kDevices, 0));
+    auto* mix = doc.getDynamicObject()->getProperty ("mix").getDynamicObject();
+    REQUIRE (mix != nullptr);
+    auto* strip = mix->getProperty ("strips").getArray()->getReference (0).getDynamicObject();
+    strip->setProperty ("faderDb", std::numeric_limits<double>::infinity());
+    strip->setProperty ("inputGainDb", std::numeric_limits<double>::quiet_NaN());
+    strip->setProperty ("pan", 40.0);
+    auto* chain = strip->getProperty ("channel").getDynamicObject();
+    chain->setProperty (juce::Identifier (ParamID::compMakeup), 60.0);
+    chain->setProperty (juce::Identifier (ParamID::hpfFreq), std::numeric_limits<double>::quiet_NaN());
+    chain->setProperty (juce::Identifier (eqBandId ("toneEq", 1, "Gain")), 100.0);
+    auto* bus = mix->getProperty ("buses").getArray()->getReference (0).getDynamicObject();
+    bus->setProperty ("faderDb", 1.0e6);
+
+    SessionState back;
+    REQUIRE (SessionStore::fromVar (doc, back));
+    const auto& s = back.mix.strips[0];
+    CHECK (s.faderDb <= 12.0f);
+    CHECK (std::isfinite (s.inputGainDb));
+    CHECK (s.inputGainDb <= 48.0f);
+    CHECK (s.pan <= 1.0f);
+    const auto* makeup = findParameterSpec (ParamID::compMakeup);
+    const auto* hpf = findParameterSpec (ParamID::hpfFreq);
+    REQUIRE (makeup != nullptr);
+    REQUIRE (hpf != nullptr);
+    CHECK (s.channel.compMakeupDb <= makeup->maxValue);
+    CHECK (std::isfinite (s.channel.hpfHz));
+    CHECK (s.channel.hpfHz >= hpf->minValue);
+    CHECK (s.channel.hpfHz <= hpf->maxValue);
+    CHECK (back.mix.buses[0].faderDb <= 12.0f);
+}
+
+TEST_CASE ("SessionStore: the engineer's listen comes back on the master from a file with fewer groups")
+{
+    // Before LEAD was a group the master sat one slot lower, and that slot is LEAD now: reading
+    // the stored number as today's enum put the headphones on one group instead of the mix.
+    FullSession live (true);
+    auto state = captureSession (live.controller, live.daw, kDevices, 0);
+    state.mix.monitor.source = MixBus::Master;
+    auto doc = SessionStore::toVar (state);
+    auto* mix = doc.getDynamicObject()->getProperty ("mix").getDynamicObject();
+    auto* buses = mix->getProperty ("buses").getArray();
+    juce::Array<juce::var> older;
+    for (int b = 0; b + 2 < buses->size(); ++b) older.add (buses->getReference (b));
+    older.add (buses->getReference (buses->size() - 1));
+    mix->setProperty ("buses", older);
+    mix->getProperty ("monitor").getDynamicObject()->setProperty ("source", older.size() - 1);
+
+    SessionState back;
+    REQUIRE (SessionStore::fromVar (doc, back));
+    CHECK (back.mix.monitor.source == MixBus::Master);
 }
 
 TEST_CASE ("SessionState: every change to the session moves its revision, and nothing else does")

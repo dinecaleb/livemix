@@ -1,4 +1,8 @@
 #include "SessionStore.h"
+#include <cmath>
+#include "Core/DbUtils.h"
+#include "FX/FxParameterSpecs.h"
+#include "State/ParameterSpecs.h"
 #include "DSP/ChannelParameters.h"
 #include "FX/FxParameters.h"
 #include <algorithm>
@@ -29,7 +33,14 @@ namespace
             if constexpr (std::is_same_v<T, bool>) field = value >= 0.5;
             else field = T (value);
         });
+        // A file is not a knob: whatever it says is held inside the ranges a knob can reach,
+        // and a value that is not a number goes back to its default.
+        sanitizeChannelParameters (p);
     }
+
+    // The levels a file carries, held inside what a fader can reach. A NaN comes back as the
+    // bottom of the range (livemix::clamp), so a corrupt fader is silent, never full scale.
+    float storedDb (const juce::var& v, float lo, float hi) { return clamp (float (double (v)), lo, hi); }
 
     juce::var fxToVar (const FxParameters& p)
     {
@@ -50,7 +61,9 @@ namespace
             using T = std::remove_reference_t<decltype (field)>;
             const double value = double (obj->getProperty (key));
             if constexpr (std::is_same_v<T, bool>) field = value >= 0.5;
-            else field = T (value);
+            else if (const auto* spec = findFxParameterSpec (id))
+                field = T (std::isfinite (value) ? spec->clamp (float (value)) : spec->clamp (spec->defaultValue));
+            else if (std::isfinite (value)) field = T (value);
         });
     }
 
@@ -78,14 +91,15 @@ namespace
         auto* so = v.getDynamicObject();
         if (so == nullptr) return;
         channelFromVar (so->getProperty ("channel"), s.channel);
-        s.inputGainDb = float (double (so->getProperty ("inputGainDb")));
-        s.faderDb = float (double (so->getProperty ("faderDb")));
-        s.pan = float (double (so->getProperty ("pan")));
+        s.inputGainDb = storedDb (so->getProperty ("inputGainDb"), -48.0f, 48.0f);
+        s.faderDb = storedDb (so->getProperty ("faderDb"), kSilenceDb, 12.0f);
+        s.pan = clamp (float (double (so->getProperty ("pan"))), -1.0f, 1.0f);
+        if (! std::isfinite (float (double (so->getProperty ("pan"))))) s.pan = 0.0f;
         s.mute = bool (so->getProperty ("mute"));
         s.solo = bool (so->getProperty ("solo"));
         s.linkGroup = so->hasProperty ("linkGroup") ? juce::jmax (0, int (so->getProperty ("linkGroup"))) : 0;
         if (auto* sends = so->getProperty ("sendDb").getArray())
-            for (int f = 0; f < std::min (int (FxSlot::Count), sends->size()); ++f) s.sendDb[size_t (f)] = float (double (sends->getReference (f)));
+            for (int f = 0; f < std::min (int (FxSlot::Count), sends->size()); ++f) s.sendDb[size_t (f)] = storedDb (sends->getReference (f), kSilenceDb, 6.0f);
         s.effectsOff = bool (so->getProperty ("effectsOff"));
     }
 
@@ -378,13 +392,13 @@ namespace
                 if (bo == nullptr) continue;
                 auto& bus = m.buses[size_t (busFromStoredIndex (b, buses->size()))];
                 channelFromVar (bo->getProperty ("channel"), bus.channel);
-                bus.faderDb = float (double (bo->getProperty ("faderDb")));
+                bus.faderDb = storedDb (bo->getProperty ("faderDb"), kSilenceDb, 12.0f);
                 bus.mute = bool (bo->getProperty ("mute"));
                 bus.solo = bool (bo->getProperty ("solo"));
             }
         // The FX group's own fader and mute: a session saved before it existed has neither, and
         // 0 dB / not muted is exactly what it sounded like.
-        if (obj->hasProperty ("fxReturnDb")) m.fxReturnDb = juce::jlimit (-60.0f, 12.0f, float (double (obj->getProperty ("fxReturnDb"))));
+        if (obj->hasProperty ("fxReturnDb")) m.fxReturnDb = storedDb (obj->getProperty ("fxReturnDb"), -60.0f, 12.0f);
         m.fxMute = bool (obj->getProperty ("fxMute"));
         if (auto* fx = obj->getProperty ("fx").getArray())
             for (int f = 0; f < std::min (int (FxSlot::Count), fx->size()); ++f)
@@ -392,7 +406,7 @@ namespace
                 auto* fo = fx->getReference (f).getDynamicObject();
                 if (fo == nullptr) continue;
                 fxFromVar (fo->getProperty ("fx"), m.fx[size_t (f)].fx);
-                m.fx[size_t (f)].returnDb = float (double (fo->getProperty ("returnDb")));
+                m.fx[size_t (f)].returnDb = storedDb (fo->getProperty ("returnDb"), kSilenceDb, 12.0f);
                 m.fx[size_t (f)].enabled = bool (fo->getProperty ("enabled"));
                 m.fx[size_t (f)].solo = bool (fo->getProperty ("solo"));
             }
@@ -405,12 +419,17 @@ namespace
             const int point = int (mon->getProperty ("point"));
             if (mode >= 0 && mode < int (SoloMode::Count)) m.monitor.mode = SoloMode (mode);
             if (point >= 0 && point < int (SoloPoint::Count)) m.monitor.point = SoloPoint (point);
-            m.monitor.gainDb = juce::jlimit (-60.0f, 12.0f, float (double (mon->getProperty ("gainDb"))));
+            m.monitor.gainDb = storedDb (mon->getProperty ("gainDb"), -60.0f, 12.0f);
             m.monitor.mute = bool (mon->getProperty ("mute"));
             m.monitor.dim = bool (mon->getProperty ("dim"));
-            if (mon->hasProperty ("dimDb")) m.monitor.dimDb = juce::jlimit (-40.0f, 0.0f, float (double (mon->getProperty ("dimDb"))));
+            if (mon->hasProperty ("dimDb")) m.monitor.dimDb = storedDb (mon->getProperty ("dimDb"), -40.0f, 0.0f);
+            // Stored as a bus index, so it moves with the buses: a file written before a group
+            // was added has its master at a lower number, and reading that number as today's
+            // enum put the engineer's headphones on one group instead of the whole mix.
             const int src = int (mon->getProperty ("source"));
-            if (src >= 0 && src < int (MixBus::Count)) m.monitor.source = MixBus (src);
+            const auto* storedBuses = obj->getProperty ("buses").getArray();
+            if (src >= 0 && src < int (MixBus::Count))
+                m.monitor.source = busFromStoredIndex (src, storedBuses != nullptr ? storedBuses->size() : int (MixBus::Count));
         }
     }
 

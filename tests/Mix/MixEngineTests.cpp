@@ -2,6 +2,7 @@
 #include "DSP/Limiter.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include "TestSignals.h"
 #include "AllocationTracker.h"
 #include "Mix/MixEngine.h"
@@ -647,4 +648,53 @@ TEST_CASE ("MixEngine: speech priority steps the band back into the broadcast, n
         d.run (e, 64);
         CHECK (alloctrack::getCount() == 0);
     }
+}
+
+TEST_CASE ("MixEngine: a stage that stops producing numbers drops out for a block, and the service goes on")
+{
+    // One NaN latched in a strip's filter state would otherwise ride the bus, the master, the
+    // reverb's feedback and the limiter's delay line to the broadcast until the next prepare.
+    MixEngine e;
+    e.prepare (kSr, 64, smallSession());
+    e.setParameters (rawMix (e));
+    Device d (8, 2, 48000);
+    sineOnInput (d, 5, 440.0f, 0.25f);                                     // the lead, singing
+    for (int i = 100; i < 200; ++i) d.in.data[0][size_t (i)] = std::numeric_limits<float>::quiet_NaN();
+    d.in.data[0][300] = std::numeric_limits<float>::infinity();            // and the kick mic goes wild
+    d.run (e, 64);
+
+    bool finite = true;
+    for (int ch = 0; ch < 2; ++ch)
+        for (float x : d.out.data[size_t (ch)]) finite = finite && std::isfinite (x);
+    CHECK (finite);
+    CHECK (e.getNonFiniteBlocks() > 0);
+    // The lead is still on the air after the fault.
+    CHECK_NEAR (d.peak (0, 24000), 0.25f * std::cos (float (M_PI) / 4.0f), 0.01);
+}
+
+TEST_CASE ("MixEngine: the device is never handed more than full scale")
+{
+    // With the master limiter off (BYPASS, a volunteer's chain, a group feed) nothing else in
+    // the graph has a ceiling, and a converter handed more clips anyway.
+    MixEngine e;
+    e.prepare (kSr, 64, smallSession());
+    auto p = rawMix (e);
+    p.strips[4].faderDb = 12.0f;
+    e.setParameters (p);
+    Device d (8, 2, 24000);
+    sineOnInput (d, 5, 440.0f, 0.9f);
+    d.run (e, 64);
+    CHECK (d.peak (0) <= 1.0f);
+    CHECK (d.peak (1) <= 1.0f);
+    CHECK (e.getClampedOutputBlocks() > 0);
+
+    // ... and a mix that is right never touches it.
+    MixEngine quiet;
+    quiet.prepare (kSr, 64, smallSession());
+    quiet.setParameters (rawMix (quiet));
+    Device q (8, 2, 24000);
+    sineOnInput (q, 5, 440.0f, 0.25f);
+    q.run (quiet, 64);
+    CHECK (quiet.getClampedOutputBlocks() == 0);
+    CHECK (quiet.getNonFiniteBlocks() == 0);
 }

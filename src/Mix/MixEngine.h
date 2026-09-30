@@ -142,6 +142,12 @@ public:
     Stats getStats() const noexcept;
     void resetStats() noexcept { peakMicros.store (0.0f); blockCount.store (0); }
 
+    // The two last-resort guards (see MixEngine.cpp): how many blocks a stage produced that
+    // were not numbers, and how many blocks an output had to be held at full scale. Both are
+    // zero in a mix that is right; a number here is a fault somebody should be told about.
+    int getNonFiniteBlocks() const noexcept { return nonFinite.load (std::memory_order_relaxed); }
+    int getClampedOutputBlocks() const noexcept { return outputClamped.load (std::memory_order_relaxed); }
+
 private:
     struct Strip
     {
@@ -235,6 +241,8 @@ private:
     long long samplePosition = 0;                                // running, from prepare()
     std::atomic<float> lastMicros { 0.0f }, peakMicros { 0.0f };
     std::atomic<int> blockCount { 0 };
+    std::atomic<int> nonFinite { 0 };        // blocks a stage produced that were not numbers
+    std::atomic<int> outputClamped { 0 };    // blocks where an output had to be held at full scale
 };
 
 } // namespace livemix

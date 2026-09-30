@@ -45,4 +45,15 @@ bool productUsesParameter (Product p, const std::string& id);
 // then Dine FX). DSP ids are identical in every table that carries them.
 const ParameterSpec* findParameterSpec (const std::string& id);
 
+struct ChannelParameters;
+
+// EVERY DSP FIELD HELD INSIDE ITS SPEC. A value that is not a number goes back to the spec's
+// default, and everything else is clamped to the spec's range - the same range a knob can
+// reach. This is the fence a value crosses on its way to the audio from anywhere that is not
+// a knob: a session file (hand-edited, corrupted, or written by a newer build), a scene, a
+// preset, the controller's own setters. A corrupt number must never become a full-scale blast
+// through the PA. Returns how many fields had to be changed. Any thread but the audio one
+// (the first call builds a table); no strings are built after that.
+int sanitizeChannelParameters (ChannelParameters& p) noexcept;
+
 } // namespace livemix
