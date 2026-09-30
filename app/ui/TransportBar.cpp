@@ -142,6 +142,7 @@ void TransportBar::togglePlay()
     if (daw.getTransport().isPlaying())
     {
         const bool wasRecording = daw.isRecording();
+        stopPressed = wasRecording;
         daw.stop();
         if (wasRecording)
         {
@@ -162,6 +163,7 @@ void TransportBar::toggleRecord()
     auto& daw = services.daw();
     if (daw.isRecording())
     {
+        stopPressed = true;
         const int takes = daw.stopRecording();
         daw.stop();
         if (onToast) onToast (takes == 1 ? "Recording stopped. 1 track was written." : "Recording stopped. " + juce::String (takes) + " tracks were written.");
@@ -211,6 +213,7 @@ void TransportBar::toggleRecord()
 
     const auto err = daw.startRecording();
     if (err.isNotEmpty()) { if (onToast) onToast (err); return; }
+    stoppedByItself = false;
     if (onToast) onToast ("Recording. " + juce::String (daw.getProject().numArmed()) + " inputs are being written to disk.");
     refresh();
 }
@@ -250,6 +253,9 @@ void TransportBar::refresh()
     playButton->setPaused (nowPlaying);
     recordButton->setActive (nowRecording);
 
+    // A take that ended with nobody pressing stop - the device changed rate, the disk failed.
+    if (recording && ! nowRecording && ! stopPressed) stoppedByItself = true;
+    if (! nowRecording) stopPressed = false;
     if (const auto notice = daw.takeStopNotice(); notice.isNotEmpty())
     {
         if (onToast) onToast (notice);
@@ -268,6 +274,7 @@ void TransportBar::refresh()
     const auto err = daw.getRecorder().getError();
     if (err.isNotEmpty() && nowRecording)
     {
+        stoppedByItself = true;
         daw.stopRecording();
         daw.stop();
         if (onToast) onToast (err);

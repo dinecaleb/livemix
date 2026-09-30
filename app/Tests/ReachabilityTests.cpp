@@ -645,3 +645,24 @@ TEST_CASE ("Recording: REC with nothing to record from says so and records nothi
     w.view->getTransportBar().toggleRecord();
     CHECK (! w.dawEngine.isRecording());
 }
+
+TEST_CASE ("Recording: one stray key never stops a service take")
+{
+    Window w;
+    REQUIRE (! w.dawEngine.getProject().tracks.empty());
+    auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dlive-rec-keys");
+    folder.deleteRecursively();
+    folder.createDirectory();
+    w.dawEngine.getProject().folder = folder;
+    w.dawEngine.getProject().tracks[0].armed = true;
+    w.services.reconfigure();
+    w.view->getTransportBar().toggleRecord();
+    REQUIRE (w.dawEngine.isRecording());
+
+    auto& view = static_cast<juce::Component&> (*w.view);
+    view.keyPressed (juce::KeyPress ('R', 0, 0));
+    CHECK (w.dawEngine.isRecording());                        // asked, not stopped
+    view.keyPressed (juce::KeyPress ('R', 0, 0));
+    CHECK (! w.dawEngine.isRecording());                      // the second press means it
+    folder.deleteRecursively();
+}

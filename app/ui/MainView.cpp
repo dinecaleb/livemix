@@ -318,6 +318,8 @@ class MainView::StatusBar : public juce::Component
 public:
     StatusBar (MixController& c, AppServices& s) : controller (c), services (s) { setOpaque (true); }
 
+    bool takeStopped = false;           // the last take was stopped by DLIVE, not by a person (TransportBar)
+
     void update (bool slow)
     {
         Look next;
@@ -325,6 +327,19 @@ public:
         const bool lost = ! running && services.deviceStopped();
         next.engine = lost ? "Device lost" : ! running ? "Not running" : controller.isBypassed() ? "Bypassed" : "running";
         next.engineTint = lost ? Dine::crit : ! running ? Dine::ink3 : controller.isBypassed() ? Dine::warn : Dine::ink;
+        next.engineLabel = "Engine";
+        // THE FIRST CELL IS THE ONE THAT IS ALWAYS THERE. A narrow window drops the cells from
+        // the right and the toolbar's lamps with them, so whatever is most urgent about what is
+        // going out is said here: a muted or dimmed broadcast, a take that stopped by itself,
+        // then Autopilot at work.
+        if (! lost && running)
+        {
+            if (controller.isBroadcastMuted())      { next.engineLabel = "On air"; next.engine = "muted";  next.engineTint = Dine::crit; }
+            else if (takeStopped && ! services.daw().isRecording())
+                                                    { next.engineLabel = "Recording"; next.engine = "stopped by itself"; next.engineTint = Dine::crit; }
+            else if (controller.isBroadcastDimmed()) { next.engineLabel = "On air"; next.engine = "dimmed"; next.engineTint = Dine::warn; }
+            else if (! controller.isBypassed() && controller.isAutopilotOn()) next.engine = "running, Autopilot on";
+        }
         const double cpu = services.cpuLoad();
         next.cpu = cpu < 0.0 ? juce::String (Glyph::dash()) : juce::String (juce::roundToInt (cpu * 100.0)) + "%";
         next.cpuTint = cpu > 0.8 ? Dine::warn : Dine::ink;
@@ -394,7 +409,7 @@ public:
             r.removeFromRight (24);
         }
 
-        cell (g, r, "Engine", look.engine, look.engineTint);
+        cell (g, r, look.engineLabel, look.engine, look.engineTint);
         cell (g, r, "CPU", look.cpu, look.cpuTint);
         cell (g, r, "Disk", look.disk, look.diskTint);
         cell (g, r, "Recording", look.rec, look.recTint);
@@ -429,13 +444,13 @@ private:
 
     struct Look
     {
-        juce::String engine, cpu, disk, rec, loudness, monitor, counts;
+        juce::String engineLabel, engine, cpu, disk, rec, loudness, monitor, counts;
         juce::Colour engineTint, cpuTint, diskTint, recTint, loudTint, monitorTint;
         int drops = 0;
         bool recording = false, safe = false;
         bool operator== (const Look& o) const
         {
-            return engine == o.engine && cpu == o.cpu && disk == o.disk && rec == o.rec && loudness == o.loudness
+            return engineLabel == o.engineLabel && engine == o.engine && cpu == o.cpu && disk == o.disk && rec == o.rec && loudness == o.loudness
                 && monitor == o.monitor && counts == o.counts && engineTint == o.engineTint && cpuTint == o.cpuTint && diskTint == o.diskTint
                 && recTint == o.recTint && loudTint == o.loudTint && monitorTint == o.monitorTint
                 && drops == o.drops && recording == o.recording && safe == o.safe;
@@ -2312,8 +2327,26 @@ void MainView::handleCommand (int id)
             break;
         }
 
-        case 500: transportBar->togglePlay(); break;
-        case 501: transportBar->toggleRecord(); break;
+        // A SERVICE TAKE IS NEVER STOPPED BY ONE STRAY KEY. While recording, Space or R (or the
+        // menu item) asks for a second press within three seconds; the on-screen buttons are a
+        // deliberate click and act at once.
+        case 500:
+        case 501:
+        {
+            if (services.daw().isRecording())
+            {
+                const auto now = juce::Time::getMillisecondCounter();
+                if (stopAskedAt == 0 || now - stopAskedAt > 3000)
+                {
+                    stopAskedAt = now;
+                    showToast ("Recording is running. Press again to stop it.");
+                    break;
+                }
+                stopAskedAt = 0;
+            }
+            if (id == 500) transportBar->togglePlay(); else transportBar->toggleRecord();
+            break;
+        }
         case 502: transportBar->returnToStart(); break;
         case 503: transportBar->toggleLoop(); break;
 
@@ -2704,6 +2737,7 @@ void MainView::timerCallback()
     if (chatSheet != nullptr) chatSheet->refresh();
 
     const bool slow = (++slowTicks % 30) == 0;
+    statusBar->takeStopped = transportBar->takeStoppedByItself();
     statusBar->update (slow);
     {
         const bool failing = services.autosaveFailing();

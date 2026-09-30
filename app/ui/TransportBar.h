@@ -27,6 +27,9 @@ public:
     std::function<void()> onTimelineChanged;   // a take was recorded: the Tracks page should rebuild
 
     void togglePlay();
+    // The last take ended without anybody stopping it - the disk, the device. Stays true until
+    // the next take starts, so the status foot can keep saying it after the toast has gone.
+    bool takeStoppedByItself() const noexcept { return stoppedByItself; }
     void toggleRecord();
     void returnToStart();
     void toggleLoop();
@@ -56,6 +59,8 @@ private:
     bool playing = false, recording = false, looping = false;
     juce::int64 lastPosition = -1, lastLength = -1;
     bool dropSaid = false;                      // this take's "the disk fell behind" has been said
+    bool stoppedByItself = false;               // the last take was stopped by DLIVE (disk, device), not a person
+    bool stopPressed = false;                   // a person stopped this take (so its ending is not news)
 
     juce::Rectangle<int> keysWell, clockWell, timeCell, lengthCell, divider;
     bool showLength = true, showClock = true;

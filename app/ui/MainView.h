@@ -282,6 +282,7 @@ private:
 
     int saveTicks = 0, toastTicks = 0, slowTicks = 0;
     bool saidAutosaveFailing = false;       // the toast is said once per failure, not every tick
+    juce::uint32 stopAskedAt = 0;            // a stop of a running take was asked for once (see case 500/501)
     // What is written down follows the document's revision, not a call site: the tick notices
     // it has moved, and hands a snapshot to the autosave once it stops. A milestone - a tune
     // kept, a scene recalled, a new reference - does not wait. docs/SESSION-STATE.md §5.3.
