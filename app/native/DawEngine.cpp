@@ -28,7 +28,19 @@ void DawEngine::setProject (const Project& p)
 
 void DawEngine::prepare (double newSampleRate, int maxBlockSize)
 {
-    sampleRate = newSampleRate > 0.0 ? newSampleRate : 48000.0;
+    // A take is one sample rate from its first sample to its last: its header says so. A
+    // device that comes back at another rate (a console's clock changed, Audio MIDI Setup, a
+    // Dante device re-clocked) would otherwise keep writing into a file that plays back at the
+    // wrong speed and pitch. The take so far is closed properly, at the rate it was recorded
+    // at, and the person is told (takeStopNotice).
+    const double wanted = newSampleRate > 0.0 ? newSampleRate : 48000.0;
+    if (recorder.isRecording() && std::abs (wanted - sampleRate) > 0.5)
+    {
+        stopRecording();
+        stopNotice = "The audio device changed to " + juce::String (wanted / 1000.0, 1) + " kHz, so the recording was stopped "
+                     "with everything up to now kept. Press record again to carry on at the new rate.";
+    }
+    sampleRate = wanted;
     blockSize = juce::jmax (32, maxBlockSize);
     project.sampleRate = sampleRate;
     transport.prepare (sampleRate);

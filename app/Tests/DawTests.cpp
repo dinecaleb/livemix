@@ -826,6 +826,37 @@ TEST_CASE ("SessionStore: a session written before the speech group keeps its ma
     folder.deleteRecursively();
 }
 
+TEST_CASE ("DawEngine: a take is one sample rate - a device that comes back at another closes it properly")
+{
+    const auto folder = scratchFolder().getChildFile ("record-rate");
+    folder.deleteRecursively();
+    folder.createDirectory();
+    MixController controller;
+    DawEngine daw (controller);
+    const auto session = band();
+    controller.setSession (session);
+    daw.setSession (session);
+    controller.prepare (kSr, kBlock);
+    daw.prepare (kSr, kBlock);
+    auto project = daw.getProject();
+    project.folder = folder;
+    project.tracks[0].armed = true;
+    daw.setProject (project);
+    REQUIRE (daw.startRecording().isEmpty());
+    Callback cb (daw);
+    cb.run (40, 0.4f);
+
+    // The console is re-clocked mid-service.
+    daw.prepare (44100.0, kBlock);
+    CHECK (! daw.isRecording());
+    REQUIRE (daw.getProject().tracks[0].clips.size() == 1);
+    const auto& clip = daw.getProject().tracks[0].clips[0];
+    CHECK (clip.fileSampleRate == 0.0 || std::abs (clip.fileSampleRate - kSr) < 0.5);   // stamped with the rate it was recorded at
+    CHECK (daw.takeStopNotice().contains ("44.1 kHz"));
+    CHECK (daw.takeStopNotice().isEmpty());             // said once
+    folder.deleteRecursively();
+}
+
 TEST_CASE ("DawEngine: recording an armed track adds it to the timeline as a clip")
 {
     const auto folder = scratchFolder().getChildFile ("record-session");

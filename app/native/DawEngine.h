@@ -74,6 +74,8 @@ public:
     juce::String startRecording();
     // Ends the take and turns what was captured into clips on their tracks. Returns how many.
     int stopRecording();
+    // Why a take was stopped by something other than the person (a sample-rate change), once.
+    juce::String takeStopNotice() { auto n = stopNotice; stopNotice.clear(); return n; }
 
     // Message thread, after a session is opened. Takes that were still being written when DLIVE
     // last closed (a crash mid-set) get a valid header from what is on disk and go on the track
@@ -99,6 +101,7 @@ public:
                        float* const* outputs, int numOutputs, int numSamples) noexcept;
 
 private:
+    juce::String stopNotice;
     struct Route
     {
         int inputA = -1, inputB = -1, channels = 1;

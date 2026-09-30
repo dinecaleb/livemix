@@ -220,6 +220,11 @@ void TransportBar::refresh()
     playButton->setPaused (nowPlaying);
     recordButton->setActive (nowRecording);
 
+    if (const auto notice = daw.takeStopNotice(); notice.isNotEmpty())
+    {
+        if (onToast) onToast (notice);
+        if (onTimelineChanged) onTimelineChanged();
+    }
     const auto err = daw.getRecorder().getError();
     if (err.isNotEmpty() && nowRecording)
     {
