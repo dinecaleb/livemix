@@ -1312,6 +1312,11 @@ public:
         before.setClickingTogglesState (false); after.setClickingTogglesState (false);
         for (auto* b : { &before, &after, &keep, &revert, &another }) { b->setFontPx (12.5f); b->setPadX (14); }
         keep.setPadX (18);
+        // KEEP says "Keep these" once a group is switched off. The sheet is measured with the
+        // longer label from the start, so picking a chip never makes the whole card change size.
+        keep.setButtonText ("Keep these");
+        keepWideW = juce::jmax (74, keep.idealWidth());
+        keep.setButtonText ("Keep");
         before.onClick = [this] { controller.setCompare (MixController::Compare::Before); refresh(); if (page.onToast) page.onToast ("Playing BEFORE - to the room and the stream too. Nothing is kept until KEEP."); };
         after.onClick  = [this] { controller.setCompare (MixController::Compare::After); refresh(); if (page.onToast) page.onToast ("Playing AFTER - to the room and the stream too. Nothing is kept until KEEP."); };
         keep.onClick   = [this] { controller.keepPlan(); if (page.onToast) page.onToast ("Kept. Every value it set is marked TUNED BY DLIVE and can be reverted stage by stage."); };
@@ -1435,7 +1440,7 @@ public:
              + 10 + review.idealWidth() + 16
              + juce::jmax (116, another.idealWidth()) + 8
              + juce::jmax (82, revert.idealWidth()) + 8
-             + juce::jmax (74, keep.idealWidth());
+             + keepWideW;
     }
 
     int sheetWidth() const { return juce::jmin (juce::jmax (kSheetW, footerWidth() + kPadX * 2), getWidth() - 80); }
@@ -1443,15 +1448,7 @@ public:
     // A VALUE THAT IS CUT IS A WRONG VALUE. "EQ 2.8 kHz - -2.5 dB - Q 1.2" in a 92 pt column
     // reads as an EQ at 2.8 kHz and nothing else, so the column is as wide as the widest
     // value in this proposal - bounded, because the sentence beside it has to stay readable.
-    int valueWidth() const
-    {
-        int w = kValueW;
-        for (const auto& b : bullets())
-            if (b.value.isNotEmpty()) w = juce::jmax (w, Dine::textWidth (Dine::mono (11.0f, 500), b.value));
-        return juce::jmin (w, 230);
-    }
-
-    int bulletWidth() const { return sheetWidth() - kPadX * 2 - valueWidth() - 18 - 17; }
+    int valueWidth() const { return layoutFor().valueW; }
 
     static int linesNeeded (const juce::Font& font, const juce::String& text, int width)
     {
@@ -1462,31 +1459,71 @@ public:
         attributed.setJustification (juce::Justification::topLeft);
         juce::TextLayout layout;
         layout.createLayout (attributed, float (width));
-        return juce::jlimit (1, 5, int (std::ceil (layout.getHeight() / juce::jmax (1.0f, font.getHeight()) - 0.05f)));
+        return juce::jlimit (1, 5, layout.getNumLines());     // counted, not estimated from a height
     }
 
-    int bulletHeight (const Bullet& b) const
+    // THE CARD IS LAID OUT ONCE per proposal and width, not on every paint: each sentence's
+    // line count is a text layout, and paint, resized and the sheet's own size all asked for
+    // every one of them again - three times a second while the card was up, and again on
+    // every chip press. That was the lag.
+    struct Laid
     {
-        const int avail = juce::jmax (80, bulletWidth());
-        const int whatLines = linesNeeded (Dine::text (13.0f, 600), b.what, avail);
-        const int whyLines = b.why.isEmpty() ? 0 : linesNeeded (Dine::text (12.0f), b.why, avail);
-        return 11 + whatLines * 18 + (whyLines > 0 ? 2 + whyLines * 16 : 0) + 11;
+        int stamp = -2, width = -1;
+        std::vector<Bullet> bullets;
+        std::vector<int> whatLines, whyLines, heights;
+        int valueW = kValueW, listH = 0;
+    };
+    mutable Laid laid;
+
+    int contentStamp() const
+    {
+        const auto* plan = controller.getPlan();
+        if (plan == nullptr) return -1;
+        const bool live = controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready;
+        return controller.getTuneCount() * 1000003 + plan->parametersChanged * 101 + plan->fadersChanged * 7
+             + plan->gainsChanged + (live ? 500009 : 0) + int (controller.getTuneLive().getReview().size()) * 13;
     }
 
-    int listHeight() const
+    const Laid& layoutFor() const
     {
-        int h = 0;
-        for (const auto& b : bullets()) h += bulletHeight (b);
-        return h;
+        const int stamp = contentStamp();
+        const int w = getWidth();
+        if (laid.stamp == stamp && laid.width == w) return laid;
+        laid = {};
+        laid.stamp = stamp;
+        laid.width = w;
+        laid.bullets = bullets();
+        for (const auto& b : laid.bullets)
+            if (b.value.isNotEmpty()) laid.valueW = juce::jmax (laid.valueW, Dine::textWidth (Dine::mono (11.0f, 500), b.value));
+        laid.valueW = juce::jmin (laid.valueW, 230);
+        const int avail = juce::jmax (80, sheetWidth() - kPadX * 2 - laid.valueW - 18 - 17);
+        for (const auto& b : laid.bullets)
+        {
+            const int whatLines = linesNeeded (Dine::text (13.0f, 600), b.what, avail);
+            const int whyLines = b.why.isEmpty() ? 0 : linesNeeded (Dine::text (12.0f), b.why, avail);
+            const int h = kRowPad + whatLines * 18 + (whyLines > 0 ? 2 + whyLines * 16 : 0) + kRowPad;
+            laid.whatLines.push_back (whatLines);
+            laid.whyLines.push_back (whyLines);
+            laid.heights.push_back (h);
+            laid.listH += h;
+        }
+        return laid;
     }
+
+    int listHeight() const { return layoutFor().listH; }
 
     static constexpr int kChipH = 26;
-    int chipRowHeight() const { return showChips() ? kChipH + 12 : 0; }
+    static constexpr int kRowPad = 11;
+    // The head: the title, the line saying what it ran on, the line saying what is on air - each
+    // with room of its own - then the KEEP SOME row, set apart from the sentences above it.
+    static constexpr int kTitleH = 28, kLineH = 18, kAfterTitle = 6, kBetweenLines = 4, kBeforeChips = 14, kAfterChips = 10;
+    int headHeight() const { return kTitleH + kAfterTitle + kLineH + kBetweenLines + kLineH; }
+    int chipRowHeight() const { return showChips() ? kBeforeChips + kChipH + kAfterChips : 8; }
 
     juce::Rectangle<int> sheetBounds() const
     {
         const int w = sheetWidth();
-        const int content = kPadY + 28 + 2 + 18 + 18 + chipRowHeight() + listHeight() + 18 + Dine::Metric::button + kPadY;
+        const int content = kPadY + headHeight() + chipRowHeight() + listHeight() + 18 + Dine::Metric::button + kPadY;
         const int h = juce::jlimit (240, juce::jmax (240, getHeight() - 40), content);
         return juce::Rectangle<int> (w, h).withCentre (getLocalBounds().getCentre());
     }
@@ -1534,13 +1571,13 @@ public:
         if (plan == nullptr) return;
 
         auto r = card.reduced (kPadX, kPadY);
-        auto head = r.removeFromTop (28);
+        auto head = r.removeFromTop (kTitleH);
         head.removeFromRight (closeButton.getWidth() + 10);
         const bool live = controller.getTuneLive().getState() == TuneLiveCoordinator::State::Ready;
         g.setColour (Dine::ink);
         g.setFont (Dine::text (22.0f, 600));
         Dine::drawText (g, tuneVerb (controller, live) + " is ready", head, juce::Justification::centredLeft, true);
-        r.removeFromTop (2);
+        r.removeFromTop (kAfterTitle);
         // WHAT IT RAN ON. A card that says "is ready" without saying what it is a card about
         // is the reason the scopes were invisible in the first place - so every one of them
         // names itself here, the whole mix included.
@@ -1551,31 +1588,36 @@ public:
                                         : "Heard " + juce::String (plan->stripsHeard) + " inputs, proposed "
                                               + juce::String (plan->parametersChanged) + " settings and "
                                               + juce::String (plan->fadersChanged) + " levels. " + juce::String (plan->headline)),
-                              r.removeFromTop (18), juce::Justification::topLeft, 1);
+                              r.removeFromTop (kLineH), juce::Justification::topLeft, 1);
+        r.removeFromTop (kBetweenLines);
         // WHAT IS AUDITIONED IS ON AIR. BEFORE and AFTER are what the room and the stream hear,
         // not a private listen, and the card says so where the eye already is.
         g.setColour (Dine::warn);
         g.setFont (Dine::text (12.0f, 500));
         Dine::drawFittedText (g, "The room and the stream hear BEFORE and AFTER as you switch. Nothing is kept until KEEP.",
-                              r.removeFromTop (18), juce::Justification::centredLeft, 1);
+                              r.removeFromTop (kLineH), juce::Justification::centredLeft, 1);
 
         if (showChips())
         {
+            r.removeFromTop (kBeforeChips);
             auto row = r.removeFromTop (kChipH);
             g.setColour (everythingPicked() ? Dine::ink3 : Dine::accent);
             g.setFont (Dine::text (12.0f, 500));
             Dine::drawText (g, everythingPicked() ? "Keep" : "Keeping", row.removeFromLeft (kKeepLabelW), juce::Justification::centredLeft);
-            r.removeFromTop (12);
+            r.removeFromTop (kAfterChips);
         }
+        else r.removeFromTop (8);
 
         r.removeFromBottom (Dine::Metric::button + 18);
-        for (const auto& b : bullets())
+        const auto& L = layoutFor();
+        for (size_t k = 0; k < L.bullets.size(); ++k)
         {
-            const int h = bulletHeight (b);
+            const auto& b = L.bullets[k];
+            const int h = L.heights[k];
             if (r.getHeight() < h) break;
             auto row = r.removeFromTop (h);
             Dine::drawRule (g, row.withHeight (1), Dine::hairSoft);
-            row = row.reduced (0, 11);
+            row = row.reduced (0, kRowPad);
 
             auto lamp = row.removeFromLeft (7).withSizeKeepingCentre (6, 6).withY (row.getY() + 6);
             g.setColour (b.done ? Dine::accent : Dine::warn);
@@ -1595,7 +1637,7 @@ public:
                 Dine::drawStatusChip (g, value.removeFromRight (74).withHeight (17).toFloat(), "NOT DONE", Dine::warn);
             }
 
-            const int whatLines = linesNeeded (Dine::text (13.0f, 600), b.what, row.getWidth());
+            const int whatLines = L.whatLines[k];
             g.setColour (b.done ? Dine::ink : Dine::ink3);
             g.setFont (Dine::text (13.0f, 600));
             Dine::drawFittedText (g, b.what, row.removeFromTop (whatLines * 18), juce::Justification::topLeft, whatLines, 1.0f);
@@ -1604,7 +1646,7 @@ public:
                 row.removeFromTop (2);
                 g.setColour (Dine::ink3);
                 g.setFont (Dine::text (12.0f));
-                Dine::drawFittedText (g, b.why, row, juce::Justification::topLeft, 4, 1.0f);
+                Dine::drawFittedText (g, b.why, row, juce::Justification::topLeft, juce::jmax (1, L.whyLines[k]), 1.0f);
             }
         }
     }
@@ -1613,7 +1655,7 @@ public:
     {
         auto card = sheetBounds();
         auto r = card.reduced (kPadX, kPadY);
-        closeButton.setBounds (r.removeFromTop (28).removeFromRight (28).withSizeKeepingCentre (28, 28));
+        closeButton.setBounds (r.removeFromTop (kTitleH).removeFromRight (28).withSizeKeepingCentre (28, 28));
 
         // The design's `Sheet Footer` (65:9354): BEFORE / AFTER on the left, the actions on
         // the right with the default - Keep - last, the way macOS orders them.
@@ -1621,7 +1663,7 @@ public:
         before.setBounds (row.removeFromLeft (juce::jmax (74, before.idealWidth())));
         row.removeFromLeft (4);
         after.setBounds (row.removeFromLeft (juce::jmax (74, after.idealWidth())));
-        keep.setBounds (row.removeFromRight (juce::jmax (74, keep.idealWidth())));
+        keep.setBounds (row.removeFromRight (keepWideW));
         row.removeFromRight (8);
         revert.setBounds (row.removeFromRight (juce::jmax (82, revert.idealWidth())));
         row.removeFromRight (8);
@@ -1636,10 +1678,11 @@ public:
         review.setVisible (review.idealWidth() <= row.getWidth());
         if (review.isVisible()) review.setBounds (row.removeFromLeft (review.idealWidth()));
         r.removeFromBottom (18);
-        r.removeFromTop (2 + 18 + 18);
+        r.removeFromTop (kAfterTitle + kLineH + kBetweenLines + kLineH);
 
         if (showChips())
         {
+            r.removeFromTop (kBeforeChips);
             auto chipRow = r.removeFromTop (kChipH);
             chipRow.removeFromLeft (kKeepLabelW);
             for (int b = 0; b < int (MixBus::Count); ++b)
@@ -1661,6 +1704,7 @@ private:
     std::array<bool, size_t (MixBus::Count)> touchedBus { };
     int groupsTouched = 0;
     int builtFor = -1;
+    int keepWideW = 74;                 // KEEP's width with its longest label (see the constructor)
     DineButton before { "Before", DineButton::Style::Standard }, after { "After", DineButton::Style::Filled };
     DineButton keep { "Keep", DineButton::Style::Filled }, revert { "Revert", DineButton::Style::Standard };
     DineButton another { "Try another mix", DineButton::Style::Standard };
