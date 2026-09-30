@@ -70,19 +70,26 @@ Anyone can take the anon key out of the app. With it they **cannot** read, chang
 a single event, or touch any other table. The service-role key is never in the app, the repo
 or `telemetry.local.cmake` (git-ignored, which holds only the URL and the anon key). The one
 thing the key **can** do is send events, so the risk is spam, not a leak. `ingest_events`
-(migration `20260929140000_dlive_analytics_rate_limit.sql`) bounds it:
+(migrations `20260929140000_dlive_analytics_rate_limit.sql`, then
+`20260930120000_dlive_analytics_limits.sql` - written 2026-09-30, **apply it to the project**)
+bounds it:
 
 | Limit | Value | Over it |
 | --- | --- | --- |
 | Rows per call | 1-100, all from one `install_id` | 400; the app drops that batch and counts it |
 | Per install | 600 events per hour (normal use is well under 150) | 429 with `Retry-After: 60`; the app keeps its rows and backs off from 30 s to 15 min, so an offline backlog drains over a few hours |
-| Everyone | 30,000 events per hour | 429, the same way. Minting a new install ID for every call can delay real events, but it can't grow the database without bound |
+| Per source address | 1,200 events per hour, counted by a hash of the caller's address kept for two hours | 429, the same way. One caller minting install IDs is stopped here, before it can reach the global limit and lock every genuine install out |
+| Everyone | 30,000 events per hour | 429, the same way |
+| Row weight | `props` at most 8 KB as JSON text (the largest thing the app sends is a crash's stack, at most 6,000 characters) | 400. It used to be `pg_column_size`, which measures the compressed value and let far larger rows in |
+| Table | 5 GB | 429 until somebody looks: the database cannot grow without bound |
+| Concurrency | every call takes one advisory lock | a count and the insert it allows are one step, so parallel calls cannot overshoot together |
 
 Both limits count on the server's clock (`received_at`), never the Mac's. Tested on
 2026-09-29 against the project: six batches of 100 went in, the seventh got 429, a batch
 mixing two installs got 400, and another install was unaffected. Spam still gets through at
-up to the limit; it can be found by `received_at` and deleted. A per-IP limit would need an
-Edge Function in front, which isn't built yet.
+up to the limits; it can be found by `received_at` and deleted. The per-source limit reads the
+address PostgREST passes in `request.headers` (`cf-connecting-ip`, else the first
+`x-forwarded-for`); it has not been exercised against the live project yet.
 
 ## Local files (`~/Library/DLIVE/`)
 
