@@ -95,6 +95,9 @@ void MixController::rebuild()
     built = true;
     stateStale = false;
     stage = graph.numStrips() > 0 ? restingStage() : Stage::Setup;
+    // Different inputs are a different balance between the groups: learn it again before
+    // holding anything, rather than hold the new mix to the old one's ratios.
+    if (had) autopilotRelearn();
 }
 
 // A different document altogether. Everything that belongs to a session goes; the device and
@@ -102,6 +105,13 @@ void MixController::rebuild()
 void MixController::resetDocument()
 {
     capture.abort();
+    // Autopilot holds the mix it was engaged on. Another session is not that mix, so it goes
+    // off - said, and with its history written - rather than carrying its target across.
+    if (autopilot.on)
+    {
+        setAutopilot (false);
+        if (onMessage) onMessage ("Autopilot is off: a different session is open. Turn it on again to hold this one.");
+    }
     session = MixSession {};
     builtSession = MixSession {};
     graph = RoutingGraph {};
@@ -238,6 +248,7 @@ void MixController::setVoicing (MasterVoicing v)
 {
     if (session.voicing == v) return;
     session.voicing = v;
+    autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
     publish();
     if (onMessage)
         onMessage (v == MasterVoicing::Neutral ? std::string ("Master sound: as tuned.")
@@ -430,6 +441,10 @@ bool MixController::restoreCheckpoint (int index)
 
 void MixController::prepare (double sr, int maxBlockSize)
 {
+    // A listen the device restarted under cannot finish: the capture is thrown away below, and
+    // poll() only ever leaves Listening on a capture that completed or failed - so TUNE sat on
+    // "waiting for the band" with Autopilot paused until somebody pressed Cancel.
+    const bool listenCut = stage == Stage::Listening;
     capture.abort();
     engine.setTap (nullptr);
     sampleRate = sr;
@@ -445,6 +460,11 @@ void MixController::prepare (double sr, int maxBlockSize)
     graphStale = false;                     // the graph is the document again
     engine.setOutputFeeds (outputs);        // routing belongs to the device, not to the mix
     publish();
+    if (listenCut)
+    {
+        abortTuneMix();
+        if (onMessage) onMessage ("The audio device restarted in the middle of the listen, so it was stopped. Nothing was changed - TUNE again.");
+    }
 }
 
 MixParameters MixController::compose() const
@@ -984,14 +1004,20 @@ void MixController::pollAutopilot()
 
     // It never works against something the engineer is in the middle of: a listen, a plan on
     // preview, a live run or BYPASS all mean the mix on screen is not the mix being held.
+    // The audio clock is kept moving through the pause, so the first reading after it counts
+    // for one poll's worth of audio rather than for the whole pause.
     if (stage == Stage::Listening || stage == Stage::Planning || stage == Stage::Preview || liveRun || bypassed)
+    {
+        autopilotLastSamples = engine.getProcessedSamples();
         return;
+    }
 
     // A meter that is not moving is not a reading: the device stopped, a Dante clock went
     // away. Acting on the last values it held would walk the faders on a frozen picture.
     const long long samples = engine.getProcessedSamples();
     const double sr = engine.getSampleRate() > 0.0 ? engine.getSampleRate() : 48000.0;
-    const double elapsed = autopilotLastSamples < 0 ? 0.0 : double (samples - autopilotLastSamples) / sr;
+    // Never more than a second: a stalled message thread must not make one reading the average.
+    const double elapsed = autopilotLastSamples < 0 ? 0.0 : std::min (1.0, double (samples - autopilotLastSamples) / sr);
     const bool stale = autopilotLastSamples >= 0 && samples == autopilotLastSamples;
     autopilotLastSamples = samples;
     // A solo in place takes everything else out of the mix, so the mix is not the one to hold.
@@ -2039,6 +2065,7 @@ void MixController::revertPlan()
 void MixController::setMacro (MixMacro m, float value)
 {
     macros.set (m, liveSafe::clampMacro (safety, value));
+    autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
     publish();
     touch();
 }
@@ -2564,6 +2591,7 @@ void MixController::setStripInputGain (int strip, float db)
     if (v.limited && onMessage) onMessage (v.reason);
     kept.strips[size_t (strip)].inputGainDb = want;
     bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].inputGainDb = kept.strips[size_t (strip)].inputGainDb; });
+    autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
     publish();
     touch();
 }
@@ -2573,6 +2601,7 @@ void MixController::setStripMute (int strip, bool mute)
     if (! validStrip (kept, strip)) return;
     kept.strips[size_t (strip)].mute = mute;
     bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].mute = mute; });
+    autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
     publish();
     touch();
 }
@@ -2701,6 +2730,7 @@ void MixController::setFxReturn (float db)
 {
     kept.fxReturnDb = clamp (db, -60.0f, 12.0f);
     bothSides ([&] (MixParameters& m) { m.fxReturnDb = kept.fxReturnDb; });
+    autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
     publish();
     touch();
 }
@@ -2709,6 +2739,7 @@ void MixController::setFxMute (bool mute)
 {
     kept.fxMute = mute;
     bothSides ([&] (MixParameters& m) { m.fxMute = mute; });
+    autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
     publish();
     touch();
 }
@@ -2737,6 +2768,7 @@ void MixController::setStripChannel (int strip, const ChannelParameters& c)
     kept.strips[size_t (strip)].channel = safe;
     if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].channel = safe;
     recordStripTune (strip, "Inspector edit", was, kept.strips[size_t (strip)]);
+    autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
     publish();
     touch();
 }
@@ -2865,6 +2897,7 @@ void MixController::setBusChannel (MixBus bus, const ChannelParameters& c)
     sanitizeChannelParameters (safe);
     kept.buses[size_t (bus)].channel = safe;
     if (plan && stage == Stage::Preview) plan->proposed.buses[size_t (bus)].channel = safe;
+    autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
     publish();
     touch();
 }

@@ -2192,6 +2192,9 @@ TEST_CASE ("MixController: Autopilot holds the mix it was given, and hands a fad
     MixController c;
     c.setSession (band());
     c.prepare (kSr, kBlock);
+    // Every poll decides, so the stretches below are long enough to learn AND to act: at the
+    // default interval, and shorter than the 8 s it learns for, these checks could not fail.
+    c.setAutopilotIntervalMs (0);
     Feeder f (c);
 
     std::string said;
@@ -2214,7 +2217,7 @@ TEST_CASE ("MixController: Autopilot holds the mix it was given, and hands a fad
 
     // WITHIN TOLERANCE IT DOES NOTHING. The same band, playing the same way, for a while.
     const MixParameters before = c.getKept();
-    f.play (3.0);
+    f.play (14.0);
     for (int b = 0; b < int (MixBus::Count); ++b)
         CHECK_MESSAGE (std::fabs (c.getKept().buses[size_t (b)].faderDb - before.buses[size_t (b)].faderDb) < 0.001f,
                        std::string ("Autopilot moved ") + mixBusName (MixBus (b)) + " with nothing wrong");
@@ -2260,7 +2263,7 @@ TEST_CASE ("MixController: Autopilot holds the mix it was given, and hands a fad
     REQUIRE (c.setAutopilot (true));
     c.setBypass (true);
     const MixParameters underBypass = c.getKept();
-    f.play (2.0);
+    f.play (12.0);
     for (int b = 0; b < int (MixBus::Count); ++b)
         CHECK_NEAR (underBypass.buses[size_t (b)].faderDb, c.getKept().buses[size_t (b)].faderDb, 0.001f);
     c.setBypass (false);
@@ -2329,6 +2332,42 @@ TEST_CASE ("MixController: Autopilot, closed loop through the engine - it conver
     bool logged = false;
     for (const auto& cp : c.getCheckpoints()) logged = logged || cp.what.find ("Autopilot: LEAD") == 0;
     CHECK (logged);
+}
+
+TEST_CASE ("MixController: Autopilot follows the engineer's own changes, and a new session turns it off")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    c.setAutopilotIntervalMs (0);
+    Feeder f (c);
+    f.play (1.0);
+    REQUIRE (c.setAutopilot (true));
+    f.play (10.0);
+    const float music = c.getKept().buses[size_t (MixBus::Music)].faderDb;
+
+    // The keys' gain pulled 8 dB by hand: MUSIC is quieter because the engineer made it so.
+    // Autopilot learns that mix instead of pushing MUSIC back up against them.
+    c.setStripInputGain (2, c.getKept().strips[2].inputGainDb - 8.0f);
+    f.play (20.0);
+    CHECK_NEAR (c.getKept().buses[size_t (MixBus::Music)].faderDb, music, 0.001f);
+
+    // Another session is not the mix it was engaged on.
+    c.resetDocument();
+    CHECK (! c.isAutopilotOn());
+}
+
+TEST_CASE ("MixController: a listen the audio device restarts under is ended, not left waiting")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    Feeder f (c);
+    f.play (0.5);
+    c.startTuneMix ({ 4.0f, -200.0f, 0.0f });
+    REQUIRE (c.getStage() == MixController::Stage::Listening);
+    c.prepare (kSr, kBlock);                         // the device re-opened mid-listen
+    CHECK (c.getStage() != MixController::Stage::Listening);
 }
 
 TEST_CASE ("MixController: a mix is never handed to an engine playing a different set of inputs")
