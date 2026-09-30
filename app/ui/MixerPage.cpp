@@ -162,6 +162,7 @@ namespace
 
     // The shared geometry of the slot chips: 10 px type, 3 px of padding, 6 px corners.
     constexpr int kSlotH = 22;
+    constexpr int kCaptionH = 12;   // the strip head's caption line, above the name
     // Between two rows of the same block (the chain's three, the two sends). Wider than it
     // was, and still well under the gap between one block and the next.
     constexpr int kRowGapIn = 4;
@@ -535,60 +536,40 @@ public:
             g.fillRect (r.removeFromLeft (1));
         }
 
-        // ---- the number and the name
-        if (kind == Kind::Master)
+        // ---- the head: a caption line, then the name
+        // Two lines, the same two on every strip, both flush left: what the strip is (the
+        // input's number, "Group", "Output") in small quiet type, and under it the name, which
+        // is what the strip is for and so gets the whole width. The number used to sit on the
+        // name's line and a group carried both a "GROUP" caption and a "BUS" number, so a
+        // group's head said the same thing twice and every name started somewhere different.
         {
-            g.setColour (Dine::ink);
-            g.setFont (Dine::text (13.0f, 600));
-            Dine::drawText (g, "Master", col.name, juce::Justification::centredLeft);
-        }
-        else
-        {
-            const auto numFont = Dine::mono (10.0f, 500);
-            const auto nameFont = Dine::text (12.0f, selected ? 600 : 400);
-            // A linked strip carries its mark at the right end of the name row. The name is what
-            // the row is for: on a narrow strip, when the number and the mark would leave it
-            // less than a few letters, the number gives way (it is still on the tooltip and on
-            // the wider strips). `col` is the layout and is only ever read here - a paint that
-            // trimmed it took a slice off the name on every frame until nothing was left.
-            if (kind == Kind::Bus)
-            {
-                g.setColour (Dine::ink4);
-                g.setFont (Dine::caps (8.5f, 0.04f, 600));
-                Dine::drawText (g, "GROUP", col.name.withHeight (9).translated (0, -9), juce::Justification::centredLeft);
-            }
+            const auto caption = col.name.withHeight (kCaptionH);
+            const auto nameRow = col.name.withTrimmedTop (kCaptionH);
+            const juce::String captionText = kind == Kind::Channel ? numberText
+                                           : kind == Kind::Bus     ? juce::String ("Group")
+                                                                   : juce::String ("Output");
+            g.setColour (Dine::ink4);
+            g.setFont (kind == Kind::Channel ? Dine::mono (10.0f, 500) : Dine::text (10.0f, 500));
+            Dine::drawText (g, captionText, caption, juce::Justification::centredLeft);
+
+            // A linked strip carries its mark at the right end of the name row.
             const int markW = link != 0 ? 16 : 0;
-            const int numFullW = Dine::textWidth (numFont, numberText);
-            const int nameFullW = Dine::textWidth (nameFont, name);
-            // What the name needs once it has been squeezed as far as it is allowed to go
-            // below. The number stays only while the name still has room after that: it was
-            // measured against 30 pt of name before, which is how a 74 pt strip kept its "03"
-            // and wrote "Rack T...".
-            const int nameNeeds = int (std::ceil (float (nameFullW) * 0.78f));
-            const int avail = col.name.getWidth() - markW;
-            const bool showNumber = avail - numFullW - 5 >= nameNeeds;
-            const int numW = showNumber ? numFullW + 5 : 0;
-            const int nameW = juce::jmax (0, juce::jmin (avail - numW, nameFullW));
-            auto head = col.name.withTrimmedRight (markW).withSizeKeepingCentre (numW + nameW, col.name.getHeight());
-            if (showNumber)
-            {
-                g.setColour (Dine::ink4);
-                g.setFont (numFont);
-                Dine::drawText (g, numberText, head.removeFromLeft (numFullW), juce::Justification::centredLeft);
-                head.removeFromLeft (5);
-            }
+            const bool strong = kind != Kind::Channel || selected;
+            const auto nameFont = Dine::text (size == Size::Narrow ? 12.0f : 13.0f, strong ? 600 : 500);
+            auto head = nameRow.withTrimmedRight (markW);
+            head = head.withWidth (juce::jmin (head.getWidth(), Dine::textWidth (nameFont, name)));
             g.setColour (mute ? Dine::ink3 : Dine::ink);
             g.setFont (nameFont);
             // A strip is 74 pt wide and a name is what the strip is for: it is squeezed a
             // little before it is ever cut off, the way the group tiles on TUNE squeeze theirs.
-            Dine::drawFittedText (g, name, head, juce::Justification::centredLeft, 1, 0.78f);
+            Dine::drawFittedText (g, kind == Kind::Master ? juce::String ("Master") : name, head,
+                                  juce::Justification::centredLeft, 1, 0.78f);
             if (mute)
             {
                 g.setColour (Dine::ink3);
                 g.fillRect (head.getX(), head.getCentreY(), head.getWidth(), 1);
             }
-            // Linked faders: the mark at the right end of the name row, in the accent.
-            if (link != 0) Dine::drawLinkGlyph (g, col.name.withTrimmedLeft (col.name.getWidth() - markW).toFloat().reduced (2.0f, 0.0f), Dine::accent);
+            if (link != 0) Dine::drawLinkGlyph (g, nameRow.withTrimmedLeft (nameRow.getWidth() - markW).toFloat().reduced (2.0f, 0.0f), Dine::accent);
         }
 
         // ---- gain staging: every strip that can have it, always in its slot
@@ -832,7 +813,7 @@ public:
         col = Col {};
         const bool narrow = size == Size::Narrow;
         const int padX = narrow ? 5 : 8;
-        auto r = getLocalBounds().withTrimmedTop (kind == Kind::Master ? 16 : 3 + 10).withTrimmedBottom (12).reduced (padX, 0);
+        auto r = getLocalBounds().withTrimmedTop (3 + 6).withTrimmedBottom (12).reduced (padX, 0);
         col.body = r;
 
         // The v3 strip (`Channel Strip`, 63:9488): the number and the name, the gain chip,
@@ -844,7 +825,7 @@ public:
         // made all six of them one stack of small type, so the gap between blocks is wider
         // than the gap inside one and the eye can find the block it wants.
         const int gap = 11;
-        const int nameH = 18;
+        const int nameH = kCaptionH + 18;
         const int gainH = kind == Kind::Master ? 0 : 14;
         const int loudH = kind == Kind::Master ? 56 + 10 + 4 * 21 : 0;
         const int inserts = kind == Kind::Master ? 0 : 3;
@@ -1404,7 +1385,7 @@ void MixerPage::rebuild()
         if (controller.isPrepared() && controller.getEngine().isBusUsed (bus))
         {
             auto s = std::make_unique<Strip> (controller, services, Strip::Kind::Bus, bus, ChannelRole::KickIn, -1,
-                                              juce::String (mixBusName (bus)).toUpperCase(),
+                                              sentenceCase (mixBusName (bus)),
                                               juce::String (graph.stripsOnBus (bus))
                                                   + (graph.stripsOnBus (bus) == 1 ? " source" : " sources"));
             s->setOpenHandler ([this, bus] { if (onOpenBus) onOpenBus (bus); });
