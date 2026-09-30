@@ -60,6 +60,22 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   recording still plays; otherwise no device and the Audio device page. Every case but the first is a sentence on
   the "Opened" toast naming the missing device and where to fix it - never a refusal. The same plan runs at launch
   for the last session. `HostServices::openDevicesFor` is the one place that opens devices for a document.
+- **The microphone prompt is explained before macOS puts it up** (2026-09-29, `app/ui/MainView::explainMicrophone`,
+  `app/Main.cpp`). macOS gates every audio input behind one switch and cannot tell a thirty-two channel desk from
+  the built-in mic, and it puts its prompt up the moment a process *starts* an input stream - which, on a restored
+  session, is a second after launch, before anybody has asked for anything and with nothing on screen to explain
+  it. (Enumerating devices costs nothing: JUCE creates the CoreAudio IOProc in `start()`, not when a device is
+  listed.) So on the one launch where macOS has never been answered and the session is about to open a console,
+  DLIVE says what it wants it for first: what it listens to, what it does with it, and that saying no costs
+  nothing but the meters. **The answer is honoured.** *Not now* - including Escape, or the sheet dismissed any
+  other way - opens the output alone (`openState (state, source, allowInputs = false)`), and the toast is
+  `inputsNotAskedSentence`, which names the device and points at Audio device; it does not read like a failure,
+  because nothing failed. A recovery offer outranks it: one sheet at a time, and a recovery is the bigger
+  question. `MicPermission::request` is still called from exactly one other place - Continue on the Audio device
+  page - and `check()` never prompts.
+  *A dev build asks every launch and that is not a bug:* TCC stores the grant against the code signature, and a
+  local build is ad-hoc, linker-signed, so the signature changes every time. `scripts/package.sh` (Developer ID +
+  notarized) is asked once, ever.
 - DLIVE standalone (2026-09 pivot; see `docs/ARCHITECTURE-DLIVE.md`): the mix layer lives in `src/Mix`
   (`MixSession`/`RoutingGraph` build buses + returns from assignments; `MixEngine` is the real-time graph, parameters
   arrive whole via `Core/TripleBuffer`; `MixCapture`/`OfflineCapture` listen to every input at once; `MixPlanner` =

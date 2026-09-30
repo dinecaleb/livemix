@@ -10,21 +10,17 @@ namespace livemix
 namespace
 {
     constexpr int kGroupBuses = int (MixBus::Master);
-    constexpr int kFxTile = kGroupBuses, kMasterTile = kGroupBuses + 1;
-    constexpr int kTiles = kGroupBuses + 2;
-    constexpr int kPadX = 24, kPadY = 22, kGap = 20;
-    constexpr int kStatusH = 100;
-    constexpr int kSafeW = 470;
-    constexpr int kScenesH = 100;
-    // Tall enough for everything the card holds: 16 + heading 22 + line 16 + the gaps, the
-    // chips, the level row and the sentence that says where solo is going, + 16. At 150 that
-    // sentence - a warning, in amber - was drawn below the card, on the page's own ground.
-    constexpr int kMonitorH = 16 + 22 + 16 + 12 + 28 + 20 + 28 + 16 + 18 + 16;
-    constexpr int kMonitorW = 560;
-    // The monitor card's rows, measured once: a gap under its heading, the chips, a gap, the
-    // level, a gap, the sentence that says where solo is going.
-    constexpr int kMonCaptionGap = 12, kMonRowGap = 20, kMonNoteGap = 16, kMonNote = 18;
-    constexpr int kMonDial = 28;    // the monitor level: a rotary, sized to the card's control row
+    constexpr int kFxTile = kGroupBuses;
+    constexpr int kTiles = kGroupBuses + 1;
+
+    // The frame's measures (`06b - Live - decluttered`, 161:18761).
+    constexpr int kPadX = 24, kPadTop = 20, kPadBottom = 24, kGap = 16;
+    constexpr int kHealthH = 44;
+    constexpr int kRailW = 352;
+    constexpr int kCardPadX = 16, kCardPadY = 14, kCardGap = 10;
+    constexpr int kHeadH = 18;            // a card's header line
+    constexpr int kSegmentH = 24;         // a segment inside its track: 4 + 16 + 4
+    constexpr int kLevelW = 96;           // the monitor level's line
 
     juce::String dbText (float v)
     {
@@ -38,10 +34,36 @@ namespace
         if (total >= 3600)      return juce::String (total / 3600) + " h " + juce::String ((total / 60) % 60) + " m";
         return juce::String (juce::jmax (0, total / 60)) + " m";
     }
+
+    juce::String clockTime (long long ms)
+    {
+        return juce::Time (ms).toString (false, true, false, true);
+    }
+
+    // How many lines a sentence wraps to at a width, word by word - how tall a card has to be
+    // to hold it. Measured in resized(), never in paint.
+    int wrapLines (const juce::Font& font, const juce::String& text, int width)
+    {
+        if (width <= 0 || text.isEmpty()) return 1;
+        const int space = Dine::textWidth (font, " ");
+        int lines = 1, run = 0;
+        for (const auto& word : juce::StringArray::fromTokens (text, " ", ""))
+        {
+            const int w = Dine::textWidth (font, word);
+            if (run > 0 && run + space + w > width) { ++lines; run = w; }
+            else run += (run > 0 ? space : 0) + w;
+        }
+        return lines;
+    }
+
+    juce::Font calloutFont()  { return Dine::text (12.0f); }
+    juce::Font noteFont()     { return Dine::text (11.0f, 500); }
 }
 
-// One group: its name in its colour, a state chip, a meter, the fader under it and its
-// level, and the two keys that can change what the room hears.
+// One group, standing: its colour across the top, its name and where its fader is, a tall
+// fader with its meter beside it, and M and S at the foot. A muted strip says "Not heard" in
+// words and its meter keeps moving in grey - "nothing is there" and "it is there but not
+// heard" are different problems.
 class LivePage::GroupTile : public juce::Component
 {
 public:
@@ -56,27 +78,23 @@ public:
         fader.setSkewFactorFromMidPoint (-12.0);
         fader.setDoubleClickReturnValue (true, 0.0);
         fader.getProperties().set ("dineFader", true);
+        fader.getProperties().set ("dineFaderCap", 40);     // the design's 26 x 40 cap
         fader.setTooltip (isFx() ? "Level for every effect return together. Double-click for 0.0 dB, which is what TUNE MIX set."
-                        : isMaster() ? "The master fader: everything the room and the stream hear. The readout beside the meter is the "
-                                       "mix's integrated loudness. Double-click for 0.0 dB."
-                                     : "Level for the whole group. Double-click for 0.0 dB.");
+                                 : "Level for the whole group. Double-click for 0.0 dB.");
         fader.onValueChange = [this]
         {
             if (updating) return;
             if (isFx()) controller.setFxReturn (float (fader.getValue()));
             else        controller.setBusFader (bus(), float (fader.getValue()));
-            repaint (readout);
+            repaint();
         };
 
         addAndMakeVisible (mute);
         addAndMakeVisible (solo);
         mute.setTooltip (isFx() ? "Mute the effects: the reverbs and delays leave the mix, the sources stay."
-                       : isMaster() ? "Mute the master: nothing reaches the room or the stream until it is off."
-                                    : "Muted: the whole group is not heard");
-        // The master has nothing to solo against: its key is the loudness readout instead (painted).
-        solo.setVisible (! isMaster());
-        solo.setTooltip (isFx() ? "Soloed: just the reverbs and delays, so you hear what the sends are adding. Only you hear it."
-                                : "Soloed: this group and nothing else");
+                                : "Mute: the whole group is not heard");
+        solo.setTooltip (isFx() ? "Solo just the reverbs and delays, so you hear what the sends are adding. Only you hear it."
+                                : "Solo this group. Only you hear it.");
         mute.onClick = [this]
         {
             if (isFx()) controller.setFxMute (! controller.getBase().fxMute);
@@ -85,9 +103,8 @@ public:
         solo.onClick = [this]
         {
             if (isFx()) controller.setFxSoloAll (! controller.anyFxSolo());
-            else if (! isMaster()) controller.setBusSolo (bus(), ! controller.getBase().buses[size_t (bus())].solo);
+            else        controller.setBusSolo (bus(), ! controller.getBase().buses[size_t (bus())].solo);
         };
-        for (auto* b : { &mute, &solo }) { b->setFontPx (11.0f); b->setPadX (4); b->setCaps (true); }
     }
 
     void refresh()
@@ -113,21 +130,14 @@ public:
         {
             const auto& b = p.buses[size_t (bus())];
             faderDb = b.faderDb; m = b.mute; s = b.solo;
-            isUsed = controller.isPrepared() && (isMaster() || controller.getEngine().isBusUsed (bus()));
+            isUsed = controller.isPrepared() && controller.getEngine().isBusUsed (bus());
             if (isUsed) peak = controller.getEngine().getBus (bus()).getOutputMeter().consumeMaxPeakDb();
-        }
-        if (isMaster())
-        {
-            // The master's readout beside its mute: where it is against the delivery target.
-            const auto loud = controller.getMasterLoudness();
-            const juce::String next = loud.known && loud.integratedLufs > -100.0f ? juce::String (loud.integratedLufs, 1) : juce::String (Glyph::dash());
-            if (next != loudness) { loudness = next; repaint(); }
         }
         updating = true;
         if (! fader.isMouseButtonDown() && std::fabs (faderDb - float (fader.getValue())) > 0.01f)
         {
             fader.setValue (faderDb, juce::dontSendNotification);
-            repaint (readout);
+            repaint();
         }
         updating = false;
         meter.setLevels (peak, peak, peak > -0.2f);
@@ -135,10 +145,8 @@ public:
         if (m != muted || s != soloed || isUsed != used)
         {
             muted = m; soloed = s; used = isUsed;
-            mute.setStyle (muted ? DineButton::Style::Filled : DineButton::Style::Standard);
-            mute.setTint (Dine::keyMute);
-            solo.setStyle (soloed ? DineButton::Style::Filled : DineButton::Style::Standard);
-            solo.setTint (Dine::keySolo);
+            mute.setOn (muted);
+            solo.setOn (soloed);
             fader.setEnabled (used);
             mute.setEnabled (used);
             solo.setEnabled (used);
@@ -146,85 +154,84 @@ public:
         }
     }
 
-    // The design's LIVE tile (`06 - Live`, 71:12363): the group's colour across the top, the
-    // name and what its fader is set to, a standing fader with its meter beside it, and M and
-    // S along the foot. A muted tile says NOT HEARD in words, and its meter keeps moving in
-    // grey - "nothing is there" and "it is there but not heard" are different problems.
+    void lookAndFeelChanged() override
+    {
+        mute.setTint (Dine::keyMute);
+        solo.setTint (Dine::keySolo);
+    }
+
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds();
-        Dine::fillRounded (g, r.toFloat(), muted ? Dine::refuse : soloed ? Dine::soloGround : Dine::card, Dine::Radius::card);
+        const auto ground = muted ? Dine::refuse : soloed ? Dine::soloGround : Dine::tile;
+        Dine::fillRounded (g, r.toFloat(), ground, 8.0f);
         {
             juce::Graphics::ScopedSaveState clip (g);
-            juce::Path round; round.addRoundedRectangle (r.toFloat(), Dine::Radius::card);
+            juce::Path round; round.addRoundedRectangle (r.toFloat(), 8.0f);
             g.reduceClipRegion (round);
             g.setColour (used ? tint() : Dine::ink4);
-            g.fillRect (r.removeFromTop (3));
+            g.fillRect (r.removeFromTop (2));
         }
 
-        auto inner = getLocalBounds().reduced (paddingX(), 14);
-        auto head = inner.removeFromTop (20);
+        auto inner = getLocalBounds().reduced (kInsetX, 0).withTrimmedTop (16);
         g.setColour (! used ? Dine::ink4 : muted ? Dine::ink3 : Dine::ink);
         g.setFont (Dine::text (13.0f, 600));
-        Dine::drawText (g, name(), head, juce::Justification::centredLeft, true);
+        Dine::drawFittedText (g, name(), inner.removeFromTop (18), juce::Justification::centred, 1, 0.8f);
+        inner.removeFromTop (4);
 
-        auto sub = inner.removeFromTop (16);
-        const juce::String state = ! used ? "Off" : muted ? "NOT HEARD" : soloed ? "SOLO" : juce::String();
+        auto sub = inner.removeFromTop (14);
+        const juce::String state = ! used ? "Off" : muted ? "Not heard" : soloed ? "Solo" : juce::String();
         if (state.isNotEmpty())
         {
-            g.setColour (muted ? Dine::keyMute : soloed ? Dine::accent : Dine::ink4);
-            g.setFont (Dine::caps (10.0f, 0.04f, 600));
-            Dine::drawText (g, state, sub, juce::Justification::centredLeft, true);
-        }
-        else if (isMaster())
-        {
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::mono (11.0f, 500));
-            Dine::drawText (g, loudness + " LUFS", sub, juce::Justification::centredLeft, true);
+            g.setColour (! used ? Dine::ink4 : muted ? Dine::keyMute : Dine::accent);
+            g.setFont (Dine::text (11.0f, 600));
+            Dine::drawText (g, state, sub, juce::Justification::centred, true);
         }
         else
         {
-            g.setColour (Dine::ink3);
+            g.setColour (Dine::ink2);
             g.setFont (Dine::mono (11.0f, 500));
-            Dine::drawText (g, dbText (float (fader.getValue())), sub, juce::Justification::centredLeft, true);
+            Dine::drawText (g, dbText (float (fader.getValue())) + " dB", sub, juce::Justification::centred, true);
+        }
+
+        // Unity: the one mark the fader is read against, under the cap.
+        if (fader.getHeight() > 0)
+        {
+            const float y = float (fader.getY()) + float (fader.getPositionOfValue (0.0));
+            g.setColour (Dine::panMark);
+            g.fillRect (juce::Rectangle<float> (float (fader.getX() + 7), y, 12.0f, 1.0f));
         }
     }
 
     void resized() override
     {
-        auto inner = getLocalBounds().reduced (paddingX(), 14);
-        inner.removeFromTop (20 + 16 + 10);
+        auto inner = getLocalBounds().reduced (kInsetX, 0);
+        inner.removeFromTop (16 + 18 + 4 + 14 + 4 + 16);      // pad, name, gap, level, gap, the throw's own top
+        inner.removeFromBottom (14);
         auto keys = inner.removeFromBottom (20);
-        inner.removeFromBottom (12);
+        inner.removeFromBottom (4 + 12);
 
-        // the throw: the fader on the left, the meter beside it, both standing
-        auto throwArea = inner;
-        const int faderW = 22, meterW = 6;
-        auto pair = throwArea.withSizeKeepingCentre (faderW + 10 + meterW, throwArea.getHeight());
+        const int faderW = 26, meterW = 6, between = juce::jmin (20, juce::jmax (8, inner.getWidth() - faderW - meterW - 8));
+        auto pair = inner.withSizeKeepingCentre (faderW + between + meterW, inner.getHeight());
         fader.setBounds (pair.removeFromLeft (faderW));
-        pair.removeFromLeft (10);
-        meter.setBounds (pair);
+        pair.removeFromLeft (between);
+        meter.setBounds (pair.reduced (0, 20));               // the meter spans the travel, not the cap
 
-        if (isMaster()) { mute.setBounds (keys.removeFromRight (30)); solo.setBounds (0, 0, 0, 0); return; }
-        solo.setBounds (keys.removeFromRight (30));
-        keys.removeFromRight (4);
-        mute.setBounds (keys.removeFromRight (30));
+        auto k = keys.withSizeKeepingCentre (28 + 4 + 28, 20);
+        mute.setBounds (k.removeFromLeft (28));
+        k.removeFromLeft (4);
+        solo.setBounds (k);
     }
 
 private:
-    // Nine tiles across a 1180 pt window leave a tile 92 pt wide, and 28 pt of that was
-    // padding - which is how "FX returns" became "FX retur..." and the master's loudness
-    // lost its unit. The padding goes first.
-    int paddingX() const noexcept { return getWidth() >= 110 ? 14 : 10; }
+    static constexpr int kInsetX = 8;
     bool isFx() const noexcept { return group == kFxTile; }
-    bool isMaster() const noexcept { return group == kMasterTile; }
-    // A tile's position is the console's order, not the enum's: LEAD sits with the voices.
-    MixBus bus() const noexcept { return isMaster() ? MixBus::Master : mixBusInDisplayOrder (group); }
-    juce::Colour tint() const { return isFx() ? Dine::ink2 : isMaster() ? Dine::ink : Dine::busTint (bus()); }
+    // A strip's position is the console's order, not the enum's: LEAD sits with the voices.
+    MixBus bus() const noexcept { return mixBusInDisplayOrder (group); }
+    juce::Colour tint() const { return isFx() ? Dine::busAmbience : Dine::busTint (bus()); }
     juce::String name() const
     {
         if (isFx()) return "FX returns";
-        if (isMaster()) return "Master";
         const juce::String raw (mixBusName (bus()));
         return raw.length() <= 3 ? raw.toUpperCase() : raw.substring (0, 1).toUpperCase() + raw.substring (1).toLowerCase();
     }
@@ -232,84 +239,102 @@ private:
     MixController& controller;
     int group;
     bool used = true, muted = false, soloed = false, updating = false;
-    juce::String loudness;
-    juce::Rectangle<int> readout;
     DineMeter meter { DineMeter::Style::Bar };
     juce::Slider fader;
-    DineButton mute { "M", DineButton::Style::Standard };
-    DineButton solo { "S", DineButton::Style::Standard };
+    DineKey mute { "M", Dine::keyMute };
+    DineKey solo { "S", Dine::keySolo };
 };
 
-// A scene, as a card (design `06 - Live`, 71:12363): its name, when it was kept, and KEEP
-// along its foot. Pressing the card brings that whole mix back in one press; pressing KEEP
-// puts the mix that is running now under that name. LIVE SAFE never locks either.
-class LivePage::SceneCard : public juce::Button
+// The small words at the right of a card's header - "What's locked ›" - that go somewhere.
+class LivePage::Link : public juce::Button
 {
 public:
-    explicit SceneCard (const juce::String& n) : juce::Button (n), name (n) { setClickingTogglesState (false); }
+    Link() : juce::Button ("link") { setWantsKeyboardFocus (false); setMouseCursor (juce::MouseCursor::PointingHandCursor); }
 
-    void setScene (const juce::String& n, bool isKept, const juce::String& whenText)
+    void set (const juce::String& t, juce::Colour c)
     {
-        if (n == name && isKept == kept && whenText == when) return;
-        name = n; kept = isKept; when = whenText;
+        if (t == text && c == colour) return;
+        text = t; colour = c;
         repaint();
     }
+    int idealWidth() const { return Dine::textWidth (noteFont(), text) + 2; }
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
-        auto r = getLocalBounds().toFloat();
-        Dine::fillRounded (g, r, down ? Dine::selected : over ? Dine::raised : Dine::card, Dine::Radius::card);
-        if (kept) Dine::hairlineRounded (g, r.reduced (0.5f), Dine::hair, Dine::Radius::card);
-        auto inner = getLocalBounds().reduced (14, 12);
-        g.setColour (kept ? Dine::ink : Dine::ink3);
-        g.setFont (Dine::text (13.0f, 600));
-        Dine::drawText (g, name, inner.removeFromTop (18), juce::Justification::centredLeft, true);
-        inner.removeFromTop (2);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (11.0f, 500));
-        Dine::drawText (g, kept ? (when.isEmpty() ? juce::String ("Kept") : "Kept " + when) : juce::String ("Empty"),
-                        inner.removeFromTop (16), juce::Justification::centredLeft, true);
+        g.setColour (over || down ? colour.brighter (0.25f) : colour);
+        g.setFont (noteFont());
+        Dine::drawText (g, text, getLocalBounds(), juce::Justification::centredRight, false);
     }
 
 private:
-    juce::String name, when;
-    bool kept = false;
+    juce::String text;
+    juce::Colour colour { Dine::ink2 };
 };
 
-// The transport's Record, on the Recording card: the one button that has to be found from
-// across the desk. It carries the record dot and the only red on the page.
-class LivePage::RecordKey : public juce::Button
+// The monitor level: a 3 pt line, the part that is on in ink. How loud the engineer's own
+// headphones are and nothing to do with the mix anyone else hears.
+class LivePage::LevelLine : public juce::Slider
 {
 public:
-    RecordKey() : juce::Button ("Record")
+    LevelLine()
     {
-        setTooltip ("Record: captures every track with its R key on (R). LIVE SAFE never locks the transport.");
-        setClickingTogglesState (false);
-        setWantsKeyboardFocus (false);
+        setSliderStyle (juce::Slider::LinearHorizontal);
+        setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        setRange (-40.0, 12.0, 0.5);
+        setSkewFactorFromMidPoint (-8.0);
+        setDoubleClickReturnValue (true, 0.0);
+        setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
     }
 
-    void setRecording (bool r) { if (r != recording) { recording = r; repaint(); } }
-
-    void paintButton (juce::Graphics& g, bool over, bool down) override
+    void paint (juce::Graphics& g) override
     {
-        auto r = getLocalBounds().toFloat();
-        Dine::fillRounded (g, r, recording ? Dine::crit.withAlpha (down ? 1.0f : over ? 0.95f : 0.88f)
-                                           : (down ? Dine::controlOn : over ? Dine::controlHot : Dine::control), Dine::Radius::control);
-        auto inner = getLocalBounds().reduced (12, 0);
-        const float d = 10.0f;
-        auto dot = juce::Rectangle<float> (d, d).withCentre ({ float (inner.getX()) + d * 0.5f, r.getCentreY() });
-        g.setColour (recording ? Dine::onAccent : Dine::crit);
-        if (recording) g.fillRect (dot.reduced (1.5f));
-        else           g.fillEllipse (dot);
-        g.setColour (recording ? Dine::onAccent : Dine::ink);
-        g.setFont (Dine::caps (11.0f, 0.06f));
-        Dine::drawText (g, recording ? "STOP" : "RECORD", inner.withTrimmedLeft (int (d) + 8), juce::Justification::centredLeft, false);
+        auto line = getLocalBounds().toFloat().withSizeKeepingCentre (float (getWidth()), 3.0f);
+        Dine::fillRounded (g, line, Dine::control, 1.5f);
+        const float on = float (valueToProportionOfLength (getValue()));
+        Dine::fillRounded (g, line.withWidth (juce::jmax (3.0f, line.getWidth() * on)),
+                           isMouseOverOrDragging() ? Dine::ink2 : Dine::ink3, 1.5f);
+    }
+};
+
+// What LIVE SAFE locks, blocks and still allows, one press from the card that says it is on.
+class LivePage::SafeDetail : public juce::Component
+{
+public:
+    explicit SafeDetail (const LiveSafePolicy& policy)
+    {
+        rules = { { "Locked", "The audio device, the routing, the input patch and opening a session. Changing any of "
+                              "them interrupts the audio mid-service.", Dine::warn },
+                  { "Blocked", "TUNE MIX, TUNE LIVE MIX, TUNE CHANNEL and MATCH TO REFERENCE. They re-tune channels "
+                               "that are on air.", Dine::warn },
+                  { "Allowed", "Faders (" + juce::String (int (policy.maxFaderStepDb)) + " dB at a time, the master "
+                                   + juce::String (int (policy.maxMasterStepDb)) + "), mutes, solos, the monitor, "
+                                   "markers and recording.", Dine::ok } };
+        int h = 16;
+        for (const auto& r : rules) h += 16 + 4 + 16 * wrapLines (calloutFont(), r.why, kW - 32) + 12;
+        setSize (kW, h + 4);
     }
 
-    int idealWidth() const { return 12 * 2 + 10 + 8 + Dine::textWidth (Dine::caps (11.0f, 0.06f), "RECORD"); }
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().reduced (16);
+        for (const auto& rule : rules)
+        {
+            g.setColour (rule.tint);
+            g.setFont (Dine::text (12.0f, 600));
+            Dine::drawText (g, rule.what, r.removeFromTop (16), juce::Justification::centredLeft, true);
+            r.removeFromTop (4);
+            const int lines = wrapLines (calloutFont(), rule.why, r.getWidth());
+            g.setColour (Dine::ink2);
+            g.setFont (calloutFont());
+            Dine::drawFittedText (g, rule.why, r.removeFromTop (16 * lines), juce::Justification::topLeft, lines, 1.0f);
+            r.removeFromTop (12);
+        }
+    }
 
 private:
-    bool recording = false;
+    static constexpr int kW = 340;
+    struct Rule { juce::String what, why; juce::Colour tint; };
+    std::vector<Rule> rules;
 };
 
 LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services (s)
@@ -319,95 +344,105 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         tiles[size_t (i)] = std::make_unique<GroupTile> (controller, i);
         addAndMakeVisible (*tiles[size_t (i)]);
     }
-    recordButton = std::make_unique<RecordKey>();
-    addAndMakeVisible (*recordButton);
-    recordButton->onClick = [this] { if (onToggleRecord) onToggleRecord(); };
 
-    addAndMakeVisible (liveSafeButton);
-    liveSafeButton.setButtonText ("LIVE SAFE OFF");
-    liveSafeButton.setStyle (DineButton::Style::Standard);
-    liveSafeButton.setCaps (true);
-    liveSafeButton.setFontPx (13.0f);
-    liveSafeButton.setClickingTogglesState (false);
-    liveSafeButton.setTooltip (juce::String ("Lock the sound for the service. ") + liveSafe::lockedSummary() + " "
-                               + liveSafe::allowedSummary());
-    addAndMakeVisible (historyButton);
-    historyButton.setFontPx (12.5f);
-    historyButton.setQuiet (true);
-    historyButton.setTooltip ("Every mix this session has had, by time and by name. Going back to one keeps where "
-                              "you are now, so it is never a one-way door.");
-    historyButton.onClick = [this] { if (onOpenHistory) onOpenHistory(); };
-
-    addAndMakeVisible (autopilotButton);
-    autopilotButton.setCaps (true);
-    autopilotButton.setFontPx (11.0f);
-    autopilotButton.setClickingTogglesState (false);
-    autopilotButton.setTooltip ("Hold the mix you set. Autopilot moves group faders only, slowly, inside a few dB of the mix "
-                                "it was engaged on, and says why every time. Touch a fader and that group is yours again.");
-    autopilotButton.onClick = [this]
-    {
-        const bool wanted = ! controller.isAutopilotOn();
-        if (! controller.setAutopilot (wanted)) return;      // the controller has already said why
-        refresh();
-        repaint();
-    };
-
-    liveSafeButton.onClick = [this]
-    {
-        auto& daw = services.daw();
-        daw.setLiveSafe (! daw.isLiveSafe());
-        if (onLiveSafeChanged) onLiveSafeChanged();
-        if (onToast) onToast (daw.isLiveSafe() ? "LIVE SAFE on. The sound is locked: re-routes and re-tunes are blocked."
-                                               : "LIVE SAFE off. Re-routes and re-tunes are allowed again.");
-        refresh();
-        repaint();
-    };
-
-    // ---- scenes: one press brings a whole mix back
+    // ---- scenes: pick one; a kept one comes straight back, KEEP writes the mix into the one picked
     for (int i = 0; i < 4; ++i)
     {
-        scenePads[size_t (i)] = std::make_unique<SceneCard> (juce::String (defaultSceneName (i)));
-        scenePads[size_t (i)]->setTooltip ("Bring this whole mix back - every fader, chain and macro - in one press. UNDO takes it back. LIVE SAFE never locks it.");
-        scenePads[size_t (i)]->onClick = [this, i] { controller.recallScene (i); refreshScenes(); };
-        addAndMakeVisible (*scenePads[size_t (i)]);
-        sceneKeeps[size_t (i)] = std::make_unique<DineButton> ("Keep", DineButton::Style::Ghost);
-        sceneKeeps[size_t (i)]->setFontPx (11.5f);
-        sceneKeeps[size_t (i)]->setTooltip ("Keep the mix as it is now under this name.");
-        sceneKeeps[size_t (i)]->onClick = [this, i] { controller.keepScene (i); refreshScenes(); };
-        addAndMakeVisible (*sceneKeeps[size_t (i)]);
+        auto seg = std::make_unique<DineButton> (juce::String (defaultSceneName (i)).toUpperCase(), DineButton::Style::Toggle);
+        seg->setFontPx (12.0f);
+        seg->setPadX (8);
+        seg->setClickingTogglesState (false);
+        seg->onClick = [this, i]
+        {
+            sceneSlot = i;
+            const auto& scene = controller.getScene (i);
+            if (scene.kept) controller.recallScene (i);
+            else if (onToast) onToast ("Nothing is kept under " + juce::String (scene.name.empty() ? defaultSceneName (i) : scene.name.c_str())
+                                       + " yet. Set the mix, then press Keep.");
+            refreshScenes();
+        };
+        addAndMakeVisible (*seg);
+        sceneSegments[size_t (i)] = std::move (seg);
     }
+    addAndMakeVisible (keepButton);
+    keepButton.setFontPx (11.0f);
+    keepButton.onClick = [this]
+    {
+        if (sceneSlot < 0) return;
+        controller.keepScene (sceneSlot);
+        refreshScenes();
+        if (onToast) onToast ("Kept. " + juce::String (controller.getScene (sceneSlot).name) + " brings this mix back in one press.");
+    };
     refreshScenes();
 
-    // ---- the engineer's own listen: six chips and a level
-    const char* labels[6] = { "MONITOR SOLO", "SOLO IN PLACE", "AFL", "PFL", "DIM", "CLEAR SOLO" };
-    const char* tips[6] = {
+    safeLink = std::make_unique<Link>();
+    addAndMakeVisible (*safeLink);
+    safeLink->onClick = [this]
+    {
+        auto& daw = services.daw();
+        if (! daw.isLiveSafe())
+        {
+            daw.setLiveSafe (true);
+            if (onLiveSafeChanged) onLiveSafeChanged();
+            if (onToast) onToast ("LIVE SAFE on. The sound is locked: re-routes and re-tunes are blocked.");
+            refresh();
+            return;
+        }
+        juce::CallOutBox::launchAsynchronously (std::make_unique<SafeDetail> (controller.getLiveSafePolicy()),
+                                                safeLink->getScreenBounds(), nullptr);
+    };
+
+    autopilotLink = std::make_unique<Link>();
+    addAndMakeVisible (*autopilotLink);
+    autopilotLink->setTooltip ("Hold the mix you set. Autopilot moves group faders only, slowly, inside a few dB of the mix "
+                               "it was engaged on, and says why every time. Touch a fader and that group is yours again.");
+    autopilotLink->onClick = [this]
+    {
+        if (controller.isAutopilotOn()) return;             // the toolbar's AUTOPILOT is the one press that stops it
+        if (! controller.setAutopilot (true)) return;       // the controller has already said why
+        refresh();
+    };
+
+    // ---- the engineer's own listen
+    const char* labels[4] = { "MONITOR SOLO", "SOLO IN PLACE", "AFL", "PFL" };
+    const char* tips[4] = {
         "Solo goes to your headphones only: the room and the stream never hear it. This is the normal setting.",
         "Solo mutes everything else for everybody. Right for mixing a recording, never for a service.",
         "After-fade listen: you hear the channel where it sits in the mix - panned, and silent if it is muted.",
-        "Pre-fade listen: you hear the channel as it arrives, whatever its fader and mute are doing.",
-        "Drop your headphones to talk to someone, without losing the level you had set.",
-        "Stop listening to everything you have soloed, all at once." };
-    for (int i = 0; i < 6; ++i)
+        "Pre-fade listen: you hear the channel as it arrives, whatever its fader and mute are doing." };
+    for (int i = 0; i < 4; ++i)
     {
-        chips[size_t (i)] = std::make_unique<DineButton> (labels[i], DineButton::Style::Toggle);
-        chips[size_t (i)]->setFontPx (11.0f);
-        chips[size_t (i)]->setCaps (true);
-        chips[size_t (i)]->setPadX (11);
-        chips[size_t (i)]->setClickingTogglesState (false);
-        chips[size_t (i)]->setTooltip (tips[i]);
-        addAndMakeVisible (*chips[size_t (i)]);
+        modes[size_t (i)] = std::make_unique<DineButton> (labels[i], DineButton::Style::Toggle);
+        modes[size_t (i)]->setFontPx (12.0f);
+        modes[size_t (i)]->setPadX (8);
+        modes[size_t (i)]->setClickingTogglesState (false);
+        modes[size_t (i)]->setTooltip (tips[i]);
+        addAndMakeVisible (*modes[size_t (i)]);
     }
-    chips[0]->onClick = [this] { controller.setSoloMode (SoloMode::Monitor); refreshMonitor(); };
-    chips[1]->onClick = [this] { controller.setSoloMode (SoloMode::InPlace); refreshMonitor();
+    modes[0]->onClick = [this] { controller.setSoloMode (SoloMode::Monitor); refreshMonitor(); };
+    modes[1]->onClick = [this] { controller.setSoloMode (SoloMode::InPlace); refreshMonitor();
                                  if (onToast) onToast ("Solo in place: pressing S is heard by the room and the stream too. Use it for a recording, not a service."); };
-    chips[2]->onClick = [this] { controller.setSoloPoint (SoloPoint::AFL); refreshMonitor(); };
-    chips[3]->onClick = [this] { controller.setSoloPoint (SoloPoint::PFL); refreshMonitor(); };
-    chips[4]->onClick = [this] { controller.setMonitorDim (! controller.getMonitor().dim); refreshMonitor(); };
-    chips[5]->onClick = [this] { controller.clearSolos(); refreshMonitor(); if (onToast) onToast ("Solo cleared."); };
+    modes[2]->onClick = [this] { controller.setSoloPoint (SoloPoint::AFL); refreshMonitor(); };
+    modes[3]->onClick = [this] { controller.setSoloPoint (SoloPoint::PFL); refreshMonitor(); };
 
-    // Where solo goes. The same choice as Outputs > Solo, here because this card is where the
-    // sentence "solo has nowhere to go yet" is read, and the fix should be one click away from it.
+    addAndMakeVisible (clearSolo);
+    clearSolo.setCaps (true);
+    clearSolo.setFontPx (11.0f);
+    clearSolo.setTooltip ("Stop listening to everything you have soloed, all at once.");
+    clearSolo.onClick = [this] { controller.clearSolos(); refreshMonitor(); if (onToast) onToast ("Solo cleared."); };
+
+    addAndMakeVisible (monitorDim);
+    monitorDim.setCaps (true);
+    monitorDim.setFontPx (10.0f);
+    monitorDim.setPadX (6);
+    monitorDim.setClickingTogglesState (false);
+    monitorDim.setTooltip ("Drop your headphones to talk to someone, without losing the level you had set.");
+    monitorDim.onClick = [this] { controller.setMonitorDim (! controller.getMonitor().dim); refreshMonitor(); };
+
+    // Where solo goes. The same choice as Outputs > Solo, here because this card is where
+    // "solo has nowhere to go yet" is read, and the fix belongs one click away from it.
     addAndMakeVisible (soloDevice);
+    soloDevice.setFlat (true);
     soloDevice.setTooltip ("The device only you listen on - headphones, a second interface, or outputs 3-4 of the "
                            "broadcast device. Solo a channel and it comes out here; the room and the stream never hear it.");
     soloDevice.onClick = [this]
@@ -419,16 +454,14 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         });
     };
 
-    // The monitor level is the one knob every console has under the engineer's right hand, so
-    // it is a knob here too - the card says what it is and what it reads, beside it.
-    addAndMakeVisible (monitorLevel);
-    monitorLevel.setRange (-40.0, 12.0, 0.5, -8.0);
-    monitorLevel.setDefaultValue (0.0);
-    monitorLevel.setDial (kMonDial);
-    monitorLevel.setShowsText (false, false);
-    monitorLevel.setTooltip ("How loud your headphones are. Nothing to do with the mix anyone else hears. "
-                             "Double-click for 0.0 dB.");
-    monitorLevel.onChange = [this] (double v) { controller.setMonitorGain (float (v)); repaint (layout().monitor); };
+    monitorLevel = std::make_unique<LevelLine>();
+    addAndMakeVisible (*monitorLevel);
+    monitorLevel->onValueChange = [this]
+    {
+        controller.setMonitorGain (float (monitorLevel->getValue()));
+        monitorLevel->setTooltip ("Your headphones: " + dbText (float (monitorLevel->getValue())) + " dB. Nothing to do with the mix "
+                                  "anyone else hears. Double-click for 0.0 dB.");
+    };
 
     setOpaque (true);
     refreshMonitor();
@@ -440,18 +473,20 @@ void LivePage::refreshMonitor()
 {
     const auto& m = controller.getMonitor();
     const bool inPlace = m.mode == SoloMode::InPlace;
-    chips[0]->setToggleState (! inPlace, juce::dontSendNotification);
-    chips[1]->setToggleState (inPlace, juce::dontSendNotification);
-    chips[2]->setToggleState (m.point == SoloPoint::AFL, juce::dontSendNotification);
-    chips[3]->setToggleState (m.point == SoloPoint::PFL, juce::dontSendNotification);
-    chips[4]->setToggleState (m.dim, juce::dontSendNotification);
-    chips[5]->setEnabled (controller.numSoloed() > 0);
-    if (std::fabs (monitorLevel.getValue() - double (m.gainDb)) > 0.01)
-        monitorLevel.setValue (m.gainDb);
+    modes[0]->setToggleState (! inPlace, juce::dontSendNotification);
+    modes[1]->setToggleState (inPlace, juce::dontSendNotification);
+    modes[2]->setToggleState (m.point == SoloPoint::AFL, juce::dontSendNotification);
+    modes[3]->setToggleState (m.point == SoloPoint::PFL, juce::dontSendNotification);
+    monitorDim.setToggleState (m.dim, juce::dontSendNotification);
+    clearSolo.setEnabled (controller.numSoloed() > 0);
+    if (std::fabs (monitorLevel->getValue() - double (m.gainDb)) > 0.01)
+        monitorLevel->setValue (m.gainDb, juce::dontSendNotification);
+    monitorLevel->setTooltip ("Your headphones: " + dbText (m.gainDb) + " dB. Nothing to do with the mix anyone else hears. "
+                              "Double-click for 0.0 dB.");
     const auto device = services.soloOutputDevice();
-    soloDevice.setValue (device.isEmpty() ? juce::String ("Solo goes nowhere yet") : "Solo: " + device);
+    soloDevice.setValue (device.isEmpty() ? juce::String ("Pick where solo goes") : device);
+    soloDevice.setBriefValue (device.isEmpty() ? juce::String ("Pick") : Dine::shortPath (device));
     soloDevice.setEnabled (services.isAudioRunning());
-    repaint (layout().monitor);
 }
 
 void LivePage::rebuild()
@@ -478,9 +513,17 @@ void LivePage::focusScenes()
     repaint();
 }
 
+// What Autopilot has done since it was engaged, newest first, in the words the Mix history
+// has: its own entries, back as far as the "Before Autopilot" mark it left when it came on.
+void LivePage::readAutopilotLog (Look& next) const
+{
+    next.autopilotLog = autopilotLog;
+    next.autopilotSince = autopilotSince;
+}
+
 void LivePage::refresh()
 {
-    refreshScenes();                 // the pads follow the controller: a scene kept from anywhere shows here
+    refreshScenes();                 // the picker follows the controller: a scene kept from anywhere shows here
 
     for (auto& t : tiles) if (t != nullptr) t->refresh();
     updateDiskNote();
@@ -488,32 +531,26 @@ void LivePage::refresh()
     auto& daw = services.daw();
     const bool recording = daw.isRecording();
     const bool running = services.isAudioRunning();
-    recordButton->setRecording (recording);
-    recordButton->setEnabled (running);
 
     Look next;
     next.isRecording = recording;
     next.running = running;
     next.safe = daw.getProject().liveSafe;
     const int armed = daw.getProject().numArmed();
-    const juce::String room = secondsFree > 0.0 ? span (secondsFree) + " left on the disk" : juce::String();
     if (recording)
     {
-        next.recording = "Take " + Glyph::dot() + " " + Transport::formatTime (daw.getRecordingSeconds()).dropLastCharacters (4);
-        next.recordingNote = room.isEmpty() ? juce::String (armed) + " tracks being written" : room;
+        next.recording = juce::String (armed) + (armed == 1 ? " track " : " tracks ") + Glyph::dot() + " "
+                       + Transport::formatTime (daw.getRecordingSeconds()).dropLastCharacters (4);
+        next.recordingNote = secondsFree > 0.0 ? span (secondsFree) + " left" : juce::String();
     }
     else
     {
         next.recording = "Stopped";
-        // RECORD stands on this card, so the note beside it is narrow: what is armed, and
-        // nothing else. How much disk is left is on the card while a take is running, which
-        // is when it matters.
-        next.recordingNote = armed == 0 ? "No tracks are set to record - press the red R on the ones you want"
-                                        : juce::String (armed) + (armed == 1 ? " track set to record" : " tracks set to record");
+        next.recordingNote = armed == 0 ? juce::String ("none set to record")
+                                        : juce::String (armed) + " set to record";
     }
-    next.output = running ? "On air" : "Off";
-    next.outputNote = ! running ? juce::String ("No audio device open")
-                     : services.outputDisplayName().isEmpty() ? juce::String ("No output chosen") : services.outputDisplayName();
+    next.output = ! running ? juce::String ("Off")
+                : services.outputDisplayName().isEmpty() ? juce::String ("No output") : services.outputDisplayName();
 
     // Clipping: the inputs the last listen found clipping at the preamp, named. The advice
     // builds sentences, so it is re-read twice a second rather than every frame.
@@ -530,7 +567,7 @@ void LivePage::refresh()
                 ++clipping;
             }
         clipText = clipping == 0 ? "None" : juce::String (clipping) + (clipping == 1 ? " input" : " inputs");
-        clipNote = clipping == 0 ? "Nothing is clipping at the preamp" : names + " " + Glyph::dash() + " fix it at the console";
+        clipNote = clipping == 0 ? juce::String() : names + " " + Glyph::dash() + " fix it at the console";
         anyClipping = clipping > 0;
     }
     next.anyClip = anyClipping;
@@ -538,324 +575,344 @@ void LivePage::refresh()
     next.clippingNote = clipNote;
 
     const auto loud = controller.getMasterLoudness();
-    if (controller.isPrepared()) headroomDb = -controller.getEngine().getBus (MixBus::Master).getOutputMeter().getMaxPeakDb();
-    next.headroom = controller.isPrepared() ? juce::String (juce::jlimit (0.0f, 60.0f, headroomDb), 1) + " dB" : Glyph::dash();
-    next.headroomNote = loud.known && loud.integratedLufs > -100.0f
-                            ? juce::String (loud.integratedLufs, 1) + " LUFS integrated, target " + juce::String (loud.targetLufs, 0)
-                            : "No loudness reading yet";
+    next.outputNote = loud.known && loud.integratedLufs > -100.0f ? juce::String (loud.integratedLufs, 1).replace ("-", Glyph::minus()) + " LUFS"
+                                                                  : juce::String();
+    if (controller.isPrepared()) next.headroomDb = -controller.getEngine().getBus (MixBus::Master).getOutputMeter().getMaxPeakDb();
+    next.headroom = controller.isPrepared() ? juce::String (juce::jlimit (0.0f, 60.0f, next.headroomDb), 1) + " dB" : Glyph::dash();
+    next.headroomNote = loud.known && loud.truePeakDb > -100.0f ? "TP " + juce::String (loud.truePeakDb, 1).replace ("-", Glyph::minus()) + " dBTP"
+                                                                : juce::String();
 
     next.soloCount = controller.numSoloed();
     next.inPlace = controller.getMonitor().mode == SoloMode::InPlace;
     next.routed = controller.hasMonitorOutput();
-    next.monitorDb = float (monitorLevel.getValue());
     next.monitorNote = next.inPlace ? "Careful: pressing S is heard by the room and the stream too."
-                     : ! next.routed ? "Solo has nowhere to go yet. Pick the device you listen on, above."
-                     : next.soloCount > 0 ? juce::String (next.soloCount) + (next.soloCount == 1 ? " channel soloed. Only you hear it." : " channels soloed. Only you hear it.")
-                                          : "Press S on any channel to hear it. Only you hear it.";
-    if (next.soloCount != look.soloCount || next.inPlace != look.inPlace) refreshMonitor();
-    historyButton.setEnabled (! controller.getCheckpoints().empty());
-    liveSafeButton.setButtonText ("LIVE SAFE");
-    liveSafeButton.setIcon (Dine::Icon::Lock);
-    liveSafeButton.setStyle (next.safe ? DineButton::Style::Filled : DineButton::Style::Standard);
-    liveSafeButton.setTint (Dine::warn);
+                     : ! next.routed ? "Solo has nowhere to go yet. Pick where you listen, below."
+                     : next.soloCount > 0 ? juce::String (next.soloCount) + (next.soloCount == 1 ? " soloed. Only you hear it." : " soloed. Only you hear it.")
+                                          : "Press S on a group. Only you hear it.";
+    if (next.soloCount != look.soloCount || next.inPlace != look.inPlace || next.routed != look.routed) refreshMonitor();
 
     {
         const auto& ap = controller.getAutopilot();
-        autopilotButton.setStyle (ap.on ? DineButton::Style::Filled : DineButton::Style::Standard);
-        autopilotButton.setTint (Dine::monitor);
-        if (ap.on && autopilotSince.isEmpty()) autopilotSince = juce::Time::getCurrentTime().toString (false, true, false, true);
+        next.autopilotOn = ap.on;
+        next.autopilotMoved = ap.groupsCorrected > 0;
+        if (ap.on && autopilotSince.isEmpty()) autopilotSince = clockTime (juce::Time::currentTimeMillis());
         if (! ap.on) autopilotSince = {};
-        if (ap.on != autopilotWasOn) { autopilotWasOn = ap.on; repaint(); }
+        const auto& history = controller.getCheckpoints();
+        if (history.size() != checkpointsSeen || ap.on != look.autopilotOn)
+        {
+            checkpointsSeen = history.size();
+            autopilotLog.clear();
+            if (ap.on)
+                for (auto it = history.rbegin(); it != history.rend() && autopilotLog.size() < 2; ++it)
+                {
+                    const juce::String what (it->what);
+                    if (what == "Before Autopilot") break;
+                    if (! what.startsWith ("Autopilot: ")) continue;
+                    auto line = what.fromFirstOccurrenceOf ("Autopilot: ", false, false).trimCharactersAtEnd (".");
+                    line = line.replaceFirstOccurrenceOf (". ", " " + Glyph::dot() + " ").replace ("-", Glyph::minus());
+                    autopilotLog.add (clockTime (it->whenMs) + "\t" + line);
+                }
+        }
+        readAutopilotLog (next);
     }
-    if (next != look) { look = next; repaint(); }
+
+    safeLink->set (next.safe ? juce::String (juce::CharPointer_UTF8 ("What\xe2\x80\x99s locked \xe2\x80\xba"))
+                             : juce::String (juce::CharPointer_UTF8 ("Turn on \xe2\x80\xba")),
+                   next.safe ? Dine::warn : Dine::ink2);
+    safeLink->setTooltip (next.safe ? "What LIVE SAFE locks, what it blocks and what still works."
+                                    : juce::String ("Lock the sound for the service. ") + liveSafe::lockedSummary() + " " + liveSafe::allowedSummary());
+    autopilotLink->set (next.autopilotOn ? (next.autopilotMoved ? "Holding since " : "Healthy since ") + autopilotSince
+                                         : juce::String (juce::CharPointer_UTF8 ("Turn on \xe2\x80\xba")),
+                        next.autopilotOn ? Dine::ink3 : Dine::ink2);
+    autopilotLink->setMouseCursor (next.autopilotOn ? juce::MouseCursor::NormalCursor : juce::MouseCursor::PointingHandCursor);
+
+    if (next != look)
+    {
+        const bool reflow = next.safe != look.safe || next.autopilotOn != look.autopilotOn
+                         || next.autopilotLog != look.autopilotLog || next.monitorNote != look.monitorNote;
+        look = next;
+        if (reflow) resized();
+        repaint();
+    }
 }
 
-LivePage::Layout LivePage::layout() const
+juce::String LivePage::safeText() const
 {
-    Layout l;
-    auto r = getLocalBounds().reduced (kPadX, kPadY);
-    l.status = r.removeFromTop (kStatusH);
-    r.removeFromTop (kGap + 8);
-    l.groupsCaption = r.removeFromTop (20);
-    r.removeFromTop (10);
-    l.tiles = r.removeFromTop (juce::jmin (260, juce::jmax (170, r.getHeight() - kGap - 20 - 10 - kScenesH - kGap - 190)));
-    r.removeFromTop (kGap + 8);
-    l.scenesCaption = r.removeFromTop (20);
-    r.removeFromTop (10);
-    {
-        // The scenes and what the engineer hears share a band: the scenes take the left, the
-        // monitor card the right, the way the design sets them. The card is the taller of the
-        // two, so the band is its height and the scene cards sit at the top of it.
-        auto band = r.removeFromTop (kMonitorH);
-        l.monitor = band.removeFromRight (juce::jmin (kMonitorW, band.getWidth() / 2));
-        band.removeFromRight (kGap);
-        l.scenes = band.withHeight (kScenesH);
-        r.removeFromTop (0);
-    }
-    r.removeFromTop (kGap + 8);
-    auto lower = r.withHeight (juce::jlimit (170, 230, r.getHeight()));
-    l.autopilot = lower.removeFromRight (juce::jmin (kSafeW, lower.getWidth() / 2));
-    lower.removeFromRight (kGap);
-    l.safe = lower;
-    return l;
+    return look.safe ? "Routing, device and re-tuning are locked. Faders, mutes, solos and recording still work."
+                     : "Nothing is locked. Turn it on before the doors open: routing, device and re-tuning lock, "
+                       "and faders, mutes, solos and recording keep working.";
+}
+
+juce::String LivePage::autopilotText() const
+{
+    const auto limit = juce::String (controller.getAutopilotLimits().maxTotalDb, 0);
+    return look.autopilotOn ? juce::String (juce::CharPointer_UTF8 ("Group faders only, \xc2\xb1")) + limit + " dB max. Touch a fader to take over."
+                            : juce::String (juce::CharPointer_UTF8 ("Off. Engage it and DLIVE holds the mix you set: group faders only, "
+                                                                     "inside \xc2\xb1")) + limit + " dB of where you engaged it, and every move says why.";
 }
 
 void LivePage::paint (juce::Graphics& g)
 {
     g.fillAll (Dine::window);
-    const auto l = layout();
+    const auto& l = lay;
 
-    // The mark the sidebar's SCENES row leaves: a ring round the scenes for a second, so an
-    // eye that came looking for them finds them without anything changing.
+    // ---- the health strip: four readings, one line
+    {
+        Dine::fillRounded (g, l.health.toFloat(), Dine::card, 8.0f);
+        auto row = l.health.reduced (16, 0);
+        struct Stat { juce::String caption, value, note; juce::Colour dot; bool monoNote; };
+        const Stat stats[4] = {
+            { "Recording", look.recording, look.recordingNote, look.isRecording ? Dine::keyRec : Dine::ink4, false },
+            { "On air", look.output, look.outputNote, look.running ? Dine::ok : Dine::ink4, true },
+            { "Clipping", look.clipping, look.clippingNote, look.anyClip ? Dine::crit : Dine::ok, false },
+            { "Headroom", look.headroom, look.headroomNote,
+              look.headroomDb < 0.5f ? Dine::crit : look.headroomDb < 3.0f ? Dine::warn : Dine::ok, true } };
+        const auto capFont = Dine::text (11.0f, 500), valueFont = Dine::text (13.0f, 600);
+        for (int i = 0; i < 4 && row.getWidth() > 0; ++i)
+        {
+            if (i > 0)
+            {
+                g.setColour (Dine::control);
+                g.fillRect (juce::Rectangle<int> (row.getX() + 10, row.getCentreY() - 10, 1, 20));
+                row.removeFromLeft (21);
+            }
+            const auto& s = stats[i];
+            g.setColour (s.dot);
+            g.fillEllipse (row.removeFromLeft (8).withSizeKeepingCentre (8, 8).toFloat());
+            row.removeFromLeft (8);
+            g.setColour (Dine::ink3);
+            g.setFont (capFont);
+            const int capW = Dine::textWidth (capFont, s.caption);
+            Dine::drawText (g, s.caption, row.removeFromLeft (capW), juce::Justification::centredLeft, false);
+            row.removeFromLeft (8);
+            g.setColour (Dine::ink);
+            g.setFont (valueFont);
+            const int valueW = juce::jmin (row.getWidth(), Dine::textWidth (valueFont, s.value));
+            Dine::drawText (g, s.value, row.removeFromLeft (valueW), juce::Justification::centredLeft, true);
+            if (s.note.isNotEmpty())
+            {
+                row.removeFromLeft (8);
+                const auto noteF = s.monoNote ? Dine::mono (11.0f, 500) : capFont;
+                g.setColour (s.monoNote ? Dine::ink2 : Dine::ink3);
+                g.setFont (noteF);
+                const int noteW = juce::jmin (row.getWidth(), Dine::textWidth (noteF, s.note));
+                Dine::drawText (g, s.note, row.removeFromLeft (noteW), juce::Justification::centredLeft, true);
+            }
+        }
+    }
+
+    // ---- Groups, and the scene picker over them
+    g.setColour (Dine::ink);
+    g.setFont (Dine::text (17.0f, 600));
+    Dine::drawText (g, "Groups", l.groupsHeader, juce::Justification::centredLeft, true);
+    g.setColour (Dine::ink3);
+    g.setFont (Dine::text (11.0f, 500));
+    Dine::drawText (g, "Scene", l.sceneCaption, juce::Justification::centredRight, false);
+    Dine::fillRounded (g, l.sceneTrack.toFloat(), Dine::control, 7.0f);
+    // The mark the sidebar's SCENES row leaves: a ring round the picker for a second, so an
+    // eye that came looking for the scenes finds them without anything changing.
     if (sceneFlash > 0)
     {
-        Dine::hairlineRounded (g, l.scenes.expanded (6, 6).toFloat(),
-                               Dine::accent.withAlpha (juce::jmin (1.0f, float (sceneFlash) / 30.0f)), Dine::Radius::card);
+        Dine::hairlineRounded (g, l.sceneTrack.expanded (4, 4).toFloat(),
+                               Dine::accent.withAlpha (juce::jmin (1.0f, float (sceneFlash) / 30.0f)), 9.0f);
         --sceneFlash;
     }
 
-    // ---- the four things that matter during a service
+    // ---- a card on the rail: a dot, a title and the words under it
+    auto header = [&g] (juce::Rectangle<int> card, juce::Colour dot, const juce::String& title)
     {
-        auto row = l.status;
-        const int w = (row.getWidth() - 3 * 12) / 4;
-        auto card = [&] (juce::Rectangle<int> area, const juce::String& label, const juce::String& value, const juce::String& note,
-                         juce::Colour ground, juce::Colour valueInk, bool monoValue, int trimRight = 0, int trimNote = 0)
-        {
-            Dine::fillRounded (g, area.toFloat(), ground, Dine::Radius::card);
-            auto inner = area.reduced (16, 14);
-            inner.removeFromRight (trimRight);
-            auto cap = inner.removeFromTop (14);
-            g.setColour (valueInk);
-            g.fillEllipse (cap.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat());
-            cap.removeFromLeft (8);
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::text (11.0f, 500));
-            Dine::drawText (g, label, cap, juce::Justification::centredLeft, true);
-            inner.removeFromTop (6);
-            g.setColour (valueInk);
-            g.setFont (monoValue ? Dine::mono (21.0f, 500) : Dine::text (22.0f, 600));
-            Dine::drawText (g, value, inner.removeFromTop (28), juce::Justification::topLeft, true);
-            inner.removeFromTop (2);
-            inner.removeFromRight (trimNote);
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::text (12.0f));
-            Dine::drawFittedText (g, note, inner, juce::Justification::topLeft, 2, 1.0f);
-        };
-        card (row.removeFromLeft (w), "Recording", look.recording, look.recordingNote,
-              look.isRecording ? Dine::recGround : Dine::card, look.isRecording ? Dine::crit : Dine::ink3, true,
-              0, recordButton->getWidth() + 10);
-        row.removeFromLeft (12);
-        card (row.removeFromLeft (w), "Output", look.output, look.outputNote, Dine::card, look.running ? Dine::ink : Dine::ink3, false);
-        row.removeFromLeft (12);
-        card (row.removeFromLeft (w), "Clipping", look.clipping, look.clippingNote,
-              look.anyClip ? Dine::recGround : Dine::card, look.anyClip ? Dine::crit : Dine::ink, false);
-        row.removeFromLeft (12);
-        card (row, "Master headroom", look.headroom, look.headroomNote, Dine::card,
-              headroomDb < 0.5f ? Dine::crit : headroomDb < 3.0f ? Dine::warn : Dine::ink, true);
-    }
-
-    auto heading = [&g] (juce::Rectangle<int> r, const juce::String& text)
-    {
+        auto head = card.reduced (kCardPadX, kCardPadY).removeFromTop (kHeadH);
+        g.setColour (dot);
+        g.fillEllipse (head.removeFromLeft (8).withSizeKeepingCentre (8, 8).toFloat());
+        head.removeFromLeft (8);
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (17.0f, 600));
-        Dine::drawText (g, text, r, juce::Justification::centredLeft, true);
+        g.setFont (Dine::text (13.0f, 600));
+        Dine::drawText (g, title, head, juce::Justification::centredLeft, true);
     };
-    heading (l.groupsCaption, "Groups");
-    heading (l.scenesCaption, "Scenes");
+    auto body = [] (juce::Rectangle<int> card) { return card.reduced (kCardPadX, kCardPadY).withTrimmedTop (kHeadH + kCardGap); };
 
-    // ---- the engineer's listen: a card of its own, because none of it reaches the room
+    // LIVE SAFE: amber on its own ground while the sound is locked; a quiet card while it is not.
     {
-        Dine::fillRounded (g, l.monitor.toFloat(), Dine::control, Dine::Radius::card);
-        auto inner = l.monitor.reduced (18, 16);
-        g.setColour (Dine::ink);
-        g.setFont (Dine::text (17.0f, 600));
-        Dine::drawText (g, "What I hear", inner.removeFromTop (22), juce::Justification::centredLeft, true);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.0f));
-        Dine::drawText (g, "Press S on any channel to hear it. Only you hear it.", inner.removeFromTop (16),
-                        juce::Justification::centredLeft, true);
-        inner.removeFromTop (kMonCaptionGap);
-        auto levelRow = inner.withTrimmedTop (Dine::Metric::control + kMonRowGap).withHeight (Dine::Metric::control);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.0f));
-        Dine::drawText (g, "Monitor level", levelRow.removeFromLeft (94), juce::Justification::centredLeft);
+        Dine::fillRounded (g, l.safe.toFloat(), look.safe ? Dine::refuse : Dine::card, 8.0f);
+        if (look.safe) Dine::hairlineRounded (g, l.safe.toFloat().reduced (0.5f), Dine::warn, 8.0f);
+        header (l.safe, look.safe ? Dine::warn : Dine::ink4, look.safe ? "Live safe is on" : "Live safe is off");
+        auto text = body (l.safe);
         g.setColour (Dine::ink2);
-        g.setFont (Dine::mono (11.0f, 500));
-        levelRow.removeFromLeft (kMonDial + 10);          // past the knob and the gap after it
-        Dine::drawText (g, dbText (look.monitorDb), levelRow.withWidth (60), juce::Justification::centredLeft);
-        auto note = inner.withTrimmedTop (Dine::Metric::control + kMonRowGap + Dine::Metric::control + kMonNoteGap).withHeight (kMonNote);
-        g.setColour (look.inPlace || ! look.routed ? Dine::warn : look.soloCount > 0 ? Dine::accent : Dine::ink3);
-        g.setFont (Dine::text (12.0f));
-        Dine::drawText (g, look.monitorNote, note, juce::Justification::centredLeft, true);
+        g.setFont (calloutFont());
+        Dine::drawFittedText (g, safeText(), text, juce::Justification::topLeft, juce::jmax (1, text.getHeight() / 16), 1.0f);
     }
 
-    // ---- LIVE SAFE: what it locks, blocks and allows, in three columns and in words
+    // AUTOPILOT: the second thing allowed to move a level by itself, so while it is on the card
+    // says so, says what it has had to move and why, and says where its fence is.
     {
-        Dine::fillRounded (g, l.safe.toFloat(), look.safe ? Dine::refuse : Dine::card, Dine::Radius::card);
-        if (look.safe) Dine::hairlineRounded (g, l.safe.toFloat().reduced (0.5f), Dine::warn, Dine::Radius::card);
-        auto inner = l.safe.reduced (18, 16);
-        auto head = inner.removeFromTop (Dine::Metric::button);
-        head.removeFromLeft (liveSafeButton.getWidth() + 14);
-        g.setColour (look.safe ? Dine::ink : Dine::ink2);
-        g.setFont (Dine::text (15.0f, 600));
-        // One line, and the three columns below carry the detail: the long form of this
-        // sentence is word for word the "Nothing is locked" column.
-        Dine::drawText (g, look.safe ? "On. Lock the sound for the service."
-                                     : "Off. Nothing is locked.",
-                        head, juce::Justification::centredLeft, true);
-        inner.removeFromTop (14);
-
-        struct Rule { juce::String what, why; juce::Colour tint; };
-        std::vector<Rule> rules;
-        if (look.safe)
+        Dine::fillRounded (g, l.autopilot.toFloat(), look.autopilotOn ? Dine::editGround : Dine::card, 8.0f);
+        if (look.autopilotOn) Dine::hairlineRounded (g, l.autopilot.toFloat().reduced (0.5f), Dine::monitor, 8.0f);
+        header (l.autopilot, look.autopilotOn ? Dine::monitor : Dine::ink4, "Autopilot");
+        auto text = body (l.autopilot);
+        if (look.autopilotOn)
         {
-            const auto& policy = controller.getLiveSafePolicy();
-            rules = { { "Locked", "The audio device, the routing, the input patch and opening a session. Changing any of "
-                                  "them interrupts the audio mid-service.", Dine::warn },
-                      { "Blocked", "TUNE MIX, TUNE LIVE MIX, TUNE CHANNEL and MATCH TO REFERENCE. They re-tune channels "
-                                   "that are on air.", Dine::warn },
-                      { "Allowed", "Faders (" + juce::String (int (policy.maxFaderStepDb)) + " dB at a time, the master "
-                                       + juce::String (int (policy.maxMasterStepDb)) + "), mutes, solos, the monitor, "
-                                       "markers and recording. Everything you touch during the service.", Dine::ok } };
+            const auto timeFont = Dine::mono (11.0f, 500);
+            const int timeW = Dine::textWidth (timeFont, "00:00") + 4;
+            if (look.autopilotLog.isEmpty())
+            {
+                g.setColour (Dine::ink3);
+                g.setFont (calloutFont());
+                Dine::drawText (g, "Nothing to do: the mix is inside tolerance.", text.removeFromTop (16), juce::Justification::centredLeft, true);
+                text.removeFromTop (6);
+            }
+            for (const auto& entry : look.autopilotLog)
+            {
+                const auto when = entry.upToFirstOccurrenceOf ("\t", false, false);
+                const auto what = entry.fromFirstOccurrenceOf ("\t", false, false);
+                const int lines = wrapLines (calloutFont(), what, text.getWidth() - timeW - 10);
+                auto line = text.removeFromTop (16 * lines);
+                g.setColour (Dine::monitor);
+                g.setFont (timeFont);
+                Dine::drawText (g, when, line.removeFromLeft (timeW).removeFromTop (16), juce::Justification::centredLeft, false);
+                line.removeFromLeft (10);
+                g.setColour (Dine::ink);
+                g.setFont (calloutFont());
+                Dine::drawFittedText (g, what, line, juce::Justification::topLeft, lines, 1.0f);
+                text.removeFromTop (6);
+            }
+            text.removeFromTop (4);
+            g.setColour (Dine::ink3);
+            g.setFont (noteFont());
+            Dine::drawFittedText (g, autopilotText(), text, juce::Justification::topLeft, juce::jmax (1, text.getHeight() / 14), 1.0f);
         }
         else
         {
-            rules = { { "Nothing is locked", "Every setting is editable, including the ones that restart the audio engine.", Dine::ink3 },
-                      { "Recording is unaffected", "Takes keep running while you change things.", Dine::ink3 },
-                      { "Turn it on before the doors open", "One press, here or in the toolbar.", Dine::ink3 } };
-        }
-        const int colW = (inner.getWidth() - 2 * 16) / 3;
-        for (size_t i = 0; i < rules.size(); ++i)
-        {
-            auto colArea = juce::Rectangle<int> (inner.getX() + int (i) * (colW + 16), inner.getY(), colW, inner.getHeight());
-            g.setColour (rules[i].tint);
-            g.setFont (Dine::text (12.0f, 600));
-            Dine::drawText (g, rules[i].what, colArea.removeFromTop (16), juce::Justification::topLeft, true);
-            colArea.removeFromTop (5);
             g.setColour (Dine::ink2);
-            g.setFont (Dine::text (11.5f));
-            Dine::drawFittedText (g, rules[i].why, colArea, juce::Justification::topLeft, 6, 1.0f);
+            g.setFont (calloutFont());
+            Dine::drawFittedText (g, autopilotText(), text, juce::Justification::topLeft, juce::jmax (1, text.getHeight() / 16), 1.0f);
         }
     }
 
-    // ---- AUTOPILOT: the second thing in DLIVE allowed to move a level by itself, so while it
-    // is on the page says so, says what it has had to move, and carries the press that stops it.
+    // WHAT I HEAR: the engineer's own listen, on a card of its own because none of it reaches the room.
     {
-        const auto& ap = controller.getAutopilot();
-        Dine::fillRounded (g, l.autopilot.toFloat(), ap.on ? Dine::editGround : Dine::card, Dine::Radius::card);
-        if (ap.on) Dine::hairlineRounded (g, l.autopilot.toFloat().reduced (0.5f), Dine::monitor.withAlpha (0.5f), Dine::Radius::card);
-        auto inner = l.autopilot.reduced (18, 16);
-        auto head = inner.removeFromTop (Dine::Metric::button);
-        head.removeFromLeft (autopilotButton.getWidth() + 14);
-        g.setColour (ap.on ? Dine::ink : Dine::ink2);
-        g.setFont (Dine::text (15.0f, 600));
-        Dine::drawText (g, ap.on ? (autopilotSince.isNotEmpty() ? "Watching since " + autopilotSince + "  " + Glyph::dot() + "  "
-                                                                  + (ap.groupsCorrected > 0 ? "holding the mix" : "the mix is healthy")
-                                                                : juce::String ("Watching the mix"))
-                                 : juce::String ("Off. The mix is yours alone."),
-                        head, juce::Justification::centredLeft, true);
-        inner.removeFromTop (12);
-        g.setColour (Dine::ink3);
-        g.setFont (Dine::text (12.0f));
-        const int noteH = juce::jmin (inner.getHeight(), 52);
-        Dine::drawFittedText (g, ap.on ? "If the mix stays healthy it does nothing. It moves group faders only, slowly, "
-                                         "within a few dB of the mix it was engaged on. Touch a fader and it is yours again."
-                                       : "Engage it and DLIVE holds the mix you set: group faders only, inside a few dB of "
-                                         "where you engaged it, and every move says why.",
-                              inner.removeFromTop (noteH), juce::Justification::topLeft, 3, 1.0f);
-        inner.removeFromTop (8);
-        if (ap.on && ! ap.lastWhat.empty())
-        {
-            auto line = inner.removeFromTop (18);
-            g.setColour (Dine::accent);
-            g.setFont (Dine::mono (10.5f, 500));
-            const int timeW = Dine::textWidth (Dine::mono (10.5f, 500), autopilotSince);
-            Dine::drawText (g, autopilotSince, line.removeFromLeft (timeW), juce::Justification::centredLeft);
-            line.removeFromLeft (10);
-            g.setColour (Dine::ink2);
-            g.setFont (Dine::text (12.0f));
-            Dine::drawText (g, juce::String (ap.lastWhat) + (ap.lastWhy.empty() ? juce::String()
-                                                                                : " " + juce::String (Glyph::dash()) + " " + juce::String (ap.lastWhy)),
-                            line, juce::Justification::centredLeft, true);
-        }
+        Dine::fillRounded (g, l.monitor.toFloat(), Dine::card, 8.0f);
+        auto inner = l.monitor.reduced (kCardPadX, kCardPadY);
+        auto titleBlock = inner.withTrimmedRight (clearSolo.getWidth() + 8);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (13.0f, 600));
+        Dine::drawText (g, "What I hear", titleBlock.removeFromTop (18), juce::Justification::centredLeft, true);
+        titleBlock.removeFromTop (2);
+        const int lines = wrapLines (noteFont(), look.monitorNote, titleBlock.getWidth());
+        g.setColour (look.inPlace || ! look.routed ? Dine::warn : look.soloCount > 0 ? Dine::accent : Dine::ink3);
+        g.setFont (noteFont());
+        Dine::drawFittedText (g, look.monitorNote, titleBlock.removeFromTop (14 * lines), juce::Justification::topLeft, lines, 1.0f);
+
+        for (const auto& track : { l.modesA, l.modesB })
+            Dine::fillRounded (g, track.toFloat(), Dine::control, 7.0f);
+        Dine::drawIcon (g, Dine::Icon::Headphones, l.output.withWidth (16).withSizeKeepingCentre (16, 16).toFloat(),
+                        look.routed ? Dine::ink2 : Dine::warn);
     }
 }
 
 void LivePage::resized()
 {
-    const auto l = layout();
+    auto& l = lay;
+    auto r = getLocalBounds().withTrimmedLeft (kPadX).withTrimmedRight (kPadX).withTrimmedTop (kPadTop).withTrimmedBottom (kPadBottom);
+    l.health = r.removeFromTop (kHealthH);
+    r.removeFromTop (kGap);
+
+    const int railW = juce::jmin (kRailW, juce::jmax (280, r.getWidth() / 3));
+    auto rail = r.removeFromRight (railW);
+    r.removeFromRight (kGap);
+
+    // ---- the groups: a header row, then the strips
     {
-        // RECORD sits on the foot of the first card, not across its middle. Centred, it took
-        // the width the card's own number needed and left "Not r..." above it.
-        auto first = l.status.withWidth ((l.status.getWidth() - 36) / 4).reduced (16, 14);
-        const int w = juce::jmax (96, recordButton->idealWidth());
-        recordButton->setBounds (first.removeFromRight (w).removeFromBottom (30));
-    }
-    {
-        auto row = l.tiles;
-        const int gap = 12;
+        auto head = r.removeFromTop (Dine::Metric::button);
+        const int keepW = juce::jmax (52, keepButton.idealWidth());
+        keepButton.setBounds (head.removeFromRight (keepW));
+        head.removeFromRight (12);
+        int widths[4] {}, total = 0;
+        for (int i = 0; i < 4; ++i) { widths[i] = juce::jmax (44, sceneSegments[size_t (i)]->idealWidth()); total += widths[i]; }
+        l.sceneTrack = head.removeFromRight (total + 2 * 3 + 4).withSizeKeepingCentre (total + 2 * 3 + 4, kSegmentH + 4);
+        auto seg = l.sceneTrack.reduced (2);
+        for (int i = 0; i < 4; ++i)
+        {
+            sceneSegments[size_t (i)]->setBounds (seg.removeFromLeft (widths[i]));
+            seg.removeFromLeft (2);
+        }
+        head.removeFromRight (12);
+        l.sceneCaption = head.removeFromRight (Dine::textWidth (Dine::text (11.0f, 500), "Scene") + 2);
+        l.groupsHeader = head;
+        r.removeFromTop (12);
+        l.strips = r;
+
+        auto row = l.strips;
+        const int gap = 8;
         const int w = (row.getWidth() - gap * (kTiles - 1)) / kTiles;
         for (int i = 0; i < kTiles; ++i)
         {
-            tiles[size_t (i)]->setBounds (row.removeFromLeft (w));
+            tiles[size_t (i)]->setBounds (i == kTiles - 1 ? row : row.removeFromLeft (w));
             row.removeFromLeft (gap);
         }
     }
+
+    // ---- the rail: LIVE SAFE and Autopilot at the top, what I hear at the foot
     {
-        // Four scene cards, side by side: the name and when it was kept on the card, KEEP along
-        // its foot (design `06 - Live`, 71:12363).
-        auto row = l.scenes;
-        const int gap = 12;
-        const int cell = (row.getWidth() - gap * 3) / 4;
-        for (int i = 0; i < 4; ++i)
+        const int textW = railW - 2 * kCardPadX;
+        const int safeH = kCardPadY + kHeadH + kCardGap + 16 * wrapLines (calloutFont(), safeText(), textW) + kCardPadY;
+        l.safe = rail.removeFromTop (safeH);
+        rail.removeFromTop (12);
+
+        int apBody = 0;
+        if (look.autopilotOn)
         {
-            auto c = row.removeFromLeft (cell);
-            row.removeFromLeft (gap);
-            scenePads[size_t (i)]->setBounds (c);
-            auto foot = c.reduced (14, 12).removeFromBottom (Dine::Metric::control);
-            const int keepW = juce::jmax (52, sceneKeeps[size_t (i)]->idealWidth());
-            sceneKeeps[size_t (i)]->setBounds (foot.removeFromLeft (keepW));
+            const int timeW = Dine::textWidth (Dine::mono (11.0f, 500), "00:00") + 4;
+            if (look.autopilotLog.isEmpty()) apBody += 16 + 6;
+            for (const auto& entry : look.autopilotLog)
+                apBody += 16 * wrapLines (calloutFont(), entry.fromFirstOccurrenceOf ("\t", false, false), textW - timeW - 10) + 6;
+            apBody += 4 + 14 * wrapLines (noteFont(), autopilotText(), textW);
         }
-    }
-    {
-        auto inner = l.monitor.reduced (18, 16);
-        inner.removeFromTop (22 + 16 + kMonCaptionGap);
-        auto chipRow = inner.removeFromTop (Dine::Metric::control);
-        bool room = true;
-        for (auto& c : chips)
+        else apBody = 16 * wrapLines (calloutFont(), autopilotText(), textW);
+        l.autopilot = rail.removeFromTop (kCardPadY + kHeadH + kCardGap + apBody + kCardPadY);
+
+        const int clearW = juce::jmax (84, clearSolo.idealWidth());
+        const int noteLines = wrapLines (noteFont(), look.monitorNote.isEmpty() ? juce::String ("Press S on a group. Only you hear it.") : look.monitorNote,
+                                         textW - clearW - 8);
+        const int titleH = juce::jmax (Dine::Metric::button, 18 + 2 + 14 * noteLines);
+        const int monitorH = kCardPadY + titleH + kCardGap + kSegmentH + 4 + kCardGap + 24 + kCardPadY;
+        l.monitor = rail.removeFromBottom (monitorH);
+
+        auto inner = l.monitor.reduced (kCardPadX, kCardPadY);
+        auto titleRow = inner.removeFromTop (titleH);
+        clearSolo.setBounds (titleRow.removeFromRight (clearW).removeFromTop (Dine::Metric::button));
+        inner.removeFromTop (kCardGap);
+
+        auto modesRow = inner.removeFromTop (kSegmentH + 4);
+        auto track = [&modesRow] (DineButton& a, DineButton& b)
         {
-            const int w = juce::jmax (44, c->idealWidth());
-            // A chip with no room left is taken off the row, not left lying where the last
-            // layout put it - which is how DIM and CLEAR SOLO came to be drawn over each other.
-            room = room && w <= chipRow.getWidth();
-            c->setVisible (room);
-            if (! room) continue;
-            c->setBounds (chipRow.removeFromLeft (w));
-            chipRow.removeFromLeft (8);
-        }
-        // The solo device picker takes the right end of the chip row, when there is a row's worth left for it.
-        const int pickW = juce::jmin (300, juce::jmax (150, soloDevice.idealWidth()));
-        soloDevice.setVisible (chipRow.getWidth() >= 150);
-        soloDevice.setBounds (chipRow.removeFromRight (juce::jmin (pickW, chipRow.getWidth())));
-        inner.removeFromTop (kMonRowGap);
-        auto levelRow = inner.removeFromTop (Dine::Metric::control);
-        levelRow.removeFromLeft (94);
-        monitorLevel.setBounds (levelRow.removeFromLeft (kMonDial).withSizeKeepingCentre (kMonDial, kMonDial));
+            const int wa = a.idealWidth(), wb = b.idealWidth();
+            auto t = modesRow.removeFromLeft (juce::jmin (modesRow.getWidth(), wa + wb + 6));
+            modesRow.removeFromLeft (8);
+            auto seg = t.reduced (2);
+            a.setBounds (seg.removeFromLeft (juce::jmin (wa, seg.getWidth() / 2 + (wa - wb) / 2)));
+            seg.removeFromLeft (2);
+            b.setBounds (seg);
+            return t;
+        };
+        l.modesA = track (*modes[0], *modes[1]);
+        l.modesB = track (*modes[2], *modes[3]);
+        inner.removeFromTop (kCardGap);
+
+        l.output = inner.removeFromTop (24);
+        auto out = l.output;
+        out.removeFromLeft (16 + 6);
+        monitorLevel->setBounds (out.removeFromRight (kLevelW).withSizeKeepingCentre (kLevelW, 16));
+        out.removeFromRight (8);
+        const int dimW = juce::jmax (34, monitorDim.idealWidth());
+        monitorDim.setBounds (out.removeFromRight (dimW).withSizeKeepingCentre (dimW, 20));
+        out.removeFromRight (8);
+        soloDevice.setBounds (out.withWidth (juce::jmin (out.getWidth(), soloDevice.idealWidth())));
     }
-    {
-        auto inner = l.safe.reduced (18, 16);
-        const int w = juce::jmax (110, liveSafeButton.idealWidth());
-        liveSafeButton.setBounds (inner.removeFromTop (Dine::Metric::button).removeFromLeft (w));
-        // MIX HISTORY has a row of its own in the sidebar's Safety group - which is where the
-        // design puts it - so this card is the three columns and nothing else.
-        historyButton.setBounds (0, 0, 0, 0);
-        historyButton.setVisible (false);
-    }
-    {
-        auto inner = l.autopilot.reduced (18, 16);
-        const int w = juce::jmax (110, autopilotButton.idealWidth());
-        autopilotButton.setBounds (inner.removeFromTop (Dine::Metric::button).removeFromLeft (w));
-    }
+
+    // the links at the right of the two cards' headers
+    auto linkArea = [] (juce::Rectangle<int> card, int w) { return card.reduced (kCardPadX, kCardPadY).removeFromTop (kHeadH).removeFromRight (w); };
+    safeLink->setBounds (linkArea (l.safe, juce::jmin (180, safeLink->idealWidth())));
+    autopilotLink->setBounds (linkArea (l.autopilot, juce::jmin (200, autopilotLink->idealWidth())));
 }
 
 } // namespace livemix
@@ -863,19 +920,25 @@ void LivePage::resized()
 namespace livemix
 {
 
-// The pads read the controller: the name, and lit while that scene is the one kept.
+// The picker reads the controller: every scene's name, and KEEP only once one is picked.
 void LivePage::refreshScenes()
 {
     for (int i = 0; i < 4; ++i)
     {
         const auto& scene = controller.getScene (i);
-        auto& pad = *scenePads[size_t (i)];
+        auto& seg = *sceneSegments[size_t (i)];
+        const juce::String name (scene.name.empty() ? defaultSceneName (i) : scene.name.c_str());
+        if (seg.getButtonText() != name.toUpperCase()) { seg.setButtonText (name.toUpperCase()); resized(); }
+        seg.setToggleState (i == sceneSlot, juce::dontSendNotification);
         juce::String when;
-        if (scene.kept && scene.whenMs > 0) when = juce::Time (scene.whenMs).toString (false, true, false, true);
-        pad.setScene (juce::String (scene.name.empty() ? defaultSceneName (i) : scene.name.c_str()), scene.kept, when);
-        pad.setTooltip (scene.kept ? "Bring the " + juce::String (scene.name) + " mix back - every fader, chain and macro - in one press. UNDO takes it back."
-                                   : "Nothing is kept here yet. Set the mix, then KEEP.");
+        if (scene.kept && scene.whenMs > 0) when = clockTime (scene.whenMs);
+        seg.setTooltip (scene.kept ? "Bring the " + name + " mix back - every fader, chain and macro - in one press"
+                                         + (when.isEmpty() ? juce::String() : " (kept " + when + ")") + ". UNDO takes it back."
+                                   : "Nothing is kept under " + name + " yet. Pick it, set the mix, then press Keep.");
     }
+    keepButton.setEnabled (sceneSlot >= 0);
+    keepButton.setTooltip (sceneSlot >= 0 ? "Keep the mix as it is now under " + juce::String (controller.getScene (sceneSlot).name) + "."
+                                          : juce::String ("Pick a scene first, then Keep puts the mix as it is now under its name."));
 }
 
 } // namespace livemix

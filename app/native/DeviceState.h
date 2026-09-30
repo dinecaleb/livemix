@@ -78,6 +78,22 @@ inline juce::String inputRefusedSentence (const juce::String& inputDevice, const
     return s;
 }
 
+// NOTHING IS LISTENING, AND NOBODY WAS OVERRULED.
+//
+// macOS had never been asked about the microphone, DLIVE said what it wanted it for, and the
+// answer was Not now. The output opened on its own, so the session opens, plays, mixes, saves
+// and exports exactly as it would; the meters are still, and this is the sentence that says
+// so. It is not a failure and it does not read like one - it names the one press that changes
+// it, and it is the same press that picks a device.
+inline juce::String inputsNotAskedSentence (const juce::String& inputDevice, const juce::String& outputDevice)
+{
+    juce::String s = "Nothing is being heard yet: "
+                   + (inputDevice.isNotEmpty() ? inputDevice : juce::String ("your console"))
+                   + " has not been opened for input.";
+    if (outputDevice.isNotEmpty()) s += " The mix is going out of " + outputDevice + ".";
+    return s + " Pick it under Audio device when you are ready to listen.";
+}
+
 // ---------------------------------------------------------------------------
 // HOT-PLUG: a console pulled out mid-service, and put back
 //

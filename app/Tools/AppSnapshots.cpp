@@ -1482,6 +1482,19 @@ int main (int argc, char** argv)
     rig.snap (dir, "25-reset-to-raw");
     view.closeSheetsForSnapshot();
     rig.feed (0.2);
+
+    // macOS IS ABOUT TO ASK ABOUT THE MICROPHONE. Seen once ever, a second after launch, on
+    // the one Mac that has never answered it - which is exactly the launch nobody is watching
+    // for a screenshot, so it is rendered here instead.
+    {
+        MainView::MicrophoneAsk ask;
+        ask.device = "Dante Virtual Soundcard";
+        view.explainMicrophone (std::move (ask));
+    }
+    rig.feed (0.2);
+    rig.snap (dir, "25b-microphone-ask");
+    view.closeSheetsForSnapshot();
+    rig.feed (0.2);
     view.closeSheetsForSnapshot();
     rig.feed (0.2);
 

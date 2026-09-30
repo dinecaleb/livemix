@@ -1739,6 +1739,56 @@ void MainView::offerRecovery (RecoveryOffer offer)
     choiceSheet->grabKeyboardFocus();
 }
 
+// macOS IS ABOUT TO ASK. The one thing a volunteer needs to be told is that DLIVE is not
+// asking for the room's microphone - it is asking for the desk - and that macOS has one switch
+// for both. Two columns: what it listens to, and what it does with it. Saying no costs nothing
+// that matters, and the note says so rather than leaving it to be found out.
+void MainView::explainMicrophone (MicrophoneAsk ask)
+{
+    closeSheets();
+    const auto what = ask.device.isNotEmpty() ? ask.device : juce::String ("your audio device");
+    choiceSheet = std::make_unique<ChoiceSheet> (
+        "macOS is about to ask about the microphone",
+        "DLIVE is opening " + what + ". macOS calls every audio input a microphone "
+        + juce::String (Glyph::dash()) + " a thirty-two channel desk and this Mac's own mic are the "
+        "same switch " + Glyph::dash() + " so it asks once, the first time DLIVE listens.");
+    choiceSheet->setColumns (
+        { "What DLIVE listens to", Dine::accent, { "The inputs of " + what,
+                                                   "Nothing else on this Mac",
+                                                   "Only while a device is open" }, true },
+        { "What it does with them", Dine::ink2, { "The meters, the mix and the broadcast",
+                                                  "Recording, on the tracks you set to record",
+                                                  "TUNE, which listens and then sets the mix",
+                                                  "No audio leaves this Mac" }, true });
+    choiceSheet->setNote ("Say Not now and DLIVE still plays, mixes, saves and exports. Only the meters stay still.",
+                          "You can change it any time in System Settings > Privacy & Security > Microphone.");
+
+    // Escape, or the sheet closed any other way, is Not now: a session has to open either way,
+    // and the careful answer is the one that asks macOS for nothing. An action's own handler
+    // runs immediately after onClose, so the fallback is deferred by one message and finds the
+    // flag already set when one did.
+    auto answered = std::make_shared<bool> (false);
+    auto notNow = ask.onNotNow;
+    choiceSheet->addAction ("Not now", false, false, [answered, f = ask.onNotNow] { *answered = true; if (f) f(); });
+    choiceSheet->addAction ("Continue", false, true, [answered, f = ask.onContinue] { *answered = true; if (f) f(); });
+    choiceSheet->onClose = [this, answered, notNow]
+    {
+        choiceSheet.reset();
+        resized();
+        repaint();
+        grabKeyboardFocus();
+        juce::MessageManager::callAsync ([answered, notNow]
+        {
+            if (*answered) return;
+            *answered = true;
+            if (notNow) notNow();
+        });
+    };
+    addAndMakeVisible (*choiceSheet);
+    resized();
+    choiceSheet->grabKeyboardFocus();
+}
+
 void MainView::showCheck()
 {
     if (checkSheet != nullptr) { checkSheet->refresh(); return; }

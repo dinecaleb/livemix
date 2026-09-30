@@ -9,11 +9,11 @@
 namespace livemix
 {
 
-// LIVE: the view for the service itself. Four cards for the four things that matter while
-// it is happening (is it recording, is it going out, is anything clipping, how much room the
-// master has), a tile per group bus and one for the effects returns with a meter, a fader
-// and the two keys anyone might touch, the engineer's own listen, and LIVE SAFE with what it
-// locks, blocks and allows printed rather than implied.
+// LIVE: the view for the service itself, built to "06b - Live - decluttered" (161:18761).
+// One health strip for the four things that matter while it is happening (is it recording,
+// is it going out, is anything clipping, how much room the master has); the groups as tall
+// strips with the scene picker over them; and a rail that says what LIVE SAFE and Autopilot
+// are doing, in sentences, with the engineer's own listen - and where it goes - at its foot.
 class LivePage : public juce::Component
 {
 public:
@@ -36,59 +36,74 @@ public:
 
 private:
     class GroupTile;
-    class SceneCard;
-    class RecordKey;
-    class Chip;
+    class Link;
+    class LevelLine;
+    class SafeDetail;
 
-    struct Layout { juce::Rectangle<int> status, groupsCaption, tiles, scenesCaption, scenes, monitor, safe, autopilot; };
-    Layout layout() const;
+    struct Layout
+    {
+        juce::Rectangle<int> health, groupsHeader, sceneCaption, sceneTrack, strips, safe, autopilot, monitor,
+                             modesA, modesB, output;
+    };
+    Layout lay;                        // measured in resized(), and again when a card changes height
     int sceneFlash = 0;                // frames left of the mark the sidebar's SCENES row leaves
 
     MixController& controller;
     AppServices& services;
-    // One tile per group bus, then the effects returns, then the master: DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE FX MASTER.
-    std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 2> tiles;
-    DineButton liveSafeButton { "LIVE SAFE", DineButton::Style::Standard };
-    DineButton historyButton { "Mix history", DineButton::Style::Standard };
-    // AUTOPILOT, where the service is run from: engaged and stopped in one press, with what it
-    // has had to do printed beside it.
-    DineButton autopilotButton { "AUTOPILOT", DineButton::Style::Standard };
-    juce::String autopilotSince;
-    bool autopilotWasOn = false;
-    std::array<std::unique_ptr<DineButton>, 6> chips;   // MONITOR SOLO / SOLO IN PLACE / AFL / PFL / Dim / Clear solo
-    // SCENES: the whole mix kept for one part of the service, back in one press. A pad per
-    // slot recalls it; the KEEP chip beside it writes the mix there. Names come from the controller.
-    std::array<std::unique_ptr<SceneCard>, 4> scenePads;
-    std::array<std::unique_ptr<DineButton>, 4> sceneKeeps;
+    // One strip per group bus in the console's order, then the effects returns.
+    std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 1> tiles;
+
+    // SCENES: the picker over the strips. A kept scene comes back in one press; KEEP writes the
+    // mix that is running into the one picked.
+    std::array<std::unique_ptr<DineButton>, 4> sceneSegments;
+    DineButton keepButton { "Keep", DineButton::Style::Standard };
+    int sceneSlot = -1;
     void refreshScenes();
-    DineKnob monitorLevel;
+
+    std::unique_ptr<Link> safeLink, autopilotLink;
+
+    // The engineer's listen: MONITOR SOLO / SOLO IN PLACE, AFL / PFL, CLEAR SOLO, DIM, where
+    // solo goes and how loud it is there.
+    std::array<std::unique_ptr<DineButton>, 4> modes;
+    DineButton clearSolo { "CLEAR SOLO", DineButton::Style::Standard };
+    DineButton monitorDim { "DIM", DineButton::Style::Toggle };
     DinePopup soloDevice;                                // where solo goes: the device only the engineer hears
-    std::unique_ptr<RecordKey> recordButton;
+    std::unique_ptr<LevelLine> monitorLevel;
 
     struct Look
     {
-        juce::String recording, recordingNote, output, outputNote, clipping, clippingNote, headroom, headroomNote, monitorNote;
-        bool isRecording = false, safe = false, running = false, anyClip = false, inPlace = false, routed = false;
+        juce::String recording, recordingNote, output, outputNote, clipping, clippingNote, headroom, headroomNote,
+                     monitorNote, autopilotSince;
+        juce::StringArray autopilotLog;
+        bool isRecording = false, safe = false, running = false, anyClip = false, inPlace = false, routed = false,
+             autopilotOn = false, autopilotMoved = false;
         int soloCount = -1;
-        float monitorDb = 0.0f;
+        float headroomDb = 0.0f;
         bool operator== (const Look& o) const
         {
             return recording == o.recording && recordingNote == o.recordingNote && output == o.output && outputNote == o.outputNote
                 && clipping == o.clipping && clippingNote == o.clippingNote && headroom == o.headroom && headroomNote == o.headroomNote
-                && monitorNote == o.monitorNote && isRecording == o.isRecording && safe == o.safe && running == o.running
-                && anyClip == o.anyClip && inPlace == o.inPlace && routed == o.routed && soloCount == o.soloCount
-                && std::abs (monitorDb - o.monitorDb) < 0.05f;
+                && monitorNote == o.monitorNote && autopilotSince == o.autopilotSince && autopilotLog == o.autopilotLog
+                && isRecording == o.isRecording && safe == o.safe && running == o.running && anyClip == o.anyClip
+                && inPlace == o.inPlace && routed == o.routed && autopilotOn == o.autopilotOn
+                && autopilotMoved == o.autopilotMoved && soloCount == o.soloCount
+                && std::abs (headroomDb - o.headroomDb) < 0.05f;
         }
         bool operator!= (const Look& o) const { return ! (*this == o); }
     };
     Look look;
+    juce::String safeText() const;
+    juce::String autopilotText() const;
     void refreshMonitor();
     void updateDiskNote();
+    void readAutopilotLog (Look&) const;
     int diskTicks = 0, adviceTicks = 0;
     double secondsFree = 0.0;
     juce::String clipText, clipNote;
     bool anyClipping = false;
-    float headroomDb = 0.0f;
+    size_t checkpointsSeen = size_t (-1);
+    juce::StringArray autopilotLog;
+    juce::String autopilotSince;
 };
 
 } // namespace livemix

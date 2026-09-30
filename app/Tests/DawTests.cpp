@@ -3146,6 +3146,18 @@ TEST_CASE ("Devices: every state has a sentence, and \"no audio devices\" is onl
     CHECK (other.contains ("the device is in use"));
     CHECK (! other.contains ("Privacy"));
 
+    // NOT NOW. Nobody was overruled and nothing failed: macOS was never asked, so it never
+    // refused. The sentence names the device, says the mix is still going out, and points at
+    // the one press that changes it - and it does not read like an error, because it is not one.
+    const auto notNow = inputsNotAskedSentence ("Dante Virtual Soundcard", "MacBook Pro Speakers");
+    CHECK (notNow.contains ("Dante Virtual Soundcard"));
+    CHECK (notNow.contains ("MacBook Pro Speakers"));
+    CHECK (notNow.contains ("Audio device"));
+    CHECK (! notNow.contains ("refused"));
+    CHECK (! notNow.contains ("could not"));
+    // It stands on its own when the session never named an output either.
+    CHECK (inputsNotAskedSentence ({}, {}).contains ("your console"));
+
     DeviceState gone;
     gone.stage = DeviceStage::Disconnected;
     gone.input = "Dante Virtual Soundcard";

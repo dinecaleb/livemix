@@ -296,7 +296,9 @@ namespace
         // drum sounds resolved by name, then whatever devices this Mac has. In that order,
         // because the session is the document and the device is a preference - which is why it
         // opens at all with the console unplugged, and why saving it then cannot lose anything.
-        void openState (const SessionState& state, const char* source = "user")
+        // `allowInputs` is false only when macOS has never been asked about the microphone and
+        // the engineer said Not now: the output opens on its own and nothing listens.
+        void openState (const SessionState& state, const char* source = "user", bool allowInputs = true)
         {
             // Whatever was open is closed cleanly first: its marker and its autosave go, so a
             // session that was left properly is never offered back as unsaved work.
@@ -314,7 +316,7 @@ namespace
 
             // What could not be opened becomes a sentence on the toast, never a refusal: the
             // whole point of a recording is to be able to open it somewhere else.
-            const auto err = openDevicesFor (state);
+            const auto err = openDevicesFor (state, allowInputs);
             restoreSolo (state, err);
             int takes = 0;
             for (const auto& take : dawEngine.recoverUnfinishedTakes())
@@ -334,7 +336,7 @@ namespace
         // Opens the devices a session asks for, or the nearest thing this Mac has (DevicePlan.h),
         // and leaves the sentence about it in the recovery note. Returns the device error when
         // even the planned device would not open (the note carries it too).
-        juce::String openDevicesFor (const SessionState& doc)
+        juce::String openDevicesFor (const SessionState& doc, bool allowInputs = true)
         {
             recoveryNote.clear();
             juce::StringArray ins, outs;
@@ -344,14 +346,24 @@ namespace
                                                     doc.project.hasAudio(), ins, outs,
                                                      host.getInputDeviceName(), host.getOutputDeviceName(), host.isOpen());
             juce::String err;
+            juce::String note = plan.note;
             switch (plan.action)
             {
-                case DevicePlan::Action::OpenBoth:       err = host.open (plan.input, plan.output); break;
+                case DevicePlan::Action::OpenBoth:
+                    // Not now: the one call that would put macOS's prompt up is the one that is
+                    // not made. Everything else about opening this session is unchanged.
+                    if (! allowInputs && plan.output.isNotEmpty())
+                    {
+                        err = host.openOutputOnly (plan.output);
+                        note = inputsNotAskedSentence (plan.input, plan.output);
+                    }
+                    else err = host.open (plan.input, plan.output);
+                    break;
                 case DevicePlan::Action::OpenOutputOnly: err = host.openOutputOnly (plan.output); break;
                 case DevicePlan::Action::KeepOpen:       host.reconfigure(); break;
                 case DevicePlan::Action::None:           break;
             }
-            recoveryNote = plan.note;
+            recoveryNote = note;
             if (err.isNotEmpty())
                 recoveryNote += (recoveryNote.isEmpty() ? "" : " ") + juce::String ("Its audio device could not be opened (") + err + "). Pick one under Audio device.";
             return err;
@@ -733,21 +745,49 @@ public:
             if (page.isVisible()) page.refresh();
         };
 
+        // Found before the session is restored, because the two sheets are one at a time and a
+        // recovery is the bigger question: when there is one, it is what the window opens with.
+        const auto found = SessionAutosave::check (lastDocument);
+
         if (restored)
         {
             // Exactly the same path as opening it from the library, so there is one way a
             // session comes back: the document first, then whatever devices this Mac has.
-            services->openState (state, "launch");
-            window->view().showPage (controller->getSession().inputs.empty() ? MainView::Page::Assign
-                                                                             : MainView::Page::Tracks);
-            const auto note = services->takeRecoveryNote();
-            if (note.isNotEmpty()) window->view().showToast (note);
+            auto restore = [this, state] (bool withInputs)
+            {
+                services->openState (state, "launch", withInputs);
+                window->view().showPage (controller->getSession().inputs.empty() ? MainView::Page::Assign
+                                                                                 : MainView::Page::Tracks);
+                const auto note = services->takeRecoveryNote();
+                if (note.isNotEmpty()) window->view().showToast (note);
+            };
+
+            // THE MICROPHONE PROMPT, SAID FIRST AND IN DLIVE'S OWN WORDS.
+            //
+            // macOS puts its prompt up the moment a process starts listening, and restoring a
+            // session starts listening a second after launch - before anybody has asked for
+            // anything and with nothing on screen to explain it. DLIVE reads a console, not the
+            // room's microphone, but macOS has one switch for every audio input and no way to
+            // tell them apart, so the only thing that can be done about it is to say so before
+            // it happens. Once: after macOS has an answer this is never seen again.
+            const bool askFirst = ! found.offer
+                               && state.devices.consoleInput.isNotEmpty()
+                               && MicPermission::check() == MicPermission::State::Undetermined;
+            if (askFirst)
+            {
+                MainView::MicrophoneAsk ask;
+                ask.device = state.devices.consoleInput;
+                ask.onContinue = [this, restore] { services->askForInputPermission ([restore] (bool) { restore (true); }); };
+                ask.onNotNow   = [restore] { restore (false); };
+                window->view().explainMicrophone (std::move (ask));
+            }
+            else restore (true);
         }
 
         // DLIVE did not get to say goodbye last time, and the autosave holds work the document
         // does not. Asked once, after the window is up, in the words of what was lost rather
         // than in the words of what went wrong.
-        if (const auto found = SessionAutosave::check (lastDocument); found.offer)
+        if (found.offer)
         {
             trackEvent ("recovery_offered", { { "after_crash", telemetry->previousRunEndedBadly() } });
             juce::MessageManager::callAsync ([this, found, lastDocument] { offerRecovery (found, lastDocument); });

@@ -128,6 +128,19 @@ public:
     };
     void offerRecovery (RecoveryOffer);
 
+    // macOS IS ABOUT TO ASK ABOUT THE MICROPHONE. DLIVE reads a console; macOS calls every
+    // audio input a microphone and puts its own prompt up the moment a process starts
+    // listening - which, on a restored session, is a second after launch and before anybody
+    // has asked for anything. This says what it is for first, in DLIVE's words, and the answer
+    // is honoured: Not now opens the output alone and the session still opens. The application
+    // hands the device in, because it is the thing that knows what is about to be opened.
+    struct MicrophoneAsk
+    {
+        juce::String device;                                // the console the session is opening
+        std::function<void()> onContinue, onNotNow;
+    };
+    void explainMicrophone (MicrophoneAsk);
+
     // Appearance: View > Appearance lists the themes and opens the sheet. The chosen theme is
     // applied before the pages are built and remembered on this Mac (ThemeStore); the headless
     // snapshot tool switches the stored choice off so every render starts from the design.
