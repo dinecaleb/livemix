@@ -578,6 +578,17 @@ public:
             if (link != 0) Dine::drawLinkGlyph (g, col.name.withTrimmedLeft (col.name.getWidth() - markW).toFloat().reduced (2.0f, 0.0f), Dine::accent);
         }
 
+        // ---- the planes the blocks stand on: what the preamp is doing and the chain in one,
+        // the sends in another, and the second one only when there is a send to show.
+        if (! col.chainBox.isEmpty())
+        {
+            Dine::fillRounded (g, col.chainBox.toFloat(), Dine::inset, Dine::Radius::control);
+            for (const int y : col.chainRules)
+                Dine::drawRule (g, juce::Rectangle<int> (col.chainBox.getX() + 6, y, col.chainBox.getWidth() - 12, 1), Dine::hairSoft);
+        }
+        if (col.hasSends && ! sendList.empty() && ! col.sendsBox.isEmpty())
+            Dine::fillRounded (g, col.sendsBox.toFloat(), Dine::inset, Dine::Radius::control);
+
         // ---- gain staging: every strip that can have it, always in its slot
         if (col.hasGain)
         {
@@ -589,6 +600,8 @@ public:
             // channel console is thirty-two words that say nothing, and they are the reason
             // the head reads as a wall; the slot is still here, so the line across the
             // console does not bend when one input has something to say and the rest do not.
+            // The plane above is the block's, not the chip's: OK is still quiet and CLIPPING
+            // is still loud, because that is said by the lamp and the word's own colour.
             auto area = col.gain;
             auto lamp = area.removeFromLeft (5).withSizeKeepingCentre (4, 4);
             g.setColour (advice.known ? gainAdviceColour (advice.level) : Dine::ink4.withAlpha (0.45f));
@@ -886,6 +899,36 @@ public:
             r.removeFromTop (gap);
         }
 
+        // WHAT THIS CHANNEL IS DOING, ON A PLANE OF ITS OWN.
+        // The gain chip, the chain and the sends were three sets of small words floating on
+        // the column's own ground, and on a 70 pt strip that reads as one loose list rather
+        // than as three things. They stand in one well now - the design's `Channel Strip`
+        // (63:9488) says no boxes inside a strip, and this is a deliberate departure from it
+        // (docs/DESIGN-V3.md) - with a hairline in the gap between each block, so the strip
+        // is read as blocks without a caption on a column three quarters as wide as one.
+        {
+            const auto plane = [this] (juce::Rectangle<int> content)
+            {
+                return content.isEmpty() ? content
+                                         : juce::Rectangle<int> (2, content.getY() - 7, getWidth() - 4, content.getHeight() + 14);
+            };
+            juce::Rectangle<int> chain = col.gain;
+            for (const auto& row : col.insertRows) chain = chain.isEmpty() ? row : chain.getUnion (row);
+            col.chainBox = plane (chain);
+            // The gap between the gain chip and the chain is already there; the rule sits in
+            // the middle of it, and only when there is a block on both sides.
+            if (col.hasGain && col.hasInserts)
+                col.chainRules.push_back ((col.gain.getBottom() + col.insertRows.front().getY()) / 2);
+
+            // The sends get a plane of their own rather than sharing that one. The slots stay
+            // reserved whether or not this channel feeds an effect - that is what keeps the
+            // pan and the faders level across the console - but an empty plane is a box with
+            // nothing in it, so the plane follows the sends and the slots do not.
+            juce::Rectangle<int> sends;
+            for (const auto& row : col.sendRows) sends = sends.isEmpty() ? row : sends.getUnion (row);
+            col.sendsBox = plane (sends);
+        }
+
         if (keepOut) { col.out = r.removeFromBottom (outH); col.hasOut = true; r.removeFromBottom (gap); }
         if (keysH > 0) { col.keys = r.removeFromBottom (keysH); r.removeFromBottom (gap); }
         if (keepPeak) { col.peak = r.removeFromBottom (peakH); col.hasPeak = true; r.removeFromBottom (2); }
@@ -1108,6 +1151,10 @@ public:
     {
         juce::Rectangle<int> name, gain, loudness, insertsLabel, sendsLabel, panLabel, panBar, panRead,
                              fader, scale, meter, meterRight, body, level, peak, keys, out;
+        // The plane the gain chip, the chain and the sends stand on, and the hairlines
+        // between them. Empty when there is nothing in it.
+        juce::Rectangle<int> chainBox, sendsBox;
+        std::vector<int> chainRules;
         std::vector<juce::Rectangle<int>> insertRows, sendRows;
         bool hasLoudness = false, hasInserts = false, hasSends = false, hasPan = false,
              hasOut = false, hasGain = false, hasPeak = false;
