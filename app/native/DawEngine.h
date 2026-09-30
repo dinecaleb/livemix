@@ -101,6 +101,8 @@ public:
                        float* const* outputs, int numOutputs, int numSamples) noexcept;
 
 private:
+    void processChunk (const float* const* deviceInputs, int numInputChannels,
+                       float* const* outputs, int numOutputs, int numSamples) noexcept;
     juce::String stopNotice;
     struct Route
     {

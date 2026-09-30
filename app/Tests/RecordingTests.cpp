@@ -109,3 +109,33 @@ TEST_CASE ("DawEngine: a take lands on the input it recorded, however the list o
     CHECK (daw.takeStopNotice().contains ("Kick"));
     folder.deleteRecursively();
 }
+
+TEST_CASE ("DawEngine: a device that hands over a bigger callback than it was prepared for is processed in pieces")
+{
+    // The playback buffers are twice the prepared block; a bigger callback used to read past them.
+    MixController controller;
+    DawEngine daw (controller);
+    MixSession s;
+    s.name = "Big";
+    s.inputs = { { "Kick", ChannelRole::KickIn, 0, -1 }, { "Lead", ChannelRole::LeadVocal, 1, -1 } };
+    controller.setSession (s);
+    daw.setSession (s);
+    controller.prepare (kSr, 64);
+    daw.prepare (kSr, 64);
+    const int big = 64 * 8;
+    std::vector<std::vector<float>> in (2, std::vector<float> (size_t (big), 0.0f));
+    for (int i = 0; i < big; ++i) in[1][size_t (i)] = 0.3f * std::sin (2.0f * float (M_PI) * 440.0f * float (i) / float (kSr));
+    std::vector<const float*> ip { in[0].data(), in[1].data() };
+    std::vector<float> l (static_cast<size_t> (big)), r (static_cast<size_t> (big));
+    float* op[2] = { l.data(), r.data() };
+    float peakLate = 0.0f;
+    for (int b = 0; b < 40; ++b)
+    {
+        daw.processBlock (ip.data(), 2, op, 2, big);
+        for (int i = big / 2; i < big; ++i) peakLate = std::max (peakLate, std::fabs (l[size_t (i)]));
+    }
+    bool finite = true;
+    for (float x : l) finite = finite && std::isfinite (x);
+    CHECK (finite);
+    CHECK (peakLate > 0.01f);             // the second half of every callback was processed too
+}

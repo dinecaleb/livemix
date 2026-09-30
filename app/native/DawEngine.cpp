@@ -1,4 +1,5 @@
 #include "DawEngine.h"
+#include <array>
 #include <algorithm>
 #include <cmath>
 
@@ -64,10 +65,18 @@ void DawEngine::rebuildPlayer()
     const bool wasPlaying = transport.isPlaying();
     const juce::int64 at = transport.getPosition();
 
-    // Take the player away from the audio thread before its buffers are freed.
+    // Take the player away from the audio thread before its buffers are freed. A callback still
+    // inside after two seconds is a device that has hung; freeing the buffers under it would be a
+    // crash on the audio thread, so the rebuild waits for the next change instead.
     rebuilding.store (true, std::memory_order_seq_cst);
     for (int spins = 0; inBlock.load (std::memory_order_seq_cst) && spins < 2000; ++spins)
         juce::Thread::sleep (1);
+    if (inBlock.load (std::memory_order_seq_cst))
+    {
+        rebuilding.store (false, std::memory_order_seq_cst);
+        clipsDirty = true;
+        return;
+    }
 
     std::vector<TimelinePlayer::TrackClips> forPlayer;
     forPlayer.resize (project.tracks.size());
@@ -320,11 +329,36 @@ void DawEngine::processBlock (const float* const* deviceInputs, int numInputChan
         }
     }
 
+    // 2. The rest, in pieces no bigger than the playback buffers were made for: a device that
+    // hands over a bigger callback than it was prepared with would otherwise have the mix read
+    // past the end of them.
+    const int limit = juce::jmax (1, blockSize * 2);
+    if (numSamples <= limit) { processChunk (deviceInputs, numInputChannels, outputs, numOutputs, numSamples); }
+    else
+    {
+        std::array<const float*, kMaxInputs> in {};
+        std::array<float*, kMaxOutputs> out {};
+        const int ins = juce::jmin (numInputChannels, kMaxInputs);
+        const int outs = juce::jmin (numOutputs, kMaxOutputs);
+        for (int offset = 0; offset < numSamples; offset += limit)
+        {
+            const int n = juce::jmin (limit, numSamples - offset);
+            for (int c = 0; c < ins; ++c) in[size_t (c)] = deviceInputs != nullptr && deviceInputs[c] != nullptr ? deviceInputs[c] + offset : nullptr;
+            for (int o = 0; o < outs; ++o) out[size_t (o)] = outputs[o] != nullptr ? outputs[o] + offset : nullptr;
+            processChunk (deviceInputs != nullptr ? in.data() : nullptr, ins, out.data(), outs, n);
+        }
+    }
+    inBlock.store (false, std::memory_order_seq_cst);
+}
+
+void DawEngine::processChunk (const float* const* deviceInputs, int numInputChannels,
+                              float* const* outputs, int numOutputs, int numSamples) noexcept
+{
     const bool playing = transport.isPlaying() && ! rebuilding.load (std::memory_order_seq_cst);
     const bool recording = recorder.isRecording();
     if (playing) player.read (numSamples);
 
-    // 2. Build the input matrix: every device channel, with playback swapped in per track.
+    // Build the input matrix: every device channel, with playback swapped in per track.
     const int channels = juce::jlimit (0, kMaxInputs, juce::jmax (numInputChannels, routes.matrixChannels));
     const float* quiet = silence.empty() ? nullptr : silence.data();
     for (int c = 0; c < channels; ++c)
@@ -349,7 +383,6 @@ void DawEngine::processBlock (const float* const* deviceInputs, int numInputChan
     controller.process (matrix.data(), channels, outputs, numOutputs, numSamples);
 
     if (playing) transport.advance (numSamples);
-    inBlock.store (false, std::memory_order_seq_cst);
 }
 
 float DawEngine::inputPeakDb (int channel) const noexcept
