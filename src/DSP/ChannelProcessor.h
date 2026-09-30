@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include <vector>
 #include "Processor.h"
 #include "ChannelParameters.h"
 #include "FilterProcessor.h"
@@ -101,6 +103,22 @@ private:
     // Long-term (≈2 s) mean-square tracking for loudness-matched A/B.
     float inputMeanSquare = 0.0f, outputMeanSquare = 0.0f, loudnessCoeff = 0.01f;
     Smoother matchGain;
+
+    // A STAGE SWITCHED ON OR OFF IS A FADE, NEVER A STEP. KEEP after a TUNE can switch half a
+    // dozen stages on a live channel at once, and a filter or a compressor arriving between two
+    // samples is a click on the broadcast. So for 10 ms the stage's input and its output are
+    // crossfaded; a stage switched off keeps running on its old settings until the fade is done.
+    // Only once audio has run: settings given before the first block are simply the settings.
+    enum Stage { StFilters, StGate, StCorrectiveEq, StDeEsser, StComp, StTransient, StToneEq, StSat, StWidth, StCount };
+    struct StageFade { int left = 0; bool turningOn = false; };
+    std::array<StageFade, StCount> fades {};
+    std::array<int, StCount> stageState {};               // the on/off signature each stage was last given
+    std::array<std::vector<float>, kMaxChannels> fadeScratch;
+    int fadeLength = 480;
+    bool running = false;                                  // a block has been processed since prepare/reset
+    static int stageSignature (Stage, const ChannelParameters&) noexcept;
+    void applyStage (Stage, const ChannelParameters&) noexcept;
+    template <typename Fn> void runStage (Stage, AudioBlockView&, Fn&&) noexcept;
 };
 
 } // namespace livemix

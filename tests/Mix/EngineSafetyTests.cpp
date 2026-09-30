@@ -6,6 +6,7 @@
 #include "TestFramework.h"
 #include "TestSignals.h"
 #include "Mix/MixEngine.h"
+#include "DSP/ChannelProcessor.h"
 #include "Core/DbUtils.h"
 #include <algorithm>
 #include <cmath>
@@ -168,4 +169,46 @@ TEST_CASE ("Engine: a device that restarts does not leak what was muted")
     r.e.setParameters (p);
     const float leak = r.run (0.05, [] (int c, long long i) { return c == 3 ? sine (440.0, i, 0.5f) : 0.0f; });
     CHECK (leak < 1.0e-4f);                               // not one ramp's worth of the muted broadcast
+}
+
+TEST_CASE ("ChannelProcessor: a stage switched on or off mid-stream is a fade, not a click")
+{
+    // A 1 kHz tone, and a +12 dB tone band at 1 kHz switched on and then off between blocks.
+    // A step would jump the waveform by up to three times its level between two samples; faded,
+    // no two samples are further apart than the louder tone's own steepest slope.
+    ChannelProcessor cp;
+    cp.prepare (kSr, 64, 1);
+    ChannelParameters p;
+    p.correctiveEqEnabled = false;
+    p.toneEqEnabled = false;
+    p.toneBands[1] = { true, FilterType::Peak, 1000.0f, 12.0f, 1.0f };
+    cp.setParameters (p);
+    std::vector<float> buf (64);
+    float* ptr[1] = { buf.data() };
+    long long pos = 0;
+    float prev = 0.0f, worst = 0.0f;
+    auto run = [&] (int blocks, bool measure)
+    {
+        for (int b = 0; b < blocks; ++b)
+        {
+            for (int i = 0; i < 64; ++i) buf[size_t (i)] = sine (1000.0, pos + i, 0.1f);
+            AudioBlockView v { ptr, 1, 64 };
+            cp.process (v);
+            for (int i = 0; i < 64; ++i)
+            {
+                if (measure) worst = std::max (worst, std::fabs (buf[size_t (i)] - prev));
+                prev = buf[size_t (i)];
+            }
+            pos += 64;
+        }
+    };
+    run (40, false);
+    p.toneEqEnabled = true;
+    cp.setParameters (p);
+    run (40, true);
+    p.toneEqEnabled = false;
+    cp.setParameters (p);
+    run (40, true);
+    const float slope = float (2.0 * M_PI * 1000.0 / kSr) * 0.1f * dbToGain (12.0f);
+    CHECK (worst < slope * 1.3f);
 }

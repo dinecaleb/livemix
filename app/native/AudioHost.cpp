@@ -353,6 +353,14 @@ void AudioHost::audioDeviceAboutToStart (juce::AudioIODevice* device)
     // Called before the first callback, off the audio thread: the one place the graph is (re)built for the device.
     controller.prepare (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
     daw.prepare (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
+    // What it is really running at, so a device that goes away and comes back is opened the way
+    // it was last running - a buffer or a rate chosen on the Audio device page since it was
+    // opened included - rather than the way it was first asked for.
+    if (lastRequest.valid)
+    {
+        lastRequest.sampleRate = device->getCurrentSampleRate();
+        lastRequest.bufferSize = device->getCurrentBufferSizeSamples();
+    }
 }
 
 void AudioHost::audioDeviceStopped()
