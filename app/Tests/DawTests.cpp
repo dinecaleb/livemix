@@ -992,6 +992,9 @@ TEST_CASE ("MultitrackImport: a folder of stems becomes tracks, clips and guesse
     const auto result = MultitrackImport::fromFolder (folder, MixSession {});
     CHECK (result.error.isEmpty());
     CHECK (result.files == 3);
+    // No loop is marked: one over the whole folder filled the loop strip and could only be
+    // changed from its two far corners.
+    CHECK (result.project.loopEnd <= result.project.loopStart);
     REQUIRE (result.session.inputs.size() == 3);
     // Files are taken in name order: Keys (stereo), Kick, Lead Vox.
     CHECK (result.session.inputs[0].isStereo());       // the stereo file takes a pair of inputs

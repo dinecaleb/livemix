@@ -82,8 +82,10 @@ MultitrackImport::Result MultitrackImport::fromFolder (const juce::File& folder,
             if (clip.fileSampleRate > 0.0 && result.project.sampleRate > 0.0)
                 clip.length = juce::int64 (double (clip.length) * result.project.sampleRate / clip.fileSampleRate);
 
+    // No loop is marked: a loop over the whole folder is no loop at all, and it filled the loop
+    // strip so a range could only be made by dragging its two far corners.
     result.project.loopStart = 0;
-    result.project.loopEnd = juce::jmax ((juce::int64) 1, result.project.lengthSamples());
+    result.project.loopEnd = 0;
     return result;
 }
 

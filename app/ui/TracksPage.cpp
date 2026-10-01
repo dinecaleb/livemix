@@ -18,9 +18,9 @@ namespace
     constexpr int kDividerGrip = 4;        // how close the pointer has to be to grab it
     constexpr int kToolbarHeight = 46;
     constexpr int kRulerHeight = 44;
-    constexpr int kLoopStrip = 12;         // the top of the ruler: drag here to mark a loop
-    constexpr int kLoopGrip = 6;           // how close to a loop's edge counts as grabbing that edge
-    constexpr int kMarkerTop = 14;         // the marker lane, inside the ruler, under the loop strip
+    constexpr int kLoopStrip = 14;         // the top of the ruler: drag here to mark a loop
+    constexpr int kLoopGrip = 8;           // how close to a loop's edge counts as grabbing that edge
+    constexpr int kMarkerTop = 16;         // the marker lane, inside the ruler, under the loop strip
     constexpr int kMarkerHeight = 18;
     constexpr int kMinTrackHeight = 38;
     constexpr int kMaxTrackHeight = 260;
@@ -1831,8 +1831,11 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
         if (p.y < kToolbarHeight + kLoopStrip)
         {
             if (locked()) return;
-            // A loop already marked: its ends are grips, its middle moves it (and a click there
-            // switches it on or off). Anywhere else on the strip starts a new one.
+            // A loop already marked: its ends are grips, and a click on its middle switches it on
+            // or off. A DRAG anywhere else on the strip - its middle included - marks a new
+            // one from where it started; Option-drag on the middle moves the loop instead.
+            // Dragging the middle used to move it, so a loop as long as the timeline (what an
+            // import used to mark) could only be changed from its two far corners.
             const bool marked = project.loopEnd > project.loopStart;
             const int x1 = marked ? sampleToX (project.loopStart) : 0, x2 = marked ? sampleToX (project.loopEnd) : 0;
             loopWasEnabled = project.loopEnabled;
@@ -2036,6 +2039,18 @@ void TracksPage::mouseDrag (const juce::MouseEvent& e)
         {
             const juce::int64 delta = xToSample (p.x) - dragAnchorSample;
             if (! loopMoved && std::abs (delta) < juce::int64 (samplesPerPixel() * 3.0)) break;   // still a click
+            if (! e.mods.isAltDown() && ! loopMoved)
+            {
+                // A drag on the loop's middle marks a new loop from where it began.
+                drag = Drag::LoopRange;
+                loopAnchor = snapSample (dragAnchorSample, -1, -1, true);
+                const juce::int64 at = juce::jmax ((juce::int64) 0, snapSample (xToSample (p.x), -1, -1, true));
+                project.loopStart = juce::jmin (loopAnchor, at);
+                project.loopEnd = juce::jmax (loopAnchor, at);
+                loopMoved = true;
+                repaint();
+                break;
+            }
             const juce::int64 start = juce::jmax ((juce::int64) 0, snapSample (dragClipStart + delta, -1, -1, true));
             project.loopStart = start;
             project.loopEnd = start + dragClipLength;
