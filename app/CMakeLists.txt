@@ -50,6 +50,16 @@ set(DLIVE_APP_SOURCES
     native/ReferenceAudio.cpp
     native/SampleLibrary.cpp)
 
+# dlive_mix_compare: a session finished by hand against a fresh TUNE MIX of the same audio -
+# where every channel and group lands against the lead in each, and the masters' tone.
+# See app/Tools/MixCompare.cpp.
+add_executable(dlive_mix_compare Tools/MixCompare.cpp ${DLIVE_APP_SOURCES})
+target_include_directories(dlive_mix_compare PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(dlive_mix_compare PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 DLIVE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
+target_link_libraries(dlive_mix_compare PRIVATE livemix_engine juce::juce_core juce::juce_audio_formats
+    juce::juce_audio_basics juce::juce_events juce::juce_recommended_config_flags)
+
 set(DLIVE_UI_SOURCES
     ${DLIVE_APP_SOURCES}
     ui/AppTheme.cpp
