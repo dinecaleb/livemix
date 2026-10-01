@@ -29,7 +29,7 @@ class MixerPage : public juce::Component
 public:
     enum class View  { Strips = 0, List };
     enum class Size  { Narrow = 0, Normal, Wide };
-    enum class Show  { All = 0, Inputs, Groups };
+    enum class Show  { All = 0, Inputs, Groups, Effects };
 
     MixerPage (MixController&, AppServices&);
     ~MixerPage() override;
@@ -58,6 +58,7 @@ public:
     // How many group-bus strips the console is showing. The groups scroll with the channels
     // they belong to - there is no fixed rail of them - so this is what a test asks about.
     int busStripCount() const;
+    int returnStripCount() const;            // the effect returns showing, likewise
 
     void setWindowButtonVisible (bool);
     // The chain along the foot belongs to the window now; the detached mixer keeps its own.
@@ -100,7 +101,7 @@ private:
 
     std::array<std::unique_ptr<DineButton>, 2> viewTabs;
     std::array<std::unique_ptr<DineButton>, 3> sizeTabs;
-    std::array<std::unique_ptr<DineButton>, 3> showTabs;
+    std::array<std::unique_ptr<DineButton>, 4> showTabs;
     DineButton sendsButton { "Sends", DineButton::Style::Toggle };
     DineButton clearSolos { "Clear solo", DineButton::Style::Segment };
     DineButton windowButton { "Open in a new window", DineButton::Style::Standard };

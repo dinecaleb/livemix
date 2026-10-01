@@ -13,6 +13,12 @@ namespace
     // tile here without being wired in by hand.
     constexpr int kGroupBuses = int (MixBus::Master);
     constexpr int kGroupTiles = kGroupBuses + 1;
+    // ... and behind the FX tile, one tile per effect return. Pressing the FX tile opens the
+    // row out to them; Back to groups closes it again. They are never on the row together with
+    // the groups, so no fader on the page ever gets narrower for them.
+    constexpr int kReturnTiles = int (FxSlot::Count);
+    constexpr int kAllTiles = kGroupTiles + kReturnTiles;
+    FxSlot returnSlot (int tile) noexcept { return FxSlot (tile - kGroupTiles); }
 
     // A tile's position is the console's order, not the enum's: LEAD sits with the voices
     // where an engineer looks for it, rather than at the end where it was appended.
@@ -22,6 +28,8 @@ namespace
     // written: they are initialisms, not shouting.
     juce::String groupName (int i)
     {
+        if (i >= kGroupTiles)
+            return returnSlot (i) == FxSlot::BgvHall ? juce::String ("BGV Hall") : juce::String (fxSlotName (returnSlot (i)));
         if (i >= kGroupBuses) return "FX returns";
         const juce::String raw (mixBusName (groupBus (i)));
         return raw.length() <= 3 ? raw.toUpperCase()
@@ -32,12 +40,22 @@ namespace
     // whole word. Every other group is already one short word.
     juce::String groupNameBrief (int i)
     {
+        if (i >= kGroupTiles)
+            switch (returnSlot (i))
+            {
+                case FxSlot::VocalPlate: return "Plate";
+                case FxSlot::VocalDelay: return "Delay";
+                case FxSlot::BgvHall:    return "Hall";
+                case FxSlot::SnarePlate: return "Snare";
+                case FxSlot::DrumRoom:   return "Room";
+                case FxSlot::Count:      break;
+            }
         return i >= kGroupBuses ? juce::String ("FX") : groupName (i);
     }
 
     juce::Colour groupColour (int i) noexcept
     {
-        return i >= 0 && i < kGroupBuses ? Dine::busTint (groupBus (i)) : Dine::ink2;
+        return i >= 0 && i < kGroupBuses ? Dine::busTint (groupBus (i)) : i >= kGroupTiles ? Dine::keyFx : Dine::ink2;
     }
 
     // WHAT A TUNE IS ABOUT, in one place. The listen card and the result card both say it, and
@@ -91,27 +109,36 @@ public:
         fader.setDoubleClickReturnValue (true, 0.0);
         fader.getProperties().set ("dineFader", true);
         fader.setTooltip (isFx() ? "Level for every effect return together. Double-click for 0.0 dB, which is what TUNE MIX set."
-                                 : "Level for the whole group. Double-click for 0.0 dB.");
+                          : isReturn() ? "This effect's own level, on top of what TUNE MIX set for it. Double-click for 0.0 dB."
+                                       : "Level for the whole group. Double-click for 0.0 dB.");
+        if (isFx()) setTooltip ("Each effect opens the row out to the reverbs and the delay, each on its own fader.");
         fader.onValueChange = [this]
         {
             if (updating) return;
-            if (isFx()) controller.setFxReturn (float (fader.getValue()));
-            else        controller.setBusFader (groupBus (group), float (fader.getValue()));
+            if (isFx())          controller.setFxReturn (float (fader.getValue()));
+            else if (isReturn()) controller.setFxSlotReturn (returnSlot (group), float (fader.getValue()));
+            else                 controller.setBusFader (groupBus (group), float (fader.getValue()));
             repaint();
         };
 
         addAndMakeVisible (muteButton);
         addAndMakeVisible (soloButton);
-        muteButton.setTooltip (isFx() ? "Muted: the effects are not heard" : "Muted: the whole group is not heard");
-        soloButton.setTooltip (isFx() ? "Soloed: the effect returns and nothing else" : "Soloed: this group and nothing else");
+        muteButton.setTooltip (isFx() ? "Muted: the effects are not heard"
+                               : isReturn() ? "Muted: this effect is not heard. The others stay as they are"
+                                            : "Muted: the whole group is not heard");
+        soloButton.setTooltip (isFx() ? "Soloed: the effect returns and nothing else"
+                               : isReturn() ? "Soloed: this effect on its own, in your listen only"
+                                            : "Soloed: this group and nothing else");
         muteButton.onClick = [this]
         {
-            if (isFx()) controller.setFxMute (! controller.getBase().fxMute);
-            else        controller.setBusMute (groupBus (group), ! controller.getBase().buses[size_t (groupBus (group))].mute);
+            if (isFx())          controller.setFxMute (! controller.getBase().fxMute);
+            else if (isReturn()) controller.setFxSlotMute (returnSlot (group), ! controller.getBase().fx[size_t (returnSlot (group))].mute);
+            else                 controller.setBusMute (groupBus (group), ! controller.getBase().buses[size_t (groupBus (group))].mute);
         };
         soloButton.onClick = [this]
         {
             if (isFx()) return;
+            if (isReturn()) { controller.setFxSolo (returnSlot (group), ! controller.getBase().fx[size_t (returnSlot (group))].solo); return; }
             controller.setBusSolo (groupBus (group), ! controller.getBase().buses[size_t (groupBus (group))].solo);
         };
         soloButton.setVisible (! isFx());
@@ -129,7 +156,13 @@ public:
         if (std::fabs (faderDb - float (fader.getValue())) > 0.01f) { fader.setValue (faderDb, juce::dontSendNotification); body = true; }
         fader.setEnabled (used);
         muteButton.setOn (isMuted);
-        if (! isFx()) { const bool s = controller.getBase().buses[size_t (groupBus (group))].solo; if (s != soloed) { soloed = s; body = true; } soloButton.setOn (s); }
+        if (! isFx())
+        {
+            const bool s = isReturn() ? controller.getBase().fx[size_t (returnSlot (group))].solo
+                                      : controller.getBase().buses[size_t (groupBus (group))].solo;
+            if (s != soloed) { soloed = s; body = true; }
+            soloButton.setOn (s);
+        }
         updating = false;
         if (body) repaint();
     }
@@ -138,18 +171,22 @@ public:
     // the whole console and applies only this group, so the band can be tuned during the
     // song and the pastor during the sermon without either moving the other.
     std::function<void()> onTune;
+    // The FX tile's own verb row: Each effect opens the row out to the returns, Back closes it.
+    std::function<void()> onOpen;
+    void setOpen (bool o) { if (o != open) { open = o; resized(); repaint(); } }
 
     void mouseEnter (const juce::MouseEvent&) override { if (! verbRect.isEmpty()) repaint (verbRect); }
     void mouseExit  (const juce::MouseEvent&) override { if (! verbRect.isEmpty()) repaint (verbRect); }
     void mouseMove (const juce::MouseEvent& e) override
     {
-        setMouseCursor (canTune() && verbRect.contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor
+        setMouseCursor ((canTune() || canOpen()) && verbRect.contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor
                                                                         : juce::MouseCursor::NormalCursor);
     }
     void mouseUp (const juce::MouseEvent& e) override
     {
         if (e.mouseWasDraggedSinceMouseDown() || ! verbRect.contains (e.getPosition())) return;
         if (canTune() && onTune) onTune();
+        else if (canOpen() && onOpen) onOpen();
     }
 
     void paint (juce::Graphics& g) override
@@ -207,6 +244,16 @@ public:
             g.setFont (Dine::caps (10.0f, 0.06f, 600));
             Dine::drawText (g, "TUNE", verbRect, juce::Justification::centred);
         }
+        else if (canOpen())
+        {
+            const bool over = isMouseOver (true) && verbRect.contains (getMouseXYRelative());
+            Dine::fillRounded (g, verbRect.toFloat(), open ? Dine::selected : over ? Dine::controlHot : Dine::control, Dine::Radius::control);
+            g.setColour (over || open ? Dine::accent : Dine::ink2);
+            const auto f = Dine::text (11.0f, 600);
+            g.setFont (f);
+            const juce::String full = open ? "Back" : "Each effect", brief = open ? "Back" : "Each";
+            Dine::drawText (g, Dine::textWidth (f, full) <= verbRect.getWidth() - 6 ? full : brief, verbRect, juce::Justification::centred);
+        }
     }
 
     void resized() override
@@ -220,7 +267,7 @@ public:
         // its group happens not to be tunable reads as a mistake.
         auto verb = inner.removeFromBottom (20);
         inner.removeFromBottom (10);
-        verbRect = canTune() ? verb : juce::Rectangle<int>();
+        verbRect = canTune() || canOpen() ? verb : juce::Rectangle<int>();
 
         // the throw: the fader standing, its meter beside it
         const int faderW = 22, meterW = 6;
@@ -238,13 +285,15 @@ private:
     // A narrow console gives its padding up before anything on the tile gives up a letter.
     int paddingX() const noexcept { return getWidth() >= 96 ? 12 : getWidth() >= 64 ? 8 : 6; }
     float nameSizePx() const noexcept { return getWidth() >= 96 ? 13.0f : getWidth() >= 64 ? 12.0f : 11.5f; }
-    bool isFx() const noexcept { return group >= kGroupBuses; }
+    bool isFx() const noexcept { return group == kGroupBuses; }
+    bool isReturn() const noexcept { return group >= kGroupTiles; }
     // The returns are not a group of sources, so there is nothing to listen to and tune.
-    bool canTune() const noexcept { return used && ! isFx(); }
+    bool canTune() const noexcept { return used && ! isFx() && ! isReturn(); }
+    bool canOpen() const noexcept { return used && isFx() && onOpen != nullptr; }
 
     MixController& controller;
     int group;
-    bool used = false, muted = false, soloed = false, updating = false;
+    bool used = false, muted = false, soloed = false, updating = false, open = false;
     int heard = 0;
     juce::Rectangle<int> verbRect;
     DineMeter meter { DineMeter::Style::Bar };
@@ -1715,9 +1764,16 @@ private:
 // ------------------------------------------------------------------ MixPage
 MixPage::MixPage (MixController& c) : controller (c)
 {
-    for (int i = 0; i < kGroupTiles; ++i)
+    for (int i = 0; i < kAllTiles; ++i)
     {
         groups[size_t (i)] = std::make_unique<GroupTile> (controller, i);
+        if (i == kGroupBuses) groups[size_t (i)]->onOpen = [this] { showEffects (! effectsOpen); };
+        if (i == 0)
+        {
+            backToGroups.setTooltip ("The groups again. The effects keep the levels you gave them.");
+            backToGroups.onClick = [this] { showEffects (false); };
+            addChildComponent (backToGroups);
+        }
         if (i < kGroupBuses)
             groups[size_t (i)]->onTune = [this, i]
             {
@@ -2212,6 +2268,17 @@ void MixPage::refresh()
                 peak = juce::jmax (peak, m.consumeMaxPeakDb()); rms = juce::jmax (rms, m.getMaxRmsDb()); clip = clip || m.hasClipped();
             }
         groups[size_t (kGroupBuses)]->set (returns > 0, peak, rms, clip, kept.fxMute, kept.fxReturnDb, 0);
+        groups[size_t (kGroupBuses)]->setOpen (effectsOpen);
+        for (int t = kGroupTiles; t < kAllTiles; ++t)
+        {
+            const auto slot = returnSlot (t);
+            const bool used = controller.isPrepared() && engine.isFxUsed (slot);
+            const auto& m = engine.getFx (slot).getOutputMeter();
+            const auto& fp = kept.fx[size_t (slot)];
+            groups[size_t (t)]->set (used, used ? m.consumeMaxPeakDb() : -120.0f, used ? m.getMaxRmsDb() : -120.0f, used && m.hasClipped(),
+                                     fp.mute, juce::jmax (fp.returnDb, -60.0f), 0);
+        }
+        if (effectsOpen && returns == 0) showEffects (false);     // the session lost its effects: nothing to open
     }
 
     // ---- the input rail: the faint / muted marks, re-read a few times a second
@@ -2381,7 +2448,7 @@ void MixPage::paint (juce::Graphics& g)
         g.setFont (Dine::text (17.0f, 600));
         Dine::drawText (g, text, r, juce::Justification::centredLeft, true);
     };
-    heading (l.groupsCaption, "Groups");
+    heading (l.groupsCaption, effectsOpen ? "Effects" : "Groups");
 
     // ---- the master: one card, the way the design draws it - what it is set to, how loud it
     // actually is against the target it was given, and what the true peak reached.
@@ -2456,6 +2523,15 @@ void MixPage::paint (juce::Graphics& g)
     }
 }
 
+void MixPage::showEffects (bool open)
+{
+    if (open == effectsOpen) return;
+    effectsOpen = open;
+    groups[size_t (kGroupBuses)]->setOpen (open);
+    resized();
+    repaint();
+}
+
 void MixPage::resized()
 {
     const auto l = layout();
@@ -2472,19 +2548,39 @@ void MixPage::resized()
         // rather than squeezing, and the window is too narrow for TUNE anyway.
         auto groupRow = l.groups;
         const int gap = 8;
+        // Which tiles are on the row: the groups and the FX tile, or - opened out - every effect
+        // the session uses, then the FX tile again, which still rides them all and closes the row.
+        std::vector<int> row;
+        if (effectsOpen)
+        {
+            for (int t = kGroupTiles; t < kAllTiles; ++t)
+                if (controller.isPrepared() && controller.getEngine().isFxUsed (returnSlot (t))) row.push_back (t);
+            row.push_back (kGroupBuses);
+        }
+        else
+            for (int t = 0; t < kGroupTiles; ++t) row.push_back (t);
+        const int n = int (row.size());
+        // The groups' own width, open or not: an effect is a fader the same size as a group.
         const int w = juce::jmax (GroupTile::minWidth,
                                   juce::jmin (GroupTile::width, (groupRow.getWidth() - gap * (kGroupTiles - 1)) / kGroupTiles));
         // A TILE IS WHOLE OR IT IS NOT THERE. `removeFromLeft` past the end hands back
         // whatever is left of the row, which is how the console used to end in a 30 pt
         // sliver of a group - its name an ellipsis, its level "+0...", its verb "T...".
-        int fits = kGroupTiles;
+        int fits = n;
         while (fits > 1 && fits * w + gap * (fits - 1) > groupRow.getWidth()) --fits;
-        for (int i = 0; i < kGroupTiles; ++i)
+        for (auto& tile : groups) tile->setVisible (false);
+        for (int k = 0; k < fits; ++k)
         {
-            groups[size_t (i)]->setVisible (i < fits);
-            if (i >= fits) continue;
-            groups[size_t (i)]->setBounds (groupRow.removeFromLeft (w));
+            auto& tile = groups[size_t (row[size_t (k)])];
+            tile->setVisible (true);
+            tile->setBounds (groupRow.removeFromLeft (w));
             groupRow.removeFromLeft (gap);
+        }
+        {
+            const int bw = backToGroups.idealWidth() + 8;
+            backToGroups.setBounds (l.groupsCaption.withTrimmedLeft (l.groupsCaption.getWidth() - bw)
+                                        .withSizeKeepingCentre (bw, juce::jmin (l.groupsCaption.getHeight() + 6, Dine::Metric::button)));
+            backToGroups.setVisible (effectsOpen);
         }
     }
 

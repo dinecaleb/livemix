@@ -1250,8 +1250,8 @@ MixerPage::MixerPage (MixController& c, AppServices& s) : controller (c), servic
     sizeTabs[1]->setTooltip ("Normal strips.");
     sizeTabs[2]->setTooltip ("Wide strips: every label in full.");
 
-    const char* showNames[3] = { "All", "Inputs", "Groups" };
-    for (int i = 0; i < 3; ++i)
+    const char* showNames[4] = { "All", "Inputs", "Groups", "Effects" };
+    for (int i = 0; i < 4; ++i)
     {
         segment (showTabs[size_t (i)], showNames[i], 10);
         showTabs[size_t (i)]->onClick = [this, i] { setShow (Show (i)); };
@@ -1259,6 +1259,7 @@ MixerPage::MixerPage (MixController& c, AppServices& s) : controller (c), servic
     }
     showTabs[1]->setTooltip ("Only the sources.");
     showTabs[2]->setTooltip ("Only the group buses and the master.");
+    showTabs[3]->setTooltip ("Only the effect returns: the reverbs and the delay, each on its own fader.");
 
     sendsButton.setFontPx (12.0f);
     sendsButton.setPadX (10);
@@ -1367,9 +1368,14 @@ void MixerPage::setShow (Show s)
 
 bool MixerPage::visibleInFilter (const Strip& s) const
 {
-    if (show == Show::All) return true;
-    const bool isChannel = s.getKind() == Strip::Kind::Channel;
-    return show == Show::Inputs ? isChannel : ! isChannel;
+    switch (show)
+    {
+        case Show::Inputs:  return s.getKind() == Strip::Kind::Channel;
+        case Show::Groups:  return s.getKind() == Strip::Kind::Bus || s.getKind() == Strip::Kind::Master;
+        case Show::Effects: return s.getKind() == Strip::Kind::Return;
+        case Show::All:     break;
+    }
+    return true;
 }
 
 void MixerPage::rebuild()
@@ -1502,10 +1508,9 @@ void MixerPage::updateControls()
 {
     for (int i = 0; i < 2; ++i) viewTabs[size_t (i)]->setToggleState (int (view) == i, juce::dontSendNotification);
     for (int i = 0; i < 3; ++i)
-    {
         sizeTabs[size_t (i)]->setToggleState (int (stripSize) == i, juce::dontSendNotification);
+    for (int i = 0; i < 4; ++i)
         showTabs[size_t (i)]->setToggleState (int (show) == i, juce::dontSendNotification);
-    }
     bool anySolo = controller.isPrepared() && controller.numSoloed() > 0;
     clearSolos.setToggleState (anySolo, juce::dontSendNotification);
     clearSolos.setEnabled (anySolo);
@@ -1539,7 +1544,7 @@ void MixerPage::paint (juce::Graphics& g)
         Dine::drawSegmentTrack (g, first->getBounds().getUnion (last->getBounds()).expanded (2, 2));
     };
     trackFor (viewTabs[0].get(), viewTabs[1].get());
-    trackFor (showTabs[0].get(), showTabs[2].get());
+    trackFor (showTabs[0].get(), showTabs[3].get());
     if (view == View::Strips) trackFor (sizeTabs[0].get(), sizeTabs[2].get());
 
     if (strips.empty())
@@ -1573,7 +1578,7 @@ void MixerPage::resized()
         }
         left.removeFromLeft (x + 2 - track.getX() + 10);
     };
-    seg (showTabs.data(), 3, 48);
+    seg (showTabs.data(), 4, 48);
     seg (viewTabs.data(), 2, 52);
     if (view == View::Strips)
     {
@@ -1604,6 +1609,14 @@ int MixerPage::busStripCount() const
     int n = 0;
     for (const auto& s : strips)
         if (s->getKind() == Strip::Kind::Bus && s->isVisible()) ++n;
+    return n;
+}
+
+int MixerPage::returnStripCount() const
+{
+    int n = 0;
+    for (const auto& s : strips)
+        if (s->getKind() == Strip::Kind::Return && s->isVisible()) ++n;
     return n;
 }
 

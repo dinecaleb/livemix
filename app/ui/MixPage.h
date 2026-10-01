@@ -25,6 +25,10 @@ class ReferenceSheet;
 class MixPage : public juce::Component
 {
 public:
+    // The group row opened out to the effect returns (the FX tile's Each effect), or back.
+    void showEffects (bool open);
+    bool effectsShown() const noexcept { return effectsOpen; }
+
     explicit MixPage (MixController&);
     ~MixPage() override;
 
@@ -100,7 +104,10 @@ private:
 
     MixController& controller;
     // One tile per group bus, then the FX returns: DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE FX.
-    std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 1> groups;
+    // ... then, behind the FX tile, one per effect return (shown instead of the groups while open).
+    std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 1 + size_t (FxSlot::Count)> groups;
+    bool effectsOpen = false;
+    DineButton backToGroups { "Back to groups", DineButton::Style::Ghost };
     // BODY x VOICE (bass across, vocals up) and DRIVE x ROOM (space across, drums up), then ENERGY on a ribbon.
     std::array<std::unique_ptr<MacroPad>, 2> pads;
     std::unique_ptr<MacroRibbon> ribbon;

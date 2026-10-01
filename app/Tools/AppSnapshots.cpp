@@ -1029,6 +1029,13 @@ int main (int argc, char** argv)
     view.showPage (MainView::Page::Tune);
     rig.feed (0.5);
     rig.snap (dir, "07-tune-ready");
+    // EACH EFFECT: the FX tile opens the row out to the returns, one fader each, with a muted delay.
+    view.getMixPage().showEffects (true);
+    rig.controller.setFxSlotMute (FxSlot::VocalDelay, true);
+    rig.feed (0.3);
+    rig.snap (dir, "07i-tune-effects");
+    rig.controller.setFxSlotMute (FxSlot::VocalDelay, false);
+    view.getMixPage().showEffects (false);
 
     // AN INPUT PICKED OUT. A click on a row picks the input out and the row opens with its two
     // verbs under the name - which is what a click on an input was always reaching for.
@@ -1307,10 +1314,11 @@ int main (int argc, char** argv)
     view.getMixerPage().setShow (MixerPage::Show::Groups);
     rig.feed (0.3);
     rig.snap (dir, "15e-mixer-groups");
-    // The groups as columns: the returns stand after the last group, before the master.
+    // EFFECTS: every return on its own fader, as columns.
+    view.getMixerPage().setShow (MixerPage::Show::Effects);
     view.getMixerPage().setView (MixerPage::View::Strips);
     rig.feed (0.3);
-    rig.snap (dir, "15e2-mixer-groups-strips");
+    rig.snap (dir, "15e2-mixer-effects");
     view.getMixerPage().setView (MixerPage::View::List);
     view.getMixerPage().setShow (MixerPage::Show::All);
     view.getMixerPage().setView (MixerPage::View::Strips);
@@ -1409,6 +1417,11 @@ int main (int argc, char** argv)
     view.showPage (MainView::Page::Live);
     rig.feed (0.5);
     rig.snap (dir, "17-live");
+    view.getLivePage().showEffects (true);
+    rig.feed (0.3);
+    rig.snap (dir, "17e-live-effects");
+    view.getLivePage().showEffects (false);
+    rig.feed (0.2);
 
     // A muted group, and a soloed one: during a service the state has to be readable at a
     // glance, so both are snapped.

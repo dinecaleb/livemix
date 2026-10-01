@@ -570,6 +570,18 @@ TEST_CASE ("Reachability: every group bus has a strip on the console, at any siz
     mixer.setShow (MixerPage::Show::Groups);
     window.pump (10);
     CHECK (mixer.busStripCount() == used);
+    CHECK (mixer.returnStripCount() == 0);          // the groups and the master, not the effects
+    // "Only the effects": every return the session uses, each on its own fader, and nothing else.
+    {
+        int returns = 0;
+        for (int f = 0; f < int (FxSlot::Count); ++f)
+            if (controller.getEngine().isFxUsed (FxSlot (f))) ++returns;
+        REQUIRE (returns > 0);
+        mixer.setShow (MixerPage::Show::Effects);
+        window.pump (10);
+        CHECK (mixer.returnStripCount() == returns);
+        CHECK (mixer.busStripCount() == 0);
+    }
     mixer.setShow (MixerPage::Show::All);
     mixer.setView (MixerPage::View::List);
     window.pump (10);

@@ -34,6 +34,10 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    // The group row opened out to the effect returns, or back to the groups.
+    void showEffects (bool open);
+    bool effectsShown() const noexcept { return effectsOpen; }
+
 private:
     class GroupTile;
     class Link;
@@ -51,7 +55,11 @@ private:
     MixController& controller;
     AppServices& services;
     // One strip per group bus in the console's order, then the effects returns.
-    std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 1> tiles;
+    std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 1 + size_t (FxSlot::Count)> tiles;
+    // EACH EFFECT: the row opened out to the returns, one fader each, instead of the groups.
+    bool effectsOpen = false;
+    DineButton effectsButton { "Each effect", DineButton::Style::Standard };
+    bool anyEffects() const;
 
     // SCENES: the picker over the strips. A kept scene comes back in one press; KEEP writes the
     // mix that is running into the one picked.

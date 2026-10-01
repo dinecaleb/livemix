@@ -13,6 +13,9 @@ namespace
     constexpr int kGroupBuses = int (MixBus::Master);
     constexpr int kFxTile = kGroupBuses;
     constexpr int kTiles = kGroupBuses + 1;
+    // Behind the FX strip, one strip per effect return: the row opens out to them (Each effect)
+    // and closes again (Back to groups). Never on the row with the groups, so nothing narrows.
+    constexpr int kAllTiles = kTiles + int (FxSlot::Count);
 
     // The frame's measures (`06b - Live - decluttered`, 161:18761).
     constexpr int kPadX = 24, kPadTop = 20, kPadBottom = 24, kGap = 16;
@@ -81,30 +84,36 @@ public:
         fader.getProperties().set ("dineFader", true);
         fader.getProperties().set ("dineFaderCap", 40);     // the design's 26 x 40 cap
         fader.setTooltip (isFx() ? "Level for every effect return together. Double-click for 0.0 dB, which is what TUNE MIX set."
-                                 : "Level for the whole group. Double-click for 0.0 dB.");
+                          : isReturn() ? "This effect's own level, on top of what TUNE MIX set for it. Double-click for 0.0 dB."
+                                       : "Level for the whole group. Double-click for 0.0 dB.");
         fader.onValueChange = [this]
         {
             if (updating) return;
-            if (isFx()) controller.setFxReturn (float (fader.getValue()));
-            else        controller.setBusFader (bus(), float (fader.getValue()));
+            if (isFx())          controller.setFxReturn (float (fader.getValue()));
+            else if (isReturn()) controller.setFxSlotReturn (slot(), float (fader.getValue()));
+            else                 controller.setBusFader (bus(), float (fader.getValue()));
             repaint();
         };
 
         addAndMakeVisible (mute);
         addAndMakeVisible (solo);
         mute.setTooltip (isFx() ? "Mute the effects: the reverbs and delays leave the mix, the sources stay."
-                                : "Mute: the whole group is not heard");
+                         : isReturn() ? "Mute this effect. The others stay as they are."
+                                      : "Mute: the whole group is not heard");
         solo.setTooltip (isFx() ? "Solo just the reverbs and delays, so you hear what the sends are adding. Only you hear it."
-                                : "Solo this group. Only you hear it.");
+                         : isReturn() ? "Solo this effect on its own. Only you hear it."
+                                      : "Solo this group. Only you hear it.");
         mute.onClick = [this]
         {
-            if (isFx()) controller.setFxMute (! controller.getBase().fxMute);
-            else        controller.setBusMute (bus(), ! controller.getBase().buses[size_t (bus())].mute);
+            if (isFx())          controller.setFxMute (! controller.getBase().fxMute);
+            else if (isReturn()) controller.setFxSlotMute (slot(), ! controller.getBase().fx[size_t (slot())].mute);
+            else                 controller.setBusMute (bus(), ! controller.getBase().buses[size_t (bus())].mute);
         };
         solo.onClick = [this]
         {
-            if (isFx()) controller.setFxSoloAll (! controller.anyFxSolo());
-            else        controller.setBusSolo (bus(), ! controller.getBase().buses[size_t (bus())].solo);
+            if (isFx())          controller.setFxSoloAll (! controller.anyFxSolo());
+            else if (isReturn()) controller.setFxSolo (slot(), ! controller.getBase().fx[size_t (slot())].solo);
+            else                 controller.setBusSolo (bus(), ! controller.getBase().buses[size_t (bus())].solo);
         };
     }
 
@@ -126,6 +135,13 @@ public:
                     if (engine.isFxUsed (FxSlot (f))) { ++returns; peak = juce::jmax (peak, engine.getFx (FxSlot (f)).getOutputMeter().consumeMaxPeakDb()); }
             }
             isUsed = returns > 0;
+        }
+        else if (isReturn())
+        {
+            const auto& fp = p.fx[size_t (slot())];
+            faderDb = juce::jmax (fp.returnDb, -60.0f); m = fp.mute; s = fp.solo;
+            isUsed = controller.isPrepared() && controller.getEngine().isFxUsed (slot());
+            if (isUsed) peak = controller.getEngine().getFx (slot()).getOutputMeter().consumeMaxPeakDb();
         }
         else
         {
@@ -153,6 +169,13 @@ public:
             solo.setEnabled (used);
             repaint();
         }
+    }
+
+    // The FX strip's name opens the row out to the effects, as the button by the heading does.
+    std::function<void()> onOpen;
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (isFx() && used && onOpen && ! e.mouseWasDraggedSinceMouseDown() && e.y < 16 + 18 + 4 + 14) onOpen();
     }
 
     void lookAndFeelChanged() override
@@ -231,12 +254,15 @@ public:
 private:
     static constexpr int kInsetX = 8;
     bool isFx() const noexcept { return group == kFxTile; }
+    bool isReturn() const noexcept { return group >= kTiles; }
+    FxSlot slot() const noexcept { return FxSlot (group - kTiles); }
     // A strip's position is the console's order, not the enum's: LEAD sits with the voices.
     MixBus bus() const noexcept { return mixBusInDisplayOrder (group); }
-    juce::Colour tint() const { return isFx() ? Dine::busAmbience : Dine::busTint (bus()); }
+    juce::Colour tint() const { return isFx() ? Dine::busAmbience : isReturn() ? Dine::keyFx : Dine::busTint (bus()); }
     juce::String name() const
     {
         if (isFx()) return "FX returns";
+        if (isReturn()) return slot() == FxSlot::BgvHall ? juce::String ("BGV Hall") : juce::String (fxSlotName (slot()));
         const juce::String raw (mixBusName (bus()));
         return raw.length() <= 3 ? raw.toUpperCase() : raw.substring (0, 1).toUpperCase() + raw.substring (1).toLowerCase();
     }
@@ -344,11 +370,15 @@ private:
 
 LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services (s)
 {
-    for (int i = 0; i < kTiles; ++i)
+    for (int i = 0; i < kAllTiles; ++i)
     {
         tiles[size_t (i)] = std::make_unique<GroupTile> (controller, i);
-        addAndMakeVisible (*tiles[size_t (i)]);
+        addChildComponent (*tiles[size_t (i)]);
     }
+    tiles[size_t (kFxTile)]->onOpen = [this] { showEffects (true); };
+    effectsButton.setTooltip ("The reverbs and the delay, each on its own fader. The FX returns strip still moves them all.");
+    effectsButton.onClick = [this] { showEffects (! effectsOpen); };
+    addAndMakeVisible (effectsButton);
 
     // ---- scenes: pick one; a kept one comes straight back, KEEP writes the mix into the one picked
     for (int i = 0; i < 4; ++i)
@@ -513,6 +543,9 @@ void LivePage::rebuild()
     refreshScenes();
     for (auto& t : tiles) if (t != nullptr) t->refresh();
     refreshMonitor();
+    // The session's effects are the routing's: a rebuilt graph may have more, fewer or none.
+    if (effectsOpen && ! anyEffects()) effectsOpen = false;
+    resized();
     repaint();
 }
 
@@ -750,7 +783,7 @@ void LivePage::paint (juce::Graphics& g)
     // ---- Groups, and the scene picker over them
     g.setColour (Dine::ink);
     g.setFont (Dine::text (17.0f, 600));
-    Dine::drawText (g, "Groups", l.groupsHeader, juce::Justification::centredLeft, true);
+    Dine::drawText (g, effectsOpen ? "Effects" : "Groups", l.groupsHeader, juce::Justification::centredLeft, true);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (11.0f, 500));
     Dine::drawText (g, "Scene", l.sceneCaption, juce::Justification::centredRight, false);
@@ -876,6 +909,23 @@ void LivePage::paint (juce::Graphics& g)
     }
 }
 
+bool LivePage::anyEffects() const
+{
+    if (! controller.isPrepared()) return false;
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+        if (controller.getEngine().isFxUsed (FxSlot (f))) return true;
+    return false;
+}
+
+void LivePage::showEffects (bool open)
+{
+    if (open && ! anyEffects()) open = false;
+    if (open == effectsOpen) return;
+    effectsOpen = open;
+    resized();
+    repaint();
+}
+
 void LivePage::resized()
 {
     auto& l = lay;
@@ -904,16 +954,40 @@ void LivePage::resized()
         }
         head.removeFromRight (12);
         l.sceneCaption = head.removeFromRight (Dine::textWidth (Dine::text (11.0f, 500), "Scene") + 2);
+        {
+            // The heading, then the button that opens the row out to the effects (or back).
+            effectsButton.setButtonText (effectsOpen ? "Back to groups" : "Each effect");
+            const int titleW = Dine::textWidth (Dine::text (17.0f, 600), effectsOpen ? "Effects" : "Groups") + 14;
+            auto b = head.withTrimmedLeft (titleW);
+            const int bw = effectsButton.idealWidth() + 8;
+            effectsButton.setBounds (b.removeFromLeft (bw).withSizeKeepingCentre (bw, kSegmentH + 2));
+            effectsButton.setVisible (anyEffects());
+        }
         l.groupsHeader = head;
         r.removeFromTop (12);
         l.strips = r;
 
+        // Which strips are on the row: the groups and FX, or every effect the session uses and FX.
+        std::vector<int> shown;
+        if (effectsOpen)
+        {
+            for (int t = kTiles; t < kAllTiles; ++t)
+                if (controller.isPrepared() && controller.getEngine().isFxUsed (FxSlot (t - kTiles))) shown.push_back (t);
+            shown.push_back (kFxTile);
+        }
+        else
+            for (int t = 0; t < kTiles; ++t) shown.push_back (t);
+
         auto row = l.strips;
         const int gap = 8;
+        // The groups' own width, open or not, so an effect's fader is the same size as a group's.
         const int w = (row.getWidth() - gap * (kTiles - 1)) / kTiles;
-        for (int i = 0; i < kTiles; ++i)
+        for (auto& t : tiles) t->setVisible (false);
+        for (size_t k = 0; k < shown.size(); ++k)
         {
-            tiles[size_t (i)]->setBounds (i == kTiles - 1 ? row : row.removeFromLeft (w));
+            auto& t = tiles[size_t (shown[k])];
+            t->setVisible (true);
+            t->setBounds (! effectsOpen && k + 1 == shown.size() ? row : row.removeFromLeft (w));
             row.removeFromLeft (gap);
         }
     }
