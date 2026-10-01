@@ -1,4 +1,4 @@
-# Build, run, and share DLIVE
+# Build, run, and share DINE
 
 Every command in one place: what to type to get the app on screen, and what to send someone
 who is not sitting at this machine. Nothing here is a wrapper you have to learn — the scripts are
@@ -8,10 +8,10 @@ The short version:
 
 | I want to | Type |
 | --- | --- |
-| See the app | `scripts/dlive.sh` |
-| Build it without opening it | `scripts/dlive.sh --build` |
-| Know it still works | `scripts/dlive.sh --tests` |
-| Look at every screen as a PNG | `scripts/dlive.sh --shots` |
+| See the app | `scripts/dine.sh` |
+| Build it without opening it | `scripts/dine.sh --build` |
+| Know it still works | `scripts/dine.sh --tests` |
+| Look at every screen as a PNG | `scripts/dine.sh --shots` |
 | Give it to someone else | `scripts/package.sh` |
 | Build the plug-ins too | `scripts/build.sh` |
 | Start from nothing on a new Mac | `scripts/bootstrap.sh` |
@@ -31,19 +31,19 @@ once per clone of the repo. Everything below assumes it has been run.
 
 ## Run the app
 
-`scripts/dlive.sh` is the fast loop. It builds **only DLIVE**, not the six plug-in products, which is
+`scripts/dine.sh` is the fast loop. It builds **only DINE**, not the six plug-in products, which is
 the difference between a few seconds and a few minutes.
 
 ```sh
-scripts/dlive.sh                # build (Release) and open DLIVE.app
-scripts/dlive.sh --build        # build only, do not open
-scripts/dlive.sh --debug        # the same, from build-debug/
-scripts/dlive.sh --tests        # build and run dlive_app_tests, then livemix_tests
-scripts/dlive.sh --shots [dir]  # build and render every workspace to PNG (default: build/app-snapshots)
+scripts/dine.sh                # build (Release) and open DINE.app
+scripts/dine.sh --build        # build only, do not open
+scripts/dine.sh --debug        # the same, from build-debug/
+scripts/dine.sh --tests        # build and run dine_app_tests, then livemix_tests
+scripts/dine.sh --shots [dir]  # build and render every workspace to PNG (default: build/app-snapshots)
 ```
 
-The bundle it opens is `build/app/DLive_artefacts/Release/DLIVE.app`. You can `open` that path yourself,
-or drag the bundle to /Applications — it runs from either place, and sessions go to `~/Music/DLIVE/`
+The bundle it opens is `build/app/DineApp_artefacts/Release/DINE.app`. You can `open` that path yourself,
+or drag the bundle to /Applications — it runs from either place, and sessions go to `~/Music/DINE/`
 regardless.
 
 No band and no console? **Import a multitrack...** on the first page (or File > Import Multitrack Folder...)
@@ -69,7 +69,7 @@ Dine FX, and the tests.
 ```sh
 scripts/build.sh                     # Release, into build/
 scripts/build.sh Debug               # into build-debug/
-scripts/build.sh Release dlive_app_tests   # one target
+scripts/build.sh Release dine_app_tests   # one target
 ```
 
 The AUs land in `build/modules/<Product>/LiveMix<Product>_artefacts/Release/` and are copied to
@@ -80,13 +80,13 @@ The AUs land in `build/modules/<Product>/LiveMix<Product>_artefacts/Release/` an
 
 ```sh
 scripts/test.sh                                     # ctest (unit + plugin integration) then the benchmark
-build/app/dlive_app_tests                           # DLIVE: controller, transport, recorder, timeline, documents
+build/app/dine_app_tests                           # DINE: controller, transport, recorder, timeline, documents
 build/tests/livemix_tests                           # engine unit tests
-build/app/dlive_ui_snapshots out/                   # every workspace and state as PNGs — look at them
-build/app/dlive_ui_snapshots --sizes out-sizes/     # every workspace at 1280x800, 1440x900 and 1920x1080
-build/app/dlive_mix_stems "<stems folder>" 30 out/  # TUNE MIX on a real multitrack; exit 0 = a re-tune changed nothing
+build/app/dine_ui_snapshots out/                   # every workspace and state as PNGs — look at them
+build/app/dine_ui_snapshots --sizes out-sizes/     # every workspace at 1280x800, 1440x900 and 1920x1080
+build/app/dine_mix_stems "<stems folder>" 30 out/  # TUNE MIX on a real multitrack; exit 0 = a re-tune changed nothing
 scripts/mix_scoreboard.py                           # TUNE MIX against engineers' own mixes; fails if it moved further away
-build/app/dlive_device_check 3                      # a real CoreAudio device
+build/app/dine_device_check 3                      # a real CoreAudio device
 scripts/validate_au.sh                              # auval over every Dine AU
 scripts/benchmark_compare.py build/benchmark.txt     # a benchmark run against the committed baseline
 ```
@@ -100,7 +100,7 @@ Apple clang has no `-fsanitize=realtime`) and runs `scripts/rtsan.sh`, which fai
 syscall reached from a real-time entry point. `docs/REALTIME-SANITIZER.md` has the local recipe and what it found.
 
 A UI change is verified by rendering the snapshots and **looking at the PNGs**, not by reasoning about the
-layout code. `scripts/dlive.sh --shots` does the build and the render in one step.
+layout code. `scripts/dine.sh --shots` does the build and the render in one step.
 
 ## Share a test build
 
@@ -110,14 +110,14 @@ layout code. `scripts/dlive.sh --shots` does the build and the render in one ste
 scripts/package.sh              # build (Release) and zip for this Mac's architecture
 scripts/package.sh --universal  # arm64 + x86_64, so an Intel Mac can run it as well
 scripts/package.sh --no-build   # zip whatever is already built
-scripts/package.sh --out <dir>  # where the zip goes (default: ~/Documents/dliveApp)
+scripts/package.sh --out <dir>  # where the zip goes (default: ~/Documents/dineApp)
 ```
 
-It builds the `DLive` target, signs the bundle (ad-hoc, or with a Developer ID - see below), verifies it,
+It builds the `DineApp` target, signs the bundle (ad-hoc, or with a Developer ID - see below), verifies it,
 and writes two files into the output folder:
 
 ```
-DLIVE-<version>-<yyyymmdd>.zip
+DINE-<version>-<yyyymmdd>.zip
 NOTES.txt
 ```
 
@@ -133,10 +133,10 @@ flattened bundle is one of the ways an app arrives on the other Mac as "damaged"
 
 ### What the tester will see, and what to tell them
 
-DLIVE has themes: **View > Appearance** lists them (Studio Teal is the default; Lime Desk, Slate, Tape and
+DINE has themes: **View > Appearance** lists them (Studio Teal is the default; Lime Desk, Slate, Tape and
 Daylight ship with it) and **Customise Appearance…** lets the tester change any colour, save the result under
 their own name, and export the file to send back. A theme is a preference of their Mac
-(`~/Music/DLIVE/Themes`, `~/Music/DLIVE/preferences.json`) and never touches a session, so it is safe to play
+(`~/Music/DINE/Themes`, `~/Music/DINE/preferences.json`) and never touches a session, so it is safe to play
 with mid-test. See `docs/THEMES.md`.
 
 With no `DEVELOPER_ID` in the environment (there is no certificate on this machine) the app is signed
@@ -149,7 +149,7 @@ very different messages:
 
 So the tester has to let it through once:
 
-1. Unzip, drag DLIVE.app to Applications.
+1. Unzip, drag DINE.app to Applications.
 2. **The first time only:** right-click (or Control-click) the app and choose **Open**, then Open again in
    the dialog. Double-clicking instead says macOS cannot check it for malicious software and offers no way
    through.
@@ -157,14 +157,14 @@ So the tester has to let it through once:
    Terminal, then open it normally:
 
    ```sh
-   xattr -dr com.apple.quarantine /Applications/DLIVE.app
+   xattr -dr com.apple.quarantine /Applications/DINE.app
    ```
 
-4. It asks for microphone access the first time it opens an audio device. That is DLIVE reading the inputs
+4. It asks for microphone access the first time it opens an audio device. That is DINE reading the inputs
    of their interface or console; without it there is nothing to mix. System Settings > Privacy & Security >
    Microphone if it is ever refused by accident.
 
-macOS 11 or later. Sessions are written to `~/Music/DLIVE/`.
+macOS 11 or later. Sessions are written to `~/Music/DINE/`.
 
 ### A build anyone can double-click: Developer ID and notarization
 
@@ -179,16 +179,16 @@ changes — same build, same zip, same `NOTES.txt` (with the "right-click > Open
 
 ```sh
 # once, on the Mac that will package: an app-specific password from appleid.apple.com
-xcrun notarytool store-credentials "dlive-notary" --apple-id you@example.com --team-id ABCDE12345
+xcrun notarytool store-credentials "dine-notary" --apple-id you@example.com --team-id ABCDE12345
 
 # every release
-DEVELOPER_ID="Developer ID Application: Your Name (ABCDE12345)" TEAM_ID=ABCDE12345 NOTARY_PROFILE=dlive-notary \
+DEVELOPER_ID="Developer ID Application: Your Name (ABCDE12345)" TEAM_ID=ABCDE12345 NOTARY_PROFILE=dine-notary \
     scripts/package.sh --universal
 ```
 
 What happens, in order: the app is signed with the identity, the **hardened runtime**, a secure timestamp and
-`scripts/DLIVE.entitlements` (only `com.apple.security.device.audio-input`, because the hardened runtime
-refuses the microphone unless the app declares it - DLIVE loads no plug-ins and needs nothing else); the zip is
+`scripts/DINE.entitlements` (only `com.apple.security.device.audio-input`, because the hardened runtime
+refuses the microphone unless the app declares it - DINE loads no plug-ins and needs nothing else); the zip is
 submitted with `xcrun notarytool submit --wait` (a few minutes; a failure prints the command that fetches
 Apple's log); the ticket is **stapled into the bundle** (`xcrun stapler staple`), checked with `spctl`, and the
 zip is **made again from the stapled app**, so it opens offline on a Mac that has never seen it. The last line
@@ -202,8 +202,8 @@ not been run on this machine (no certificate here); the ad-hoc path is what ever
 
 | Directory | Made by | Holds |
 | --- | --- | --- |
-| `build/` | `bootstrap.sh`, `build.sh`, `dlive.sh` | the Release build of everything |
-| `build-debug/` | `build.sh Debug`, `dlive.sh --debug` | the Debug build |
+| `build/` | `bootstrap.sh`, `build.sh`, `dine.sh` | the Release build of everything |
+| `build-debug/` | `build.sh Debug`, `dine.sh --debug` | the Debug build |
 | `build-engine/` | by hand, `-DLIVEMIX_BUILD_PLUGIN=OFF` | the JUCE-free engine and its tests |
 | `build-universal/` | `package.sh --universal` | the arm64 + x86_64 app |
 | `dist/` | `package.sh` | the zip and NOTES.txt to send |

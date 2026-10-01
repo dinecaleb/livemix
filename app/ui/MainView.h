@@ -27,7 +27,7 @@
 namespace livemix
 {
 
-// The window, after the v3 design ("DLIVE - Full UX Mockup", `Toolbar v3.4` 117:32462 and
+// The window, after the v3 design ("DINE - Full UX Mockup", `Toolbar v3.4` 117:32462 and
 // `Sidebar` 64:9437). docs/DESIGN-V3.md is the map.
 //
 // ONE 52 px toolbar across the whole width. The window's own buttons sit inside it, then the
@@ -43,7 +43,7 @@ namespace livemix
 // what the engine, the disk, the recording and the broadcast are doing, and how many inputs
 // are set to record.
 //
-// A workspace's own side panels (TUNE's inputs, the Inspector's channels and its WHAT DLIVE
+// A workspace's own side panels (TUNE's inputs, the Inspector's channels and its WHAT DINE
 // DID column) belong to the workspace, not to the window, and fold with `[` and `]`.
 class MainView : public juce::Component, private juce::Timer
 {
@@ -117,7 +117,7 @@ public:
     void showOutputs();                        // the ROUTING workspace, at its Outputs section
     void showHistory();                       // MIX HISTORY: the whole mix as it was, hours ago, by name
     void showCheck();                       // CHECK INPUTS: every assigned input, its level and one word about it
-    // RESET MIX TO RAW: everything DLIVE decided, taken back. Asked out loud; never a one-way door.
+    // RESET MIX TO RAW: everything DINE decided, taken back. Asked out loud; never a one-way door.
     void resetMixToRaw();
     void updateChromeForSnapshot() { updateChrome(); }   // the snapshot tool: the toolbar re-reads the controller now
     void closeSheetsForSnapshot() { closeSheets(); }
@@ -128,7 +128,7 @@ public:
     // own headphones, or the start of a TUNE that ends on BEFORE / AFTER - never a change kept.
     void performBuddyAction (const BuddyAction&);
     void closeSheets();
-    // RECOVER SESSION? DLIVE did not close cleanly and there is unsaved work beside the
+    // RECOVER SESSION? DINE did not close cleanly and there is unsaved work beside the
     // document. The two are compared side by side and nothing is deleted by any of the three
     // answers; the application hands the facts in, because it is the thing that found them.
     struct RecoveryOffer
@@ -140,10 +140,10 @@ public:
     };
     void offerRecovery (RecoveryOffer);
 
-    // macOS IS ABOUT TO ASK ABOUT THE MICROPHONE. DLIVE reads a console; macOS calls every
+    // macOS IS ABOUT TO ASK ABOUT THE MICROPHONE. DINE reads a console; macOS calls every
     // audio input a microphone and puts its own prompt up the moment a process starts
     // listening - which, on a restored session, is a second after launch and before anybody
-    // has asked for anything. This says what it is for first, in DLIVE's words, and the answer
+    // has asked for anything. This says what it is for first, in DINE's words, and the answer
     // is honoured: Not now opens the output alone and the session still opens. The application
     // hands the device in, because it is the thing that knows what is about to be opened.
     struct MicrophoneAsk
@@ -261,7 +261,7 @@ private:
     std::unique_ptr<HistorySheet> historySheet;
     std::unique_ptr<ThemeSheet> themeSheet;
     std::unique_ptr<ExportSheet> exportSheet;
-    // RESET THE MIX TO RAW and RECOVER SESSION?: the two questions DLIVE asks out loud.
+    // RESET THE MIX TO RAW and RECOVER SESSION?: the two questions DINE asks out loud.
     std::unique_ptr<ChoiceSheet> choiceSheet;
     juce::StringArray themeMenuNames;      // the View > Appearance list, as it was last built
     std::unique_ptr<ChannelTuneSheet> channelSheet;

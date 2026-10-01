@@ -91,7 +91,7 @@ juce::String Recorder::start (const juce::File& audioFolder,
             for (auto& done : made) done.file.deleteFile();
             return "Could not write to " + audioFolder.getFullPathName() + ". Check the disk and its permissions.";
         }
-        const auto bext = juce::WavAudioFormat::createBWAVMetadata (spec.name, "DLIVE", {}, began, sinceMidnight, {});
+        const auto bext = juce::WavAudioFormat::createBWAVMetadata (spec.name, "DINE", {}, began, sinceMidnight, {});
         if (auto* writer = wav.createWriterFor (stream.get(), rate, (unsigned int) w.channels, kBitDepth, bext, 0))
         {
             stream.release();
@@ -176,7 +176,7 @@ void Recorder::writeSidecars()
     for (const auto& s : sidecars)
     {
         auto* o = new juce::DynamicObject();
-        o->setProperty ("app", "DLIVE");
+        o->setProperty ("app", "DINE");
         o->setProperty ("schema", 1);
         o->setProperty ("track", s.trackIndex);
         o->setProperty ("name", s.name);
@@ -336,7 +336,7 @@ std::vector<Recorder::Recovered> Recorder::recoverUnfinishedTakes (const juce::F
         if (! wav.existsAsFile())
         {
             sidecar.deleteFile();
-            r.note = wav.getFileName() + " was still recording when DLIVE last closed, but the file is gone.";
+            r.note = wav.getFileName() + " was still recording when DINE last closed, but the file is gone.";
             out.push_back (r);
             continue;
         }
@@ -345,13 +345,13 @@ std::vector<Recorder::Recovered> Recorder::recoverUnfinishedTakes (const juce::F
         const auto frames = wav.getSize() == 0 ? (juce::int64) 0 : repairWavHeader (wav, err);
         if (frames < 0)
         {
-            r.note = wav.getFileName() + " was still recording when DLIVE last closed and " + err + ".";
+            r.note = wav.getFileName() + " was still recording when DINE last closed and " + err + ".";
         }
         else if (frames == 0)
         {
             wav.deleteFile();
             sidecar.deleteFile();
-            r.note = wav.getFileName() + " was still recording when DLIVE last closed and held no audio; it was removed.";
+            r.note = wav.getFileName() + " was still recording when DINE last closed and held no audio; it was removed.";
         }
         else
         {
@@ -359,7 +359,7 @@ std::vector<Recorder::Recovered> Recorder::recoverUnfinishedTakes (const juce::F
             r.repaired = true;
             sidecar.deleteFile();
             const double seconds = r.sampleRate > 0.0 ? double (frames) / r.sampleRate : 0.0;
-            r.note = wav.getFileName() + " was still recording when DLIVE last closed; "
+            r.note = wav.getFileName() + " was still recording when DINE last closed; "
                    + juce::String (seconds, 1) + " s of it were recovered.";
         }
         out.push_back (r);

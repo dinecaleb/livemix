@@ -51,7 +51,7 @@ public:
         Dine::drawText (g, theme.name, text.removeFromTop (getHeight() / 2 + 2), juce::Justification::bottomLeft);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (10.5f));
-        Dine::drawText (g, theme.note.isNotEmpty() ? theme.note : (theme.builtIn ? "DLIVE's own" : "Yours"),
+        Dine::drawText (g, theme.note.isNotEmpty() ? theme.note : (theme.builtIn ? "DINE's own" : "Yours"),
                     text, juce::Justification::topLeft, true);
     }
 };
@@ -182,12 +182,12 @@ ThemeSheet::ThemeSheet (bool persist) : persisting (persist)
 
     for (auto* b : { &saveButton, &resetButton, &deleteButton, &importButton, &exportButton, &folderButton, &closeButton })
         addAndMakeVisible (*b);
-    saveButton.setTooltip ("Write this theme to ~/Music/DLIVE/Themes under the name in the box. DLIVE's own themes are never overwritten.");
+    saveButton.setTooltip ("Write this theme to ~/Music/DINE/Themes under the name in the box. DINE's own themes are never overwritten.");
     resetButton.setTooltip ("Put back the theme as it was chosen, dropping the colours you changed.");
-    deleteButton.setTooltip ("Remove this theme's file. DLIVE goes back to Studio Teal.");
+    deleteButton.setTooltip ("Remove this theme's file. DINE goes back to Studio Teal.");
     importButton.setTooltip ("Copy a theme file somebody sent you into your themes. A file that will not read is refused with its reason.");
     exportButton.setTooltip ("Write this theme as a complete file that stands on its own, to send to somebody else.");
-    folderButton.setTooltip ("Open ~/Music/DLIVE/Themes in the Finder.");
+    folderButton.setTooltip ("Open ~/Music/DINE/Themes in the Finder.");
     saveButton.onClick = [this] { saveTheme(); };
     resetButton.onClick = [this] { resetTheme(); };
     deleteButton.onClick = [this] { deleteTheme(); };
@@ -330,7 +330,7 @@ void ThemeSheet::deleteTheme()
 
 void ThemeSheet::importTheme()
 {
-    chooser = std::make_unique<juce::FileChooser> ("Choose a DLIVE theme file",
+    chooser = std::make_unique<juce::FileChooser> ("Choose a DINE theme file",
                                                    juce::File::getSpecialLocation (juce::File::userDesktopDirectory),
                                                    "*" + juce::String (ThemeStore::kExtension) + ";*.json");
     chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -493,12 +493,12 @@ void ThemeSheet::paint (juce::Graphics& g)
 
     r.removeFromLeft (24);
     r.removeFromTop (Dine::Metric::button + 8);
-    const auto file = selected.file != juce::File() ? "~/Music/DLIVE/Themes/" + selected.file.getFileName() : juce::String();
+    const auto file = selected.file != juce::File() ? "~/Music/DINE/Themes/" + selected.file.getFileName() : juce::String();
     juce::String note;
     if (selected.builtIn && ! edited)
-        note = "One of DLIVE's own themes. Change a colour and Save keeps the change as a theme of your own, based on this one.";
+        note = "One of DINE's own themes. Change a colour and Save keeps the change as a theme of your own, based on this one.";
     else if (selected.builtIn)
-        note = "Changed " + dot() + " Save writes it as \"" + nameBox.getText().trim() + "\" in ~/Music/DLIVE/Themes, based on " + selected.name + ".";
+        note = "Changed " + dot() + " Save writes it as \"" + nameBox.getText().trim() + "\" in ~/Music/DINE/Themes, based on " + selected.name + ".";
     else
         note = "Yours, based on " + baseName() + " " + dot() + " " + file + (edited ? " " + dot() + " changed, not yet saved" : "");
     g.setColour (edited ? Dine::warn : Dine::ink3);

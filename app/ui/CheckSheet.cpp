@@ -76,7 +76,7 @@ void CheckSheet::refresh()
     for (int i = 0; i < strips; ++i)
     {
         auto& r = rows[size_t (i)];
-        // At the converter, before DLIVE's digital gain: this sheet is about what the console sends.
+        // At the converter, before DINE's digital gain: this sheet is about what the console sends.
         const float peak = engine.consumeConverterPeakDb (i);
         if (peak > -119.0f)
         {

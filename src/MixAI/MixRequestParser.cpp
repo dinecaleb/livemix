@@ -70,7 +70,7 @@ namespace
         MixObjectiveType objective;
         bool complaintIsExcess;         // the word names a fault, so the default direction is "less"
         float strength;                 // how far a plain, undirected request goes
-        const char* readAs;             // what DLIVE says it heard
+        const char* readAs;             // what DINE says it heard
     };
 
     const std::vector<Phrase>& phrases()
@@ -260,7 +260,7 @@ MixRequestReading readMixRequest (const std::string& request, const MixContext& 
     for (const char* n : notOurs)
         if (has (t, n))
             out.notMixDecisions.push_back (std::string ("\"") + n + "\" is a problem at the source, not in the mix. "
-                                           "DLIVE will not try to hide it with processing.");
+                                           "DINE will not try to hide it with processing.");
 
     auto targets = findTargets (t, context, registry);
     const bool wholeMix = targets.empty() && aboutTheWholeMix (t);
@@ -301,14 +301,14 @@ MixRequestReading readMixRequest (const std::string& request, const MixContext& 
     if (wishes.empty() && ! separation)
     {
         out.failure = targets.empty()
-            ? "DLIVE did not follow that. Name a channel and what you want from it - \"the lead vocal needs more presence\", \"the drums are muddy\"."
-            : "DLIVE understood which channel you mean, but not what you want from it. Try \"forward\", \"warmer\", "
+            ? "DINE did not follow that. Name a channel and what you want from it - \"the lead vocal needs more presence\", \"the drums are muddy\"."
+            : "DINE understood which channel you mean, but not what you want from it. Try \"forward\", \"warmer\", "
               "\"brighter\", \"punchier\", \"more space\", \"steadier\" or \"cleaner\".";
         return out;
     }
     if (targets.empty())
     {
-        out.failure = "DLIVE understood what you want, but not which channel. Name it - \"the lead vocal\", \"the drums\", "
+        out.failure = "DINE understood what you want, but not which channel. Name it - \"the lead vocal\", \"the drums\", "
                       "\"the pastor's mic\" - or say \"the mix\" for the whole thing.";
         return out;
     }
@@ -364,7 +364,7 @@ MixRequestReading readMixRequest (const std::string& request, const MixContext& 
         out.intent.targets.push_back (ti);
     }
 
-    // "Louder without clipping" is a real request and a real refusal at once: DLIVE will aim
+    // "Louder without clipping" is a real request and a real refusal at once: DINE will aim
     // the level where it is asked to and will not spend the master's headroom doing it.
     if (has (t, "without clipping") || has (t, "no clipping") || has (t, "don't clip") || has (t, "dont clip"))
         out.notMixDecisions.push_back ("The master keeps its headroom: the limiter holds the ceiling and is not "
@@ -373,7 +373,7 @@ MixRequestReading readMixRequest (const std::string& request, const MixContext& 
 
     out.intent.summary = "From the chat: " + request;
     out.understood = ! out.intent.targets.empty();
-    if (! out.understood) out.failure = "DLIVE did not follow that.";
+    if (! out.understood) out.failure = "DINE did not follow that.";
     return out;
 }
 

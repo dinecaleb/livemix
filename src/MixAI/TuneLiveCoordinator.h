@@ -32,7 +32,7 @@ public:
     enum class State : int
     {
         Idle = 0,
-        CapturingInitial,        // the band is playing; DLIVE is listening
+        CapturingInitial,        // the band is playing; DINE is listening
         AnalyzingInitial,        // measurements, relationships, the deterministic plan
         WaitingForReasoning,     // the worker is asking the provider
         Resolving,               // intent -> processing plan
@@ -133,7 +133,7 @@ public:
     const MixPlan& getBaseline() const;
     Diagnostics getDiagnostics() const;
 
-    // REVIEW CHANGES. One entry per decision, in the order they were made, with what DLIVE
+    // REVIEW CHANGES. One entry per decision, in the order they were made, with what DINE
     // could only approximate and what it refused kept in rather than quietly dropped. An
     // engineer can read every value in the Inspector; this is the sentence version.
     struct ReviewLine

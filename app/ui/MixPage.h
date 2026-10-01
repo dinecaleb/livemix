@@ -20,7 +20,7 @@ class ReferenceSheet;
 // faders and meters, the master's loudness row and the two macro pads in the middle - sized
 // so nothing there ever scrolls; and down the right a panel of its own with the verbs
 // (TUNE MIX, TUNE LIVE MIX, Reference, Mix Buddy, Undo / Redo), a card saying what the pad
-// under the pointer does, and MIX HEALTH. While DLIVE listens, and again when the plan is
+// under the pointer does, and MIX HEALTH. While DINE listens, and again when the plan is
 // ready, a sheet drops over the workspace.
 class MixPage : public juce::Component
 {
@@ -111,7 +111,7 @@ private:
     // BODY x VOICE (bass across, vocals up) and DRIVE x ROOM (space across, drums up), then ENERGY on a ribbon.
     std::array<std::unique_ptr<MacroPad>, 2> pads;
     std::unique_ptr<MacroRibbon> ribbon;
-    std::unique_ptr<ScopeSheet> scopeSheet;      // WHAT SHOULD DLIVE TUNE: the whole mix, one group, some channels
+    std::unique_ptr<ScopeSheet> scopeSheet;      // WHAT SHOULD DINE TUNE: the whole mix, one group, some channels
     std::unique_ptr<ListenSheet> listenSheet;
     std::unique_ptr<ResultSheet> resultSheet;
     std::unique_ptr<ReferenceSheet> referenceSheet;

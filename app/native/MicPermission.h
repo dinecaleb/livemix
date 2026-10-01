@@ -6,7 +6,7 @@ namespace livemix
 
 // WHAT macOS SAYS ABOUT THE MICROPHONE.
 //
-// DLIVE reads a console, not a microphone, but macOS does not know the difference: every
+// DINE reads a console, not a microphone, but macOS does not know the difference: every
 // audio input goes through the same privacy switch. Asking the system what it thinks - rather
 // than inferring it from a stream that would not open - is the difference between "System
 // Settings > Privacy & Security > Microphone" and a sentence that sends somebody to the wrong

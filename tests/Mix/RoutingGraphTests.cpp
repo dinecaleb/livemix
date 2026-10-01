@@ -299,7 +299,7 @@ TEST_CASE ("carryMix: moving a channel keeps every chain, level and send with it
 
 TEST_CASE ("carryMix: whether a return exists is the new routing's to say, never the old mix's")
 {
-    // An empty session (what DLIVE holds before a folder is imported) uses no returns...
+    // An empty session (what DINE holds before a folder is imported) uses no returns...
     MixSession empty = churchSession();
     empty.inputs.clear();
     const auto emptyMix = startingPoint (empty, RoutingGraph::build (empty));

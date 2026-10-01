@@ -19,7 +19,7 @@ namespace livemix
 // two *different* Typeface objects and do not compare equal, so anything keyed on a Font -
 // JUCE's own glyph cache, and the layout cache below - stops caching anything at all.
 //
-// Memoising here fixes both halves and touches nothing the six plug-ins share: DLIVE asks for
+// Memoising here fixes both halves and touches nothing the six plug-ins share: DINE asks for
 // a role, gets the same Font object back every time, and the TTF is parsed once.
 namespace
 {
@@ -100,7 +100,7 @@ int Dine::textWidth (const juce::Font& f, const juce::String& t)
 // The layout cache. Laying a string out means shaping it - HarfBuzz, kerning, ligature
 // suppression where the design asks for tracking, then a position per glyph - and it is the
 // same answer every frame for every label that has not changed. JUCE caches it too, in 128
-// entries shared by the whole window, which is fewer than one workspace of DLIVE uses: 48
+// entries shared by the whole window, which is fewer than one workspace of DINE uses: 48
 // strips of a dozen labels each is 576 strings before the chrome has drawn anything. Past 128
 // the cache stops being a cache and every paint re-shapes what the paint before it shaped.
 //
@@ -489,7 +489,7 @@ void Dine::drawSegmentTrack (juce::Graphics& g, juce::Rectangle<int> r)
 // sites - and the words that really are verbs, or initialisms, keep their capitals.
 juce::String Dine::sectionCase (const juce::String& label)
 {
-    static const char* kept[] = { "DLIVE", "TUNE", "MIX", "LIVE", "SAFE", "BYPASS", "RE-TUNE", "KEEP", "REVERT",
+    static const char* kept[] = { "DINE", "TUNE", "MIX", "LIVE", "SAFE", "BYPASS", "RE-TUNE", "KEEP", "REVERT",
                                   "BEFORE", "AFTER", "CHANNEL", "REFERENCE", "MATCH", "TO", "EQ", "FX", "BGV",
                                   "AFL", "PFL", "LUFS", "DIM", "MUTE", "SOLO", "R", "A", "M", "S", "L", "PA", "AI" };
     juce::StringArray words;
@@ -946,7 +946,7 @@ juce::String Dine::friendlyRoleName (ChannelRole r)
         case ChannelRole::SynthPad:  return "Synth Pad / Tracks";
         case ChannelRole::Speech:    return "Pastor / Speech";
         // What it is spoken into: a lapel on the chest and a handheld at the mouth are not
-        // the same microphone, and the chain DLIVE builds for them is not the same either.
+        // the same microphone, and the chain DINE builds for them is not the same either.
         case ChannelRole::SpeechLapel:    return "Lapel / lavalier";
         case ChannelRole::SpeechHeadset:  return "Headset / earset";
         case ChannelRole::SpeechHandheld: return "Handheld (roving)";

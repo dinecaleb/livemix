@@ -127,7 +127,7 @@ private:
     int numTracks() const;
     // The console strip a track's input is on, or -1: a track is a row of the session's inputs
     // and a strip exists only for one with a source said (stripsOfInputs), so the two numbers
-    // part company below any track DLIVE could not name. Every M, S, fader, pan, meter and
+    // part company below any track DINE could not name. Every M, S, fader, pan, meter and
     // chain on a header goes through this - by its own row it worked its neighbour's channel.
     int stripOf (int track) const;
     double samplesPerPixel() const;
@@ -143,7 +143,7 @@ private:
     // Tall rows get it under the name; a short row gets it as a slim bar along the foot.
     juce::Rectangle<int> faderCell (int track) const;
     // The level meter down the right edge of a header, so only it is repainted when only it
-    // moved - a 24-channel timeline redrawn whole at 30 Hz is what made DLIVE feel slow.
+    // moved - a 24-channel timeline redrawn whole at 30 Hz is what made DINE feel slow.
     juce::Rectangle<int> meterCell (int track) const;
     // TUNE, on the header itself: the chip between the name and the keys, or empty when the
     // row is too narrow to carry it (the name comes first).

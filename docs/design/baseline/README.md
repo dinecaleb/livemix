@@ -1,6 +1,6 @@
 # The UI-0 baseline (2026-09-27)
 
-What DLIVE looked like, cost and passed **before** the v2 design work started. Every later
+What DINE looked like, cost and passed **before** the v2 design work started. Every later
 phase is measured against the numbers in this folder, and its renders are compared against
 these ones by eye.
 
@@ -10,9 +10,9 @@ The images are not committed (see `.gitignore`). These commands put them back ex
 export PATH="$HOME/.local/bin:$PATH"
 STEMS="/Users/calebwork/Downloads/caleb"          # the real service multitrack
 
-build/app/dlive_ui_snapshots --stems "$STEMS" docs/design/baseline/shots   # every state, 70 PNGs
-DLIVE_STEMS="$STEMS" build/app/dlive_ui_snapshots --sizes docs/design/baseline/sizes
-build/app/dlive_ui_snapshots --frames 48 120 > docs/design/baseline/frames.txt
+build/app/dine_ui_snapshots --stems "$STEMS" docs/design/baseline/shots   # every state, 70 PNGs
+DINE_STEMS="$STEMS" build/app/dine_ui_snapshots --sizes docs/design/baseline/sizes
+build/app/dine_ui_snapshots --frames 48 120 > docs/design/baseline/frames.txt
 build/tests/livemix_benchmark                > docs/design/baseline/benchmark.txt
 scripts/rtsan.sh                             > docs/design/baseline/rtsan.txt
 ```
@@ -38,7 +38,7 @@ exercises the speech group**, because the pastor's microphone is not in this rec
 | Check | Result |
 | --- | --- |
 | `ctest` | 10/10 suites pass (62 s) |
-| `dlive_app_tests` | pass |
+| `dine_app_tests` | pass |
 | benchmark | `benchmark.txt`; compare against the previous commit, not the committed baseline (it is ~55 % off this Mac) |
 | RTSan | **cannot run on this machine** - see below |
 | frame cost | `frames.txt`; TRACKS 1.26 / MIXER 1.29 / TUNE 1.26 / LIVE 1.27 / INSPECTOR 1.28 ms per tick |

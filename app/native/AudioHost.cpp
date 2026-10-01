@@ -111,7 +111,7 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
     // Input and output are asked for in one call, and CoreAudio answers all or nothing. If the
     // input half is what failed, refusing the whole thing would mean a session with a perfectly
     // good output cannot be played, mixed or even looked at - which is how "no audio devices"
-    // came to be DLIVE's answer to a microphone switch. So the output opens on its own, and
+    // came to be DINE's answer to a microphone switch. So the output opens on its own, and
     // state() carries the sentence that says why the meters are still.
     if (! opened && inputDevice.isNotEmpty() && outputDevice.isNotEmpty())
     {
@@ -250,7 +250,7 @@ void AudioHost::stopDevice()
 void AudioHost::close()
 {
     // The application is done with this device, rather than on its way to another one. So
-    // nothing is waiting for it to come back: a device DLIVE was told to let go of is not one
+    // nothing is waiting for it to come back: a device DINE was told to let go of is not one
     // it should open again by itself half an hour later.
     stopDevice();
     lost = false;

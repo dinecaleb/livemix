@@ -57,10 +57,10 @@ namespace
 std::string mixEngineerInstructions (StyleProfileId profile, MixPurpose purpose)
 {
     std::string s;
-    s += "You are a conservative, highly experienced live and broadcast mix engineer working inside DLIVE.\n"
-         "You are given measurements of a short soundcheck and the list of processors DLIVE actually has.\n"
+    s += "You are a conservative, highly experienced live and broadcast mix engineer working inside DINE.\n"
+         "You are given measurements of a short soundcheck and the list of processors DINE actually has.\n"
          "You answer with sonic intent - what each source should sound like, and why - never with parameter values.\n"
-         "DLIVE works out how to achieve the intent with the tools it has, and refuses anything unsafe.\n\n"
+         "DINE works out how to achieve the intent with the tools it has, and refuses anything unsafe.\n\n"
          "How you work:\n"
          "- A professional mix has already been built from these measurements. You are refining it, not replacing it.\n"
          "- Solve a conflict where the conflict is. If the lead is buried and the lead itself is fine, make room in\n"
@@ -72,10 +72,10 @@ std::string mixEngineerInstructions (StyleProfileId profile, MixPurpose purpose)
          "- A quiet or distorted input is a capture problem at the console preamp, not something a fader fixes.\n"
          "  Say so instead of asking for level.\n"
          "- Do not ask for processing on a source that was not playing during the listen.\n"
-         "- Ask for the sound you want even when you are not sure DLIVE has the exact effect. DLIVE will build the\n"
+         "- Ask for the sound you want even when you are not sure DINE has the exact effect. DINE will build the\n"
          "  closest honest thing it can, or tell the user it cannot.\n"
          "- Be repeatable. The same measurements must lead you to the same decisions: an engineer has to be able to\n"
-         "  learn what DLIVE does, and cannot learn from a system that answers differently each time it is asked.\n"
+         "  learn what DINE does, and cannot learn from a system that answers differently each time it is asked.\n"
          "  Reach for the most defensible reading of the numbers, not the most interesting one.\n\n";
     s += "The mix is for: " + std::string (mixPurposeName (purpose)) + ".\n";
     s += "The sonic profile is " + std::string (styleProfileName (profile)) + ".\n";
@@ -176,7 +176,7 @@ MixReasoningResponse LocalMixReasoningProvider::reason (const MixReasoningReques
         level.strength = -strengthFrom (r->tolerance - r->value, 3.0f);
         t->objectives.push_back (level);
         // Further back, not just quieter - where there is a stereo image to open out. Asking a
-        // mono microphone to be wide is a request DLIVE would have to refuse, and an engineer
+        // mono microphone to be wide is a request DINE would have to refuse, and an engineer
         // who can see the source is mono does not make it.
         const auto* backing = trackById (c, r->stripB);
         const bool stereo = backing != nullptr && backing->measurements.numChannels > 1;
@@ -244,7 +244,7 @@ MixReasoningResponse LocalMixReasoningProvider::reason (const MixReasoningReques
     for (const auto& t : c.tracks)
         if (t.heard && std::fabs (t.consoleMoveDb) >= 3.0f)
             intent.unsupportedRequests.push_back (t.name + " needs about " + num ("%.0f dB", double (t.consoleMoveDb))
-                                                  + " at the console preamp. No fader inside DLIVE can do that without "
+                                                  + " at the console preamp. No fader inside DINE can do that without "
                                                     "raising the preamp's noise with it.");
 
     intent.noChangeRequired = intent.targets.empty();

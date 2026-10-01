@@ -322,7 +322,7 @@ void MixCapture::workerLoop()
         {
             auto& s = *strips[size_t (i)];
             r.strips[size_t (i)] = s.accumulator.finalise (s.fifo.getDroppedFrames());
-            // A clip is counted where it happened, at the converter - not after DLIVE's digital
+            // A clip is counted where it happened, at the converter - not after DINE's digital
             // gain, which moves a real clip below full scale and a clean peak above it.
             r.strips[size_t (i)].clipCount = converterClips[size_t (i)].load();
             r.droppedFrames += s.fifo.getDroppedFrames();

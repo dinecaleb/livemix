@@ -1,4 +1,4 @@
-// DLIVE application-layer tests: the controller's state machine (setup -> listen -> plan ->
+// DINE application-layer tests: the controller's state machine (setup -> listen -> plan ->
 // preview -> keep / revert, compare, macros, Advanced edits) and the session document round trip.
 // No device, no UI: the engine is fed synthetic audio through MixController::process().
 #include "TestFramework.h"
@@ -115,7 +115,7 @@ TEST_CASE ("MixController: TUNE LIVE MIX listens, builds, verifies and leaves a 
 
     // No provider was configured, so this runs on the offline engineer: no network, no key,
     // nothing leaves the machine. That is the default and it has to work on its own.
-    CHECK (c.getTuneLive().getProvider()->getName() == "DLIVE built-in (offline)");
+    CHECK (c.getTuneLive().getProvider()->getName() == "DINE built-in (offline)");
     CHECK (! c.getTuneLive().getProvider()->sendsDataExternally());
 
     // Long enough to be worth mixing from: a listen that measured nothing is refused on
@@ -128,7 +128,7 @@ TEST_CASE ("MixController: TUNE LIVE MIX listens, builds, verifies and leaves a 
     CHECK (c.isListening());
 
     // The professional mix arrives before the reasoning does: the deterministic plan is
-    // audible while DLIVE is still working out what else this band needs.
+    // audible while DINE is still working out what else this band needs.
     REQUIRE (f.waitFor (MixController::Stage::Preview));
     CHECK (c.isTuningLive());
     REQUIRE (c.hasPlan());
@@ -673,7 +673,7 @@ TEST_CASE ("MixController: pinning the focal source settles what the mix is buil
     MixController c;
     c.setSession (band());
     c.prepare (kSr, kBlock);
-    CHECK (c.getFocusInput() == -1);              // nobody has said: DLIVE decides from the listen
+    CHECK (c.getFocusInput() == -1);              // nobody has said: DINE decides from the listen
 
     const MixParameters before = c.getKept();
     c.setFocusInput (3);                          // "Lead"
@@ -811,7 +811,7 @@ TEST_CASE ("MixController: editing the session keeps the sound; preparing again 
 
 TEST_CASE ("MixController: a band imported over an empty session can hear its effects")
 {
-    // What DLIVE holds before a folder is imported: no inputs, so no return in use. The import
+    // What DINE holds before a folder is imported: no inputs, so no return in use. The import
     // used to carry that "off" across, and every effect ran with its return held at silence.
     MixController c;
     MixSession empty;
@@ -987,7 +987,7 @@ TEST_CASE ("SessionStore: a session document survives the JSON round trip")
     CHECK_NEAR (back.mix.fx[size_t (FxSlot::VocalPlate)].returnDb, -2.0f, 1e-4);
     CHECK_NEAR (back.mix.master().channel.limiterCeilingDb, -1.5f, 1e-4);
 
-    // Not a DLIVE file: refused, nothing changed.
+    // Not a DINE file: refused, nothing changed.
     SessionStore::Document untouched;
     CHECK (! SessionStore::fromVar (juce::JSON::parse ("{\"app\":\"other\"}"), untouched));
     CHECK (! SessionStore::fromVar (juce::var(), untouched));
@@ -1010,7 +1010,7 @@ TEST_CASE ("SessionStore: save, list, and load a named mix file")
     d.devices.broadcastOutput = "Out";
     d.hasMix = false;
     // Write into the real sessions folder via a unique name, or fall back to a temp file for the round trip.
-    const auto file = juce::File ("/Users/calebwork/Documents/GitHub/Calive/.tmp-session-test.dlive.json");
+    const auto file = juce::File ("/Users/calebwork/Documents/GitHub/Calive/.tmp-session-test.dine.json");
     file.deleteFile();
     REQUIRE (SessionStore::save (d, file));
     REQUIRE (file.existsAsFile());
@@ -1068,25 +1068,25 @@ namespace
 
 TEST_CASE ("ReferenceAudio: a finished recording is measured; a four-second clip is refused with a reason")
 {
-    const auto song = writeReferenceWav (scratch ("dlive-reference-song.wav"), 12.0f, 2, 1.0f);
+    const auto song = writeReferenceWav (scratch ("dine-reference-song.wav"), 12.0f, 2, 1.0f);
     REQUIRE (song.existsAsFile());
     const auto measured = ReferenceAudio::measure (song, StyleProfileId::ModernGospel);
     CHECK (measured.error.isEmpty());
     REQUIRE (measured.adequacy.usable);
     REQUIRE (measured.profile.valid);
-    CHECK (measured.profile.name == "dlive-reference-song");
+    CHECK (measured.profile.name == "dine-reference-song");
     CHECK (measured.profile.channels == 2);
     CHECK_NEAR (measured.profile.seconds, 12.0f, 0.5f);
     CHECK (measured.profile.loudnessLufs > -45.0f);
 
-    const auto clip = writeReferenceWav (scratch ("dlive-reference-clip.wav"), 4.0f, 2, 1.0f);
+    const auto clip = writeReferenceWav (scratch ("dine-reference-clip.wav"), 4.0f, 2, 1.0f);
     const auto tooShort = ReferenceAudio::measure (clip, StyleProfileId::ModernGospel);
     CHECK (! tooShort.adequacy.usable);
     CHECK (! tooShort.adequacy.reason.empty());
     CHECK (! tooShort.profile.valid);
 
     // A file that is not audio at all is an error, not a refusal: there is nothing to judge.
-    const auto text = scratch ("dlive-reference-not-audio.wav");
+    const auto text = scratch ("dine-reference-not-audio.wav");
     text.replaceWithText ("this is not a song");
     const auto broken = ReferenceAudio::measure (text, StyleProfileId::ModernGospel);
     CHECK (broken.error.isNotEmpty());
@@ -1140,7 +1140,7 @@ TEST_CASE ("MixController: a reference aims the mix from the listen it already h
     CHECK (MixPlanner::countParameterChanges (tuned, c.getKept()) == 0);
     CHECK (c.getStage() == MixController::Stage::Mixed);
 
-    // Matching works from the listen DLIVE already has - the band is not asked to play again.
+    // Matching works from the listen DINE already has - the band is not asked to play again.
     c.startReferenceMatch();
     REQUIRE (c.getStage() == MixController::Stage::Preview);
     REQUIRE (c.hasPlan());
@@ -1247,9 +1247,9 @@ TEST_CASE ("OpenAiMixProvider: asks for intent under a strict schema, sends no a
     const auto body = OpenAiMixProvider::buildRequestBody (request, settings);
 
     // A strict schema, and an enum of the objectives the resolver can actually build: the model
-    // cannot ask for a kind of change DLIVE has no way to express.
+    // cannot ask for a kind of change DINE has no way to express.
     CHECK (body.contains ("\"strict\": true"));
-    CHECK (body.contains ("dlive_mix_intent"));
+    CHECK (body.contains ("dine_mix_intent"));
     CHECK (body.contains ("spatial_depth"));
     CHECK (body.contains ("Test Sunday"));
     // Nothing that is not a measurement or a capability leaves the machine - no audio, ever,
@@ -1812,7 +1812,7 @@ TEST_CASE ("Scenes: KEEP holds the whole mix under a name, RECALL brings it back
     CHECK (messages.back().find ("different set of inputs") != std::string::npos);
 }
 
-TEST_CASE ("MixController: RESET TO RAW takes back everything DLIVE decided and nothing else")
+TEST_CASE ("MixController: RESET TO RAW takes back everything DINE decided and nothing else")
 {
     MixController c;
     c.setSession (band());
@@ -1845,7 +1845,7 @@ TEST_CASE ("MixController: RESET TO RAW takes back everything DLIVE decided and 
 
     REQUIRE (c.resetMixToRaw());
 
-    // Everything DLIVE decided is gone: every chain, every level, every send, the macros, and
+    // Everything DINE decided is gone: every chain, every level, every send, the macros, and
     // the count of tunes that produced them.
     for (int i = 0; i < c.getKept().numStrips; ++i)
     {
@@ -2099,7 +2099,7 @@ TEST_CASE ("SampleLibrary: a sound imported from a strip is copied into the sess
     // A session folder, and one WAV that is not in it. This is what an engineer does when the
     // kick the church actually uses is a file on their desktop.
     auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory)
-                      .getChildFile ("dlive-sample-import").getChildFile ("Sunday");
+                      .getChildFile ("dine-sample-import").getChildFile ("Sunday");
     folder.deleteRecursively();
     folder.createDirectory();
     auto elsewhere = folder.getParentDirectory().getChildFile ("Their kick.wav");
@@ -2145,7 +2145,7 @@ TEST_CASE ("SampleLibrary: a sound imported from a strip is copied into the sess
     CHECK (library.sounds (RoleFamily::Kick)[size_t (slot)].inSession);
     CHECK (library.table()->bank (RoleFamily::Kick, slot) != nullptr);
 
-    // A file DLIVE cannot play never reaches the session folder: it is decoded before it is
+    // A file DINE cannot play never reaches the session folder: it is decoded before it is
     // copied, so a Sunday is not where you find out.
     auto rubbish = folder.getParentDirectory().getChildFile ("notes.txt");
     rubbish.replaceWithText ("this is not a drum");
@@ -2173,7 +2173,7 @@ TEST_CASE ("MixController: a favourite mix is a scene that was also measured, an
     Feeder f (c);
 
     // A favourite marked before anything has been heard keeps the mix and says so: there is
-    // nothing measured to aim at, and DLIVE does not pretend there is.
+    // nothing measured to aim at, and DINE does not pretend there is.
     std::string said;
     c.onMessage = [&said] (const std::string& m) { said = m; };
     REQUIRE (c.markFavourite ("Too early"));
@@ -2259,7 +2259,7 @@ TEST_CASE ("MixController: Autopilot holds the mix it was given, and hands a fad
     std::string said;
     c.onMessage = [&said] (const std::string& m) { said = m; };
 
-    // Nothing playing: there is no mix to hold, and DLIVE says so rather than engaging on
+    // Nothing playing: there is no mix to hold, and DINE says so rather than engaging on
     // silence and calling it a target.
     CHECK (! c.setAutopilot (true));
     CHECK (! c.isAutopilotOn());

@@ -16,7 +16,7 @@ namespace livemix
 {
 
 // ---------------------------------------------------------------------------
-// The DLIVE look, v3 (the Figma file "DLIVE - Full UX Mockup", page `v3 - Screens`, 2026-09-29).
+// The DINE look, v3 (the Figma file "DINE - Full UX Mockup", page `v3 - Screens`, 2026-09-29).
 // docs/DESIGN-V3.md is the map from that file to this code; read it before moving anything.
 //
 // Flat planes a few values apart, one hairline between them, no gradients and no glow. The
@@ -164,7 +164,7 @@ namespace Dine
         inline constexpr int onAir     = 2;
         inline constexpr int chanRail  = 180;   // the Inspector's channel list
         inline constexpr int tuneRail  = 198;   // TUNE's input rail
-        inline constexpr int trail     = 280;   // WHAT DLIVE DID / TUNE's right column
+        inline constexpr int trail     = 280;   // WHAT DINE DID / TUNE's right column
         inline constexpr int setupNav  = 212;
         inline constexpr int footer    = 28;
         inline constexpr int rail      = 198;
@@ -230,7 +230,7 @@ namespace Dine
 
     // How many strings were laid out rather than found already laid out. A count, not a clock:
     // it is the same on every machine, so it is the number a frame-budget regression is caught
-    // by. `dlive_ui_snapshots --frames` prints it per workspace.
+    // by. `dine_ui_snapshots --frames` prints it per workspace.
     struct TextCacheStats { long long hits, misses, size; };
     TextCacheStats textCacheStats();
     void resetTextCacheStats();
@@ -242,7 +242,7 @@ namespace Dine
     // "Clo..." is a layout bug, and no amount of reading the layout code finds one - the cell
     // is only too small once the face, the Text size and the string meet each other. So the
     // drawing keeps the list: while the audit is on, every curtailed string is recorded with
-    // the width it had and the width it wanted. `dlive_ui_snapshots` walks every workspace
+    // the width it had and the width it wanted. `dine_ui_snapshots` walks every workspace
     // with it on and prints what came back, widest shortfall first.
     struct ClippedText { juce::String text, where; float available = 0.0f, wanted = 0.0f; };
     void beginTextClipAudit();                     // on, and empty

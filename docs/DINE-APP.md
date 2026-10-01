@@ -1,8 +1,8 @@
-# DLIVE: the application
+# DINE: the application
 
-The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, the Inspector, the setup pages - and the rules each one follows. Moved verbatim from the old CLAUDE.md (2026-09-19); the architecture is `docs/ARCHITECTURE-DLIVE.md` and `docs/MILESTONE-7.md`.
+The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, the Inspector, the setup pages - and the rules each one follows. Moved verbatim from the old CLAUDE.md (2026-09-19); the architecture is `docs/ARCHITECTURE-DINE.md` and `docs/MILESTONE-7.md`.
 
-- DLIVE is **the live recording and broadcast DAW** (2026-09 DAW milestone; see `docs/MILESTONE-7.md`).
+- DINE is **the live recording and broadcast DAW** (2026-09 DAW milestone; see `docs/MILESTONE-7.md`).
   **ROUTING (2026-09-28, `app/ui/RoutingPage`).** Everything about where the sound comes from and where it goes
   is one workspace now, reached deliberately from the sidebar's single SET-UP row or from View > Set-up and
   Routing. Five sections down its left: the audio device, the inputs, what the mix is for, the outputs and the
@@ -27,10 +27,10 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   device and the mix: it records the raw inputs, reads the timeline and builds the **input matrix** that
   `MixController::process` receives, so TUNE MIX works the same on live inputs and on recorded material.
   Monitoring has exactly one rule, `monitorUsesLiveInput` in `Project.h` - do not add a second. A session is a
-  folder (`~/Music/DLIVE/<name>/` with `Audio Files/` inside); `SessionStore` is version 3 and still opens
+  folder (`~/Music/DINE/<name>/` with `Audio Files/` inside); `SessionStore` is version 3 and still opens
   versions 1 and 2. Import a folder of stems with `MultitrackImport` (it becomes tracks and clips - there is no
   separate "play a recording" audio path any more). Export is `MixBounce::renderProject`, streamed to disk.
-  App tests for all of this: `build/app/dlive_app_tests` (`app/Tests/DawTests.cpp`).
+  App tests for all of this: `build/app/dine_app_tests` (`app/Tests/DawTests.cpp`).
 - **Before the service (2026-09-24).** Three things an engineer reaches for during a service, each one press:
   - The emergency keys, DIM and MUTE, on the toolbar beside BYPASS (and under View): the broadcast and the room
     pulled down 20 dB, or silenced, on every feed but the engineer's listen (`MixController::setBroadcastDim /
@@ -66,7 +66,7 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   session, is a second after launch, before anybody has asked for anything and with nothing on screen to explain
   it. (Enumerating devices costs nothing: JUCE creates the CoreAudio IOProc in `start()`, not when a device is
   listed.) So on the one launch where macOS has never been answered and the session is about to open a console,
-  DLIVE says what it wants it for first: what it listens to, what it does with it, and that saying no costs
+  DINE says what it wants it for first: what it listens to, what it does with it, and that saying no costs
   nothing but the meters. **The answer is honoured.** *Not now* - including Escape, or the sheet dismissed any
   other way - opens the output alone (`openState (state, source, allowInputs = false)`), and the toast is
   `inputsNotAskedSentence`, which names the device and points at Audio device; it does not read like a failure,
@@ -76,7 +76,7 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   *A dev build asks every launch and that is not a bug:* TCC stores the grant against the code signature, and a
   local build is ad-hoc, linker-signed, so the signature changes every time. `scripts/package.sh` (Developer ID +
   notarized) is asked once, ever.
-- DLIVE standalone (2026-09 pivot; see `docs/ARCHITECTURE-DLIVE.md`): the mix layer lives in `src/Mix`
+- DINE standalone (2026-09 pivot; see `docs/ARCHITECTURE-DINE.md`): the mix layer lives in `src/Mix`
   (`MixSession`/`RoutingGraph` build buses + returns from assignments; `MixEngine` is the real-time graph, parameters
   arrive whole via `Core/TripleBuffer`; `MixCapture`/`OfflineCapture` listen to every input at once; `MixPlanner` =
   per-strip Tune + input gain + relationships + balance + buses/master; `MixMacros` = the five overview controls, 50 =
@@ -127,7 +127,7 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   twice - a bus meter is consumed when it is read (`consumeMaxPeakDb`), so two widgets on one bus would each
   get half its peaks. The All / Inputs filter is about the bank and never takes the rail away; only GROUPS
   ("show me the groups and the master") puts them back in the bank at full width, and LIST has no rail at all.
-  `MixerPage::pinnedGroupCount()` is what `dlive_ui_tests` asks; LIVE has carried the same four controls per
+  `MixerPage::pinnedGroupCount()` is what `dine_ui_tests` asks; LIVE has carried the same four controls per
   group as tiles since Milestone 7. A STRIPS column reads top to bottom the way a console does:
   number and name, the gain-staging chip, INSERTS (the chain stages that are actually on, from `activeChainStages`),
   SENDS (the used FX slots, a readout - sends are edited in the Inspector), PAN, then the fader and meter, the level
@@ -243,7 +243,7 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   landed on it (TUNE MIX, TUNE CHANNEL, TUNE LIVE MIX, a Mix Buddy request) and every hand edit of its
   chain, each with the clock, a count line (settings, level, gain, pan, sends) and the changes in words
   ("High-pass  80 Hz to 100 Hz"), and a PUT BACK chip that restores that setting on this channel alone
-  (`MixController::restoreStripTune`; `docs/DLIVE-MIX-ENGINEER.md`) - and the headroom (the master shows
+  (`MixController::restoreStripTune`; `docs/DINE-MIX-ENGINEER.md`) - and the headroom (the master shows
   its loudness instead). `AdvancedPage::revealHistory` scrolls the column to the section. The chip
   labels and readouts come from `chainStages` in `ChainStrip`, so the path, the mixer's INSERTS and the
   strip along the foot of a workspace can never disagree. The limiter stage appears on the master only and
@@ -264,7 +264,7 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   `MixController::getInputAdvice (strip)` is the one place that reads the plan and answers what
   one input's level needs (Faint / NotHeard / Low / Hot / Clipping / Digital / Healthy, the
   console move in dB and the sentence). `Digital` is the one that matters in a church - the
-  level works, but only because DLIVE raised it more than `digitalGainAdviceDb`
+  level works, but only because DINE raised it more than `digitalGainAdviceDb`
   (`MixProfileData`) digitally, which lifts the preamp's noise with the source. It is surfaced
   as a chip on the TRACKS header and the MIXER strip (both layouts), as the GAIN STAGING card
   at the top of the Inspector's right column, as the plan's *first* note (naming the inputs)
@@ -272,7 +272,7 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   healthy. Advice only: nothing about the mix changes.
   TUNE opens with **the scope picker** (2026-09-28): the whole mix, one group by name, or
   some channels by name. It is `MixPage::ScopeSheet`, Escape closes it like any sheet, and
-  the result card names what it ran on. `docs/DLIVE-MIX-ENGINEER.md` has the whole of it.
+  the result card names what it ran on. `docs/DINE-MIX-ENGINEER.md` has the whole of it.
   TUNE CHANNEL is one source on its own, on click: `MixController::startTuneChannel (strip)`
   runs the same listen as TUNE MIX (every input is measured, so the channel is still decided
   in mix context) but waits for that channel (`MixCapture::Settings::triggerStrip`) and is
@@ -321,16 +321,16 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   `bypassProcessing`, carrying only mute and solo across, so you hear the console feed. It never touches the kept
   mix - switch it off and the mix is exactly as it was - and faders are disabled while it is on.
   Verify with
-  `build/app/dlive_ui_snapshots <dir>` and the real stems: `build/app/dlive_mix_stems "<stems folder>" 30 <outdir>`
+  `build/app/dine_ui_snapshots <dir>` and the real stems: `build/app/dine_mix_stems "<stems folder>" 30 <outdir>`
   (writes raw/before/after/after-retuned WAVs, exit 0 = re-plan on the same listen changed nothing). App tests:
-  `build/app/dlive_app_tests`; real device: `build/app/dlive_device_check 3`; recording playback through the host: `build/app/dlive_device_check 4 "<stems folder>"`.
-  The app is **DLIVE** (renamed from DINELIVE, 2026-09-10): target `DLive`, product `DLIVE`, bundle
-  `com.dine.dlive`, tools `dlive_{ui_snapshots,app_tests,mix_stems,device_check}`, sessions in `~/Music/DLIVE/`
-  as `<name>.dlive.json`. Sessions written under the old name still open and are still listed - `SessionStore`
+  `build/app/dine_app_tests`; real device: `build/app/dine_device_check 3`; recording playback through the host: `build/app/dine_device_check 4 "<stems folder>"`.
+  The app is **DINE** (DINELIVE until 2026-09-10, DLIVE until 2026-10-01): target `DineApp`, product `DINE`, bundle
+  `com.dine.app`, tools `dine_{ui_snapshots,app_tests,mix_stems,device_check}`, sessions in `~/Music/DINE/`
+  as `<name>.dine.json`. Sessions written under the old name still open and are still listed - `SessionStore`
   accepts `app: "DINELIVE"`, scans `*.dinelive.json` and reads `~/Music/DINELIVE` (`formerNameFolder`) - and are
   written back under the new extension when they are next saved. The app icon is `app/resources/AppIcon.png`
   (1024 px, generated art: the D with a fader cap), handed to JUCE as `ICON_BIG`. The DINE plug-in family and the
-  `Dine::` design tokens keep their name; only DINELIVE became DLIVE.
+  `Dine::` design tokens keep their name; only DINELIVE became DINE.
   **Setting a session up is four screens of one layout** (`app/ui/SetupPages`, 2026-09-12): SESSIONS (the
   library), AUDIO DEVICE, INPUTS and PURPOSE AND SOUND. `SetupLayout::of` is the one place the bands are
   measured - title and a readout, a toolbar, the table beside a 252 px rail of small cards, then a footer

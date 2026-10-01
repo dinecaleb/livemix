@@ -108,7 +108,7 @@ void HistorySheet::rebuild()
         row->aim->setTooltip (row->measured
             ? "The next TUNE MIX moves the master towards how this mix sounded, inside the profile's own bounds - "
               "exactly as it does for a record."
-            : "This was kept before DLIVE had listened to anything, so there is nothing measured to aim at.");
+            : "This was kept before DINE had listened to anything, so there is nothing measured to aim at.");
         row->aim->onClick = [this, i]
         {
             if (controller.useFavouriteAsReference (i)) { services.touchSession(); repaint(); }

@@ -12,7 +12,7 @@ namespace livemix
 // ---------------------------------------------------------------------------
 // REFERENCE MIX: "make it sound like this."
 //
-// A finished recording the mix is aimed at. DLIVE listens to it exactly the way it
+// A finished recording the mix is aimed at. DINE listens to it exactly the way it
 // listens to the band - one AnalysisAccumulator, the same measurements - and keeps the
 // part of that measurement a mix can actually be aimed at: the tonal balance, how dense
 // it is and how wide it is. That is a document (schema v1), stored with the session, so
@@ -22,7 +22,7 @@ namespace livemix
 //   - it never sets the delivery loudness. A mastered song sits at -9 LUFS and a church
 //     broadcast at -23; copying the number would hand the stream to the limiter.
 //   - it never moves a single source. Who is loud in your mix is a balance decision made
-//     from what DLIVE heard the band play, not from somebody else's record.
+//     from what DINE heard the band play, not from somebody else's record.
 //   - it never moves a target further than the profile's own bounds allow, so matching a
 //     dull reference cannot leave the mix dull enough to be unusable.
 // Everything it will not do is reported with its reason, the way a refused capability is.

@@ -12,10 +12,14 @@ namespace MonitorDevice
 
 namespace
 {
-    // The UID DLIVE gives the device it builds. Stable, so a second run finds and replaces the
+    // The UID DINE gives the device it builds. Stable, so a second run finds and replaces the
     // one it made last Sunday instead of leaving a pile of them in the Mac's device list.
-    constexpr const char* kDliveUid = "com.dine.dlive.monitoring";
-    constexpr const char* kDliveName = "DLIVE Monitoring";
+    constexpr const char* kDineUid = "com.dine.app.monitoring";
+    constexpr const char* kDineName = "DINE Monitoring";
+    // The one built while the app was called DLIVE. Still ours: it is recognised, never listed
+    // as somebody else's device, and replaced the next time one is built, so the rename does
+    // not leave a second monitoring device in the Mac's list.
+    constexpr const char* kFormerUid = "com.dine.dlive.monitoring";
 
 #if JUCE_MAC
     // ---- small CoreFoundation helpers -------------------------------------
@@ -172,7 +176,7 @@ juce::Array<Device> allDevices()
         d.uid = deviceStringProperty (id, kAudioDevicePropertyDeviceUID);
         d.isAggregate = isAggregateDevice (id);
         d.kind = kindOf (id);
-        d.isDliveBuilt = d.uid == kDliveUid;
+        d.isDineBuilt = d.uid == kDineUid || d.uid == kFormerUid;
         if (d.name.isEmpty() || d.uid.isEmpty()) continue;
         out.add (d);
     }
@@ -196,10 +200,10 @@ Device findDevice (const juce::String& name)
     return {};
 }
 
-bool dliveDeviceExists()
+bool dineDeviceExists()
 {
 #if JUCE_MAC
-    return findDeviceByUid (kDliveUid) != kAudioObjectUnknown;
+    return findDeviceByUid (kDineUid) != kAudioObjectUnknown || findDeviceByUid (kFormerUid) != kAudioObjectUnknown;
 #else
     return false;
 #endif
@@ -210,7 +214,7 @@ Suggestion suggest (const juce::String& currentOutputDeviceName)
     if (! available())
     {
         Suggestion s;
-        s.problem = "This Mac will not let DLIVE build a combined output device. "
+        s.problem = "This Mac will not let DINE build a combined output device. "
                     "You can still make one yourself in Audio MIDI Setup.";
         return s;
     }
@@ -222,22 +226,22 @@ Result combine (const Device& broadcast, const Device& headphones, const Device*
     Result r;
 #if JUCE_MAC
     const AudioObjectID plugIn = coreAudioPlugIn();
-    if (plugIn == kAudioObjectUnknown) { r.error = "This Mac will not let DLIVE build a combined output device."; return r; }
+    if (plugIn == kAudioObjectUnknown) { r.error = "This Mac will not let DINE build a combined output device."; return r; }
     const Layout layout = layoutFor (broadcast, headphones, input);
     if (layout.problem.isNotEmpty()) { r.error = layout.problem; return r; }
 
     // Replace the one from last time rather than adding another. A device the *user* built is
     // never touched - only ours carries our UID.
-    removeDliveDevice();
+    removeDineDevice();
 
     auto* description = CFDictionaryCreateMutable (kCFAllocatorDefault, 0,
                                                    &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFHold holdDescription (description);
 
-    CFStringRef nameRef = toCF (kDliveName);
+    CFStringRef nameRef = toCF (kDineName);
     CFDictionarySetValue (description, CFSTR (kAudioAggregateDeviceNameKey), nameRef);
     CFRelease (nameRef);
-    CFStringRef uidRef = toCF (kDliveUid);
+    CFStringRef uidRef = toCF (kDineUid);
     CFDictionarySetValue (description, CFSTR (kAudioAggregateDeviceUIDKey), uidRef);
     CFRelease (uidRef);
 
@@ -247,7 +251,7 @@ Result combine (const Device& broadcast, const Device& headphones, const Device*
     CFDictionarySetValue (description, CFSTR (kAudioAggregateDeviceMainSubDeviceKey), masterUid);
     CFRelease (masterUid);
 
-    // Public, so it appears in the Mac's device list and the user can see what DLIVE made and
+    // Public, so it appears in the Mac's device list and the user can see what DINE made and
     // remove it themselves if they ever want to.
     const int isPrivate = 0;
     CFNumberRef privateRef = CFNumberCreate (kCFAllocatorDefault, kCFNumberIntType, &isPrivate);
@@ -294,14 +298,14 @@ Result combine (const Device& broadcast, const Device& headphones, const Device*
     // can never point past its end.
     r.ok = true;
     r.deviceName = deviceStringProperty (created, kAudioObjectPropertyName);
-    if (r.deviceName.isEmpty()) r.deviceName = kDliveName;
+    if (r.deviceName.isEmpty()) r.deviceName = kDineName;
     r.broadcastChannel = layout.broadcastChannel;
     r.headphoneChannel = layout.headphoneChannel;
     r.carriesInput = layout.carriesInput;
     const int total = outputChannelCount (created);
     if (total > 0 && (r.headphoneChannel + 1 >= total || r.broadcastChannel + 1 >= total))
     {
-        removeDliveDevice();
+        removeDineDevice();
         r.ok = false;
         r.error = "The combined device came back with only " + juce::String (total) + " outputs, so there is no separate pair for solo.";
         return r;
@@ -315,16 +319,22 @@ Result combine (const Device& broadcast, const Device& headphones, const Device*
     return r;
 }
 
-bool removeDliveDevice()
+bool removeDineDevice()
 {
 #if JUCE_MAC
     const AudioObjectID plugIn = coreAudioPlugIn();
-    const AudioObjectID existing = findDeviceByUid (kDliveUid);
-    if (plugIn == kAudioObjectUnknown || existing == kAudioObjectUnknown) return false;
-    auto destroyAddress = address (kAudioPlugInDestroyAggregateDevice);
-    UInt32 size = sizeof (existing);
-    AudioObjectID target = existing;
-    return AudioObjectGetPropertyData (plugIn, &destroyAddress, 0, nullptr, &size, &target) == noErr;
+    if (plugIn == kAudioObjectUnknown) return false;
+    bool removed = false;
+    for (const char* uid : { kDineUid, kFormerUid })
+    {
+        const AudioObjectID existing = findDeviceByUid (uid);
+        if (existing == kAudioObjectUnknown) continue;
+        auto destroyAddress = address (kAudioPlugInDestroyAggregateDevice);
+        UInt32 size = sizeof (existing);
+        AudioObjectID target = existing;
+        removed = AudioObjectGetPropertyData (plugIn, &destroyAddress, 0, nullptr, &size, &target) == noErr || removed;
+    }
+    return removed;
 #else
     return false;
 #endif
@@ -339,11 +349,11 @@ void openAudioMidiSetup()
 
 juce::StringArray manualSteps()
 {
-    return { "Open Audio MIDI Setup (DLIVE can open it for you).",
+    return { "Open Audio MIDI Setup (DINE can open it for you).",
              "Press + at the bottom left and choose Create Aggregate Device.",
              "Tick your console's device first, then the interface your headphones are in.",
              "Tick Drift Correction on the interface - not on the console.",
-             "Come back to DLIVE and choose the new device here." };
+             "Come back to DINE and choose the new device here." };
 }
 
 } // namespace MonitorDevice

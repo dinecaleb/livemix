@@ -1,6 +1,6 @@
-// DLIVE sample replacement, Phase 0: what the trigger does on real drum microphones.
+// DINE sample replacement, Phase 0: what the trigger does on real drum microphones.
 //
-//   dlive_trigger_check <folder of takes> [seconds=60] [offsetSeconds=30] [name filter]
+//   dine_trigger_check <folder of takes> [seconds=60] [offsetSeconds=30] [name filter]
 //
 // Every file whose name says kick, snare or tom is read for the window, measured the way a
 // listen measures it, fitted the way TUNE fits the stage (the threshold between the bleed and
@@ -67,7 +67,7 @@ int main (int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::printf ("usage: dlive_trigger_check <folder of takes> [seconds=60] [offsetSeconds=30] [name filter]\n");
+        std::printf ("usage: dine_trigger_check <folder of takes> [seconds=60] [offsetSeconds=30] [name filter]\n");
         return 2;
     }
     const juce::File folder { juce::String (argv[1]) };

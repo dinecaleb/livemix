@@ -8,11 +8,11 @@
 namespace livemix
 {
 
-// Capacity of one DLIVE mix. Everything on the audio thread is sized from these.
-inline constexpr int kMaxInputs = 64;   // device input channels DLIVE will look at
+// Capacity of one DINE mix. Everything on the audio thread is sized from these.
+inline constexpr int kMaxInputs = 64;   // device input channels DINE will look at
 inline constexpr int kMaxStrips = 64;   // assigned inputs (a stereo pair is one strip)
 
-// THE GROUP BUSES DLIVE builds on its own. The user never creates them.
+// THE GROUP BUSES DINE builds on its own. The user never creates them.
 //
 // Each one exists because an operator has to be able to find it and move it without touching
 // the others. SPEECH never sits inside the voices: a preaching microphone is levelled, muted
@@ -56,7 +56,7 @@ inline constexpr MixBus mixBusInDisplayOrder (int i) noexcept
     return (i >= 0 && i < int (MixBus::Master)) ? kMixBusDisplayOrder[size_t (i)] : MixBus::Master;
 }
 
-// The effect returns DLIVE builds on its own. Each is one FxChain fed by sends.
+// The effect returns DINE builds on its own. Each is one FxChain fed by sends.
 enum class FxSlot : int { VocalPlate = 0, VocalDelay, BgvHall, SnarePlate, DrumRoom, Count };
 
 inline constexpr std::array<const char*, int (FxSlot::Count)> kFxSlotNames {
@@ -107,7 +107,7 @@ struct InputAssignment
     // over the tests keep working.
     std::string icon;
     // THE FOCAL SOURCE. The one the mix is built around: the lead singer during a song, and
-    // whoever the engineer says otherwise. DLIVE picks the loudest lead vocal it heard when
+    // whoever the engineer says otherwise. DINE picks the loudest lead vocal it heard when
     // nobody has said, which is right most Sundays and wrong on the one where the second
     // microphone is the one being sung into. Pinning it here settles it: that source is the
     // reference every balance, every hierarchy rule and every pocket cut is measured against,
@@ -122,7 +122,7 @@ struct InputAssignment
 // ---------------------------------------------------------------------------
 // HOW LOUD THE FINISHED MIX SHOULD BE
 //
-// This is the single number that decides whether a DLIVE master sounds competitive next to
+// This is the single number that decides whether a DINE master sounds competitive next to
 // everything else the viewer watches, and until it was made visible it was a hidden
 // consequence of the purpose: "Church Broadcast" quietly meant EBU R128, which is -23 LUFS,
 // which is about 9 dB under what a stream is expected to be. That is the correct number for
@@ -141,7 +141,7 @@ enum class DeliveryLoudness : int
     Podcast,           // -18 LUFS: spoken word and archive
     Streaming,         // -16 LUFS: the conservative streaming number
     StreamingLoud,     // -14 LUFS: YouTube, Spotify, Facebook - what a church stream competes with
-    Loud,              // -12 LUFS: as loud as DLIVE will aim without squashing the mix
+    Loud,              // -12 LUFS: as loud as DINE will aim without squashing the mix
     Count
 };
 
@@ -183,7 +183,7 @@ inline const char* deliveryLoudnessHint (DeliveryLoudness d) noexcept
         case DeliveryLoudness::Podcast:       return "Spoken word and archive: plenty of headroom, easy to listen to for an hour.";
         case DeliveryLoudness::Streaming:     return "Safe for every platform. A little under what most channels sit at.";
         case DeliveryLoudness::StreamingLoud: return "What YouTube, Facebook and Spotify normalise to. The right answer for most churches.";
-        case DeliveryLoudness::Loud:          return "As far as DLIVE will push without squashing the mix. Use when a stream has to cut through.";
+        case DeliveryLoudness::Loud:          return "As far as DINE will push without squashing the mix. Use when a stream has to cut through.";
         case DeliveryLoudness::FromPurpose:
         case DeliveryLoudness::Count:
         default:                              return "Whatever the mix's purpose asks for.";
@@ -317,7 +317,7 @@ inline std::vector<int> matchInputs (const MixSession& previous, const MixSessio
 }
 
 // Whether an input is a strip on the console. An input with no source said (a multitrack file
-// DLIVE could not name), one with no device channel, and a finished mix are listed but never
+// DINE could not name), one with no device channel, and a finished mix are listed but never
 // processed - so an input's place in the list and its strip on the console are two different
 // numbers whenever one of those sits above it. RoutingGraph::build decides by this, and so must
 // everything that turns one into the other (stripsOfInputs).

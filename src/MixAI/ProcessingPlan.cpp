@@ -90,7 +90,7 @@ int ProcessingPlan::countClamped() const noexcept
 json::Value ProcessingPlan::toJson() const
 {
     auto v = json::Value::object();
-    v.set ("schema", "dlive.processingPlan");
+    v.set ("schema", "dine.processingPlan");
     v.set ("schemaVersion", schemaVersion);
     v.set ("valid", valid);
     v.set ("summary", summary);

@@ -114,7 +114,7 @@ namespace
         return best;
     }
 
-    // ---- Characters of space, and what DLIVE can really build -----------------------------
+    // ---- Characters of space, and what DINE can really build -----------------------------
     struct CharacterRecipe
     {
         const char* word;
@@ -124,7 +124,7 @@ namespace
         const char* note;
     };
 
-    // Everything here is built out of the reverb DLIVE actually has. A recipe is not a preset:
+    // Everything here is built out of the reverb DINE actually has. A recipe is not a preset:
     // it is a direction the running return is shaped in, from wherever the profile left it.
     const CharacterRecipe* recipeFor (const std::string& wordIn)
     {
@@ -134,16 +134,16 @@ namespace
             { "room",    ResolutionStatus::Exact,         -20.0f, -0.35f,   0.0f,   5.0f,  15.0f,  0.0f,  0.0f,    0.0f, "" },
             { "ambient", ResolutionStatus::Exact,          25.0f,  0.35f,  10.0f,  10.0f, -15.0f,  0.0f, -0.5f,    0.0f, "" },
             { "chamber", ResolutionStatus::Approximated,    5.0f,  0.10f,  12.0f,  10.0f,   5.0f,  0.0f, -0.5f,    0.0f,
-              "DLIVE has no chamber algorithm. Built from the plate engine with more damping and earlier reflections, which gets close." },
+              "DINE has no chamber algorithm. Built from the plate engine with more damping and earlier reflections, which gets close." },
             { "spring",  ResolutionStatus::Approximated,  -25.0f, -0.30f,  -5.0f,  15.0f,   5.0f, 35.0f, -1.0f,  220.0f,
-              "DLIVE has no spring reverb. Built from the plate engine: short, band-limited and modulated, which is most of what a spring does. "
+              "DINE has no spring reverb. Built from the plate engine: short, band-limited and modulated, which is most of what a spring does. "
               "It will not have a spring's boing." },
             { "gated",   ResolutionStatus::Unsupported,     0.0f,  0.00f,   0.0f,   0.0f,   0.0f,  0.0f,  0.0f,    0.0f,
-              "A gated reverb needs a gate across the return, which DLIVE does not have." },
+              "A gated reverb needs a gate across the return, which DINE does not have." },
             { "shimmer", ResolutionStatus::Unsupported,     0.0f,  0.00f,   0.0f,   0.0f,   0.0f,  0.0f,  0.0f,    0.0f,
-              "A shimmer reverb needs pitch shifting inside the tail, which DLIVE does not have." },
+              "A shimmer reverb needs pitch shifting inside the tail, which DINE does not have." },
             { "reverse", ResolutionStatus::Unsupported,     0.0f,  0.00f,   0.0f,   0.0f,   0.0f,  0.0f,  0.0f,    0.0f,
-              "A reverse reverb needs the tail played backwards, which DLIVE does not have." },
+              "A reverse reverb needs the tail played backwards, which DINE does not have." },
         };
         std::string word = wordIn;
         for (auto& c : word) c = char (std::tolower (static_cast<unsigned char> (c)));
@@ -217,7 +217,7 @@ ProcessingPlan resolve (const MixIntent& intent, const Context& ctx)
                         if (recipe == nullptr)
                         {
                             sink.unsupported ("A \"" + o.character + "\" character was asked for on " + caps->name
-                                              + ", and DLIVE has nothing that resembles it. Nothing was changed.");
+                                              + ", and DINE has nothing that resembles it. Nothing was changed.");
                             break;
                         }
                         if (recipe->resolution == ResolutionStatus::Unsupported)
@@ -396,7 +396,7 @@ ProcessingPlan resolve (const MixIntent& intent, const Context& ctx)
                         sink.unsupported (caps->name + " has no corrective EQ, so no room could be made for " + other->name + ".");
                         break;
                     }
-                    // DLIVE has no dynamic EQ. A narrow static cut in the other source's pocket
+                    // DINE has no dynamic EQ. A narrow static cut in the other source's pocket
                     // does most of the same work here, and the honest word for that is
                     // "approximated" - a static cut is there when the voice is not.
                     const int band = pickCorrectiveBand (channel, rel.vocalPocketHz);
@@ -407,7 +407,7 @@ ProcessingPlan resolve (const MixIntent& intent, const Context& ctx)
                         ? caps->name + " stepped back " + fmtDb (cut) + " at " + fmtHz (rel.vocalPocketHz)
                           + " so " + other->name + " has that band to itself."
                         : why;
-                    const char* note = "DLIVE has no dynamic EQ, so this is a narrow static cut in the pocket. It is there "
+                    const char* note = "DINE has no dynamic EQ, so this is a narrow static cut in the pocket. It is there "
                                        "whether or not the other source is, which is why it is small.";
                     auto w = [&] (const char* field, float value, float previous)
                     {
@@ -488,7 +488,7 @@ ProcessingPlan resolve (const MixIntent& intent, const Context& ctx)
                 {
                     if (! ctx.registry->supports (target.target, DspProcessor::DeEsser))
                     {
-                        sink.unsupported (caps->name + " has no de-esser: DLIVE fits one to voices, and this is not one.");
+                        sink.unsupported (caps->name + " has no de-esser: DINE fits one to voices, and this is not one.");
                         break;
                     }
                     const float range = std::clamp (channel.deEssRangeDb + ranges.deEssRangeDb * o.strength, 0.0f, 12.0f);

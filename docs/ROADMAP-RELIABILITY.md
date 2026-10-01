@@ -1,4 +1,4 @@
-# DLIVE: reliability, workflow and intelligence — the four phases
+# DINE: reliability, workflow and intelligence — the four phases
 
 The plan agreed on 2026-09-27, written down here so it is a thing you can open rather than a message in a
 chat. One phase per working session, in order; a phase does not start until the one before it is merged and
@@ -22,7 +22,7 @@ its tests pass. Each phase writes what it learned into `docs/`, so the next one 
 Canonical state, the save bug, device independence, autosave, recovery, persistent history.
 
 The full audit and the contract are in `docs/SESSION-STATE.md`; the state flow is in
-`docs/ARCHITECTURE-DLIVE.md` **§11**; the invariant is in `CLAUDE.md`.
+`docs/ARCHITECTURE-DINE.md` **§11**; the invariant is in `CLAUDE.md`.
 
 What landed, in four commits:
 
@@ -64,17 +64,17 @@ All six landed on 2026-09-28, one commit each except the two that share MixContr
 
 | Item | What it is | Commit |
 | --- | --- | --- |
-| Larger text | Standard / Large / Larger through `Dine::setTextScale`; the words grow, no metric does | `DLIVE: the words get bigger, the console does not` |
-| 5 Device hot-plug | `AudioHost` listens; `deviceReturned()` is the rule; the session is untouched | `DLIVE: a console pulled out mid-service comes back by itself` |
-| 1 Tune Bus | `MixPage::ScopeSheet` — the whole mix / one group / some channels, and `startTuneStrips` | `DLIVE: TUNE asks what to tune, and a solo says so from everywhere` |
+| Larger text | Standard / Large / Larger through `Dine::setTextScale`; the words grow, no metric does | `DINE: the words get bigger, the console does not` |
+| 5 Device hot-plug | `AudioHost` listens; `deviceReturned()` is the rule; the session is untouched | `DINE: a console pulled out mid-service comes back by itself` |
+| 1 Tune Bus | `MixPage::ScopeSheet` — the whole mix / one group / some channels, and `startTuneStrips` | `DINE: TUNE asks what to tune, and a solo says so from everywhere` |
 | 2 Solo you cannot miss | `MainView::SoloBar`, on every workspace, from `MixController::getSoloed()` | (the same commit) |
-| 3 Group strip | the group buses pinned beside the master on MIXER; LIVE already had its tiles | `DLIVE MIXER: the groups are where you can reach them, not seven screens away` |
-| 4 ROUTING | `app/ui/RoutingPage` — five sections, reached deliberately, covered under LIVE SAFE | `DLIVE: set-up is one workspace now, and LIVE SAFE covers it` |
+| 3 Group strip | the group buses pinned beside the master on MIXER; LIVE already had its tiles | `DINE MIXER: the groups are where you can reach them, not seven screens away` |
+| 4 ROUTING | `app/ui/RoutingPage` — five sections, reached deliberately, covered under LIVE SAFE | `DINE: set-up is one workspace now, and LIVE SAFE covers it` |
 
 **What it cost along the way**, all of it found by looking at the PNGs rather than by reading layout code, and
 all of it wrong before the change that exposed it: TUNE's pad card measured its body two pixels wider than it
 drew it; the Inspector drew a caption and a value into one row on fixed widths; LIVE left a monitoring chip
-lying where the last layout put it; the tooltip was measured in JUCE's face and drawn in DLIVE's; a pinned
+lying where the last layout put it; the tooltip was measured in JUCE's face and drawn in DINE's; a pinned
 mixer strip was laid out in the page's coordinates in LIST view and drawn over the tool row. A button now
 gives up its padding and then its type size before it gives up a letter, because "M..." on a key says nothing.
 
@@ -82,8 +82,8 @@ gives up its padding and then its type size before it gives up a letter, because
 three set-up rows left the everyday sidebar for one ROUTING row, and Outputs left its sheet for a section of
 ROUTING. Nothing was removed.
 
-Read `CLAUDE.md`, `docs/SESSION-STATE.md`, `docs/DLIVE-APP.md`, `docs/DLIVE-DESIGN.md`. Every UI change is
-verified with `dlive_ui_snapshots` PNGs. All new state goes through `SessionState`.
+Read `CLAUDE.md`, `docs/SESSION-STATE.md`, `docs/DINE-APP.md`, `docs/DINE-DESIGN.md`. Every UI change is
+verified with `dine_ui_snapshots` PNGs. All new state goes through `SessionState`.
 
 ---
 
@@ -91,7 +91,7 @@ verified with `dlive_ui_snapshots` PNGs. All new state goes through `SessionStat
 
 ## Phase 3 — Mix features
 
-Read `CLAUDE.md`, `docs/SESSION-STATE.md`, `docs/DLIVE-MIX-ENGINEER.md`,
+Read `CLAUDE.md`, `docs/SESSION-STATE.md`, `docs/DINE-MIX-ENGINEER.md`,
 `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md`. New state goes through `SessionState` and appears in the round-trip
 test; each change that alters the sound creates a Mix history checkpoint.
 

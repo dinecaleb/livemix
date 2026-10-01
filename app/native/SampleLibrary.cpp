@@ -1,4 +1,5 @@
 #include "SampleLibrary.h"
+#include "AppFolders.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <algorithm>
 #include <map>
@@ -43,8 +44,8 @@ juce::File SampleLibrary::builtInFolder()
     const auto app = juce::File::getSpecialLocation (juce::File::currentApplicationFile);
     const auto bundled = app.getChildFile ("Contents").getChildFile ("Resources").getChildFile ("Samples");
     if (bundled.isDirectory()) return bundled;
-#ifdef DLIVE_SAMPLES_DIR
-    const juce::File source (DLIVE_SAMPLES_DIR);
+#ifdef DINE_SAMPLES_DIR
+    const juce::File source (DINE_SAMPLES_DIR);
     if (source.isDirectory()) return source;
 #endif
     return {};
@@ -52,7 +53,7 @@ juce::File SampleLibrary::builtInFolder()
 
 juce::File SampleLibrary::userFolder()
 {
-    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("DLIVE").getChildFile ("Samples");
+    return AppFolders::music().getChildFile ("Samples");
 }
 
 void SampleLibrary::setSessionFolder (const juce::File& folder)
@@ -67,14 +68,14 @@ juce::String SampleLibrary::importSound (RoleFamily family, const juce::File& so
     if (folderWord.isEmpty()) { problem = "Only the kick, the snare and the toms can play a sound."; return {}; }
     if (! source.existsAsFile()) { problem = "That file is not there any more."; return {}; }
 
-    // It is decoded before it is copied: a file DLIVE cannot play is not something to put in
+    // It is decoded before it is copied: a file DINE cannot play is not something to put in
     // somebody's session folder and find out about on a Sunday.
     {
         std::vector<float> mono;
         double rate = 0.0;
         if (! decodeHit (source, mono, rate) || mono.empty())
         {
-            problem = source.getFileName() + " is not audio DLIVE can read, or it is silent.";
+            problem = source.getFileName() + " is not audio DINE can read, or it is silent.";
             return {};
         }
     }
@@ -148,7 +149,7 @@ void SampleLibrary::loadFolder (const juce::File& root, bool builtIn)
         {
             int& slot = counts[size_t (family)];
             // The cap is real, so it is said out loud: a ninth kick used to be dropped in
-            // silence, which is indistinguishable from a file DLIVE could not read.
+            // silence, which is indistinguishable from a file DINE could not read.
             if (slot >= SampleBankTable::kSounds) { ++dropped; continue; }
             const SampleBank* bank = findOrDecode (entry);
             if (bank == nullptr) continue;
@@ -161,7 +162,7 @@ void SampleLibrary::loadFolder (const juce::File& root, bool builtIn)
         }
         if (dropped > 0)
             overflowed.add (juce::String (familyDir.getFullPathName()) + " holds " + juce::String (entries.size())
-                            + " sounds and DLIVE plays " + juce::String (SampleBankTable::kSounds)
+                            + " sounds and DINE plays " + juce::String (SampleBankTable::kSounds)
                             + " of each drum, so " + juce::String (dropped)
                             + " of them are not loaded. Take some out of the folder to reach the rest.");
     }

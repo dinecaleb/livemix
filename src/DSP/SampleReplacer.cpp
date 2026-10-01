@@ -141,7 +141,7 @@ void SampleReplacer::apply (AudioBlockView& postGate) noexcept
     // the blend, and at 100 % it is a drum that has gone silent. On a Sunday.
     //
     // So a stage with nothing to play is a no-op: the block passes through bit-identical, the
-    // same as switching the stage off. The session still says which sound it wants and DLIVE
+    // same as switching the stage off. The session still says which sound it wants and DINE
     // still says out loud that it could not find it; what it does not do is take the kick away.
     if (player.getBank() == nullptr) return;
 

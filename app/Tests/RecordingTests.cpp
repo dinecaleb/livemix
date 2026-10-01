@@ -16,7 +16,7 @@ namespace
 
     juce::File scratch (const char* name)
     {
-        auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dlive-tests").getChildFile (name);
+        auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dine-tests").getChildFile (name);
         f.deleteRecursively();
         f.createDirectory();
         return f;
@@ -156,7 +156,7 @@ TEST_CASE ("Recorder: a take says when it began, so it lines up with the video b
     std::unique_ptr<juce::AudioFormatReader> r (formats.createReaderFor (folder.getChildFile (takes[0].fileName)));
     REQUIRE (r != nullptr);
     CHECK (r->metadataValues[juce::WavAudioFormat::bwavOriginationDate].isNotEmpty());
-    CHECK (r->metadataValues[juce::WavAudioFormat::bwavOriginator] == "DLIVE");
+    CHECK (r->metadataValues[juce::WavAudioFormat::bwavOriginator] == "DINE");
     CHECK (r->metadataValues[juce::WavAudioFormat::bwavTimeReference].isNotEmpty());
     folder.deleteRecursively();
 }

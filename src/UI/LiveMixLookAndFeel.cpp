@@ -21,7 +21,7 @@ juce::Typeface::Ptr LiveMixLookAndFeel::typefaceFor (int family, int weight)
     // Shares the cache owned by the live LookAndFeel(s); only creates one if none exists yet.
     // family 0 = UI label (Barlow), 1 = body (Barlow), 2 = mono (IBM Plex Mono), 3 = Inter.
     // Labels share Barlow with body so tracking-heavy condensed caps don't dominate. Inter is
-    // DLIVE's own face (the v3 design); the six plug-ins never ask for it.
+    // DINE's own face (the v3 design); the six plug-ins never ask for it.
     juce::SharedResourcePointer<TypefaceCache> cache;
     const int w = weight >= 600 ? 2 : weight >= 500 ? 1 : 0;
     auto& slot = cache->faces[family][w];

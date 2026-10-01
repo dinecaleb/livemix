@@ -208,7 +208,7 @@ juce::String ExportSheet::whatNote() const
 
 juce::File ExportSheet::destination() const
 {
-    juce::String name = services.currentSessionName().isNotEmpty() ? services.currentSessionName() : "DLIVE mix";
+    juce::String name = services.currentSessionName().isNotEmpty() ? services.currentSessionName() : "DINE mix";
     if (range == Range::BetweenMarkers)
     {
         const auto& project = services.daw().getProject();

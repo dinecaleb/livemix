@@ -68,7 +68,7 @@ namespace
     float sine (double hz, long long i, float amp) { return amp * float (std::sin (2.0 * M_PI * hz * double (i) / kSr)); }
 }
 
-TEST_CASE ("Engine: a clip is read at the converter, not after DLIVE's digital gain")
+TEST_CASE ("Engine: a clip is read at the converter, not after DINE's digital gain")
 {
     Rig r (service());
     auto p = r.e.getAppliedParameters();

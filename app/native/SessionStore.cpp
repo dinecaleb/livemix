@@ -1,4 +1,5 @@
 #include "SessionStore.h"
+#include "AppFolders.h"
 #include <cmath>
 #include "Core/DbUtils.h"
 #include "FX/FxParameterSpecs.h"
@@ -350,7 +351,7 @@ namespace
         return juce::var (obj);
     }
 
-    // Every group bus DLIVE has added went in immediately before MASTER - SPEECH in version 3,
+    // Every group bus DINE has added went in immediately before MASTER - SPEECH in version 3,
     // AMBIENCE in version 4, LEAD in version 6 - because everything that walks the groups uses
     // `b < Master`. That moves the master's stored index each time and nothing else's, which is
     // the whole of the migration: a stored slot is the same group it always was, except the
@@ -381,7 +382,7 @@ namespace
         auto* obj = v.getDynamicObject();
         if (obj == nullptr) return;
         m.numStrips = juce::jlimit (0, kMaxStrips, int (obj->getProperty ("numStrips")));
-        // A session saved before DLIVE measured the tempo keeps the engine default until the next Tune Mix.
+        // A session saved before DINE measured the tempo keeps the engine default until the next Tune Mix.
         if (obj->hasProperty ("tempoBpm")) m.tempoBpm = juce::jlimit (20.0f, 300.0f, float (double (obj->getProperty ("tempoBpm"))));
         if (auto* strips = obj->getProperty ("strips").getArray())
             for (int i = 0; i < std::min (m.numStrips, strips->size()); ++i)
@@ -594,7 +595,7 @@ namespace SessionStore
 juce::var toVar (const Document& d)
 {
     auto* obj = new juce::DynamicObject();
-    obj->setProperty ("app", "DLIVE");
+    obj->setProperty ("app", "DINE");
     obj->setProperty ("version", kVersion);
     obj->setProperty ("name", juce::String (d.session.name));
     obj->setProperty ("profile", int (d.session.profile));
@@ -698,12 +699,18 @@ juce::var toVar (const Document& d)
     return juce::var (obj);
 }
 
+// Sessions written before the app was renamed say DLIVE, or before that DINELIVE: they are
+// the same document, and the next save stamps them DINE.
+static bool isOurs (const juce::String& app)
+{
+    return app == "DINE" || app == "DLIVE" || app == "DINELIVE";
+}
+
 bool fromVar (const juce::var& v, Document& d)
 {
     auto* obj = v.getDynamicObject();
-    // Sessions written before the app was renamed say DINELIVE; they are the same document.
     const juce::String app = obj == nullptr ? juce::String() : obj->getProperty ("app").toString();
-    if (app != "DLIVE" && app != "DINELIVE") return false;
+    if (! isOurs (app)) return false;
     const int fileVersion = obj->hasProperty ("version") ? int (obj->getProperty ("version")) : 1;
     d = Document {};
     d.session.name = obj->getProperty ("name").toString().toStdString();
@@ -812,15 +819,15 @@ bool fromVar (const juce::var& v, Document& d)
 
 juce::File sessionsFolder()
 {
-    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("DLIVE");
+    return AppFolders::music();
 }
 
 juce::File legacyFolder()
 {
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("DLIVE").getChildFile ("Sessions");
+    return AppFolders::library().getChildFile ("Sessions");
 }
 
-// Where the app kept its sessions before it was called DLIVE. Nothing is written here and
+// Where the app kept its sessions before it was called DINE. Nothing is written here and
 // nothing is moved: the sessions that are in it are simply still listed and still open.
 juce::File formerNameFolder()
 {
@@ -835,7 +842,7 @@ juce::File folderFor (const juce::String& sessionName)
 juce::File fileFor (const juce::String& sessionName)
 {
     const auto folder = folderFor (sessionName);
-    return folder.getChildFile (folder.getFileName() + ".dlive.json");
+    return folder.getChildFile (folder.getFileName() + ".dine.json");
 }
 
 juce::String unusedName (const juce::String& base)
@@ -896,7 +903,7 @@ Summary summarise (const juce::File& file)
     auto* obj = v.getDynamicObject();
     if (obj == nullptr) return out;
     const juce::String app = obj->getProperty ("app").toString();
-    if (app != "DLIVE" && app != "DINELIVE") return out;
+    if (! isOurs (app)) return out;
     out.valid = true;
     out.profile = styleProfileFromIndex (int (obj->getProperty ("profile")));
     const int purpose = int (obj->getProperty ("purpose"));
@@ -931,7 +938,8 @@ juce::Array<Listing> listSessions()
     auto add = [&out] (const juce::File& f)
     {
         Listing L;
-        L.name = f.getFileName().upToLastOccurrenceOf (".dlive.json", false, false)
+        L.name = f.getFileName().upToLastOccurrenceOf (".dine.json", false, false)
+                                .upToLastOccurrenceOf (".dlive.json", false, false)
                                 .upToLastOccurrenceOf (".dinelive.json", false, false);
         if (L.name.isEmpty()) L.name = f.getFileNameWithoutExtension();
         L.file = f;
@@ -940,7 +948,7 @@ juce::Array<Listing> listSessions()
     };
     // Both extensions are listed: a session saved under the old name opens as it is, and is
     // written back beside its audio the next time it is saved.
-    const char* patterns[] = { "*.dlive.json", "*.dinelive.json" };
+    const char* patterns[] = { "*.dine.json", "*.dlive.json", "*.dinelive.json" };
     auto scan = [&] (const juce::File& root, bool withSubfolders)
     {
         if (! root.isDirectory()) return;
@@ -957,6 +965,10 @@ juce::Array<Listing> listSessions()
     scan (sessionsFolder(), true);
     scan (formerNameFolder(), true);
     scan (legacyFolder(), false);
+    // The DLIVE folders, only when they could not be moved across (AppFolders::migrateFromDlive):
+    // after a move they are aliases of the DINE ones and would list every session twice.
+    if (! AppFolders::formerMusic().isSymbolicLink()) scan (AppFolders::formerMusic(), true);
+    if (! AppFolders::formerLibrary().isSymbolicLink()) scan (AppFolders::formerLibrary().getChildFile ("Sessions"), false);
     std::sort (out.begin(), out.end(), [] (const Listing& a, const Listing& b) { return a.modified > b.modified; });
     return out;
 }

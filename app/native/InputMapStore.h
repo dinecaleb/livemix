@@ -11,7 +11,7 @@ namespace livemix
 //
 // A church patches the same desk the same way every Sunday: input 1 is the kick, 9 is the
 // bass, 17 is the lead, 18 to 23 are the singers. Rebuilding that by hand for every session
-// is the single most tedious thing DLIVE asks of a volunteer, and it is exactly the kind of
+// is the single most tedious thing DINE asks of a volunteer, and it is exactly the kind of
 // thing a computer should remember.
 //
 // A map is the patch and nothing else: which device channel is what, what it is called, what

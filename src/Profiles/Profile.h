@@ -62,7 +62,7 @@ struct SourceTargets
     float gateMaxRangeDb = 30.0f;      // conservative: expansion, not a hard mute
     float gateDetectorHpfHz = 0.0f;
 
-    // ---- Sample replacement (DLIVE, kick / snare / toms) ----
+    // ---- Sample replacement (DINE, kick / snare / toms) ----
     // The detector's band and mask for this family, the rise a close hit shows, and the blend
     // TUNE sets. TUNE fits the threshold and the sample's level from the listen, and since
     // 2026-09-28 it also switches the stage on for the kick, the snare and the toms when the

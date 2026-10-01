@@ -41,7 +41,7 @@ namespace
         const bool deEss = starts ("deEss");
         const bool width = starts ("width");
         const bool limiter = starts ("limiter");
-        // Sample replacement is DLIVE's (a drum strip in the live mix); no plug-in carries it.
+        // Sample replacement is DINE's (a drum strip in the live mix); no plug-in carries it.
         if (starts ("replace")) return false;
         switch (p)
         {
@@ -98,7 +98,7 @@ namespace
         v.push_back (f (replaceGain, "Sample Level", -60.0f, 12.0f, d.replaceGainDb, "dB"));
         // One entry per slot the sound table holds (SampleBankTable::kSounds). Eight entries
         // here clamped every sound after the eighth back to the eighth the moment
-        // sanitizeChannelParameters met it - on every edit and every open. DLIVE only; no
+        // sanitizeChannelParameters met it - on every edit and every open. DINE only; no
         // plug-in exposes this, so the range can follow the table.
         std::vector<std::string> soundNames;
         for (int n = 1; n <= SampleBankTable::kSounds; ++n) soundNames.push_back ("Sound " + std::to_string (n));

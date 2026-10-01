@@ -8,7 +8,7 @@
 namespace livemix
 {
 
-// The only place DLIVE touches an audio device. Wraps juce::AudioDeviceManager
+// The only place DINE touches an audio device. Wraps juce::AudioDeviceManager
 // (CoreAudio on macOS: Dante Virtual Soundcard, USB consoles and interfaces all appear
 // here) and hands every block to DawEngine, which records the raw inputs, plays the
 // timeline back and mixes. Every output channel the device has (up to kMaxOutputs) is
@@ -31,7 +31,7 @@ public:
     // channels 1-2 and 65-66 open, the feeds address them as 0-1 and 2-3 (see slotForOutputChannel).
     // This is what lets solo reach a pair that sits past sixty-four Dante channels.
     // If the input side will not open - macOS refusing the microphone, a device that will not
-    // give up its inputs - DLIVE opens the output alone rather than refusing, so the session
+    // give up its inputs - DINE opens the output alone rather than refusing, so the session
     // still plays, still mixes and still saves. The returned string is empty in that case too;
     // `state()` says what happened and carries the sentence. A hard failure (no output either)
     // returns the device's own error.
@@ -43,13 +43,13 @@ public:
     //
     // CoreAudio tells JUCE when the device list changes and JUCE tells every device type's
     // listeners; a device that is open and goes away stops the callback. Both arrive on
-    // threads DLIVE does not own, so both only set a flag here and the work happens on the
+    // threads DINE does not own, so both only set a flag here and the work happens on the
     // message thread through AsyncUpdater. What the work is: rescan (JUCE caches the list per
     // device type, so a device that appeared since the last scan does not exist as far as it
     // is concerned), and if the device this session was opened with has come back, open it
     // again exactly as it was opened - same rate, same buffer, same output channels.
     //
-    // DLIVE never opens a device it was not already using. `deviceReturned` in DeviceState.h
+    // DINE never opens a device it was not already using. `deviceReturned` in DeviceState.h
     // is that rule, and it is a pure function so it is tested with no hardware at all.
     //
     // The mix, the assignments and the timeline are untouched by any of this: reopening calls
@@ -61,7 +61,7 @@ public:
     std::function<void (DeviceState)> onDeviceReturned;   // ... and it is open again
     std::function<void()> onDeviceListChanged;            // something was plugged in or pulled out
     // A device with the lost one's name came back, but it is a different unit (its CoreAudio
-    // UID differs): DLIVE does not open it by itself, because its channels are not the
+    // UID differs): DINE does not open it by itself, because its channels are not the
     // session's channels. Said once, with the name.
     std::function<void (juce::String)> onDifferentUnitReturned;
 
@@ -96,7 +96,7 @@ public:
     int getNumOutputChannels() const;
     juce::StringArray getOutputChannelNames() const;   // the open channels' names, in the order the feeds address them
 
-    // CoreAudio has gained or lost a device (DLIVE building its own combined output, an
+    // CoreAudio has gained or lost a device (DINE building its own combined output, an
     // interface plugged in). JUCE caches the device list inside each AudioIODeviceType, so a
     // device that appeared after the last scan does not exist as far as it is concerned -
     // which is why opening one straight after creating it fails with "No such device".

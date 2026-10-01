@@ -13,7 +13,7 @@ a syscall, a file write.
   in a normal build. It goes on the function *type*: after `noexcept`, before `override`.
 - The real-time entry points carry it, on the declaration and the definition:
   `ChannelProcessor::process`, `MixEngine::process`, `ChannelPluginProcessor::processBlock` (every
-  Dine product, `DrumsProcessor` included), `Recorder::write` and DLIVE's audio callback
+  Dine product, `DrumsProcessor` included), `Recorder::write` and DINE's audio callback
   `AudioHost::audioDeviceIOCallbackWithContext`. Everything they call is real-time context: the
   sanitizer checks the whole call tree at run time, so nothing under them needs its own annotation.
 - `-DLIVEMIX_RTSAN=ON` (default OFF) compiles and links every target, JUCE included, with
@@ -31,7 +31,7 @@ LLVM=$(brew --prefix llvm@21)            # or a release tarball from github.com/
 cmake -S . -B build-rtsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
       -DCMAKE_C_COMPILER=$LLVM/bin/clang -DCMAKE_CXX_COMPILER=$LLVM/bin/clang++ \
       -DLIVEMIX_RTSAN=ON -DLIVEMIX_COPY_PLUGIN_AFTER_BUILD=OFF
-cmake --build build-rtsan --target livemix_tests dlive_app_tests livemix_drums_plugin_tests \
+cmake --build build-rtsan --target livemix_tests dine_app_tests livemix_drums_plugin_tests \
       livemix_master_plugin_tests livemix_fx_plugin_tests
 scripts/rtsan.sh build-rtsan
 ```
@@ -39,9 +39,9 @@ scripts/rtsan.sh build-rtsan
 `scripts/rtsan.sh` runs every test executable it finds with `halt_on_error=false`, so one run prints
 every violation rather than the first, and fails if any suite reported one. The tests drive the entry
 points the way a host does, so they are the coverage: `livemix_tests` covers `ChannelProcessor` and
-`MixEngine`, the plug-in suites cover `processBlock`, `dlive_app_tests` covers `Recorder::write` and
+`MixEngine`, the plug-in suites cover `processBlock`, `dine_app_tests` covers `Recorder::write` and
 `DawEngine::processBlock` (everything the audio callback does apart from clearing the outputs). The
-callback itself needs a device: `build-rtsan/app/dlive_device_check 3` from a terminal.
+callback itself needs a device: `build-rtsan/app/dine_device_check 3` from a terminal.
 
 The CI job `RealtimeSanitizer` (`.github/workflows/ci.yml`) does the same on every push and pull
 request with Homebrew's `llvm@21`.

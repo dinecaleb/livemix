@@ -8,7 +8,7 @@ namespace livemix
 {
 
 // ---------------------------------------------------------------------------
-// The DAW side of a DLIVE session: what was recorded, where it sits on the
+// The DAW side of a DINE session: what was recorded, where it sits on the
 // timeline, and how each track behaves while recording.
 //
 // The *mix* side (input gain, fader, pan, mute, solo, sends, processing) lives in
@@ -33,7 +33,7 @@ struct AudioClip
     bool covers (juce::int64 pos) const noexcept { return pos >= start && pos < end(); }
 };
 
-// How a track listens to its live input. DLIVE is a live console before it is a
+// How a track listens to its live input. DINE is a live console before it is a
 // tape machine, so the input is what you hear unless something says otherwise:
 //   Off   - the live input is never heard through this track (recording still captures it)
 //   Input - the live input is always heard

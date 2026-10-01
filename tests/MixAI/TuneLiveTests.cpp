@@ -208,7 +208,7 @@ TEST_CASE ("DspCapabilityRegistry: reports what MixEngine really configures, and
     CHECK (! registry.find (lead, DspProcessor::Limiter)->unavailableBecause.empty());
 
     // A mono source has no stereo image to widen, and a vocal bus is not a kind of source
-    // DLIVE fits a width stage to at all. Both are reported with a reason rather than left
+    // DINE fits a width stage to at all. Both are reported with a reason rather than left
     // out of the table, so nothing keeps asking for a processor that is not coming.
     CHECK (! registry.supports (lead, DspProcessor::Width));
     CHECK (registry.supports (keys, DspProcessor::Width));
@@ -226,7 +226,7 @@ TEST_CASE ("DspCapabilityRegistry: reports what MixEngine really configures, and
     CHECK_NEAR (threshold->minValue, spec->minValue, 1.0e-6f);
     CHECK_NEAR (threshold->maxValue, spec->maxValue, 1.0e-6f);
 
-    // Nothing invented: a processor DLIVE does not have is simply not in the table.
+    // Nothing invented: a processor DINE does not have is simply not in the table.
     CHECK (registry.find (lead, DspProcessor::Count) == nullptr);
     CHECK (dspProcessorFromId ("springReverb") == DspProcessor::Count);
 }
@@ -366,7 +366,7 @@ TEST_CASE ("MixIntent: reads a structured reply and refuses to guess at anything
 }
 
 // ---------------------------------------------------------------------------
-// The resolver: creative within what DLIVE really has, and honest when it is not enough
+// The resolver: creative within what DINE really has, and honest when it is not enough
 // ---------------------------------------------------------------------------
 TEST_CASE ("CapabilityResolver: builds what it can, approximates what it must, refuses the rest")
 {
@@ -406,7 +406,7 @@ TEST_CASE ("CapabilityResolver: builds what it can, approximates what it must, r
         intent.targets.push_back (t);
     }
     {
-        MixTargetIntent t;                                   // a spring reverb DLIVE does not have
+        MixTargetIntent t;                                   // a spring reverb DINE does not have
         t.target = { MixTargetKind::FxSlot, int (FxSlot::VocalPlate) };
         t.objectives.push_back ({ MixObjectiveType::Character, 0.9f, {}, "warm vintage spring", false, false });
         intent.targets.push_back (t);
@@ -428,7 +428,7 @@ TEST_CASE ("CapabilityResolver: builds what it can, approximates what it must, r
         return nullptr;
     };
 
-    // Separation is a real cut in the lead's pocket - and DLIVE has no dynamic EQ, so it says
+    // Separation is a real cut in the lead's pocket - and DINE has no dynamic EQ, so it says
     // the cut is an approximation rather than claiming it only works while the voice is there.
     bool foundCut = false;
     for (const auto& a : plan.actions)
@@ -442,7 +442,7 @@ TEST_CASE ("CapabilityResolver: builds what it can, approximates what it must, r
     }
     CHECK (foundCut);
 
-    // A mono source cannot be widened, and DLIVE says so instead of moving a control that
+    // A mono source cannot be widened, and DINE says so instead of moving a control that
     // would do nothing. The presence request on the same target still lands.
     CHECK (find (MixTargetKind::Strip, lead, "widthAmount") == nullptr);
     CHECK (find (MixTargetKind::Strip, lead, "toneEq3Gain") != nullptr);
@@ -458,7 +458,7 @@ TEST_CASE ("CapabilityResolver: builds what it can, approximates what it must, r
     CHECK (mod->note.find ("spring") != std::string::npos);
     CHECK (mod->value > mod->previousValue);
 
-    // A gated reverb needs a processor DLIVE does not have at all: nothing is applied and the
+    // A gated reverb needs a processor DINE does not have at all: nothing is applied and the
     // reason survives to the user.
     CHECK (find (MixTargetKind::FxSlot, int (FxSlot::BgvHall), "rvDecay") == nullptr);
     bool saidGated = false;
@@ -546,7 +546,7 @@ TEST_CASE ("MixSafetyValidator: clamps what it can justify and refuses what it c
     CHECK (report.rejected >= 6);
     CHECK (! report.notes.empty());
 
-    // Every refusal keeps its reason, so REVIEW CHANGES can show what DLIVE declined to do.
+    // Every refusal keeps its reason, so REVIEW CHANGES can show what DINE declined to do.
     for (const auto& a : checked.actions)
         if (a.status == MixActionStatus::Rejected) CHECK (! a.note.empty());
 
@@ -583,7 +583,7 @@ TEST_CASE ("TUNE LIVE MIX: listen, reason, resolve, validate, apply, verify, ref
 
     TuneLiveCoordinator tune;
     CHECK (tune.getState() == TuneLiveCoordinator::State::Idle);
-    CHECK (tune.getProvider()->getName() == "DLIVE built-in (offline)");
+    CHECK (tune.getProvider()->getName() == "DINE built-in (offline)");
     CHECK (! tune.getProvider()->sendsDataExternally());
 
     tune.beginListening ("test-session");
@@ -643,7 +643,7 @@ TEST_CASE ("TUNE LIVE MIX: listen, reason, resolve, validate, apply, verify, ref
     const auto lines = tune.getReviewLines();
     CHECK (! lines.empty());
     const auto diag = tune.getDiagnostics();
-    CHECK (diag.provider == "DLIVE built-in (offline)");
+    CHECK (diag.provider == "DINE built-in (offline)");
     CHECK (! diag.sentDataExternally);
     CHECK (diag.actionsProposed > 0);
     CHECK (diag.refinementRan);
@@ -720,7 +720,7 @@ TEST_CASE ("TUNE LIVE MIX: cancelling and a broken provider both leave the mix e
 // REPEATABILITY
 //
 // The same band, the same listen and the same settings have to produce the same mix. This
-// is not a nicety: an engineer cannot learn what DLIVE does from a system that answers
+// is not a nicety: an engineer cannot learn what DINE does from a system that answers
 // differently every time it is asked, and cannot trust one in front of a congregation.
 // ---------------------------------------------------------------------------
 
@@ -753,7 +753,7 @@ namespace
             MixObjective o;
             o.type = MixObjectiveType::Presence;
             // A different strength every call: if anything downstream is pinned, it is pinned
-            // because DLIVE pinned it, not because the provider was well behaved.
+            // because DINE pinned it, not because the provider was well behaved.
             o.strength = 0.1f * float (calls);
             t.objectives.push_back (o);
             out.intent.targets.push_back (t);
@@ -914,7 +914,7 @@ TEST_CASE ("Repeatability: TRY ANOTHER MIX is a different question, asked on pur
 // AI MIX CHAT
 //
 // The whole point of the chat is that a sentence becomes a real, bounded, reviewable change
-// rather than written advice. These tests are about the reading: does DLIVE hear what was
+// rather than written advice. These tests are about the reading: does DINE hear what was
 // asked, on the right channel, in the right direction - and does it say so plainly when it
 // did not follow, instead of confidently changing something nobody asked about.
 // ---------------------------------------------------------------------------

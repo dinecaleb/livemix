@@ -34,7 +34,7 @@ struct ChannelParameters
     float gateRatio = 4.0f;
     float gateScHpfHz = 0.0f;   // detector (sidechain) high-pass; < 20 = off. Stops kick/rumble opening tom/snare gates.
 
-    // Sample replacement (DLIVE, drum strips only): a sample blended in on every hit the
+    // Sample replacement (DINE, drum strips only): a sample blended in on every hit the
     // detector finds. The stage sits between the gate and the corrective EQ (DSP/SampleReplacer.h).
     bool replaceEnabled = false;
     float replaceBlend = 0.4f;          // 0..1

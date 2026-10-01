@@ -6,14 +6,14 @@
 namespace livemix
 {
 
-// Local-first, versioned JSON for one DLIVE session. The session itself is SessionState
+// Local-first, versioned JSON for one DINE session. The session itself is SessionState
 // (SessionState.h) - the one owned model - and this file does nothing but write it down and
 // read it back. Sonic profiles and targets are code data, never stored here. House Sound
 // (targets and preferences rather than frozen values) will be a separate, later document.
 //
 // A session is a folder, so the recordings live beside the document:
-//   ~/Music/DLIVE/Sunday Service/Sunday Service.dlive.json
-//   ~/Music/DLIVE/Sunday Service/Audio Files/Kick_001.wav ...
+//   ~/Music/DINE/Sunday Service/Sunday Service.dine.json
+//   ~/Music/DINE/Sunday Service/Audio Files/Kick_001.wav ...
 // Every earlier version still opens; see kVersion.
 namespace SessionStore
 {
@@ -46,7 +46,7 @@ namespace SessionStore
     // What the Sessions library shows about a saved session without opening it: the header
     // fields only. The audio lives beside the document in its own folder and is never
     // walked; the document itself is small, so a library of a hundred services still lists
-    // instantly. `valid` is false for a file that is not a DLIVE session.
+    // instantly. `valid` is false for a file that is not a DINE session.
     struct Summary
     {
         bool valid = false;
@@ -62,10 +62,10 @@ namespace SessionStore
     Summary summarise (const juce::File&);
 
     juce::var toVar (const Document& d);
-    bool fromVar (const juce::var& v, Document& d);   // false when the file is not a DLIVE session
+    bool fromVar (const juce::var& v, Document& d);   // false when the file is not a DINE session
 
-    juce::File sessionsFolder();                        // ~/Music/DLIVE
-    juce::File legacyFolder();                          // ~/Library/Application Support/DLIVE/Sessions (version 1)
+    juce::File sessionsFolder();                        // ~/Music/DINE
+    juce::File legacyFolder();                          // ~/Library/Application Support/DINE/Sessions (version 1)
     juce::File formerNameFolder();                      // ~/Music/DINELIVE, from before the rename: read, never written
     juce::File folderFor (const juce::String& sessionName);
     juce::File fileFor (const juce::String& sessionName);
@@ -78,10 +78,10 @@ namespace SessionStore
     // Written whole or not at all: a temporary file beside the target, flushed to the disk and
     // checked, then renamed over it. False when any byte did not land - a full disk leaves the
     // file that was there, never half of the new one. JUCE's own replaceWithText ignores the
-    // write and renames anyway, which is why nothing in DLIVE that must survive uses it.
+    // write and renames anyway, which is why nothing in DINE that must survive uses it.
     bool writeTextAtomically (const juce::File& target, const juce::String& text);
     bool load (const juce::File& file, Document& d);
-    // Written by a newer DLIVE than this one (its version is above kVersion). Such a file is not
+    // Written by a newer DINE than this one (its version is above kVersion). Such a file is not
     // opened: this build would drop what the newer one added, and the next save would make that
     // loss permanent. The caller says so in a sentence.
     bool savedByNewerBuild (const juce::File& file);

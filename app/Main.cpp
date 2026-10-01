@@ -1,11 +1,12 @@
-// DLIVE: the live recording and broadcast DAW.
-//   Console / interface / Dante -> DLIVE -> OBS / Ecamm / recording
+// DINE: the live recording and broadcast DAW.
+//   Console / interface / Dante -> DINE -> OBS / Ecamm / recording
 // One MixController owns the mix, one DawEngine owns the timeline and the recorder, one
 // AudioHost owns the device, MainView shows one workspace at a time. A session is a folder
 // with its recordings inside; the last one reloads on launch.
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <map>
+#include "native/AppFolders.h"
 #include "native/AudioHost.h"
 #include "native/DawEngine.h"
 #include "native/MixBounce.h"
@@ -26,7 +27,7 @@
 using namespace livemix;
 
 #if JUCE_MAC
-// app/native/WindowChrome.mm: the three macOS window buttons, put inside DLIVE's own toolbar.
+// app/native/WindowChrome.mm: the three macOS window buttons, put inside DINE's own toolbar.
 namespace livemix
 {
     void putWindowButtonsInTheToolbar (juce::Component&);
@@ -35,21 +36,20 @@ namespace livemix
 }
 #endif
 
-// The Supabase project the usage events go to, from the build (-DDLIVE_SUPABASE_URL=...) or,
+// The Supabase project the usage events go to, from the build (-DDINE_SUPABASE_URL=...) or,
 // for a developer, the environment. Neither set: nothing leaves the Mac. docs/ANALYTICS.md.
-#ifndef DLIVE_SUPABASE_URL
- #define DLIVE_SUPABASE_URL ""
+#ifndef DINE_SUPABASE_URL
+ #define DINE_SUPABASE_URL ""
 #endif
-#ifndef DLIVE_SUPABASE_ANON_KEY
- #define DLIVE_SUPABASE_ANON_KEY ""
+#ifndef DINE_SUPABASE_ANON_KEY
+ #define DINE_SUPABASE_ANON_KEY ""
 #endif
 
 namespace
 {
     juce::File lastSessionPointer()
     {
-        return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                   .getChildFile ("DLIVE").getChildFile ("last-session.txt");
+        return AppFolders::library().getChildFile ("last-session.txt");
     }
 
     class HostServices : public AppServices
@@ -137,7 +137,7 @@ namespace
             const auto v = controller.checkLiveSafe (LiveAction::DeviceChange);
             return v.allowed ? juce::String() : juce::String (v.reason);
         }
-        // A device re-opened for DLIVE's own reasons (solo joined or parted, the broadcast moved)
+        // A device re-opened for DINE's own reasons (solo joined or parted, the broadcast moved)
         // keeps the rate and the buffer it was running at. Re-opening at 48 kHz / 64 re-clocked a
         // 44.1 or 96 kHz rig mid-service, split the take, and left a laptop on the smallest buffer.
         double runningRate() const { return host.isOpen() && host.getSampleRate() > 0.0 ? host.getSampleRate() : 48000.0; }
@@ -164,7 +164,7 @@ namespace
         }
 
         // The name every piece of chrome shows. While two devices are joined the open device is
-        // DLIVE's own; what the user picked is the broadcast, and that is what they are told.
+        // DINE's own; what the user picked is the broadcast, and that is what they are told.
         juce::String outputDisplayName() override
         {
             const auto broadcast = broadcastOutputDevice();
@@ -388,11 +388,11 @@ namespace
             if (dawEngine.isRecording())
                 return "Recording is running. Stop recording first - opening another session would close the one it is recording into.";
             if (SessionStore::savedByNewerBuild (file))
-                return "That session was saved by a newer DLIVE. Update DLIVE to open it - opening it here would lose what the newer version added.";
+                return "That session was saved by a newer DINE. Update DINE to open it - opening it here would lose what the newer version added.";
             if (! SessionStore::load (file, state))
             {
                 trackError ("session", "load_failed", true);
-                return "That file is not a DLIVE session.";
+                return "That file is not a DINE session.";
             }
             // WHAT IS OPEN IS SAVED BEFORE ANYTHING REPLACES IT. Opening closes the current
             // session cleanly, and a clean close throws its autosave away - so without this a
@@ -550,7 +550,7 @@ namespace
         // point of doing it here rather than in the UI is that none of them reach the user:
         //
         //   solo on the same device   - it has spare outputs, so solo takes a second pair
-        //   solo on another device    - macOS opens one device at a time, so DLIVE builds the
+        //   solo on another device    - macOS opens one device at a time, so DINE builds the
         //                               combined device, reopens on it, and routes a pair each
         //   solo turned off           - the combined device is removed and the Mac is put back
         //
@@ -561,7 +561,7 @@ namespace
         juce::String broadcastOutputDevice() override
         {
             // While the combined device is open, the broadcast is the device inside it that
-            // the user actually chose - not the one DLIVE built around it.
+            // the user actually chose - not the one DINE built around it.
             return broadcastDevice.isNotEmpty() ? broadcastDevice : host.getOutputDeviceName();
         }
 
@@ -582,7 +582,7 @@ namespace
             const int block = runningBlock();
             // Solo on another pair of the device already open moves only the engineer's listen;
             // anything else re-opens the device the broadcast is playing through.
-            if (wanted != broadcast || MonitorDevice::dliveDeviceExists())
+            if (wanted != broadcast || MonitorDevice::dineDeviceExists())
                 if (const auto locked = deviceChangeLocked(); locked.isNotEmpty()) return { false, locked };
             // The console's own device, taken now: a failed open closes the device and forgets
             // it, and while the built device is open the host's input *is* the built device.
@@ -597,12 +597,12 @@ namespace
                 for (int i = 0; i < juce::jmin (feeds.count, int (kMaxOutputFeeds)); ++i)
                     if (feeds.feeds[size_t (i)].monitor) feeds.feeds[size_t (i)].left = feeds.feeds[size_t (i)].right = -1;
                 controller.setOutputFeeds (feeds);
-                if (MonitorDevice::dliveDeviceExists())
+                if (MonitorDevice::dineDeviceExists())
                 {
                     // Off the combined device *before* it is destroyed, for the same reason.
                     const auto err = openWith (broadcast, input);
                     consoleInputDevice = {};
-                    MonitorDevice::removeDliveDevice();
+                    MonitorDevice::removeDineDevice();
                     host.rescanDevices();
                     if (err.isNotEmpty()) return { false, err };
                 }
@@ -617,7 +617,7 @@ namespace
             {
                 if (numOutputChannels() < 4)
                     return { false, broadcast + " has only one pair of outputs, so there is nowhere separate for "
-                                    "solo to go. Choose a different device - DLIVE will join the two for you." };
+                                    "solo to go. Choose a different device - DINE will join the two for you." };
                 if (const auto* taken = feedUsing (2, 3))
                     return { false, "Outputs 3-4 of " + broadcast + " already carry " + juce::String (outputFeedSourceName (taken->source))
                                     + ". Move that feed under Outputs first, or choose a different device for solo." };
@@ -629,15 +629,15 @@ namespace
                 return { true, "Solo goes to outputs 3-4 of " + broadcast + ". The stream is on 1-2 and never changes." };
             }
 
-            // ---- two devices: DLIVE builds the combined one
+            // ---- two devices: DINE builds the combined one
             if (! MonitorDevice::available())
-                return { false, "This Mac will not let DLIVE join two output devices. "
+                return { false, "This Mac will not let DINE join two output devices. "
                                 "You can make an Aggregate Device yourself in Audio MIDI Setup and choose it above." };
 
             MonitorDevice::Device broadcastDev, soloDev, inputDev;
             for (const auto& d : MonitorDevice::allDevices())
             {
-                if (d.isDliveBuilt) continue;
+                if (d.isDineBuilt) continue;
                 if (d.name == broadcast && d.outputChannels > 0) broadcastDev = d;
                 if (d.name == wanted && d.outputChannels > 0) soloDev = d;
                 if (d.name == input && d.inputChannels > 0) inputDev = d;
@@ -654,7 +654,7 @@ namespace
             // removing the combined device, and if that is the open one, CoreAudio is being
             // asked to delete the interface underneath a running stream. Step back onto the
             // plain broadcast device first.
-            if (MonitorDevice::dliveDeviceExists())
+            if (MonitorDevice::dineDeviceExists())
             {
                 openWith (broadcast, input);
                 consoleInputDevice = {};
@@ -674,7 +674,7 @@ namespace
 
             // The device exists in CoreAudio the moment it is created, but it is published
             // asynchronously and JUCE caches a device list per type - so without waiting for it
-            // and asking again, opening it fails with "No such device" on the device DLIVE has
+            // and asking again, opening it fails with "No such device" on the device DINE has
             // just built. This is the whole reason the first attempt at this did not work.
             const bool appeared = host.waitForOutputDevice (built.deviceName);
             const auto err = appeared ? host.open (built.carriesInput ? built.deviceName : input, built.deviceName, rate, block, channels)
@@ -687,7 +687,7 @@ namespace
                 // It would not open, or came back without the pairs. Leave nothing behind and put
                 // the old device back - waiting for it, because it was just pulled out of a device
                 // that is being destroyed - and say what happened rather than going quiet.
-                MonitorDevice::removeDliveDevice();
+                MonitorDevice::removeDineDevice();
                 consoleInputDevice = {};
                 host.rescanDevices();
                 host.waitForOutputDevice (broadcast);
@@ -730,7 +730,7 @@ namespace
         {
             const auto folder = dawEngine.getProject().folder;
             if (folder == juce::File()) return {};
-            return folder.getChildFile (folder.getFileName() + ".dlive.json");
+            return folder.getChildFile (folder.getFileName() + ".dine.json");
         }
 
     public:
@@ -763,7 +763,7 @@ namespace
             return true;
         }
 
-        // The devices as the engineer chose them, never the one DLIVE built around them.
+        // The devices as the engineer chose them, never the one DINE built around them.
         //
         // While a session is running on a stand-in - it opened with its console unplugged and the
         // mix went to the Mac's speakers - what it asked for is still what it is saved with. The
@@ -798,7 +798,7 @@ namespace
         }
         std::map<juce::String, juce::String> uidCache;
 
-        // The console's own input device. While DLIVE's built device carries the console's
+        // The console's own input device. While DINE's built device carries the console's
         // inputs, the host's input device *is* the built one, and nothing outside this class
         // should ever see that name.
         juce::String consoleInput() const
@@ -875,7 +875,7 @@ namespace
         SessionAutosave autosave;
         int panelWidth = 0;             // TRACKS channel panel; 0 = the page's own default
         // The two devices the user chose. While a combined device is open, the *open* device is
-        // DLIVE's own and these are what the user actually picked; consoleInputDevice is the
+        // DINE's own and these are what the user actually picked; consoleInputDevice is the
         // console's input device while the built device carries it (see consoleInput()).
         juce::String broadcastDevice, soloDevice, consoleInputDevice;
     };
@@ -914,15 +914,17 @@ namespace
     };
 }
 
-class DLiveApplication : public juce::JUCEApplication
+class DineApplication : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return "DLIVE"; }
+    const juce::String getApplicationName() override { return "DINE"; }
     const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
     bool moreThanOneInstanceAllowed() override { return false; }
 
     void initialise (const juce::String&) override
     {
+        // Before anything reads a folder: the DLIVE ones become DINE's (see AppFolders.h).
+        AppFolders::migrateFromDlive();
         // First, so a run that ends badly from here on is one the next launch can report.
         {
             Telemetry::Config tc;
@@ -931,8 +933,8 @@ public:
                 const auto v = juce::SystemStats::getEnvironmentVariable (name, {});
                 return v.isNotEmpty() ? v : juce::String (fallback);
             };
-            tc.url = env ("DLIVE_SUPABASE_URL", DLIVE_SUPABASE_URL);
-            tc.anonKey = env ("DLIVE_SUPABASE_ANON_KEY", DLIVE_SUPABASE_ANON_KEY);
+            tc.url = env ("DINE_SUPABASE_URL", DINE_SUPABASE_URL);
+            tc.anonKey = env ("DINE_SUPABASE_ANON_KEY", DINE_SUPABASE_ANON_KEY);
             tc.folder = lastSessionPointer().getParentDirectory();
             tc.appVersion = getApplicationVersion();
             telemetry = std::make_unique<Telemetry> (std::move (tc));
@@ -991,7 +993,7 @@ public:
         {
             if (window == nullptr) return;
             window->view().showToast ("A " + name + " was plugged in, but it is not the one this session was running on - "
-                                      "it is another unit with the same name. DLIVE has not opened it. If it is the right "
+                                      "it is another unit with the same name. DINE has not opened it. If it is the right "
                                       "one, choose it under Audio device and check the inputs.");
         };
         // Something was plugged in or pulled out. The chrome and the status foot follow the
@@ -1026,7 +1028,7 @@ public:
         }
         if (newer && window != nullptr)
             juce::MessageManager::callAsync ([this] { if (window != nullptr) window->view().showToast (
-                "The last session was saved by a newer DLIVE, so it was not opened. Update DLIVE to open it."); });
+                "The last session was saved by a newer DINE, so it was not opened. Update DINE to open it."); });
 
         if (restored)
         {
@@ -1042,11 +1044,11 @@ public:
                 if (note.isNotEmpty()) window->view().showToast (note);
             };
 
-            // THE MICROPHONE PROMPT, SAID FIRST AND IN DLIVE'S OWN WORDS.
+            // THE MICROPHONE PROMPT, SAID FIRST AND IN DINE'S OWN WORDS.
             //
             // macOS puts its prompt up the moment a process starts listening, and restoring a
             // session starts listening a second after launch - before anybody has asked for
-            // anything and with nothing on screen to explain it. DLIVE reads a console, not the
+            // anything and with nothing on screen to explain it. DINE reads a console, not the
             // room's microphone, but macOS has one switch for every audio input and no way to
             // tell them apart, so the only thing that can be done about it is to say so before
             // it happens. Once: after macOS has an answer this is never seen again.
@@ -1064,7 +1066,7 @@ public:
             else restore (true);
         }
 
-        // DLIVE did not get to say goodbye last time, and the autosave holds work the document
+        // DINE did not get to say goodbye last time, and the autosave holds work the document
         // does not. Asked once, after the window is up, in the words of what was lost rather
         // than in the words of what went wrong.
         if (found.offer)
@@ -1226,7 +1228,7 @@ public:
             else
             {
                 view->showToast ("Recovered, but it could not be saved - check the disk and press Save. "
-                                 "Until it is saved, DLIVE keeps offering it back.");
+                                 "Until it is saved, DINE keeps offering it back.");
             }
         };
         offer.onKeepBoth = [this, view, srv, autosave, document, afterCrash]
@@ -1270,7 +1272,7 @@ public:
     {
         if (dawEngine != nullptr) dawEngine->stop();
         // A clean goodbye: the document is written, and the marker and the autosave go with
-        // it. One that is still there on the next launch is how DLIVE knows it was killed.
+        // it. One that is still there on the next launch is how DINE knows it was killed.
         // A document that could not be written leaves the autosave and the marker where they
         // are, so the next launch offers the work back instead of finding nothing.
         if (services != nullptr)
@@ -1295,7 +1297,7 @@ public:
     {
         if (dawEngine == nullptr || ! dawEngine->isRecording()) { quit(); return; }
 
-        auto* alert = new juce::AlertWindow ("DLIVE is recording",
+        auto* alert = new juce::AlertWindow ("DINE is recording",
                                              "Quitting stops the take and closes the session. Everything recorded so far "
                                              "is written to the session's Audio Files folder and kept on the timeline.",
                                              juce::MessageBoxIconType::NoIcon);
@@ -1319,4 +1321,4 @@ private:
     std::unique_ptr<MainWindow> window;
 };
 
-START_JUCE_APPLICATION (DLiveApplication)
+START_JUCE_APPLICATION (DineApplication)

@@ -1,4 +1,4 @@
-// DLIVE DAW-layer tests: the playhead, the multitrack recorder, timeline playback, the
+// DINE DAW-layer tests: the playhead, the multitrack recorder, timeline playback, the
 // monitoring rule, clip editing and the offline bounce. No device and no UI — the audio
 // callback is played by the test, exactly as AudioHost would.
 #include "TestFramework.h"
@@ -16,6 +16,7 @@
 #include "native/SessionAutosave.h"
 #include "native/DeviceState.h"
 #include "native/InputMapStore.h"
+#include "native/AppFolders.h"
 #include "native/MonitorDevice.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <algorithm>
@@ -44,7 +45,7 @@ namespace
 
     juce::File scratchFolder()
     {
-        auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dlive-tests");
+        auto f = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dine-tests");
         f.createDirectory();
         return f;
     }
@@ -290,7 +291,7 @@ namespace
         out.setPosition (dataSizeAt); out.writeInt (0);
         out.flush();
         Recorder::sidecarFor (wav).replaceWithText (
-            "{\"app\":\"DLIVE\",\"schema\":1,\"track\":" + juce::String (track) + ",\"name\":\"" + name + "\","
+            "{\"app\":\"DINE\",\"schema\":1,\"track\":" + juce::String (track) + ",\"name\":\"" + name + "\","
             "\"sampleRate\":48000.0,\"channels\":" + juce::String (channels) + ",\"bitDepth\":24,"
             "\"timelineStart\":" + juce::String (timelineStart) + ",\"framesWritten\":0}");
     }
@@ -665,7 +666,7 @@ TEST_CASE ("Outputs: the routing survives a save and a reload, and an older sess
     d.outputs.feeds[1].gainDb = -6.0f;
     d.outputs.feeds[1].mono = true;
 
-    const auto file = folder.getChildFile ("outputs.dlive.json");
+    const auto file = folder.getChildFile ("outputs.dine.json");
     CHECK (SessionStore::save (d, file));
 
     SessionStore::Document back;
@@ -680,7 +681,7 @@ TEST_CASE ("Outputs: the routing survives a save and a reload, and an older sess
     // A session written before outputs existed opens on the main pair, not in silence.
     auto older = juce::JSON::parse (file.loadFileAsString());
     if (auto* obj = older.getDynamicObject()) obj->removeProperty ("outputs");
-    const auto olderFile = folder.getChildFile ("older.dlive.json");
+    const auto olderFile = folder.getChildFile ("older.dine.json");
     olderFile.replaceWithText (juce::JSON::toString (older));
     SessionStore::Document legacy;
     CHECK (SessionStore::load (olderFile, legacy));
@@ -706,7 +707,7 @@ TEST_CASE ("SessionStore: the FX group's fader and mute survive, and an older se
     d.mix.fxMute = true;
     d.mix.fx[size_t (FxSlot::VocalDelay)].mute = true;          // one return muted on its own
 
-    const auto file = folder.getChildFile ("fx.dlive.json");
+    const auto file = folder.getChildFile ("fx.dine.json");
     CHECK (SessionStore::save (d, file));
 
     SessionStore::Document back;
@@ -728,7 +729,7 @@ TEST_CASE ("SessionStore: the FX group's fader and mute survive, and an older se
                 for (auto& f : *fx)
                     if (auto* fo = f.getDynamicObject()) fo->removeProperty ("mute");
         }
-    const auto olderFile = folder.getChildFile ("older.dlive.json");
+    const auto olderFile = folder.getChildFile ("older.dine.json");
     olderFile.replaceWithText (juce::JSON::toString (older));
 
     SessionStore::Document legacy;
@@ -754,7 +755,7 @@ TEST_CASE ("SessionStore: the effects switch on one channel is saved, and an old
     d.mix.strips[3].effectsOff = true;                 // the lead, taken out of the plate
     d.mix.strips[3].sendDb[size_t (FxSlot::VocalPlate)] = -7.5f;   // ...with its level kept
 
-    const auto file = folder.getChildFile ("effects.dlive.json");
+    const auto file = folder.getChildFile ("effects.dine.json");
     CHECK (SessionStore::save (d, file));
 
     SessionStore::Document back;
@@ -772,7 +773,7 @@ TEST_CASE ("SessionStore: the effects switch on one channel is saved, and an old
             if (auto* strips = mix->getProperty ("strips").getArray())
                 for (auto& v : *strips)
                     if (auto* so = v.getDynamicObject()) so->removeProperty ("effectsOff");
-    const auto olderFile = folder.getChildFile ("older.dlive.json");
+    const auto olderFile = folder.getChildFile ("older.dine.json");
     olderFile.replaceWithText (juce::JSON::toString (older));
 
     SessionStore::Document legacy;
@@ -803,7 +804,7 @@ TEST_CASE ("SessionStore: a session written before the speech group keeps its ma
     d.outputs.count = 2;
     d.outputs.feeds[1].source = MixBus::Master;
 
-    const auto file = folder.getChildFile ("v2.dlive.json");
+    const auto file = folder.getChildFile ("v2.dine.json");
     CHECK (SessionStore::save (d, file));
 
     // Rewrite the document the way version 2 wrote it: five bus slots, master last.
@@ -821,7 +822,7 @@ TEST_CASE ("SessionStore: a session written before the speech group keeps its ma
         if (auto* feed = feeds->getReference (1).getDynamicObject())
             feed->setProperty ("source", int (MixBus::Count) - 2);   // the old MASTER index
 
-    const auto v2File = folder.getChildFile ("written-as-v2.dlive.json");
+    const auto v2File = folder.getChildFile ("written-as-v2.dine.json");
     v2File.replaceWithText (juce::JSON::toString (v2));
 
     SessionStore::Document back;
@@ -881,7 +882,7 @@ TEST_CASE ("DawEngine: recording an armed track adds it to the timeline as a cli
     controller.prepare (kSr, kBlock);
     daw.prepare (kSr, kBlock);
 
-    // No folder yet: DLIVE says where the audio would go rather than losing it.
+    // No folder yet: DINE says where the audio would go rather than losing it.
     CHECK (daw.startRecording().isNotEmpty());
 
     auto project = daw.getProject();
@@ -955,7 +956,7 @@ TEST_CASE ("SessionStore: the timeline survives the round trip, and a version 1 
     d.project.tracks[1].clips.push_back ({ "Bass", "Bass_001.wav", 4800, 0, 96000, kSr });
     d.project.markers.push_back ({ "Sermon", 240000 });
 
-    const auto file = scratchFolder().getChildFile ("round-trip.dlive.json");
+    const auto file = scratchFolder().getChildFile ("round-trip.dine.json");
     file.deleteFile();
     REQUIRE (SessionStore::save (d, file));
 
@@ -1260,7 +1261,7 @@ TEST_CASE ("MixController: a track's icon is a label too, and it reaches the con
 
 TEST_CASE ("SessionStore: a chosen icon survives the round trip, and an older session has none")
 {
-    const auto file = scratchFolder().getChildFile ("icons.dlive.json");
+    const auto file = scratchFolder().getChildFile ("icons.dine.json");
     file.deleteFile();
 
     SessionStore::Document d;
@@ -1508,13 +1509,13 @@ TEST_CASE ("MixBounce: a loudness target is measured from the render and met by 
 
 TEST_CASE ("SessionStore: sessions are listed from their folders without reading their audio")
 {
-    const auto folder = SessionStore::folderFor ("DliveListTest");
+    const auto folder = SessionStore::folderFor ("DineListTest");
     folder.deleteRecursively();
 
     SessionStore::Document d;
     d.session = band();
-    d.session.name = "DliveListTest";
-    REQUIRE (SessionStore::save (d, SessionStore::fileFor ("DliveListTest")));
+    d.session.name = "DineListTest";
+    REQUIRE (SessionStore::save (d, SessionStore::fileFor ("DineListTest")));
 
     // A big pile of audio beside the document must not slow the list down or confuse it.
     folder.getChildFile ("Audio Files").createDirectory();
@@ -1523,19 +1524,19 @@ TEST_CASE ("SessionStore: sessions are listed from their folders without reading
 
     bool found = false;
     for (const auto& listing : SessionStore::listSessions())
-        if (listing.name == "DliveListTest") { found = true; CHECK (listing.file.existsAsFile()); }
+        if (listing.name == "DineListTest") { found = true; CHECK (listing.file.existsAsFile()); }
     CHECK (found);
     folder.deleteRecursively();
 }
 
 TEST_CASE ("SessionStore: the library reads what a session was for without opening it")
 {
-    const auto folder = SessionStore::folderFor ("DliveSummaryTest");
+    const auto folder = SessionStore::folderFor ("DineSummaryTest");
     folder.deleteRecursively();
 
     SessionStore::Document d;
     d.session = band();
-    d.session.name = "DliveSummaryTest";
+    d.session.name = "DineSummaryTest";
     d.session.profile = StyleProfileId::ModernWorship;
     d.session.purpose = MixPurpose::Livestream;
     d.devices.consoleInput = "Dante Virtual Soundcard";
@@ -1544,7 +1545,7 @@ TEST_CASE ("SessionStore: the library reads what a session was for without openi
     // One track with a take on it, so the library can say the session has been recorded.
     d.project.tracks.resize (d.session.inputs.size());
     d.project.tracks[0].clips.push_back ({ "Kick", "Kick_001.wav", 0, 0, 4800, kSr });
-    const auto file = SessionStore::fileFor ("DliveSummaryTest");
+    const auto file = SessionStore::fileFor ("DineSummaryTest");
     REQUIRE (SessionStore::save (d, file));
 
     const auto s = SessionStore::summarise (file);
@@ -1562,7 +1563,7 @@ TEST_CASE ("SessionStore: the library reads what a session was for without openi
     for (int b = 0; b < int (MixBus::Master); ++b) total += s.perBus[size_t (b)];
     CHECK (total == s.inputs);
 
-    // Anything that is not a DLIVE document says so rather than guessing.
+    // Anything that is not a DINE document says so rather than guessing.
     const auto stray = folder.getChildFile ("notes.json");
     stray.replaceWithText ("{ \"app\": \"Something Else\" }");
     CHECK (! SessionStore::summarise (stray).valid);
@@ -1910,7 +1911,7 @@ TEST_CASE ("Linked faders: LIVE SAFE keeps every member's step small, and the li
     d.project.syncTracks (d.session);
     d.hasMix = true;
     d.mix = c.getKept();
-    const auto file = folder.getChildFile ("linked.dlive.json");
+    const auto file = folder.getChildFile ("linked.dine.json");
     CHECK (SessionStore::save (d, file));
     SessionStore::Document back;
     CHECK (SessionStore::load (file, back));
@@ -1956,7 +1957,7 @@ TEST_CASE ("Input mappings: a patch is saved, listed, applied and exported")
     CHECK (map.numStereo() == 1);
 
     // The document survives a round trip through JSON, source roles and stereo links included.
-    const auto file = folder.getChildFile ("sunday.dlivemap.json");
+    const auto file = folder.getChildFile ("sunday.dinemap.json");
     REQUIRE (InputMapStore::saveAs (map, file));
     InputMap back;
     REQUIRE (InputMapStore::load (file, back));
@@ -2041,7 +2042,7 @@ TEST_CASE ("SessionStore: the delivery loudness, the monitor and the AMBIENCE bu
     d.outputs.feeds[1].right = 3;
     d.trackPanelWidth = 340;
 
-    const auto file = scratchFolder().getChildFile ("delivery.dlive.json");
+    const auto file = scratchFolder().getChildFile ("delivery.dine.json");
     REQUIRE (SessionStore::save (d, file));
     SessionStore::Document back;
     REQUIRE (SessionStore::load (file, back));
@@ -2081,7 +2082,7 @@ TEST_CASE ("SessionStore: a session saved before AMBIENCE existed opens with its
     mix->setProperty ("buses", buses);
 
     auto* doc = new juce::DynamicObject();
-    doc->setProperty ("app", "DLIVE");
+    doc->setProperty ("app", "DINE");
     doc->setProperty ("version", 3);
     doc->setProperty ("name", "Old service");
     doc->setProperty ("purpose", int (MixPurpose::ChurchBroadcast));
@@ -2105,7 +2106,7 @@ TEST_CASE ("SessionStore: a session saved before AMBIENCE existed opens with its
     feeds.add (juce::var (feed));
     doc->setProperty ("outputs", feeds);
 
-    const auto file = scratchFolder().getChildFile ("v3.dlive.json");
+    const auto file = scratchFolder().getChildFile ("v3.dine.json");
     file.replaceWithText (juce::JSON::toString (juce::var (doc), false));
 
     SessionStore::Document back;
@@ -2171,21 +2172,21 @@ TEST_CASE ("Monitoring: the device solo goes to is chosen sensibly, and says so 
     CHECK (! none.valid);
     CHECK (none.problem.contains ("only one output device"));
 
-    // A combined device DLIVE built earlier is never itself a building block, and neither is one
+    // A combined device DINE built earlier is never itself a building block, and neither is one
     // the user built.
     juce::Array<Device> withOurs;
-    withOurs.add ({ "DLIVE Monitoring", "com.dine.dlive.monitoring", 34, true, true });
+    withOurs.add ({ "DINE Monitoring", "com.dine.app.monitoring", 34, true, true });
     withOurs.add ({ "Console", "uid-console", 32, false, false, 32, Kind::Virtual });
     withOurs.add ({ "Theirs", "uid-theirs", 6, true, false });
     withOurs.add ({ "GF340A", "uid-gf", 4, false, false, 2, Kind::Interface });
-    const auto again = MonitorDevice::suggestFrom (withOurs, "DLIVE Monitoring");
+    const auto again = MonitorDevice::suggestFrom (withOurs, "DINE Monitoring");
     REQUIRE (again.valid);
     CHECK (again.broadcast.uid == "uid-console");
     CHECK (again.headphones.uid == "uid-gf");
 }
 
 // ---------------------------------------------------------------------------
-// The channel layout of the device DLIVE builds
+// The channel layout of the device DINE builds
 //
 // What broke with Dante: sixty-four Dante outputs, then the Scarlett at 64-65 - and the host
 // opened the first sixteen channels, so solo pointed at a pair that was never open; and the
@@ -2465,7 +2466,7 @@ TEST_CASE ("SessionState: a session with something in every corner survives capt
     out.samples[0] = { "kick", "Ludwig 24 Soft", false, "Kick/Ludwig 24 Soft.wav" };
     REQUIRE (out.hasMix);
 
-    const auto file = scratchFolder().getChildFile ("canonical.dlive.json");
+    const auto file = scratchFolder().getChildFile ("canonical.dine.json");
     file.deleteFile();
     REQUIRE (SessionStore::save (out, file));
 
@@ -2501,7 +2502,7 @@ TEST_CASE ("SessionState: a session with no audio device open has a whole mix, a
     REQUIRE (out.hasMix);                      // the gate used to be `isPrepared() && ...`
     CHECK (out.mix.numStrips == 4);
 
-    const auto file = scratchFolder().getChildFile ("offline.dlive.json");
+    const auto file = scratchFolder().getChildFile ("offline.dine.json");
     file.deleteFile();
     REQUIRE (SessionStore::save (out, file));
     SessionState back;
@@ -2520,11 +2521,11 @@ TEST_CASE ("SessionState: a session with no audio device open has a whole mix, a
 
 TEST_CASE ("SessionState: opening a session without its console, saving, and opening it again with one loses nothing")
 {
-    // The bug this is here for: unplug the interface, launch DLIVE (the last session reloads),
+    // The bug this is here for: unplug the interface, launch DINE (the last session reloads),
     // quit. shutdown() always saves, `hasMix` was gated on a device being open, and the
     // fallback that should have covered it could not run - so the tuned mix, the scenes, the
     // reference and the track history were erased from the file by launching and quitting.
-    const auto file = scratchFolder().getChildFile ("unplugged.dlive.json");
+    const auto file = scratchFolder().getChildFile ("unplugged.dine.json");
     file.deleteFile();
     {
         FullSession withDevice (true);
@@ -2700,7 +2701,7 @@ namespace
     }
 }
 
-TEST_CASE ("SessionStore: a document from every version DLIVE has ever written still opens")
+TEST_CASE ("SessionStore: a document from every version DINE has ever written still opens")
 {
     FullSession live (true);
     auto state = captureSession (live.controller, live.daw, kDevices, 260);
@@ -2876,7 +2877,7 @@ TEST_CASE ("SessionState: every change to the session moves its revision, and no
     }
 
     // And reading it does not. A page that draws thirty times a second must not look like a
-    // change, or DLIVE would write the session file thirty times a second for ever.
+    // change, or DINE would write the session file thirty times a second for ever.
     const auto quiet = at();
     (void) live.controller.getKept();
     (void) live.controller.getRunning();
@@ -3033,16 +3034,16 @@ namespace
 TEST_CASE ("Autosave: the session is written beside the document, whole, from a worker thread")
 {
     const auto folder = autosaveScratch();
-    const auto document = folder.getChildFile ("Sunday.dlive.json");
+    const auto document = folder.getChildFile ("Sunday.dine.json");
 
     FullSession live (true);
     const auto state = captureSession (live.controller, live.daw, kDevices, 260);
 
     SessionAutosave autosave;
     autosave.open (document);
-    // Open means open: the marker is what tells the next launch DLIVE was killed rather than closed.
+    // Open means open: the marker is what tells the next launch DINE was killed rather than closed.
     CHECK (SessionAutosave::markerFor (document).existsAsFile());
-    CHECK (SessionAutosave::autosaveFor (document).getFileName() == "Sunday.dlive.autosave.json");
+    CHECK (SessionAutosave::autosaveFor (document).getFileName() == "Sunday.dine.autosave.json");
 
     autosave.note (state, true);
     REQUIRE (waitForIdle (autosave));
@@ -3063,7 +3064,7 @@ TEST_CASE ("Autosave: the session is written beside the document, whole, from a 
 TEST_CASE ("Autosave: a knob drag is one write, and a milestone does not wait")
 {
     const auto folder = autosaveScratch();
-    const auto document = folder.getChildFile ("Quiet.dlive.json");
+    const auto document = folder.getChildFile ("Quiet.dine.json");
     FullSession live (true);
     live.daw.setLiveSafe (false);      // this is about the writing, not about the lock's step limits
 
@@ -3096,7 +3097,7 @@ TEST_CASE ("Autosave: a knob drag is one write, and a milestone does not wait")
 TEST_CASE ("Autosave: a crash is offered back, a clean quit is not, and neither is a crash that lost nothing")
 {
     const auto folder = autosaveScratch();
-    const auto document = folder.getChildFile ("Service.dlive.json");
+    const auto document = folder.getChildFile ("Service.dine.json");
     FullSession live (true);
     live.daw.setLiveSafe (false);
 
@@ -3112,12 +3113,12 @@ TEST_CASE ("Autosave: a crash is offered back, a clean quit is not, and neither 
         live.controller.setBusMute (MixBus::Ambience, true);
         autosave.note (captureSession (live.controller, live.daw, kDevices, 260), true);
         REQUIRE (waitForIdle (autosave));
-        // ...and DLIVE never gets to closeCleanly(). The marker stays.
+        // ...and DINE never gets to closeCleanly(). The marker stays.
     }
 
     const auto found = SessionAutosave::check (document);
     REQUIRE (found.offer);
-    CHECK (found.sentence.startsWith ("DLIVE found work from "));
+    CHECK (found.sentence.startsWith ("DINE found work from "));
     CHECK (found.sentence.endsWith (" that was not saved."));
     CHECK (found.when > found.documentWhen);
 
@@ -3162,7 +3163,7 @@ TEST_CASE ("Autosave: the work offered back survives everything that happens bef
     // session it reopens is the *document*: its first change is autosaved over the file that
     // held the crash's work. What is offered has to be out of that file's way by then.
     const auto folder = autosaveScratch();
-    const auto document = folder.getChildFile ("Crash.dlive.json");
+    const auto document = folder.getChildFile ("Crash.dine.json");
     FullSession live (true);
     live.daw.setLiveSafe (false);
 
@@ -3189,7 +3190,7 @@ TEST_CASE ("Autosave: the work offered back survives everything that happens bef
         autosave.open (document);
         autosave.note (reopened, true);
         REQUIRE (waitForIdle (autosave));
-        // ... and DLIVE is quit with the question never answered. Quitting writes the
+        // ... and DINE is quit with the question never answered. Quitting writes the
         // document, so it is now newer than the work that is owed.
         autosave.flush();
         juce::Thread::sleep (1100);
@@ -3220,7 +3221,7 @@ TEST_CASE ("Autosave: a half-written file never replaces a good one")
     // The write lands by renaming a temporary file, so a reader either sees the session that
     // was there before or the whole of the new one - never the middle of a JSON document.
     const auto folder = autosaveScratch();
-    const auto document = folder.getChildFile ("Atomic.dlive.json");
+    const auto document = folder.getChildFile ("Atomic.dine.json");
     FullSession live (true);
 
     SessionAutosave autosave;
@@ -3250,15 +3251,15 @@ TEST_CASE ("Autosave: a half-written file never replaces a good one")
 TEST_CASE ("SessionStore: a save that does not land says so, and leaves the file that was there")
 {
     // JUCE's replaceWithText ignores the write and renames anyway, so a full disk could leave
-    // a truncated document behind a "saved". The write DLIVE uses answers for every byte.
+    // a truncated document behind a "saved". The write DINE uses answers for every byte.
     const auto folder = autosaveScratch();
-    const auto document = folder.getChildFile ("Sunday.dlive.json");
+    const auto document = folder.getChildFile ("Sunday.dine.json");
     REQUIRE (SessionStore::writeTextAtomically (document, "{\"first\": 1}"));
 
     // A folder nothing may write into stands in for a disk that has stopped taking data.
     REQUIRE (folder.setReadOnly (true, false));
     CHECK (! SessionStore::writeTextAtomically (document, "{\"second\": 2}"));
-    CHECK (! SessionStore::writeTextAtomically (folder.getChildFile ("Other.dlive.json"), "{}"));
+    CHECK (! SessionStore::writeTextAtomically (folder.getChildFile ("Other.dine.json"), "{}"));
     CHECK (document.loadFileAsString() == "{\"first\": 1}");
 
     // ...and the autosave says it is failing until a write lands again.
@@ -3368,7 +3369,7 @@ TEST_CASE ("Mix history: it survives the session, and it is refused onto a diffe
     REQUIRE (before.size() >= 2);
 
     auto state = captureSession (live.controller, live.daw, kDevices, 0);
-    const auto file = scratchFolder().getChildFile ("history.dlive.json");
+    const auto file = scratchFolder().getChildFile ("history.dine.json");
     file.deleteFile();
     REQUIRE (SessionStore::save (state, file));
     SessionState back;
@@ -3448,7 +3449,7 @@ TEST_CASE ("Mix history: it is bounded by what it costs, and a tune outlives the
 
 TEST_CASE ("Devices: every state has a sentence, and \"no audio devices\" is only said when there are none")
 {
-    // The whole point of naming the states: "No audio devices" used to be DLIVE's answer to
+    // The whole point of naming the states: "No audio devices" used to be DINE's answer to
     // four different situations, and the one it was most often wrong about is the console
     // being plugged in with macOS refusing the microphone.
     DeviceState nothing;
@@ -3538,7 +3539,7 @@ TEST_CASE ("Devices: a console pulled out comes back by itself, and only that co
     gone.input = "Dante Virtual Soundcard";
     gone.output = "Dante Virtual Soundcard";
 
-    // Still gone: nothing happens, and DLIVE says so rather than sitting silent.
+    // Still gone: nothing happens, and DINE says so rather than sitting silent.
     CHECK (! deviceReturned (gone, nothing, nothing).reopen);
     CHECK (deviceSentence (gone, true).contains ("opens it again by itself"));
     CHECK (deviceLostSentence (gone, false).contains ("Dante Virtual Soundcard"));
@@ -3583,7 +3584,7 @@ TEST_CASE ("Devices: a console pulled out comes back by itself, and only that co
         d.input = "Dante Virtual Soundcard";
         d.output = "Dante Virtual Soundcard";
         CHECK_MESSAGE (! deviceReturned (d, consoleIn, consoleOut).reopen,
-                       std::string ("DLIVE would open a device by itself from the state ")
+                       std::string ("DINE would open a device by itself from the state ")
                            + deviceStageName (DeviceStage (i)));
     }
 }
@@ -3600,7 +3601,7 @@ TEST_CASE ("Devices: a session opens, edits and saves with no device at all")
     CHECK (offline.controller.getGraph().numStrips() == 4);           // ...and a whole console
 
     // Reading a strip the engine does not have is silent, not a crash: the pages draw a
-    // channel DLIVE is not yet playing, and draw it quiet.
+    // channel DINE is not yet playing, and draw it quiet.
     for (int i = 0; i < offline.controller.getGraph().numStrips(); ++i)
         CHECK (offline.controller.getEngine().getStrip (i).getOutputMeter().getMaxPeakDb() < -100.0f);
 
@@ -3611,7 +3612,7 @@ TEST_CASE ("Devices: a session opens, edits and saves with no device at all")
     CHECK (offline.controller.getScene (2).kept);
     CHECK (! offline.controller.getCheckpoints().empty());
 
-    const auto file = scratchFolder().getChildFile ("nodevice.dlive.json");
+    const auto file = scratchFolder().getChildFile ("nodevice.dine.json");
     file.deleteFile();
     REQUIRE (SessionStore::save (captureSession (offline.controller, offline.daw, kDevices, 0), file));
     SessionState back;
@@ -3871,7 +3872,7 @@ TEST_CASE ("SessionStore: a session saved before LEAD existed opens with its mas
     mix->setProperty ("buses", buses);
 
     auto* doc = new juce::DynamicObject();
-    doc->setProperty ("app", "DLIVE");
+    doc->setProperty ("app", "DINE");
     doc->setProperty ("version", 5);
     doc->setProperty ("name", "Last Sunday");
     doc->setProperty ("purpose", int (MixPurpose::ChurchBroadcast));
@@ -3900,7 +3901,7 @@ TEST_CASE ("SessionStore: a session saved before LEAD existed opens with its mas
     feeds.add (juce::var (feed));
     doc->setProperty ("outputs", feeds);
 
-    const auto file = scratchFolder().getChildFile ("v5.dlive.json");
+    const auto file = scratchFolder().getChildFile ("v5.dine.json");
     file.replaceWithText (juce::JSON::toString (juce::var (doc), false));
 
     SessionStore::Document back;
@@ -3932,7 +3933,7 @@ TEST_CASE ("SessionStore: LEAD and BGV survive the round trip as two groups")
     s.controller.setBusFader (MixBus::Vocals, -4.5f);
     s.controller.setBusMute (MixBus::Vocals, true);
 
-    const auto file = scratchFolder().getChildFile ("lead.dlive.json");
+    const auto file = scratchFolder().getChildFile ("lead.dine.json");
     file.deleteFile();
     REQUIRE (SessionStore::save (captureSession (s.controller, s.daw, kDevices, 0), file));
     SessionStore::Document back;
@@ -3956,7 +3957,7 @@ TEST_CASE ("SessionStore: a favourite and what it sounded like survive the round
     // A fingerprint with something in it, whether or not this fixture has listened.
     CHECK (s.controller.numFavourites() == 1);
 
-    const auto file = scratchFolder().getChildFile ("favourites.dlive.json");
+    const auto file = scratchFolder().getChildFile ("favourites.dine.json");
     file.deleteFile();
     REQUIRE (SessionStore::save (captureSession (s.controller, s.daw, kDevices, 0), file));
     SessionStore::Document back;
@@ -3983,7 +3984,7 @@ TEST_CASE ("SessionStore: a favourite and what it sounded like survive the round
 TEST_CASE ("Autosave: a mix that never stops moving is still written, within ten seconds")
 {
     const auto folder = autosaveScratch();
-    const auto document = folder.getChildFile ("Moving.dlive.json");
+    const auto document = folder.getChildFile ("Moving.dine.json");
     FullSession live (true);
     SessionAutosave autosave;
     autosave.open (document);
@@ -4004,10 +4005,10 @@ TEST_CASE ("Autosave: a mix that never stops moving is still written, within ten
     folder.deleteRecursively();
 }
 
-TEST_CASE ("SessionStore: a session from a newer DLIVE is not opened, and says why")
+TEST_CASE ("SessionStore: a session from a newer DINE is not opened, and says why")
 {
     const auto folder = autosaveScratch();
-    const auto file = folder.getChildFile ("Future.dlive.json");
+    const auto file = folder.getChildFile ("Future.dine.json");
     FullSession live (true);
     REQUIRE (SessionStore::save (captureSession (live.controller, live.daw, kDevices, 0), file));
     CHECK (! SessionStore::savedByNewerBuild (file));
@@ -4165,4 +4166,39 @@ TEST_CASE ("Rearranging tracks: every strip keeps its own mix when an input has 
         if (name == "Keys") CHECK (std::abs (fader - (-7.0f)) < 0.01f);
         if (name == "Lead") CHECK (std::abs (fader - (-3.0f)) < 0.01f);
     }
+}
+
+TEST_CASE ("The rename: a session saved by DLIVE opens, and the old folder moves across with an alias left behind")
+{
+    // A document stamped by the app under its old name is the same document.
+    SessionStore::Document d;
+    d.session = band();
+    d.project.syncTracks (d.session);
+    const auto file = scratchFolder().getChildFile ("old-name.dlive.json");
+    REQUIRE (SessionStore::save (d, file));
+    file.replaceWithText (file.loadFileAsString().replace ("\"DINE\"", "\"DLIVE\""));
+    REQUIRE (file.loadFileAsString().contains ("\"DLIVE\""));
+    SessionStore::Document back;
+    REQUIRE (SessionStore::load (file, back));
+    CHECK (back.session.inputs.size() == d.session.inputs.size());
+    file.deleteFile();
+
+    // The folder: moved whole, an alias where it was, so an absolute path into it still resolves.
+    const auto root = scratchFolder().getChildFile ("rename");
+    root.deleteRecursively();
+    const auto from = root.getChildFile ("DLIVE"), to = root.getChildFile ("DINE");
+    REQUIRE (from.getChildFile ("Sunday").createDirectory());
+    REQUIRE (from.getChildFile ("Sunday").getChildFile ("kick.wav").replaceWithText ("audio"));
+    REQUIRE (AppFolders::moveAcross (from, to));
+    CHECK (to.getChildFile ("Sunday").getChildFile ("kick.wav").existsAsFile());
+    CHECK (from.isSymbolicLink());
+    CHECK (juce::File (from.getFullPathName() + "/Sunday/kick.wav").loadFileAsString() == "audio");
+
+    // Run again, or with both folders present: nothing moves and nothing is lost.
+    CHECK (! AppFolders::moveAcross (from, to));
+    const auto other = root.getChildFile ("Other");
+    REQUIRE (other.createDirectory());
+    CHECK (! AppFolders::moveAcross (other, to));
+    CHECK (other.isDirectory());
+    root.deleteRecursively();
 }

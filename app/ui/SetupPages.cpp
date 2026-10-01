@@ -254,7 +254,7 @@ public:
             parts.add (mixPurposeName (it.summary.purpose));
             parts.add (styleProfileName (it.summary.profile));
         }
-        else parts.add ("Not a DLIVE session");
+        else parts.add ("Not a DINE session");
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.0f));
         Dine::drawText (g, parts.joinIntoString ("  " + juce::String (Glyph::dot()) + "  "), text,
@@ -424,7 +424,7 @@ void SessionsPage::paint (juce::Graphics& g)
     r.removeFromTop (2);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (13.0f));
-    Dine::drawText (g, "Sessions live in ~/Music/DLIVE. The audio stays in its own folder.",
+    Dine::drawText (g, "Sessions live in ~/Music/DINE. The audio stays in its own folder.",
                     r.removeFromTop (18), juce::Justification::centredLeft, true);
 
     // the filter track behind the two chips
@@ -455,7 +455,7 @@ void SessionsPage::paint (juce::Graphics& g)
         empty.removeFromTop (6);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        Dine::drawFittedText (g, items.empty() ? "Start a new session and it is saved into ~/Music/DLIVE as you work."
+        Dine::drawFittedText (g, items.empty() ? "Start a new session and it is saved into ~/Music/DINE as you work."
                                                : "Try a different word, or switch the filter off.",
                               empty.removeFromTop (34), juce::Justification::topLeft, 2);
         return;
@@ -823,7 +823,7 @@ void DevicePage::paint (juce::Graphics& g)
         r.removeFromTop (2);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        Dine::drawText (g, "Pick the device your console reaches DLIVE through. Nothing about the mix changes here.",
+        Dine::drawText (g, "Pick the device your console reaches DINE through. Nothing about the mix changes here.",
                         r.removeFromTop (18).withWidth (juce::jmin (r.getWidth(), 700)), juce::Justification::centredLeft, true);
     }
 
@@ -1045,7 +1045,7 @@ public:
         addAndMakeVisible (suggest);
         suggest.setIcon (Dine::Icon::UpDown);
         suggest.setPadX (3);
-        suggest.setTooltip ("Names DLIVE can suggest for this input.");
+        suggest.setTooltip ("Names DINE can suggest for this input.");
         suggest.onClick = [this] { page.showNameMenu (input, suggest); };
 
         addAndMakeVisible (source);
@@ -2292,7 +2292,7 @@ void PurposePage::paint (juce::Graphics& g)
     const auto L = layout();
     drawSetupHead (g, L.head, "Purpose and sound",
                    "What the mix is for and what it should sound like. Changing either changes nothing until the next TUNE MIX.");
-    drawSetupFooter (g, getLocalBounds(), "DLIVE listens for about thirty seconds, then sets the whole mix.",
+    drawSetupFooter (g, getLocalBounds(), "DINE listens for about thirty seconds, then sets the whole mix.",
                      continueButton.getWidth() + backButton.getWidth() + 10);
 }
 
@@ -2321,7 +2321,7 @@ void PurposePage::paintBody (juce::Graphics& g)
     main.removeFromTop (18);
     g.setColour (Dine::ink2);
     g.setFont (Dine::text (13.0f));
-    Dine::drawFittedText (g, "DLIVE will land the mix at " + lufs (target.targetLufs) + ", never letting it peak past "
+    Dine::drawFittedText (g, "DINE will land the mix at " + lufs (target.targetLufs) + ", never letting it peak past "
                           + dbtp (target.truePeakCeilingDb) + ", and tune every group toward "
                           + juce::String (styleProfileName (session.profile)) + ". Purpose and sound can be switched mid-service: "
                           "the next tune follows the new one, and anything you moved by hand is kept.",

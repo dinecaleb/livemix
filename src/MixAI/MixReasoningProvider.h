@@ -13,7 +13,7 @@ namespace livemix
 {
 
 // Everything a reasoning provider is allowed to see: the structured description of the mix
-// and the list of tools DLIVE really has. No audio, no session file, no keys, no device.
+// and the list of tools DINE really has. No audio, no session file, no keys, no device.
 // A provider that ever needs more than this has to say so through sendsDataExternally()
 // and be given consent first.
 struct MixReasoningRequest
@@ -24,13 +24,13 @@ struct MixReasoningRequest
     // reads this, because matching a name in a sentence against what is really on the console
     // has to be exact ("the sax" can only mean a saxophone that is actually assigned).
     DspCapabilityRegistry registry;
-    std::string instructions;                 // how a DLIVE mix engineer is expected to behave
+    std::string instructions;                 // how a DINE mix engineer is expected to behave
     std::string userRequest;                  // "make the drums bigger" - empty for a plain Tune
 
     // ---- Repeatability ----
     //
     // The same band, the same listen and the same session must produce the same mix. Anything
-    // else is unusable in a professional room: an engineer cannot learn what DLIVE does if it
+    // else is unusable in a professional room: an engineer cannot learn what DINE does if it
     // does something different every time. So every request carries the fingerprint of the
     // mix it is about as an explicit seed, and providers are required to ask for the least
     // random answer their model can give.
@@ -69,7 +69,7 @@ struct MixReasoningResponse
 
 // WHAT SHOULD THE MIX SOUND LIKE.
 //
-// One interface, three futures: a cloud model, a DLIVE model running locally, and the
+// One interface, three futures: a cloud model, a DINE model running locally, and the
 // deterministic one below that needs neither. Nothing above this line knows which is in use.
 class MixReasoningProvider
 {
@@ -140,7 +140,7 @@ private:
 class LocalMixReasoningProvider final : public MixReasoningProvider
 {
 public:
-    std::string getName() const override { return "DLIVE built-in (offline)"; }
+    std::string getName() const override { return "DINE built-in (offline)"; }
     bool isAvailable() const override { return true; }
     bool sendsDataExternally() const override { return false; }
     MixReasoningResponse reason (const MixReasoningRequest&, const std::atomic<bool>&) override;

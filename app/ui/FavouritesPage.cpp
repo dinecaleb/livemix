@@ -76,7 +76,7 @@ public:
         {
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (12.5f));
-            Dine::drawFittedText (g, "This mix was kept before DLIVE had listened to anything, so there is nothing "
+            Dine::drawFittedText (g, "This mix was kept before DINE had listened to anything, so there is nothing "
                                      "measured to aim at. Mark it again once it has been tuned.",
                                   inner.removeFromTop (60), juce::Justification::topLeft, 3);
             return;
@@ -281,7 +281,7 @@ void FavouritesPage::paint (juce::Graphics& g)
         r.removeFromTop (60);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        Dine::drawFittedText (g, "Nothing is marked yet. When a mix sounds right, mark it: DLIVE keeps the whole mix "
+        Dine::drawFittedText (g, "Nothing is marked yet. When a mix sounds right, mark it: DINE keeps the whole mix "
                                  "and what it measured, and a later tune can be aimed at it.",
                               r.removeFromTop (48).withWidth (juce::jmin (620, r.getWidth())),
                               juce::Justification::topLeft, 2);

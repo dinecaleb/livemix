@@ -1,4 +1,5 @@
 #include "InputMapStore.h"
+#include "AppFolders.h"
 #include "SessionStore.h"
 
 namespace livemix
@@ -17,13 +18,12 @@ namespace InputMapStore
 
 juce::File folder()
 {
-    return juce::File::getSpecialLocation (juce::File::userMusicDirectory)
-               .getChildFile ("DLIVE").getChildFile ("Input Maps");
+    return AppFolders::music().getChildFile ("Input Maps");
 }
 
 juce::File fileFor (const juce::String& mapName)
 {
-    return folder().getChildFile (legalName (mapName) + ".dlivemap.json");
+    return folder().getChildFile (legalName (mapName) + ".dinemap.json");
 }
 
 InputMap fromSession (const MixSession& s, const juce::String& name, const juce::String& deviceName,
@@ -45,7 +45,7 @@ InputMap fromSession (const MixSession& s, const juce::String& name, const juce:
 juce::var toVar (const InputMap& m)
 {
     auto* obj = new juce::DynamicObject();
-    obj->setProperty ("app", "DLIVE");
+    obj->setProperty ("app", "DINE");
     obj->setProperty ("kind", "inputMap");
     obj->setProperty ("schema", InputMap::kSchemaVersion);
     obj->setProperty ("name", m.name);
@@ -131,7 +131,8 @@ bool load (const juce::File& file, InputMap& m)
     if (! file.existsAsFile()) return false;
     if (! fromVar (juce::JSON::parse (file), m)) return false;
     m.modified = file.getLastModificationTime();
-    if (m.name.isEmpty()) m.name = file.getFileNameWithoutExtension().upToLastOccurrenceOf (".dlivemap", false, false);
+    if (m.name.isEmpty()) m.name = file.getFileNameWithoutExtension().upToLastOccurrenceOf (".dinemap", false, false)
+                                                                  .upToLastOccurrenceOf (".dlivemap", false, false);
     return true;
 }
 
@@ -140,7 +141,8 @@ juce::Array<Listing> list()
     juce::Array<Listing> out;
     const auto dir = folder();
     if (! dir.isDirectory()) return out;
-    for (const auto& file : dir.findChildFiles (juce::File::findFiles, false, "*.dlivemap.json"))
+    // A map saved while the app was called DLIVE is listed and loads as it is.
+    for (const auto& file : dir.findChildFiles (juce::File::findFiles, false, "*.dinemap.json;*.dlivemap.json"))
     {
         InputMap m;
         if (! load (file, m)) continue;
@@ -264,7 +266,7 @@ ApplyResult apply (const InputMap& m, const MixSession& current, int availableIn
                               + " a device channel another input in this map has already taken. "
                               "The later one is switched off; put it right on the INPUTS page.");
     if (availableInputs <= 0)
-        r.problems.push_back ("No audio device is open, so DLIVE cannot check that these channels exist. "
+        r.problems.push_back ("No audio device is open, so DINE cannot check that these channels exist. "
                               "Open the device and check the INPUTS page before the service.");
 
     return r;

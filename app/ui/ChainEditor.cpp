@@ -1808,7 +1808,7 @@ void ChainEditor::refresh()
     edited = stageEdited (selected);
     const bool live = ! bypassed && (stageOn || ! s.isOn);
 
-    // WHO SET THIS STAGE, in the design's one line under the title. It is DLIVE that set it,
+    // WHO SET THIS STAGE, in the design's one line under the title. It is DINE that set it,
     // and a hand edit says so in the same place rather than in a badge somewhere else.
     if (bypassed)               { provenance = "BYPASS is on - nothing in the chain is running."; badgeTint = Dine::warn; }
     else if (edited)            { provenance = "Hand-edited"; badgeTint = Dine::monitor; }
@@ -2184,7 +2184,7 @@ void SignalPath::paint (juce::Graphics& g)
 
         auto r = chip.reduced (10, 0);
         auto lamp = r.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat();
-        // THE LAMP IS A READING, NOT A SWITCH. It says where the setting came from - DLIVE's,
+        // THE LAMP IS A READING, NOT A SWITCH. It says where the setting came from - DINE's,
         // a hand edit - and an empty ring says the stage is out of the chain. Nothing on this
         // row is two controls in one place: the whole chip opens the stage, and Off | On at the
         // top of the card is what switches it.

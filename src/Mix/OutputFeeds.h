@@ -6,7 +6,7 @@ namespace livemix
 {
 
 inline constexpr int kMaxOutputFeeds = 4;      // main, cue, and two more: enough for a service
-inline constexpr int kMaxOutputs = 16;         // device output channels DLIVE will feed (8 stereo pairs)
+inline constexpr int kMaxOutputs = 16;         // device output channels DINE will feed (8 stereo pairs)
 
 // One stereo destination on the open output device: which pair of device channels it
 // leaves by, what it carries, and how loud. A feed is *monitoring*, not mix: changing one

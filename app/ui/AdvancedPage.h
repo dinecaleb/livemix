@@ -89,7 +89,7 @@ private:
     int trailWidth() const noexcept { return trailShown ? kTrailW : Dine::Metric::panelTab; }
 
     static constexpr int kRailW     = Dine::Metric::chanRail;   // the channel rail: 180, the design's
-    static constexpr int kTrailW    = Dine::Metric::trail;      // what DLIVE did: 280
+    static constexpr int kTrailW    = Dine::Metric::trail;      // what DINE did: 280
     static constexpr int kRailHeadH = 42;
 
     MixController& controller;

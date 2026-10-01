@@ -1,35 +1,35 @@
-# DLIVE: the standalone mixing application and its offline tools. Everything here is a
+# DINE: the standalone mixing application and its offline tools. Everything here is a
 # host around the engine (src/, no JUCE); the engine never depends on this directory.
 
-# dlive_mix_stems: the vertical-slice success test. Loads a folder of recorded stems,
+# dine_mix_stems: the vertical-slice success test. Loads a folder of recorded stems,
 # assigns them by file name, builds the automatic routing, listens (Tune Mix) and renders
 # RAW / BEFORE / AFTER stereo mixes so the result can be heard. See app/Tools/MixStems.cpp.
-add_executable(dlive_mix_stems Tools/MixStems.cpp native/ReferenceAudio.cpp)
-target_link_libraries(dlive_mix_stems PRIVATE
+add_executable(dine_mix_stems Tools/MixStems.cpp native/ReferenceAudio.cpp)
+target_link_libraries(dine_mix_stems PRIVATE
     livemix_engine
     juce::juce_audio_formats
     juce::juce_audio_basics
     juce::juce_core
     juce::juce_recommended_config_flags)
-target_compile_definitions(dlive_mix_stems PRIVATE
+target_compile_definitions(dine_mix_stems PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
     JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
-target_include_directories(dlive_mix_stems PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(dine_mix_stems PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
 
-# dlive_trigger_check: sample replacement's Phase 0 - the trigger over real drum takes, fitted
+# dine_trigger_check: sample replacement's Phase 0 - the trigger over real drum takes, fitted
 # as TUNE fits it, reporting hits, levels, gaps and coincidences. See app/Tools/TriggerCheck.cpp.
-add_executable(dlive_trigger_check Tools/TriggerCheck.cpp)
-target_link_libraries(dlive_trigger_check PRIVATE livemix_engine juce::juce_audio_formats juce::juce_audio_basics juce::juce_core juce::juce_recommended_config_flags)
-target_compile_definitions(dlive_trigger_check PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
-target_include_directories(dlive_trigger_check PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+add_executable(dine_trigger_check Tools/TriggerCheck.cpp)
+target_link_libraries(dine_trigger_check PRIVATE livemix_engine juce::juce_audio_formats juce::juce_audio_basics juce::juce_core juce::juce_recommended_config_flags)
+target_compile_definitions(dine_trigger_check PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
+target_include_directories(dine_trigger_check PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
 
 # ---------------------------------------------------------------------------
-# DLIVE standalone application (JUCE GUI app) and its headless UI snapshot tool.
+# DINE standalone application (JUCE GUI app) and its headless UI snapshot tool.
 # The UI code is shared by both targets; only the entry point and the device host differ.
 # ---------------------------------------------------------------------------
 # The application layer with no device in it: the mix controller, the DAW (transport,
 # recorder, timeline player), the session document, import and offline bounce.
-set(DLIVE_APP_SOURCES
+set(DINE_APP_SOURCES
     native/MixController.cpp
     native/OpenAiMixProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/Intelligence/AISettings.cpp
@@ -50,18 +50,18 @@ set(DLIVE_APP_SOURCES
     native/ReferenceAudio.cpp
     native/SampleLibrary.cpp)
 
-# dlive_mix_compare: a session finished by hand against a fresh TUNE MIX of the same audio -
+# dine_mix_compare: a session finished by hand against a fresh TUNE MIX of the same audio -
 # where every channel and group lands against the lead in each, and the masters' tone.
 # See app/Tools/MixCompare.cpp.
-add_executable(dlive_mix_compare Tools/MixCompare.cpp ${DLIVE_APP_SOURCES})
-target_include_directories(dlive_mix_compare PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
-target_compile_definitions(dlive_mix_compare PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
-    JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 DLIVE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
-target_link_libraries(dlive_mix_compare PRIVATE livemix_engine juce::juce_core juce::juce_audio_formats
+add_executable(dine_mix_compare Tools/MixCompare.cpp ${DINE_APP_SOURCES})
+target_include_directories(dine_mix_compare PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(dine_mix_compare PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+    JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 DINE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
+target_link_libraries(dine_mix_compare PRIVATE livemix_engine juce::juce_core juce::juce_audio_formats
     juce::juce_audio_basics juce::juce_events juce::juce_recommended_config_flags)
 
-set(DLIVE_UI_SOURCES
-    ${DLIVE_APP_SOURCES}
+set(DINE_UI_SOURCES
+    ${DINE_APP_SOURCES}
     ui/AppTheme.cpp
     ui/SetupPages.cpp
     ui/FavouritesPage.cpp
@@ -91,99 +91,99 @@ set(DLIVE_UI_SOURCES
     ${CMAKE_SOURCE_DIR}/src/UI/Widgets.cpp
     ${CMAKE_SOURCE_DIR}/src/UI/MeterComponent.cpp)
 
-set(DLIVE_DEFINES
+set(DINE_DEFINES
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0
     JUCE_MODAL_LOOPS_PERMITTED=1)
 
-set(DLIVE_LIBS
+set(DINE_LIBS
     livemix_engine LiveMixFonts
     juce::juce_audio_devices juce::juce_audio_utils juce::juce_audio_processors juce::juce_audio_formats
     juce::juce_gui_basics juce::juce_gui_extra)
 
-juce_add_gui_app(DLive
-    PRODUCT_NAME "DLIVE"
+juce_add_gui_app(DineApp
+    PRODUCT_NAME "DINE"
     COMPANY_NAME "Dine"
-    BUNDLE_ID "com.dine.dlive"
+    BUNDLE_ID "com.dine.app"
     VERSION ${PROJECT_VERSION}
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon.png"
     HARDENED_RUNTIME_ENABLED TRUE
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "DLIVE mixes the inputs of your audio device.")
-target_sources(DLive PRIVATE Main.cpp native/AudioHost.cpp native/MonitorDevice.cpp native/MicPermission.mm native/WindowChrome.mm ${DLIVE_UI_SOURCES})
-target_include_directories(DLive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
+    MICROPHONE_PERMISSION_TEXT "DINE mixes the inputs of your audio device.")
+target_sources(DineApp PRIVATE Main.cpp native/AudioHost.cpp native/MonitorDevice.cpp native/MicPermission.mm native/WindowChrome.mm ${DINE_UI_SOURCES})
+target_include_directories(DineApp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
 # The Supabase project the usage events go to (docs/ANALYTICS.md). Empty: nothing is sent.
 # The anon key is public by design - it can call public.ingest_events and nothing else - but
 # it is kept out of the repository: a git-ignored telemetry.local.cmake at the top of the tree
-# sets both, so every build on a Mac that has one (build.sh, dlive.sh, package.sh) reports.
+# sets both, so every build on a Mac that has one (build.sh, dine.sh, package.sh) reports.
 include ("${CMAKE_SOURCE_DIR}/telemetry.local.cmake" OPTIONAL)
-set(DLIVE_SUPABASE_URL "" CACHE STRING "Supabase project URL for DLIVE usage events (empty = off)")
-set(DLIVE_SUPABASE_ANON_KEY "" CACHE STRING "Supabase anon key for DLIVE usage events")
+set(DINE_SUPABASE_URL "" CACHE STRING "Supabase project URL for DINE usage events (empty = off)")
+set(DINE_SUPABASE_ANON_KEY "" CACHE STRING "Supabase anon key for DINE usage events")
 # An exception on the message thread is caught by the loop, reported (app/unhandled_exception)
 # and the app carries on - the audio thread never sees it. Without this JUCE lets it terminate
 # the process, which in the middle of a service is the one outcome worse than carrying on.
-target_compile_definitions(DLive PRIVATE ${DLIVE_DEFINES} JUCE_CATCH_UNHANDLED_EXCEPTIONS=1
-    DLIVE_SUPABASE_URL="${DLIVE_SUPABASE_URL}"
-    DLIVE_SUPABASE_ANON_KEY="${DLIVE_SUPABASE_ANON_KEY}"
-    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:DLive,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:DLive,JUCE_VERSION>")
+target_compile_definitions(DineApp PRIVATE ${DINE_DEFINES} JUCE_CATCH_UNHANDLED_EXCEPTIONS=1
+    DINE_SUPABASE_URL="${DINE_SUPABASE_URL}"
+    DINE_SUPABASE_ANON_KEY="${DINE_SUPABASE_ANON_KEY}"
+    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:DineApp,JUCE_PRODUCT_NAME>"
+    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:DineApp,JUCE_VERSION>")
 if (APPLE)
     find_library(AVFOUNDATION_FRAMEWORK AVFoundation)
 endif()
-target_link_libraries(DLive PRIVATE ${DLIVE_LIBS} ${AVFOUNDATION_FRAMEWORK}
+target_link_libraries(DineApp PRIVATE ${DINE_LIBS} ${AVFOUNDATION_FRAMEWORK}
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 # The built-in drum samples (app/Samples, with their licence) ride in the bundle; every tool
 # and test, which run from the tree, reads the source folder instead.
-add_custom_command(TARGET DLive POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/Samples" "$<TARGET_BUNDLE_CONTENT_DIR:DLive>/Resources/Samples"
-    COMMENT "Copying the built-in drum samples into the DLIVE bundle")
+add_custom_command(TARGET DineApp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/Samples" "$<TARGET_BUNDLE_CONTENT_DIR:DineApp>/Resources/Samples"
+    COMMENT "Copying the built-in drum samples into the DINE bundle")
 # The app reads its own bundle's copy and nothing else: the source folder's path is not
 # compiled into what ships (the tools and the tests, which run from the tree, keep it).
 
 if (LIVEMIX_BUILD_TESTS)
-    add_executable(dlive_ui_snapshots Tools/AppSnapshots.cpp ${DLIVE_UI_SOURCES})
-    target_include_directories(dlive_ui_snapshots PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
-    target_compile_definitions(dlive_ui_snapshots PRIVATE ${DLIVE_DEFINES} JUCE_STANDALONE_APPLICATION=1 DLIVE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
-    target_link_libraries(dlive_ui_snapshots PRIVATE ${DLIVE_LIBS} juce::juce_recommended_config_flags)
+    add_executable(dine_ui_snapshots Tools/AppSnapshots.cpp ${DINE_UI_SOURCES})
+    target_include_directories(dine_ui_snapshots PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
+    target_compile_definitions(dine_ui_snapshots PRIVATE ${DINE_DEFINES} JUCE_STANDALONE_APPLICATION=1 DINE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
+    target_link_libraries(dine_ui_snapshots PRIVATE ${DINE_LIBS} juce::juce_recommended_config_flags)
 endif()
 
 if (LIVEMIX_BUILD_TESTS)
     # Application-layer tests: controller state machine and session document (no device, no UI).
-    add_executable(dlive_app_tests
+    add_executable(dine_app_tests
         Tests/AppTests.cpp
         Tests/DawTests.cpp
         Tests/RecordingTests.cpp
         Tests/ThemeTests.cpp
         Tests/TelemetryTests.cpp
-        ${DLIVE_APP_SOURCES}
+        ${DINE_APP_SOURCES}
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp)
-    target_include_directories(dlive_app_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)
-    target_compile_definitions(dlive_app_tests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
-        JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 DLIVE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
-    target_link_libraries(dlive_app_tests PRIVATE livemix_engine juce::juce_core juce::juce_audio_formats
+    target_include_directories(dine_app_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)
+    target_compile_definitions(dine_app_tests PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1
+        JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0 DINE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
+    target_link_libraries(dine_app_tests PRIVATE livemix_engine juce::juce_core juce::juce_audio_formats
         juce::juce_audio_basics juce::juce_events juce::juce_recommended_config_flags)
-    add_test(NAME dlive_app_tests COMMAND dlive_app_tests)
+    add_test(NAME dine_app_tests COMMAND dine_app_tests)
 endif()
 
 if (LIVEMIX_BUILD_TESTS)
-    # dlive_ui_tests: the window itself. Separate from dlive_app_tests because it links the
-    # whole UI and every JUCE GUI module with it, and dlive_app_tests is the fast one that runs
+    # dine_ui_tests: the window itself. Separate from dine_app_tests because it links the
+    # whole UI and every JUCE GUI module with it, and dine_app_tests is the fast one that runs
     # on every engine change. ctest runs both, so the reachability guard is in CI either way.
-    add_executable(dlive_ui_tests
+    add_executable(dine_ui_tests
         Tests/ReachabilityTests.cpp
         Tests/TextCacheTests.cpp
-        ${DLIVE_UI_SOURCES}
+        ${DINE_UI_SOURCES}
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp)
-    target_include_directories(dlive_ui_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)
-    target_compile_definitions(dlive_ui_tests PRIVATE ${DLIVE_DEFINES} JUCE_STANDALONE_APPLICATION=1
-        DLIVE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
-    target_link_libraries(dlive_ui_tests PRIVATE ${DLIVE_LIBS} juce::juce_recommended_config_flags)
-    add_test(NAME dlive_ui_tests COMMAND dlive_ui_tests)
+    target_include_directories(dine_ui_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)
+    target_compile_definitions(dine_ui_tests PRIVATE ${DINE_DEFINES} JUCE_STANDALONE_APPLICATION=1
+        DINE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/Samples")
+    target_link_libraries(dine_ui_tests PRIVATE ${DINE_LIBS} juce::juce_recommended_config_flags)
+    add_test(NAME dine_ui_tests COMMAND dine_ui_tests)
 endif()
 
 # Real-device soak check (opens an audio device through AudioHost, runs the engine, reports).
-add_executable(dlive_device_check Tools/DeviceCheck.cpp native/AudioHost.cpp native/MonitorDevice.cpp native/MicPermission.mm ${DLIVE_APP_SOURCES})
-target_include_directories(dlive_device_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
-target_compile_definitions(dlive_device_check PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1
+add_executable(dine_device_check Tools/DeviceCheck.cpp native/AudioHost.cpp native/MonitorDevice.cpp native/MicPermission.mm ${DINE_APP_SOURCES})
+target_include_directories(dine_device_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(dine_device_check PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1 JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_REPORT_APP_USAGE=0)
-target_link_libraries(dlive_device_check PRIVATE livemix_engine juce::juce_audio_devices juce::juce_audio_formats juce::juce_events juce::juce_recommended_config_flags ${AVFOUNDATION_FRAMEWORK})
-target_compile_definitions(dlive_device_check PRIVATE JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}")
+target_link_libraries(dine_device_check PRIVATE livemix_engine juce::juce_audio_devices juce::juce_audio_formats juce::juce_events juce::juce_recommended_config_flags ${AVFOUNDATION_FRAMEWORK})
+target_compile_definitions(dine_device_check PRIVATE JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}")

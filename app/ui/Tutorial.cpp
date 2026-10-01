@@ -1,4 +1,5 @@
 #include "Tutorial.h"
+#include "native/AppFolders.h"
 #include "UI/Widgets.h"
 
 namespace livemix
@@ -8,8 +9,7 @@ namespace
 {
     juce::File seenMarker()
     {
-        return juce::File::getSpecialLocation (juce::File::userMusicDirectory)
-                   .getChildFile ("DLIVE").getChildFile (".getting-started-seen");
+        return AppFolders::music().getChildFile (".getting-started-seen");
     }
 }
 
@@ -24,19 +24,19 @@ const std::vector<Tutorial::Step>& Tutorial::steps()
           "shows or hides it.",
           0 /* Sessions */, "session" },
 
-        { "GETTING STARTED  2 / 7", "Tell DLIVE what is plugged in.",
+        { "GETTING STARTED  2 / 7", "Tell DINE what is plugged in.",
           "Pick your audio interface, then give each input a name and say what it is — a kick "
-          "drum, a lead vocal, the pastor's microphone. That is the only thing DLIVE needs to "
+          "drum, a lead vocal, the pastor's microphone. That is the only thing DINE needs to "
           "know to build a mix; it works the rest out by listening.",
           1 /* Device */, "tabs" },
 
         { "GETTING STARTED  3 / 7", "Press record and play for thirty seconds.",
           "Press the red button, ask the band to play. Every input is recorded on its own, so you "
-          "can mix it again afterwards — and DLIVE has something real to listen to.",
+          "can mix it again afterwards — and DINE has something real to listen to.",
           4 /* Tracks */, "transport" },
 
         { "GETTING STARTED  4 / 7", "TUNE MIX does the mix.",
-          "DLIVE listens to the band for thirty seconds and sets every level, tone and effect for "
+          "DINE listens to the band for thirty seconds and sets every level, tone and effect for "
           "this room. Then it tells you what it did and why, in sentences. Nothing changes until "
           "you press KEEP, and REVERT puts it all back.",
           6 /* Tune */, "tabs" },
@@ -47,7 +47,7 @@ const std::vector<Tutorial::Step>& Tutorial::steps()
           5 /* Mixer */, "rail" },
 
         { "GETTING STARTED  6 / 7", "One channel, in full detail.",
-          "Every processor on a channel, what it is set to, and whether DLIVE set it or you did. "
+          "Every processor on a channel, what it is set to, and whether DINE set it or you did. "
           "Change anything you like; the next TUNE MIX works around you.",
           8 /* Inspector */, "tabs" },
 

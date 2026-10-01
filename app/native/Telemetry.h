@@ -13,7 +13,7 @@ namespace livemix
 // ---------------------------------------------------------------------------
 // USAGE, STABILITY AND MILESTONES - one service, docs/ANALYTICS.md is its contract.
 //
-// What people actually do with DLIVE, what went wrong while they did it, and the small
+// What people actually do with DINE, what went wrong while they did it, and the small
 // "first time" moments worth a word on screen. Every event is a fixed name with a few
 // fixed-vocabulary fields; no audio, no recording, no channel name, no file name, no chat
 // text, no sentence the user typed ever becomes one (a string field that looks like a path
@@ -84,7 +84,7 @@ public:
     // Any thread but the audio thread. `props`: fixed words and numbers.
     void track (const juce::String& event, const juce::NamedValueSet& props = {});
     // A failure somewhere in the product: area (audio_device, recording, session, tune, ...),
-    // a fixed code, whether DLIVE carried on by itself, and the context of the moment.
+    // a fixed code, whether DINE carried on by itself, and the context of the moment.
     void error (const juce::String& area, const juce::String& code, bool recovered,
                 const juce::NamedValueSet& props = {});
     // Message thread, once a second (the timer calls it with probe() when there is one).

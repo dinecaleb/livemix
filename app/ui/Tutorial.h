@@ -7,13 +7,13 @@
 namespace livemix
 {
 
-// FIRST SUNDAY: what DLIVE says to somebody who has never opened it.
+// FIRST SUNDAY: what DINE says to somebody who has never opened it.
 //
 // The person in the booth twenty minutes before a service may be on their second ever
 // shift. They do not know what a bus is, they will not read a manual, and the worst
 // possible moment to teach them a word is the error message that uses it. So the app
 // teaches itself once, in seven sentences of plain English, in the order the work actually
-// happens: name the inputs, press record, let DLIVE listen, keep or undo what it did, and
+// happens: name the inputs, press record, let DINE listen, keep or undo what it did, and
 // lock the desk before the service starts.
 //
 // It is a coach, not a wizard: nothing is blocked behind it, every step can be skipped, it

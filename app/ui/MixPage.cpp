@@ -167,7 +167,7 @@ public:
         if (body) repaint();
     }
 
-    // TUNE <GROUP>, the same verb the input rail carries for one channel: DLIVE listens to
+    // TUNE <GROUP>, the same verb the input rail carries for one channel: DINE listens to
     // the whole console and applies only this group, so the band can be tuned during the
     // song and the pastor during the sermon without either moving the other.
     std::function<void()> onTune;
@@ -735,7 +735,7 @@ namespace
 }
 
 // ------------------------------------------------------------------ ScopeSheet
-// WHAT SHOULD DLIVE TUNE?
+// WHAT SHOULD DINE TUNE?
 //
 // TUNE is the one verb on this workspace, and until now it always meant the same thing - the
 // whole mix. `startTuneBus` existed and was reachable only from a small word inside a group
@@ -925,7 +925,7 @@ public:
         r.removeFromTop (8);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (22.0f));
-        Dine::drawText (g, "What should DLIVE tune?", r.removeFromTop (28), juce::Justification::centredLeft);
+        Dine::drawText (g, "What should DINE tune?", r.removeFromTop (28), juce::Justification::centredLeft);
         r.removeFromTop (16);
         Dine::drawSegmentTrack (g, r.removeFromTop (Dine::Metric::button));
         r.removeFromTop (20);
@@ -1082,19 +1082,19 @@ private:
         {
             case Scope::Group:
                 if (group < 0) return "Nothing is assigned to a group yet, so there is nothing to tune one at a time. Assign the inputs first.";
-                return "DLIVE listens to the whole band and sets " + groupName (group)
+                return "DINE listens to the whole band and sets " + groupName (group)
                      + " alone - its channels and its own group chain. Every other group, and the master, stay exactly where they are.";
             case Scope::Channels:
                 if (picked.empty())
-                    return "Pick the channels to tune. DLIVE still listens to the whole band, so they are decided in the mix rather than on their own.";
+                    return "Pick the channels to tune. DINE still listens to the whole band, so they are decided in the mix rather than on their own.";
                 if (picked.size() == 1)
-                    return "DLIVE listens for " + juce::String (int (MixController::channelListen().seconds))
+                    return "DINE listens for " + juce::String (int (MixController::channelListen().seconds))
                          + " seconds and sets that one channel: its chain, its gain, its level and its sends. Nothing else moves.";
-                return "DLIVE listens to the whole band and sets those " + juce::String (int (picked.size()))
+                return "DINE listens to the whole band and sets those " + juce::String (int (picked.size()))
                      + " channels. The groups, the master and every other channel stay where they are.";
             case Scope::Mix:
             default:
-                return "DLIVE listens to the band for 30 seconds and builds the whole mix from what it measures - "
+                return "DINE listens to the band for 30 seconds and builds the whole mix from what it measures - "
                        "every channel, every group and the master.";
         }
     }
@@ -1144,7 +1144,7 @@ private:
 };
 
 // ------------------------------------------------------------------ ListenSheet
-// A card in the middle of the workspace while DLIVE listens: what it is doing, how far it
+// A card in the middle of the workspace while DINE listens: what it is doing, how far it
 // is, what it can hear, and the one way out.
 class MixPage::ListenSheet : public juce::Component
 {
@@ -1213,10 +1213,10 @@ public:
             hearing = juce::String (controller.getTuneLiveStatus());
             if (capturing) hearing += " Keep the band playing.";
         }
-        else if (waiting) hearing = "Have the band play a song the way they normally would. DLIVE starts as soon as it hears them.";
+        else if (waiting) hearing = "Have the band play a song the way they normally would. DINE starts as soon as it hears them.";
         else if (planning) hearing = "Comparing what it heard against " + juce::String (styleProfileName (controller.getSession().profile))
                                    + ", then checking its own work.";
-        else hearing = "Keep playing. DLIVE hears every input at once and builds the whole mix.";
+        else hearing = "Keep playing. DINE hears every input at once and builds the whole mix.";
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
         Dine::drawFittedText (g, hearing, r.removeFromTop (36), juce::Justification::topLeft, 2);
@@ -1368,7 +1368,7 @@ public:
         keep.setButtonText ("Keep");
         before.onClick = [this] { controller.setCompare (MixController::Compare::Before); refresh(); if (page.onToast) page.onToast ("Playing BEFORE - to the room and the stream too. Nothing is kept until KEEP."); };
         after.onClick  = [this] { controller.setCompare (MixController::Compare::After); refresh(); if (page.onToast) page.onToast ("Playing AFTER - to the room and the stream too. Nothing is kept until KEEP."); };
-        keep.onClick   = [this] { controller.keepPlan(); if (page.onToast) page.onToast ("Kept. Every value it set is marked TUNED BY DLIVE and can be reverted stage by stage."); };
+        keep.onClick   = [this] { controller.keepPlan(); if (page.onToast) page.onToast ("Kept. Every value it set is marked TUNED BY DINE and can be reverted stage by stage."); };
         revert.onClick = [this] { controller.revertPlan(); if (page.onToast) page.onToast ("Reverted to the mix you had before this run."); };
         another.onClick = [this] { controller.tryAnotherMix(); };
         review.onClick = [this] { if (page.onOpenAdvanced) page.onOpenAdvanced(); };
@@ -1588,8 +1588,8 @@ public:
             for (const auto& line : controller.getTuneLive().getReview())
             {
                 juce::String why (line.why);
-                if (line.kind == Kind::NotPossible) why = why.isEmpty() ? "DLIVE cannot do this, so it did not." : why;
-                if (line.kind == Kind::Refused && why.isEmpty()) why = "DLIVE declined this change.";
+                if (line.kind == Kind::NotPossible) why = why.isEmpty() ? "DINE cannot do this, so it did not." : why;
+                if (line.kind == Kind::Refused && why.isEmpty()) why = "DINE declined this change.";
                 out.push_back ({ juce::String (line.what), why, {},
                                  line.kind != Kind::NotPossible && line.kind != Kind::Refused });
                 if (out.size() >= 6) return out;
@@ -1867,21 +1867,21 @@ MixPage::MixPage (MixController& c) : controller (c)
     tuneButton.setCaps (true);
     tuneButton.setFontPx (13.0f);
     tuneButton.onClick = [this] { pressTune(); };
-    tuneButton.setTooltip ("Listen to the band and build DLIVE's mix from what it measures. Deterministic: the same "
+    tuneButton.setTooltip ("Listen to the band and build DINE's mix from what it measures. Deterministic: the same "
                            "listen always gives the same mix, and nothing leaves this machine.");
     liveTuneButton.setCaps (true);
     liveTuneButton.setFontPx (13.0f);
     liveTuneButton.onClick = [this] { pressLiveTune(); };
-    liveTuneButton.setTooltip ("The same listen, with a mix engineer's reasoning on top: DLIVE builds its mix, works out "
+    liveTuneButton.setTooltip ("The same listen, with a mix engineer's reasoning on top: DINE builds its mix, works out "
                                "what this band still needs, applies only what it can do safely, then listens again to "
                                "check. You can compare, review every change and revert.");
     referenceButton.setFontPx (12.5f);
     referenceButton.onClick = [this] { openReference(); };
-    referenceButton.setTooltip ("Aim the mix at a finished recording: DLIVE matches the master's tone, image and density "
+    referenceButton.setTooltip ("Aim the mix at a finished recording: DINE matches the master's tone, image and density "
                                 "to it. How loud the stream is delivered, and who is loud in the mix, are not copied.");
     chatButton.setFontPx (12.5f);
     chatButton.onClick = [this] { if (onOpenChat) onOpenChat(); };
-    chatButton.setTooltip ("Ask for a change in plain words. DLIVE says what it intends to do before anything is yours.");
+    chatButton.setTooltip ("Ask for a change in plain words. DINE says what it intends to do before anything is yours.");
     undoButton.setQuiet (true);
     redoButton.setQuiet (true);
     historyButton.setQuiet (true);
@@ -2016,7 +2016,7 @@ void MixPage::openReference()
 }
 
 // TUNE always asked the same question and never asked it out loud. Now it does: the scope
-// picker opens, and the listen starts from there. Pressing it while DLIVE is already
+// picker opens, and the listen starts from there. Pressing it while DINE is already
 // listening still means stop, because that is the only thing it can mean.
 void MixPage::pressTune()
 {

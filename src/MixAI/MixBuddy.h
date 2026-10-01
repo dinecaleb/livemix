@@ -11,7 +11,7 @@ namespace livemix
 // ---------------------------------------------------------------------------
 // MIX BUDDY: help, not a second mixing engine
 //
-// Three things in DLIVE have a say about a mix, and each has one job:
+// Three things in DINE have a say about a mix, and each has one job:
 //
 //   TUNE MIX    "help me improve this mix"        - listens, proposes, you KEEP or REVERT
 //   AUTOPILOT   "hold the mix while I am away"    - small, slow, bounded group moves
@@ -26,7 +26,7 @@ namespace livemix
 //
 // It is deterministic and offline: the same question about the same state gives the same
 // answer, with no account and no network, because the booth Mac is very often not on the
-// internet and the service starts anyway. What it knows about DLIVE is written against the
+// internet and the service starts anyway. What it knows about DINE is written against the
 // controls that exist (see MixBuddy.cpp); a control that does not exist is never named.
 // ---------------------------------------------------------------------------
 
@@ -62,10 +62,10 @@ struct BuddyStrip
     ChannelRole role = ChannelRole::LeadVocal;
     MixBus bus = MixBus::Music;
     int input = -1;                     // the device input, from 1
-    float inputRmsDb = -120.0f;         // arriving at the channel, before anything DLIVE does
+    float inputRmsDb = -120.0f;         // arriving at the channel, before anything DINE does
     float inputPeakDb = -120.0f;
     bool clipped = false;
-    float inputGainDb = 0.0f;           // DLIVE's digital gain
+    float inputGainDb = 0.0f;           // DINE's digital gain
     float faderDb = 0.0f;
     bool mute = false, solo = false;
     bool compOn = false;

@@ -362,7 +362,7 @@ MixPlan plan (const MixPlanContext& ctx)
             sp.heard = false;
             sp.faint = true;
             ++plan.stripsFaint;
-            sp.mixItems.push_back (info (Recommendation::Kind::Info, upper (sp.name) + ": barely reached DLIVE, check this input",
+            sp.mixItems.push_back (info (Recommendation::Kind::Info, upper (sp.name) + ": barely reached DINE, check this input",
                                          "Its loudest moment during the listen was " + num ("%.0f dBFS", double (ctx.capture.strips[size_t (i)].peakDb - gainAtCapture))
                                          + " at the device, too quiet to be a source that is really playing. Check the microphone, the cable and the preamp, "
                                          "then Tune Mix again. Nothing about it was changed.", Confidence::High));
@@ -372,7 +372,7 @@ MixPlan plan (const MixPlanContext& ctx)
         // A signal with no performance in it: never quiet, and its loudest moments barely above
         // its own average. A held chord or a pad measures like that too, so on its own this is
         // not enough to say anything about one input - but when it is true of *everything* the
-        // listen heard, what DLIVE was played is a tone, a ring or a fault, not a band. The
+        // listen heard, what DINE was played is a tone, a ring or a fault, not a band. The
         // refusal is below, once every input has been looked at.
         if (sp.heard)
         {
@@ -393,7 +393,7 @@ MixPlan plan (const MixPlanContext& ctx)
         tc.kitSampled = kitSampled;
         sp.tune = TuneEngine::tune (tc);
 
-        // Input gain: the console move Tune recommends, done digitally where DLIVE owns the input stage, in one
+        // Input gain: the console move Tune recommends, done digitally where DINE owns the input stage, in one
         // go (a person turns a preamp one step at a time; a number does not have to). Computed from the listen and
         // the gain at the listen (never the current value); the chain input is never pushed above the profile's
         // ceiling, and the strip is re-tuned as it will now be heard.
@@ -419,9 +419,9 @@ MixPlan plan (const MixPlanContext& ctx)
             const auto& a = ctx.capture.strips[size_t (i)];
             const bool up = sp.inputGainDb > sp.inputGainBeforeDb;
             sp.mixItems.push_back (info (Recommendation::Kind::CaptureGain, upper (sp.name) + " input gain " + fmtDb (sp.inputGainDb, 1),
-                                         "This input reaches DLIVE at " + num ("%.0f dBFS", double (a.peakDb - (gainAtCapture))) + " peak from the device"
-                                         + (up ? ", under the healthy range, so DLIVE raises it digitally and the processing works at the right level. Raising the console preamp instead keeps the noise floor down."
-                                               : ", hotter than the healthy range, so DLIVE lowers it before the processing. Clipping at the converter itself cannot be undone here; lower the preamp when you can."),
+                                         "This input reaches DINE at " + num ("%.0f dBFS", double (a.peakDb - (gainAtCapture))) + " peak from the device"
+                                         + (up ? ", under the healthy range, so DINE raises it digitally and the processing works at the right level. Raising the console preamp instead keeps the noise floor down."
+                                               : ", hotter than the healthy range, so DINE lowers it before the processing. Clipping at the converter itself cannot be undone here; lower the preamp when you can."),
                                          Confidence::High));
         }
     }
@@ -454,11 +454,11 @@ MixPlan plan (const MixPlanContext& ctx)
         plan.noChangeRequired = true;
         plan.headline = "MIX: THAT WAS NOT A PERFORMANCE";
         plan.notes.push_back (everythingSteady
-            ? "Every input DLIVE could hear carried a steady signal rather than somebody playing: never quiet, and never far above "
+            ? "Every input DINE could hear carried a steady signal rather than somebody playing: never quiet, and never far above "
               "its own average. That is a tone, a feedback ring or a fault, not a band. Nothing was changed."
             : "What reached the mix during the listen never moved - its loudest moments sat only "
               + num ("%.0f dB", double (mo.crestFactorDb)) + " above its own average. Music and speech are never that steady, so "
-              "something is feeding DLIVE a tone, a feedback ring or a fault. Nothing was changed.");
+              "something is feeding DINE a tone, a feedback ring or a fault. Nothing was changed.");
         for (const auto& sp : plan.strips)
             if (sp.stuck) plan.notes.push_back (upper (sp.name) + ": steady all the way through the listen; check what is patched to it.");
         plan.notes.push_back ("Find it, then Tune Mix again while the band plays.");
@@ -593,7 +593,7 @@ MixPlan plan (const MixPlanContext& ctx)
             if (std::fabs (plan.before.tempoBpm - bpm) >= 1.0f)
                 plan.relationships.push_back (info (Recommendation::Kind::Info, "Delays timed to the song: " + num ("%.0f BPM", double (bpm)),
                                                      "A delay that is not in time with the band smears the voice instead of supporting it, and a live console has no "
-                                                     "play head to read the tempo from. DLIVE measured it from the listen ("
+                                                     "play head to read the tempo from. DINE measured it from the listen ("
                                                      + num ("%.0f%%", double (agreement * 100.0)) + " of the sources agree) and every tempo-synced return now follows it.",
                                                      agreement > 0.7f ? Confidence::High : Confidence::Medium));
         }
@@ -647,7 +647,7 @@ MixPlan plan (const MixPlanContext& ctx)
     // up with the instrument and the console preamp is the thing that is actually wrong.
     if (isDrumCloseMic (f))
     {
-        // How far DLIVE is lifting this microphone digitally in total - the gain and the fader together, as
+        // How far DINE is lifting this microphone digitally in total - the gain and the fader together, as
         // an absolute amount, not what this pass added on top of the last one. Measuring the raise against
         // the gain that ran at the listen handed the whole budget out again on every Tune Mix, because by
         // then the gain it was meant to count had become the listen's own: a close mic climbed another
@@ -659,7 +659,7 @@ MixPlan plan (const MixPlanContext& ctx)
         {
             fader = roundHalf (std::max (allowed, 0.0f));
             if (explain) sp.mixItems.push_back (info (Recommendation::Kind::CaptureGain, upper (sp.name) + ": turn this microphone up at the console",
-                                         "To sit where the mix wants it this close microphone needs more level than DLIVE will add to it. "
+                                         "To sit where the mix wants it this close microphone needs more level than DINE will add to it. "
                                          "It also hears the rest of the kit, so raising it here would bring that bleed up with the instrument. "
                                          "Turn its preamp up at the console and Tune Mix again.", Confidence::High));
         }
@@ -1274,7 +1274,7 @@ MixPlan plan (const MixPlanContext& ctx)
     // a voice sits against a band - and there is no band to sit against. What matters instead
     // is how loud the words leave the building, and that is the master's own delivery target
     // read through the master the band already set. So the speech faders are moved together
-    // until the mix DLIVE can hear measures what the stream is asked for, and the master
+    // until the mix DINE can hear measures what the stream is asked for, and the master
     // itself is left exactly as the song left it (below). Come back to the song and the band
     // is still where it was, at the level it was, through a master that never moved.
     if (sermonListen && ctx.capture.masterOutput.valid)
@@ -1306,7 +1306,7 @@ MixPlan plan (const MixPlanContext& ctx)
                         ++shortOf;
                         sp.mixItems.push_back (info (Recommendation::Kind::CaptureGain, upper (sp.name) + ": turn this microphone up at the console",
                                                      "To carry the sermon at the level this delivery asks for, this microphone needs "
-                                                     + num ("%.0f dB", double (std::fabs (wanted - sp.faderDb))) + " more than DLIVE will add to a fader. "
+                                                     + num ("%.0f dB", double (std::fabs (wanted - sp.faderDb))) + " more than DINE will add to a fader. "
                                                      "Turn its preamp up at the console - or get the speaker closer to it - and Tune Mix again.", Confidence::High));
                     }
                     ++moved;
@@ -1316,7 +1316,7 @@ MixPlan plan (const MixPlanContext& ctx)
                     plan.relationships.push_back (info (Recommendation::Kind::MixGain,
                                                         "The spoken word set by what leaves the mix: " + fmtDb (correction, 1),
                                                         "Nothing but the speech group played during this listen, so there is no band for the voice to be balanced against - what "
-                                                        "decides its level is how loud the words leave DLIVE. Through the master the band already set, the mix measured "
+                                                        "decides its level is how loud the words leave DINE. Through the master the band already set, the mix measured "
                                                         + num ("%.1f LUFS", double (delivered)) + " and this delivery asks for " + num ("%.0f LUFS", double (wantedLufs))
                                                         + ", so the speech group is moved " + fmtDb (correction, 1) + " and the master is left exactly where the song left it. "
                                                         "That is what keeps a sermon and a song at the same level for the listener.", Confidence::High));
@@ -1603,7 +1603,7 @@ MixPlan plan (const MixPlanContext& ctx)
     plan.headline = plan.noChangeRequired ? "MIX: NO CHANGE REQUIRED" : "MIX TUNED";
 
     // Gain staging is the first move in any mix, so it is the first thing the plan says.
-    // DLIVE set the digital input gain itself; what is left is the console preamp, and
+    // DINE set the digital input gain itself; what is left is the console preamp, and
     // the note names the inputs so nobody has to hunt for them.
     {
         std::vector<std::string> wantPreamp;
@@ -1611,7 +1611,7 @@ MixPlan plan (const MixPlanContext& ctx)
         {
             if (! sp.heard || sp.bleedOnly || ! sp.tune.valid) continue;
             const bool health = sp.tune.report.inputHealth != "Healthy" && ! sp.tune.report.inputHealth.empty();
-            // DLIVE makes a quiet input work digitally, but a big digital raise means the preamp
+            // DINE makes a quiet input work digitally, but a big digital raise means the preamp
             // itself is low - and a digital raise lifts the preamp's noise with the source.
             const bool digital = std::fabs (sp.inputGainDb) >= R.digitalGainAdviceDb;
             if (! health && ! digital) continue;
@@ -1630,7 +1630,7 @@ MixPlan plan (const MixPlanContext& ctx)
 
     plan.notes.push_back (std::to_string (plan.stripsHeard) + " of " + std::to_string (n) + " sources heard.");
     if (plan.stripsFaint > 0)
-        plan.notes.push_back (plan.stripsFaint == 1 ? "1 input barely reached DLIVE: check it." : std::to_string (plan.stripsFaint) + " inputs barely reached DLIVE: check them.");
+        plan.notes.push_back (plan.stripsFaint == 1 ? "1 input barely reached DINE: check it." : std::to_string (plan.stripsFaint) + " inputs barely reached DINE: check them.");
     int tuned = 0;
     for (const auto& sp : plan.strips) if (sp.tune.valid && ! sp.tune.noChangeRequired) ++tuned;
     if (tuned > 0) plan.notes.push_back (std::to_string (tuned) + " sources shaped individually (" + std::to_string (plan.parametersChanged) + " settings).");
@@ -1771,7 +1771,7 @@ MixPlan channelOnly (const MixPlan& full, int strip, StyleProfileId profile)
     out.noChangeRequired = out.parametersChanged == 0 && out.fadersChanged == 0 && out.sendsChanged == 0 && out.gainsChanged == 0;
     out.headline = out.noChangeRequired ? NAME + ": NO CHANGE REQUIRED" : NAME + " TUNED";
 
-    // Gain staging first, on this channel too: DLIVE set the digital gain, the preamp is the user's move.
+    // Gain staging first, on this channel too: DINE set the digital gain, the preamp is the user's move.
     if (sp.tune.valid && ! sp.bleedOnly)
     {
         const auto& R = MixProfile::relationships (profile);
@@ -1950,7 +1950,7 @@ MixPlan busOnly (const MixPlan& full, MixBus bus, const RoutingGraph& graph, Sty
     for (const auto& sp : out.strips)
     {
         if (! sel.strip (sp.strip)) continue;
-        if (sp.faint) { ++faint; ++out.stripsFaint; left.push_back (upper (sp.name) + ": barely reached DLIVE, check it"); continue; }
+        if (sp.faint) { ++faint; ++out.stripsFaint; left.push_back (upper (sp.name) + ": barely reached DINE, check it"); continue; }
         if (! sp.heard) { ++notHeard; left.push_back (upper (sp.name) + ": not heard, left as it was"); continue; }
         ++heardAny;
         if (sp.bleedOnly) { left.push_back (upper (sp.name) + ": heard only as spill, its level left alone"); continue; }

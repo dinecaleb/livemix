@@ -1,6 +1,6 @@
-# DLIVE: the desktop design
+# DINE: the desktop design
 
-> **The current design is v3** - the Figma file "DLIVE - Full UX Mockup", 2026-09-29.
+> **The current design is v3** - the Figma file "DINE - Full UX Mockup", 2026-09-29.
 > `docs/DESIGN-V3.md` is the map from that file to the code: the tokens, the shell, every
 > one of its forty frames and where it landed, and every place the code and the design
 > deliberately disagree. What follows here is the reasoning behind the workspaces
@@ -12,17 +12,17 @@ The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizab
 - **The TRACKS channel panel is resizable** (`TracksPage::setPanelWidth`, the divider at `headerWidth`): the
   standard DAW drag, one width inherited by every row, persisted with the session (`Document::trackPanelWidth`).
   `kHeaderWidth` is gone - everything on that page measures from the member.
-- **Desk sizes.** `build/app/dlive_ui_snapshots --sizes [dir]` renders every workspace at 1280x800, 1440x900
+- **Desk sizes.** `build/app/dine_ui_snapshots --sizes [dir]` renders every workspace at 1280x800, 1440x900
   and 1920x1080 - the three screens a booth actually has - so a layout that only holds together at the
-  developer's window is caught before a Sunday. `dlive_ui_snapshots <dir>` (no flag) is still the full set of
-  states, and `21`-`25` are the smallest window DLIVE allows.
+  developer's window is caught before a Sunday. `dine_ui_snapshots <dir>` (no flag) is still the full set of
+  states, and `21`-`25` are the smallest window DINE allows.
 - **A folded panel is named for what is behind it.** `DinePanelTab` writes the panel's name
   down the gutter when it is folded, so the name has to be the panel, not its last section:
   TUNE's right-hand panel carries TUNE MIX, RE-TUNE LIVE, MATCH TO REFERENCE, the mix history
   and the mix health, and calling its tab "Mix health" made a folded workspace look as though
   the whole-mix tune had gone and only the per-group TUNE chips were left. Folding that one
   also toasts, because the keyboard (View, `togglePanel`) can do it by accident.
-- **Text that did not fit.** `dlive_ui_snapshots <dir>` walks every workspace with the clipping audit on
+- **Text that did not fit.** `dine_ui_snapshots <dir>` walks every workspace with the clipping audit on
   (`Dine::beginTextClipAudit` / `textClipReport`, `app/ui/AppTheme.cpp`) and ends with a **TEXT CLIPPING**
   report: one line per string that lost characters, with the screen it was on, the room it had and the room it
   wanted, widest shortfall first. A cell is only too small once the face, the Text size and the string meet each
@@ -32,7 +32,7 @@ The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizab
   rule for a name on a narrow strip (`MixerPage` squeezes to 0.78 and drops the channel number before it drops a
   letter), and a control that picks a shorter form for itself - `DinePopup::setBriefValue`, the master card's
   numbers, the solo pill's count - has already made the choice by the time it draws.
-- **UI frame budget.** `build/app/dlive_ui_snapshots --frames [channels=48] [frames=120]` builds a realistically
+- **UI frame budget.** `build/app/dine_ui_snapshots --frames [channels=48] [frames=120]` builds a realistically
   large console and reports, per workspace, the cost of one `refresh()` and the cost of a full repaint. A full
   repaint is 30-130 ms at 48 channels, so **no page may call `repaint()` on itself from its 30 Hz tick** - that
   alone spends the whole frame. Every workspace now compares what it is about to draw with what it last drew
@@ -48,7 +48,7 @@ The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizab
   ENGINEER MONITORING card has the **solo device picker** at the right of its chip row
   (`OutputsSheet::showSoloDeviceMenu`, shared with the Outputs sheet), so "solo has nowhere to go yet" is fixed
   where it is read.
-- **THE V2 DESKTOP (2026-09-17, the Claude Design file `DLIVE Desktop v2.dc.html`, project
+- **THE V2 DESKTOP (2026-09-17, the Claude Design file `DINE Desktop v2.dc.html`, project
   `8592889b-694f-4bb0-8f28-598c057014f5`).** The window is the design, one to one. Top to bottom: a 52 px
   **title row** (`Dine::Metric::titleRow` - the sidebar switch, the session's name with its popover in the
   middle, "N inputs / N to record" and AI MIX CHAT on the right), the 56 px **toolbar** (the transport in its
@@ -64,11 +64,11 @@ The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizab
   rows in the sidebar, and the session popover lists the same four steps with their values.
   A workspace's own side panels belong to the workspace: TUNE's INPUTS rail (198 px, left, a name and
   TUNE CHANNEL per row - clicking the row picks the channel out for the chain foot) and the Inspector's
-  CHANNELS rail (200 px) and WHAT DLIVE DID column (280 px), each folding to a named handle with `[` / `]`.
+  CHANNELS rail (200 px) and WHAT DINE DID column (280 px), each folding to a named handle with `[` / `]`.
   The window-wide channel list (`ChannelRail`) is gone: the design has one navigation and per-page rails, and
   two lists of the same channels on one screen was the thing it removed.
   **Since 2026-09-17 (the client's review):** the sidebar is the same plane as the title row (`Dine::sidebar` =
-  `Dine::title`, never the black desk), the DLIVE wordmark sits at the left end of the title row, after
+  `Dine::title`, never the black desk), the DINE wordmark sits at the left end of the title row, after
   the sidebar switch (`MainView::kWordmarkW`) so it is on screen whatever the sidebar does, a panel handle (`DinePanelTab`) is a
   small key with a chevron pointing the way the panel will move (never three dots), and **green is not a brand
   colour**: a soloed tile or a tuned chip sits on the neutral lifted plane (`soloGround` = `selected`) with the
@@ -78,7 +78,7 @@ The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizab
   card `#1a1e26`, a row `#1c212b`, what is chosen `#222830`, a resting control `#2a303a` (hover `#3e4656`, a
   setting that is on `#4e5664`), an item inside a card `#161a22`; ink `#f4f5f7` / `#a8b0bc` / `#6b7380` /
   `#4e5664`; the accent is the **teal `#6db8a8`** (hover `#8ed0c2`, near-black type on it) and it is spent on
-  the primary action, the active tab, what is selected or soloed, what DLIVE tuned, and the meters; ok
+  the primary action, the active tab, what is selected or soloed, what DINE tuned, and the meters; ok
   `#57b98d`, hot `#cbbf6a`, warn `#e0a85c`, crit `#e06a64`, monitor blue `#6eafff`; the buses keep their
   colours (`Dine::busTint`). **Every surface is flat**: no gradients, no glows, no outlines - `drawCard`
   ignores the plain hairlines and only draws an edge that carries a meaning (a solo, a warning). Radii are
@@ -95,7 +95,7 @@ The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizab
   console that crawled at 48 channels: a strip re-reads only atomics every tick (meters, mute, solo, fader),
   re-reads its inserts when a hash of its `ChannelParameters` changes (`chainHash`, via `forEachDspField`),
   re-reads the gain advice twice a second (`MixerPage::tick`), and a meter is one fill whatever its height.
-  The bank is opaque so a scroll never repaints the page under it. `dlive_ui_snapshots --frames 48 120`: a
+  The bank is opaque so a scroll never repaints the page under it. `dine_ui_snapshots --frames 48 120`: a
   full repaint of MIXER went from 38 ms to 6.5 ms, TRACKS 61 to 10, INSPECTOR 68 to 23 (a 30 Hz frame is 33).
 - **THE MACRO PADS** (2026-09-18, `app/ui/MacroPad.{h,cpp}`, on TUNE). The five macros are two two-axis
   pads and one ribbon: BODY x VOICE (`MixMacro::Bass` across, `Vocals` up), DRIVE x ROOM (`Space` across,
@@ -120,9 +120,9 @@ The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizab
 - **THEMES** (2026-09-17, `docs/THEMES.md`). The look is a table of named colours and a theme is that table
   written down: pick one under View > Appearance and every window follows; nothing about the session or the
   mix depends on it. `app/native/ThemeStore` (JUCE-core, tested in `ThemeTests.cpp`) is the document
-  (`~/Music/DLIVE/Themes/<name>.dlivetheme.json`, schema 1, a *partial* map of key -> `#rrggbb`/`#aarrggbb`
+  (`~/Music/DINE/Themes/<name>.dinetheme.json`, schema 1, a *partial* map of key -> `#rrggbb`/`#aarrggbb`
   resolved over its `basedOn` built-in over Studio Teal), the five built-ins (Studio Teal = the design, Lime
-  Desk, Slate, Tape, Daylight) and the preference (`~/Music/DLIVE/preferences.json`, `theme`). The `Dine::`
+  Desk, Slate, Tape, Daylight) and the preference (`~/Music/DINE/preferences.json`, `theme`). The `Dine::`
   tokens are now mutable `inline` variables with the design as their initial values; `Dine::applyTheme`
   writes them through `Dine::themeBindings()` (the one key -> token table), `Dine::refreshAllWindows()` /
   `refreshWindow` re-applies the look-and-feel and `sendLookAndFeelChange`s every window (a repaint drops the
@@ -134,13 +134,13 @@ The v2 desktop, the title row, the macro pads, themes, the tutorial, the resizab
   Export writes a complete file. The snapshot tool checks the bindings and that `AppTheme.h` equals the Studio
   Teal preset, renders `30-theme-*` / `31-appearance`, takes `--theme <name>` for the whole set, and never
   writes the preference (`MainView::setStoredThemeUsed (false)`, `ThemeSheet (persisting = false)`).
-- **GETTING STARTED** (`app/ui/Tutorial`) is what DLIVE says to somebody who has never opened it: seven sentences
-  in the order a Sunday happens - name the inputs, press record, let DLIVE listen, keep or undo what it did, lock
+- **GETTING STARTED** (`app/ui/Tutorial`) is what DINE says to somebody who has never opened it: seven sentences
+  in the order a Sunday happens - name the inputs, press record, let DINE listen, keep or undo what it did, lock
   the desk - each one putting the workspace it is talking about on screen and ringing the control it means
   (`MainView::spotlight`, read from the live components so the tour can never ring empty space). It is a coach,
   not a wizard: nothing is blocked behind it, Esc or "Skip the tour" ends it, and it never touches the session.
   It opens by itself only on a genuine first run (no library **and** no assigned inputs) and is remembered in
-  `~/Music/DLIVE/.getting-started-seen`; after that it is Help > Getting started and the session popover.
+  `~/Music/DINE/.getting-started-seen`; after that it is Help > Getting started and the session popover.
   `MainView::setAutoTutorial (false)` is how the snapshot tool keeps it out of every other state.
 - **THE WORKSPACE GUIDES** (`app/ui/WorkspaceGuide`) are the other half of the same idea, one workspace at a
   time: the first time TRACKS, MIXER, TUNE, LIVE or the Inspector is opened, a card in its bottom-left corner

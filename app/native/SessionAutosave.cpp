@@ -16,7 +16,7 @@ namespace
 
     juce::String beside (const juce::File& document, const char* suffix)
     {
-        // "<name>.dlive.json" -> "<name>.dlive.<suffix>". The document's own extension stays in
+        // "<name>.dine.json" -> "<name>.dine.<suffix>". The document's own extension stays in
         // the name, so a folder lists the three files together and it is obvious what they are.
         return document.getFileName().upToLastOccurrenceOf (".json", false, false) + suffix;
     }
@@ -32,7 +32,7 @@ namespace
     }
 }
 
-SessionAutosave::SessionAutosave() : juce::Thread ("DLIVE autosave") {}
+SessionAutosave::SessionAutosave() : juce::Thread ("DINE autosave") {}
 
 SessionAutosave::~SessionAutosave()
 {
@@ -68,7 +68,7 @@ void SessionAutosave::open (const juce::File& document)
     }
     if (document == juce::File()) return;
     // The marker says "a session is open here". Removing it is what a clean quit does, so one
-    // that is still here next time means DLIVE was killed rather than closed.
+    // that is still here next time means DINE was killed rather than closed.
     markerFor (document).replaceWithText (juce::Time::getCurrentTime().toISO8601 (true));
     if (! isThreadRunning()) startThread (juce::Thread::Priority::background);
 }
@@ -204,7 +204,7 @@ SessionAutosave::Recovery SessionAutosave::check (const juce::File& document)
         r.autosave = held;
         r.when = held.getLastModificationTime();
         r.offer = true;
-        r.sentence = "DLIVE found work from " + whenSentence (r.when) + " that was not saved.";
+        r.sentence = "DINE found work from " + whenSentence (r.when) + " that was not saved.";
         return r;
     }
 
@@ -212,7 +212,7 @@ SessionAutosave::Recovery SessionAutosave::check (const juce::File& document)
     if (! r.autosave.existsAsFile()) return r;
     r.when = r.autosave.getLastModificationTime();
 
-    // A marker still here means DLIVE was killed rather than closed. On its own that is a
+    // A marker still here means DINE was killed rather than closed. On its own that is a
     // crash that lost nothing; what makes it worth asking about is an autosave holding work
     // the document does not.
     const bool unclean = markerFor (document).existsAsFile();
@@ -226,7 +226,7 @@ SessionAutosave::Recovery SessionAutosave::check (const juce::File& document)
         r.autosave = held;
     }
     r.offer = true;
-    r.sentence = "DLIVE found work from " + whenSentence (r.when) + " that was not saved.";
+    r.sentence = "DINE found work from " + whenSentence (r.when) + " that was not saved.";
     return r;
 }
 

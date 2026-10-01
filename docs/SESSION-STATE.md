@@ -1,7 +1,7 @@
-# DLIVE session state: what it is, who owns it, and why it keeps breaking
+# DINE session state: what it is, who owns it, and why it keeps breaking
 
 Date: 2026-09-27. This is the audit that Phase 1 of the reliability work asked for, written before any
-code changed. Baseline at the time of writing: `9cb3140`, `dlive_app_tests` 81/81 and `livemix_tests`
+code changed. Baseline at the time of writing: `9cb3140`, `dine_app_tests` 81/81 and `livemix_tests`
 204/204 green.
 
 The short answer to "why has persistence been re-fixed four times in a week" is at the bottom of §1:
@@ -23,8 +23,8 @@ that own persistence:
 | `hold()` | 464-481 | Builds a **second**, partial `Document` and parks it in `pending`, to carry the mix across a device change |
 | `applyPendingMix()` | 443-461 | Pushes `pending` back into the controller, and only if the controller is prepared |
 
-`app/CMakeLists.txt:32` lists `DLIVE_APP_SOURCES`, which `dlive_app_tests` compiles. `Main.cpp` is not in
-it (it is added only to the `DLive` target, line 73). So:
+`app/CMakeLists.txt:32` lists `DINE_APP_SOURCES`, which `dine_app_tests` compiles. `Main.cpp` is not in
+it (it is added only to the `DineApp` target, line 73). So:
 
 - `SessionStore::toVar` / `fromVar` are tested — and pass.
 - The code that decides **what goes into the Document in the first place** has never been executed by a test.
@@ -106,10 +106,10 @@ The second condition is a strict subset of the first. The branch is unreachable 
 §1.3 case the mix is *not* recovered from `pending`, and any of the 39 `saveSession()` calls overwrites the
 file with `hasMix: false`.
 
-**And it is worse than "any of the 39".** `DLiveApplication::shutdown()` (`Main.cpp:655`) calls
+**And it is worse than "any of the 39".** `DineApplication::shutdown()` (`Main.cpp:655`) calls
 `saveSession()` unconditionally whenever the session has inputs. So the reproduction is:
 
-> Unplug the interface. Open DLIVE (it reloads the last session through `last-session.txt`). Quit.
+> Unplug the interface. Open DINE (it reloads the last session through `last-session.txt`). Quit.
 > The tuned mix, the scenes, the reference, the strip history and the output feeds are gone from the file.
 
 No user action beyond launching and quitting. That is data loss on disk, and it is the sharpest thing in
@@ -154,8 +154,8 @@ channel through `forEachDspParameter`, so it round-trips faithfully — as a num
 
 `SampleLibrary::load()` (`SampleLibrary.cpp:40-93`) fills the slots:
 
-1. built-in folder first (bundle `Contents/Resources/Samples`, else `DLIVE_SAMPLES_DIR`),
-2. then `~/Music/DLIVE/Samples/<kick|snare|toms>`,
+1. built-in folder first (bundle `Contents/Resources/Samples`, else `DINE_SAMPLES_DIR`),
+2. then `~/Music/DINE/Samples/<kick|snare|toms>`,
 
 each pass sorting its own entries by `compareNatural` and appending into a per-family counter capped at
 `SampleBankTable::kSounds == 8` (`SampleBank.h:43`).
@@ -297,7 +297,7 @@ None of this is device-gated. All of it depends on a UI call site remembering to
 | input device (the console) | derived: `Main::consoleInputDevice` else `host` | ✓ `inputDevice` | ✓ via `planDevicesForSession` | n/a |
 | output device (the broadcast) | derived: `Main::broadcastDevice` else `host` | ✓ `outputDevice` | ✓ via `planDevicesForSession` | n/a |
 | solo device | `Main::soloDevice` | ✓ `soloDevice` | ✓ `restoreSolo`, needs `host.isOpen()` | **yes** |
-| the DLIVE-built aggregate device | CoreAudio | ✗ by design | rebuilt from `soloDevice` | n/a |
+| the DINE-built aggregate device | CoreAudio | ✗ by design | rebuilt from `soloDevice` | n/a |
 | whether solo actually goes anywhere | derived from `hasMonitorFeed(outputs)` | n/a | n/a | n/a |
 
 ### 2.6 Preferences
@@ -305,9 +305,9 @@ None of this is device-gated. All of it depends on a UI call site remembering to
 | State | Where | Scope |
 | --- | --- | --- |
 | TRACKS channel-panel width | `Main::panelWidth` → `trackPanelWidth` in the document | per session |
-| theme | `~/Music/DLIVE/preferences.json`, `"theme"` | per Mac |
-| saved input maps | `~/Music/DLIVE/Input Maps/*.json` (`InputMapStore`) | per Mac, separate documents |
-| last session pointer | `~/Library/Application Support/DLIVE/last-session.txt` | per Mac |
+| theme | `~/Music/DINE/preferences.json`, `"theme"` | per Mac |
+| saved input maps | `~/Music/DINE/Input Maps/*.json` (`InputMapStore`) | per Mac, separate documents |
+| last session pointer | `~/Library/Application Support/DINE/last-session.txt` | per Mac |
 
 ---
 
@@ -351,7 +351,7 @@ audible, and `publish()` staying the single place that hands it over.
 
 ---
 
-## 4. Why a refused microphone blocks DLIVE
+## 4. Why a refused microphone blocks DINE
 
 Asked for in Phase 1 step 4. What I could establish from the code and the built bundle:
 
@@ -363,7 +363,7 @@ none is gated by TCC. Devices will list whatever the permission says.
 **Input and output are opened in one call, and the call is all-or-nothing.** `AudioHost::open()`
 (`AudioHost.cpp:72-95`) sets `inputDeviceName` *and* `outputDeviceName` on one
 `AudioDeviceManager::AudioDeviceSetup` and passes it to `setAudioDeviceSetup`. If the input half cannot be
-opened, the whole call returns an error string and `getCurrentAudioDevice()` is null — so DLIVE has no
+opened, the whole call returns an error string and `getCurrentAudioDevice()` is null — so DINE has no
 output either. There is an `openOutputOnly()`, and `planDevicesForSession` (`DevicePlan.h`) already uses it
 when the session's *input device is absent*, but nothing retries output-only when a **present** input device
 **fails to open**. That is the gap.
@@ -373,18 +373,18 @@ sets `HARDENED_RUNTIME_ENABLED`, `MICROPHONE_PERMISSION_ENABLED` and the usage t
 `NSMicrophoneUsageDescription` does reach the built `Info.plist` — verified. But JUCE's
 `_juce_add_xcode_entitlements` (`JUCEUtils.cmake:685-702`) applies the entitlements file and the hardened
 runtime through `XCODE_ATTRIBUTE_*` properties, which the **Ninja** generator ignores. `codesign -dvvv` on
-`build/app/DLive_artefacts/Release/DLIVE.app` reports `flags=0x2(adhoc)`, no `runtime` flag, no
+`build/app/DineApp_artefacts/Release/DINE.app` reports `flags=0x2(adhoc)`, no `runtime` flag, no
 entitlements, `TeamIdentifier=not set`. `scripts/package.sh` signs properly with
-`scripts/DLIVE.entitlements` (which does grant `com.apple.security.device.audio-input`), so the packaged
+`scripts/DINE.entitlements` (which does grant `com.apple.security.device.audio-input`), so the packaged
 build is fine.
 
-The consequence for the everyday `scripts/dlive.sh` loop: an ad-hoc signature has no stable identity, and its
+The consequence for the everyday `scripts/dine.sh` loop: an ad-hoc signature has no stable identity, and its
 code-directory hash changes on every rebuild. macOS keys TCC grants to that identity, so a grant given to
 yesterday's build does not necessarily apply to today's — the prompt returns, or the grant silently stops
 matching. That is the most likely explanation for "it worked and then it did not" on a development build, and
 it is a signing problem rather than a code one.
 
-**Answered, on this Mac (2026-09-27).** `dlive_device_check` now prints what macOS says about the microphone
+**Answered, on this Mac (2026-09-27).** `dine_device_check` now prints what macOS says about the microphone
 and what enumeration can see before anything is opened:
 
 ```
@@ -398,9 +398,9 @@ says, which means `Absent` really does mean "nothing is connected".
 The output-only fallback is confirmed on real hardware too, with a pairing CoreAudio will not glue:
 
 ```
-opening input 'Calebs iphone Microphone', output 'DLIVE Monitoring', 64 samples...
-DEVICE      inputs refused  -  DLIVE can play and mix, but Calebs iphone Microphone would not open its
-                               inputs. CoreAudio error: 6e6f7065. The mix is going out of DLIVE Monitoring.
+opening input 'Calebs iphone Microphone', output 'DINE Monitoring', 64 samples...
+DEVICE      inputs refused  -  DINE can play and mix, but Calebs iphone Microphone would not open its
+                               inputs. CoreAudio error: 6e6f7065. The mix is going out of DINE Monitoring.
 running: 48000 Hz, 64 samples, 0 input channels, engine prepared yes, 1 strips
 after 1.0 s: 782 blocks ... 0 dropouts
 ```
@@ -408,10 +408,10 @@ after 1.0 s: 782 blocks ... 0 dropouts
 The engine prepared, the callback ran clean, and the sentence named the device and the error rather than
 sending anybody to System Settings - because `MicPermission::check()` said the microphone was granted, so
 that was not the problem. `app/native/MicPermission.mm` asks `AVCaptureDevice` directly (AVFoundation, a
-system framework, linked into DLIVE and `dlive_device_check` only), which is what turns that sentence from
+system framework, linked into DINE and `dine_device_check` only), which is what turns that sentence from
 a guess into a fact.
 
-**Still not observed:** the *denied* case itself, which needs `tccutil reset Microphone com.dine.dlive` and
+**Still not observed:** the *denied* case itself, which needs `tccutil reset Microphone com.dine.app` and
 a relaunch. The code path is the same one exercised above - the only difference is that `MicPermission`
 reports Denied and the sentence becomes the Privacy & Security one - but the grant is the user's to reset.
 
@@ -500,19 +500,19 @@ enum class DeviceStage { Absent, Present, Selected, ChannelsKnown, OutputOpen, O
 ```
 
 `Absent` and `Present` come from enumeration, which needs no permission. `OutputOpen` is the new state that
-§4 asks for: DLIVE plays and mixes, and says in one sentence that macOS is not letting it hear the inputs.
+§4 asks for: DINE plays and mixes, and says in one sentence that macOS is not letting it hear the inputs.
 `Disconnected` is what `deviceStoppedUnexpectedly()` already detects.
 
 **Hot-plug (Phase 2, 2026-09-28).** `AudioHost` is now a `juce::AudioIODeviceType::Listener` as well as a
 device callback. CoreAudio says the device list changed, or the open device stops; both arrive on threads
-DLIVE does not own, so both set a flag and the work happens on the message thread through an `AsyncUpdater`.
+DINE does not own, so both set a flag and the work happens on the message thread through an `AsyncUpdater`.
 The work is: rescan (JUCE caches the device list per device type), say what happened, and - if the device
 *this session was opened with* has come back - open it again exactly as it was opened: same devices, same
 rate, same buffer, same output channels.
 
 `deviceReturned()` in `DeviceState.h` is the rule and it is a pure function, so it is tested on a Mac with no
 hardware at all: reopen only from `Disconnected`, only when **both** halves the session asked for are
-connected again, and never a device DLIVE was not already using - a pair of headphones plugged in during the
+connected again, and never a device DINE was not already using - a pair of headphones plugged in during the
 sermon does not become the console. `AudioHost::close()` means the application is done with that device and
 cancels the wait; `stopDevice()` is the internal stop that `open()` uses on its way somewhere else. A `lost`
 flag outlives a reopen attempt that came a moment too early, so one failed try does not leave the session
@@ -559,8 +559,8 @@ the audio thread continues to see only the published `MixParameters` and `Output
 
 ## 6. The test list for step 5
 
-In `app/Tests` (`dlive_app_tests`). The first requirement is structural: **the document assembly must move
-out of `Main.cpp` into `DLIVE_APP_SOURCES`**, or none of the rest can be written.
+In `app/Tests` (`dine_app_tests`). The first requirement is structural: **the document assembly must move
+out of `Main.cpp` into `DINE_APP_SOURCES`**, or none of the rest can be written.
 
 1. **Full round trip, device open.** Build a state touching every row of §2 — faders, pans, mutes, solos,
    every chain stage on at least one strip, sends, every FX slot, bus chains, the master limiter, all five
@@ -600,13 +600,13 @@ out of `Main.cpp` into `DLIVE_APP_SOURCES`**, or none of the rest can be written
 
 ## 7. What was built (2026-09-27)
 
-Step 2 of the phase, all of §5 except where noted. `dlive_app_tests` 90/90, `livemix_tests` 204/204, every
+Step 2 of the phase, all of §5 except where noted. `dine_app_tests` 90/90, `livemix_tests` 204/204, every
 product builds, the UI snapshots render unchanged.
 
 | §5 | Built | Where |
 | --- | --- | --- |
 | 5.1 One owned model | yes | `app/native/SessionState.h`; `SessionStore` serialises nothing else. `SessionStore::Document` is an alias for it |
-| 5.1 One capture, one apply | yes | `captureSession()` / `applySession()` in `SessionState.cpp`, both in `DLIVE_APP_SOURCES` and therefore tested. `hold()`, `pending`, `applyPendingMix()` and `holdMix()` deleted |
+| 5.1 One capture, one apply | yes | `captureSession()` / `applySession()` in `SessionState.cpp`, both in `DINE_APP_SOURCES` and therefore tested. `hold()`, `pending`, `applyPendingMix()` and `holdMix()` deleted |
 | 5.2 Splitting `prepare()` | yes | `MixController::rebuild()` (pure, no device, no rate) and `prepare()` (the audio graph only). `resetDocument()` is the blank slate a different document is loaded onto |
 | 5.3 Saving by revision | yes | `MixController::touch()` / `getRevision()`; `MainView`'s tick writes a second after the revision stops moving. 39 `saveSession()` calls became 3 |
 | 5.4 Sample identity | yes | `SampleChoice` + `SampleLibrary::slotFor()`; `readSampleChoices` / `resolveSampleChoices`. The cap says so now (`whatWasLeftOut()`) |
@@ -629,8 +629,8 @@ Two things were found while building it that were not in the audit:
 | Autosave ~2 s after the last change, immediately after a tune / scene recall / reference | yes | `app/native/SessionAutosave.{h,cpp}`; `MixController::mark()` is the "immediately" signal and `MainView`'s tick is the only caller |
 | Background thread, immutable snapshot, atomic | yes | the snapshot is taken on the message thread, written by the autosave's own worker, and landed by renaming a temporary file |
 | Keep manual Save | yes | File > Save, Save As, and a clean quit all write the document |
-| A `.autosave.json` beside the document and a clean-exit marker | yes | `<name>.dlive.autosave.json` and `<name>.dlive.open`, the same trick the Recorder plays with its take sidecars |
-| Recover / Open last saved / Keep both | yes | offered once at launch, and only when DLIVE was killed *and* the autosave holds work the document does not. "Keep both" writes the recovered work as `<name> (recovered)` and leaves the saved session untouched |
+| A `.autosave.json` beside the document and a clean-exit marker | yes | `<name>.dine.autosave.json` and `<name>.dine.open`, the same trick the Recorder plays with its take sidecars |
+| Recover / Open last saved / Keep both | yes | offered once at launch, and only when DINE was killed *and* the autosave holds work the document does not. "Keep both" writes the recovered work as `<name> (recovered)` and leaves the saved session untouched |
 | Timestamped checkpoints that persist | yes | `MixCheckpoint` in `MixHistory.h`, taken at every milestone and every five minutes of unmarked mixing, saved with the session |
 | Existing sentence labels kept | yes | "TUNE MIX", "Scene: Sermon", "Aimed at Take Me To The King", "Put back on Lead Vocal" |
 | Bounded, oldest first, tunes kept longest | yes | `pruneCheckpoints`, bounded by *strip snapshots* (`kCheckpointStripBudget`) rather than entries, because a 64-channel checkpoint costs three times a 21-channel one |

@@ -208,12 +208,12 @@ void MixController::setFocusInput (int strip)
     {
         const int now = session.focusInput();
         onMessage (now >= 0 ? session.inputs[size_t (now)].name + " is what the mix is built around. TUNE MIX to hear it."
-                            : std::string ("The mix is built around whichever lead microphone DLIVE hears being sung into."));
+                            : std::string ("The mix is built around whichever lead microphone DINE hears being sung into."));
     }
     touch();
 }
 
-// SPEECH PRIORITY: the band steps back while somebody is speaking. The only thing in DLIVE
+// SPEECH PRIORITY: the band steps back while somebody is speaking. The only thing in DINE
 // that moves a level on its own, which is why it is off until somebody asks for it.
 void MixController::setSpeechPriority (bool on)
 {
@@ -282,7 +282,7 @@ MixController::LoudnessMove MixController::previewLoudnessMove() const
     const auto loud = getMasterLoudness();
     m.targetLufs = loud.targetLufs;
     if (graph.numStrips() == 0) { m.why = "Assign your inputs first: there is no mix to raise yet."; return m; }
-    if (! prepared) { m.why = "No audio device is open, so DLIVE cannot hear how loud the mix is yet."; return m; }
+    if (! prepared) { m.why = "No audio device is open, so DINE cannot hear how loud the mix is yet."; return m; }
     if (bypassed) { m.why = "BYPASS is on: switch it off to raise the mix."; return m; }
     // The integrated reading is the honest one; the short-term one stands in until it exists.
     const float from = loud.integratedLufs > -60.0f ? loud.integratedLufs
@@ -689,7 +689,7 @@ const MixScene& MixController::getFavourite (int index) const
     return scenes[size_t (kMixScenes + index)];
 }
 
-// WHAT THE MIX THAT IS RUNNING ACTUALLY SOUNDS LIKE. Measured from the listen DLIVE already
+// WHAT THE MIX THAT IS RUNNING ACTUALLY SOUNDS LIKE. Measured from the listen DINE already
 // has - the relationships, where each group lands against the master, and what the master
 // itself measured. Never read off a fader: a fader at -6 dB means nothing without knowing
 // what arrived at it, which is the whole reason this exists.
@@ -748,7 +748,7 @@ bool MixController::markFavourite (const std::string& name)
     scenes.push_back (s);
     if (onMessage)
         onMessage (s.sound.valid
-                       ? s.name + " is a favourite. DLIVE measured what it sounds like, so a later mix can be "
+                       ? s.name + " is a favourite. DINE measured what it sounds like, so a later mix can be "
                                   "aimed at it the way it is aimed at a record."
                        : s.name + " is a favourite. Nothing has been listened to yet, so the mix is kept but what "
                                   "it sounds like is not measured - TUNE MIX once and mark it again to aim at it.");
@@ -786,7 +786,7 @@ bool MixController::useFavouriteAsReference (int index)
     if (! f.sound.valid || f.sound.masterLufs <= -100.0f)
     {
         if (onMessage)
-            onMessage (f.name + " was kept before DLIVE had listened to anything, so there is nothing measured to "
+            onMessage (f.name + " was kept before DINE had listened to anything, so there is nothing measured to "
                                 "aim at. Mark the mix again once it has been tuned.");
         return false;
     }
@@ -1201,7 +1201,7 @@ bool MixController::resetMixToRaw()
     if (! built) return false;
     if (liveSafeRefuses (LiveAction::ResetMix)) return false;
 
-    // A place to come back to, first: this is the one change in DLIVE that throws away
+    // A place to come back to, first: this is the one change in DINE that throws away
     // everything it has decided, so it is never a one-way door.
     checkpoint ("Before reset to raw", false);
     markMixChange ("reset the mix to raw");
@@ -1604,7 +1604,7 @@ void MixController::startTuneLiveMix (const LiveTuneSettings& s)
     tuneLive.setSettings (ts);
     tuneLive.beginListening (session.name);
 
-    // Working from the listen DLIVE already has: the band does not play again, and two
+    // Working from the listen DINE already has: the band does not play again, and two
     // readings are compared against the same performance rather than two different ones.
     if (s.reuseListen && listened && lastCapture.valid)
     {
@@ -1702,7 +1702,7 @@ void MixController::endTuneLive (const std::string& message, bool keepProposal, 
     clearTuningScope();
     publish();
 
-    // A chat turn answers in the chat, not in a toast that scrolls away: what DLIVE decided,
+    // A chat turn answers in the chat, not in a toast that scrolls away: what DINE decided,
     // a line each, is what the engineer reviews before pressing KEEP.
     if (chatRun)
     {
@@ -1724,7 +1724,7 @@ void MixController::endTuneLive (const std::string& message, bool keepProposal, 
         }
         else
         {
-            reply.text = message.empty() ? std::string ("DLIVE could not do that.") : message;
+            reply.text = message.empty() ? std::string ("DINE could not do that.") : message;
         }
         if (! reply.applied) buddyRequest.clear();
         else reply.text += " It is on BEFORE / AFTER now: KEEP makes it part of the mix, REVERT puts it back.";
@@ -2032,7 +2032,7 @@ void MixController::keepPlan()
     liveKept = false;
     buddyRequest.clear();
     kept = taking;
-    // The proposal is kept for the Inspector to read "what DLIVE set" from; the selection
+    // The proposal is kept for the Inspector to read "what DINE set" from; the selection
     // that narrowed it has done its work and never outlives the decision.
     planSelection.reset();
     mixed = true;
@@ -2286,7 +2286,7 @@ bool MixController::askForChange (const std::string& text)
     if (text.find_first_not_of (" \t\n") == std::string::npos) return false;
     if (! prepared) return refuse ("No mix is running yet.");
     if (liveRun || stage == Stage::Listening || stage == Stage::Planning)
-        return refuse ("DLIVE is busy. Wait for it to finish, then ask again.");
+        return refuse ("DINE is busy. Wait for it to finish, then ask again.");
     if (stage == Stage::Preview)
         return refuse ("A proposal is already waiting on BEFORE / AFTER. KEEP it or REVERT it first - "
                        "nothing is kept for you.");
@@ -2294,7 +2294,7 @@ bool MixController::askForChange (const std::string& text)
         return refuse ("LIVE SAFE is on, so the mix is not changed from here. Turn LIVE SAFE off first "
                        "if this is not the middle of a service.");
     if (! (listened && lastCapture.valid))
-        return refuse ("DLIVE has not heard the band yet. Run TUNE MIX once while they play; a change "
+        return refuse ("DINE has not heard the band yet. Run TUNE MIX once while they play; a change "
                        "is worked out from what it heard.");
 
     LiveTuneSettings s = liveSettings;
@@ -3226,7 +3226,7 @@ MixController::InputAdvice MixController::getInputAdvice (int strip) const
         return a;
     }
 
-    // Heard. The report is the one taken after DLIVE's own digital gain, so what is left
+    // Heard. The report is the one taken after DINE's own digital gain, so what is left
     // is the console preamp itself.
     const auto& report = sp.tune.report;
     a.consoleMoveDb = sp.tune.valid ? report.suggestedCaptureGainDb : 0.0f;
@@ -3255,13 +3255,13 @@ MixController::InputAdvice MixController::getInputAdvice (int strip) const
     }
     else if (std::fabs (sp.inputGainDb) >= MixProfile::relationships (session.profile).digitalGainAdviceDb)
     {
-        // The level works, but only because DLIVE moved it a long way digitally. Doing it at
+        // The level works, but only because DINE moved it a long way digitally. Doing it at
         // the desk instead keeps the noise floor down, so the app says so rather than hiding it.
         const bool up = sp.inputGainDb > 0.0f;
         a.level = InputAdvice::Level::Digital;
         a.consoleMoveDb = sp.inputGainDb;
         a.headline = std::string ("PREAMP ") + (up ? "UP " : "DOWN ") + move (sp.inputGainDb) + " dB AT THE DESK";
-        a.detail = std::string ("DLIVE is running ") + (up ? "+" : "-") + move (sp.inputGainDb)
+        a.detail = std::string ("DINE is running ") + (up ? "+" : "-") + move (sp.inputGainDb)
                  + " dB of digital input gain to bring this source up to a level the processing can work with. "
                  + (up ? "That works, but it lifts the preamp's own noise with the source: set the gain on the desk instead, then RE-TUNE."
                        : "Set the gain on the desk instead and the converter keeps its headroom, then RE-TUNE.");
@@ -3280,7 +3280,7 @@ MixController::InputAdvice MixController::getInputAdvice (int strip) const
     }
     a.detail = sentence (Recommendation::Kind::CaptureGain);
     if (a.detail.empty())
-        a.detail = "The level reaching DLIVE is outside the healthy range for this source. Set the preamp on the desk, "
+        a.detail = "The level reaching DINE is outside the healthy range for this source. Set the preamp on the desk, "
                    "then TUNE MIX again: gain staging comes before anything else in the mix.";
     return a;
 }
@@ -3300,7 +3300,7 @@ namespace
             ++c.assigned;
             if (sp.faint) { ++c.faint; continue; }
             if (! sp.heard) { ++c.silent; continue; }
-            // Heard. Healthy when the level reaching the chain is inside the profile's range AND DLIVE did not
+            // Heard. Healthy when the level reaching the chain is inside the profile's range AND DINE did not
             // have to move it a long way digitally to get there: gain staging belongs on the desk, so an input that
             // only works because of a big digital raise is not a healthy input, it is a preamp waiting to be set.
             const bool healthy = sp.bleedOnly || ! sp.tune.valid
@@ -3331,7 +3331,7 @@ std::vector<std::string> MixController::getMixHealthNotes() const
     }
     const HealthCount c = countHealth (*plan, MixProfile::relationships (session.profile).digitalGainAdviceDb);
     auto plural = [] (int n, const char* one, const char* many) { return std::to_string (n) + " " + (n == 1 ? one : many); };
-    if (c.faint > 0)  notes.push_back (plural (c.faint, "input barely reached DLIVE: check its mic and cable.", "inputs barely reached DLIVE: check their mics and cables."));
+    if (c.faint > 0)  notes.push_back (plural (c.faint, "input barely reached DINE: check its mic and cable.", "inputs barely reached DINE: check their mics and cables."));
     if (c.silent > 0) notes.push_back (plural (c.silent, "input was not heard: RE-TUNE while it plays.", "inputs were not heard: RE-TUNE while they play."));
     if (c.preamp > 0)
     {

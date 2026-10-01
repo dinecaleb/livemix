@@ -14,7 +14,7 @@ namespace livemix
 // No plan reaches the audio without passing through here, whoever made it. The validator is
 // deliberately suspicious: it would rather refuse an action it cannot account for than clamp
 // it into something unrelated and let it through. What it rejects is kept in the plan with
-// the reason attached, so REVIEW CHANGES can show what DLIVE declined to do.
+// the reason attached, so REVIEW CHANGES can show what DINE declined to do.
 namespace MixSafetyValidator
 {
     struct Context

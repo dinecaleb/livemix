@@ -12,7 +12,7 @@ namespace livemix
 // ---------------------------------------------------------------------------
 // APPEARANCE (View > Appearance > Customise...)
 //
-// Down the left, every theme: DLIVE's own first, then the ones in ~/Music/DLIVE/Themes.
+// Down the left, every theme: DINE's own first, then the ones in ~/Music/DINE/Themes.
 // Clicking one applies it to the whole app at once and remembers it for next time - the
 // console behind the sheet is the preview, which is why the scrim is lighter here than
 // under any other sheet. On the right, every colour the theme sets, grouped the way

@@ -1,6 +1,6 @@
-# Dine / DLIVE (repo LiveMix / Calive) — notes for Claude Code
+# DINE and the Dine plug-ins (repo LiveMix / Calive) — notes for Claude Code
 
-One engine (`src/`, C++20, JUCE-free), six Dine channel plug-ins + Dine FX (`modules/`), and DLIVE, the live
+One engine (`src/`, C++20, JUCE-free), six Dine channel plug-ins + Dine FX (`modules/`), and DINE, the live
 recording and broadcast DAW (`app/`). This file holds the invariants and the map. Everything else is a topic
 file under `docs/` — read the one for the area you are touching before changing it.
 
@@ -55,7 +55,7 @@ file under `docs/` — read the one for the area you are touching before changin
   `SafetyValidator` / `MixSafetyValidator` on every path, the deterministic result as the fallback on any
   failure, AI output never enters the proposed parameters, nothing AI-related on the audio thread, and a
   reopened session never contacts a provider. The plug-ins' AI assist is switched off on purpose
-  (`kAIAssistAvailable = false`); keep the code paths, do not re-enable without being asked. In DLIVE the
+  (`kAIAssistAvailable = false`); keep the code paths, do not re-enable without being asked. In DINE the
   reasoning layer (TUNE LIVE MIX) sits **above** `MixPlanner`, never instead of it: the
   deterministic plan is built first and always. **MIX BUDDY is help, not mixing**: a question never changes
   the mix; its one path to a change is an explicit "Propose it" that becomes an ordinary proposal on
@@ -67,11 +67,11 @@ file under `docs/` — read the one for the area you are touching before changin
   `mixBusInDisplayOrder`, never the enum, because the enum is the storage.
 - **Latency is reported honestly, and so is the ceiling.** The channel path is sample-synchronous and
   minimum-phase and adds none; the lookahead limiter (`Limiter::kLookaheadMs` = 1.5 ms) exists only where the
-  stage is turned on (Dine Master, DLIVE's master bus) and is reported through `setLatencySamples` constantly,
+  stage is turned on (Dine Master, DINE's master bus) and is reported through `setLatencySamples` constantly,
   on, off or in an A/B. Its ceiling is a **true** peak: the detector is 4x oversampled, because a number
   printed as dBTP has to be one. Do not change DSP behaviour without meaning to: `tests/reference/*.f32`
   regression renders must keep passing.
-- **Plain words on the surface.** Anything a volunteer sees in Simple view or on a DLIVE workspace is plain
+- **Plain words on the surface.** Anything a volunteer sees in Simple view or on a DINE workspace is plain
   language (WARMTH, CLARITY, SMOOTH, STEADY, CLEAN-UP, LOUD, "Only I hear it", "set to record"); engineer terms
   (gate, comp, de-ess, AFL, aggregate device, arm) appear once each, in Advanced or a tooltip. The verbs are
   TUNE / RE-TUNE / TUNE KIT / TUNE MIX / TUNE LIVE MIX; "Mix Buddy", never "chat". Tune explains WHAT then WHY
@@ -81,31 +81,31 @@ file under `docs/` — read the one for the area you are touching before changin
   track. Nothing about recording moves to the audio thread.
 - **The session is a document, not a side effect of an open device.** `SessionState` (`app/native/SessionState.h`)
   is the one owned model and the only thing `SessionStore` serialises; `captureSession` / `applySession` are the
-  only ways in and out, and both are compiled into `dlive_app_tests` - nothing assembles a session out of getters,
+  only ways in and out, and both are compiled into `dine_app_tests` - nothing assembles a session out of getters,
   anywhere. `MixController::rebuild()` builds the graph and carries the mix across it with no device and no sample
   rate; `prepare()` builds the audio graph and never decides whether the state exists. Saving follows
   `MixController::touch()`'s revision, never a UI call site. A session survives a crash the way a take does
   (`app/native/SessionAutosave`): an autosave and a clean-exit marker sit beside the document, and one found on the
   next launch offers Recover / Open last saved / Keep both. `docs/SESSION-STATE.md` is the audit and the contract.
-- **The design is the Figma file, and `docs/DESIGN-V3.md` is the map to it.** The DLIVE
-  application is built to "DLIVE - Full UX Mockup" (v3, 2026-09-29): Inter and IBM Plex Mono,
+- **The design is the Figma file, and `docs/DESIGN-V3.md` is the map to it.** The DINE
+  application is built to "DINE - Full UX Mockup" (v3, 2026-09-29): Inter and IBM Plex Mono,
   flat neutral planes, one 52 pt toolbar with the window's own buttons inside it, a 208 pt
   sidebar in sentence case that folds to a 52 pt icon rail, and a 28 pt status foot. **The only
   capitals in the product are its verbs** - `Dine::drawSection` puts a caption back into
   sentence case, so a caption written in capitals is corrected rather than shouted. Read
   `docs/DESIGN-V3.md` before moving anything in `app/ui`; it also lists, with the reason, every
   place the code and the design disagree.
-- **UI changes are verified by looking at the PNGs** (`dlive_ui_snapshots`, the per-product
+- **UI changes are verified by looking at the PNGs** (`dine_ui_snapshots`, the per-product
   `livemix_*_ui_snapshots`), never by reasoning about layout code; regression references change only when a
   baseline changes on purpose. No page repaints itself wholesale from its tick; a page's `paint` and its `Look`
   move together. Colour literals belong in `AppTheme` only, and a new widget re-reads its tokens in
   `lookAndFeelChanged()`. **Text is drawn through `Dine::drawText` / `Dine::drawFittedText`, never through
   `g.drawText`**: JUCE's own layout cache holds 128 strings for the whole window and is an LRU, which a
   workspace cycles straight through, so every paint re-shapes every string. Same arguments, same pixels
-  (`app/Tests/TextCacheTests.cpp` asserts they are identical); `dlive_ui_snapshots --frames` prints the
+  (`app/Tests/TextCacheTests.cpp` asserts they are identical); `dine_ui_snapshots --frames` prints the
   layout count per workspace, and that count is the figure a frame-budget regression shows up in.
   **A fixed word is never ellipsised.** A name is data and is cut when it will not fit; CLOSE drawn as
-  "Clo..." is a cell that is too small. `dlive_ui_snapshots <dir>` ends with a TEXT CLIPPING report naming
+  "Clo..." is a cell that is too small. `dine_ui_snapshots <dir>` ends with a TEXT CLIPPING report naming
   every string that lost characters and the screen it was on, and **that report is expected to be empty** -
   widen the cell, or let the control say the same thing in fewer words (`DinePopup::setBriefValue`, a brief
   form beside the long one, `Dine::shortPath` for a file path). `Dine::drawFittedText` squeezes instead of
@@ -119,10 +119,10 @@ file under `docs/` — read the one for the area you are touching before changin
 ```sh
 export PATH="$HOME/.local/bin:$PATH"     # cmake / ninja from uv tool
 scripts/build.sh                         # everything, Release, into build/
-scripts/dlive.sh [--build|--tests|--shots|--debug]      # the app alone: the fast loop
+scripts/dine.sh [--build|--tests|--shots|--debug]      # the app alone: the fast loop
 cmake -S . -B build-engine -G Ninja -DLIVEMIX_BUILD_PLUGIN=OFF && cmake --build build-engine   # engine only
-scripts/test.sh && build/app/dlive_app_tests            # ctest + benchmark, then the DAW/app suite
-build/app/dlive_mix_stems "<stems>" 30 <out> gospel     # TUNE MIX on a real multitrack; exit 0 = idempotent
+scripts/test.sh && build/app/dine_app_tests            # ctest + benchmark, then the DAW/app suite
+build/app/dine_mix_stems "<stems>" 30 <out> gospel     # TUNE MIX on a real multitrack; exit 0 = idempotent
 scripts/package.sh                       # a zip for a tester (Developer ID + notarization via env vars)
 ```
 
@@ -148,7 +148,7 @@ app/native                  MixController (no JUCE), DawEngine, Transport, Recor
 app/ui                      MainView + the workspaces (TracksPage, MixerPage, MixPage = TUNE, LivePage,
                             AdvancedPage = Inspector), sheets (Outputs, Check, History, Chat, Theme, ChannelTune),
                             AppTheme (Dine:: tokens)
-app/Tools, app/Tests        dlive_ui_snapshots / dlive_mix_stems / dlive_device_check; dlive_app_tests
+app/Tools, app/Tests        dine_ui_snapshots / dine_mix_stems / dine_device_check; dine_app_tests
 tests/                      engine + integration tests, benchmark, reference renders
 ```
 
@@ -160,11 +160,11 @@ tests/                      engine + integration tests, benchmark, reference ren
 | What a session holds, who owns it, autosave, recovery and the mix history | `docs/SESSION-STATE.md` |
 | The four-phase plan and what phase the work is in | `docs/ROADMAP-RELIABILITY.md` |
 | The engine's rules: products, parameters, Tune, profiles, wording, FX | `docs/DINE-CORE-RULES.md`, `docs/ARCHITECTURE-DINE-CORE.md` |
-| DLIVE the application: DAW layer, every workspace, setup pages | `docs/DLIVE-APP.md`, `docs/ARCHITECTURE-DLIVE.md`, `docs/MILESTONE-7.md` |
-| The mix engineer: TUNE LIVE MIX, REFERENCE MIX, LIVE SAFE, MIX BUDDY, loudness, profiles, linked faders | `docs/DLIVE-MIX-ENGINEER.md`, `docs/ARCHITECTURE-DLIVE-AI.md` |
-| Monitoring: the solo bus, two devices, Dante | `docs/DLIVE-MONITORING.md` |
+| DINE the application: DAW layer, every workspace, setup pages | `docs/DINE-APP.md`, `docs/ARCHITECTURE-DINE.md`, `docs/MILESTONE-7.md` |
+| The mix engineer: TUNE LIVE MIX, REFERENCE MIX, LIVE SAFE, MIX BUDDY, loudness, profiles, linked faders | `docs/DINE-MIX-ENGINEER.md`, `docs/ARCHITECTURE-DINE-AI.md` |
+| Monitoring: the solo bus, two devices, Dante | `docs/DINE-MONITORING.md` |
 | The v3 design: the Figma file, every frame, and where each one landed | `docs/DESIGN-V3.md` |
-| The desktop design, macro pads, themes, tutorial, frame budget | `docs/DLIVE-DESIGN.md`, `docs/THEMES.md` |
+| The desktop design, macro pads, themes, tutorial, frame budget | `docs/DINE-DESIGN.md`, `docs/THEMES.md` |
 | RealtimeSanitizer: wiring, findings, suppressions | `docs/REALTIME-SANITIZER.md` |
 | Usage events, stability reports, milestones: every event and the question it answers | `docs/ANALYTICS.md` |
 | Drum sample replacement: the scope and what was built | `docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md` |

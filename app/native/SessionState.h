@@ -22,7 +22,7 @@ class SampleLibrary;
 // ---------------------------------------------------------------------------
 // THE SESSION, AS ONE THING
 //
-// Everything that can change what a DLIVE session sounds like or how it is wired, in one
+// Everything that can change what a DINE session sounds like or how it is wired, in one
 // owned model. This is the only thing SessionStore serialises, and there are exactly two
 // functions that move it in and out of the live objects: captureSession() and
 // applySession(), at the bottom of this header. Nothing else assembles a session out of
@@ -39,7 +39,7 @@ class SampleLibrary;
 // emergency keys. The plan on preview is not here either - it is a proposal, not a session.
 // ---------------------------------------------------------------------------
 
-// The devices the engineer chose, as they chose them - never the combined device DLIVE
+// The devices the engineer chose, as they chose them - never the combined device DINE
 // builds around them, which is rebuilt on opening so a session survives a Mac that lost it.
 struct DeviceChoice
 {
@@ -63,7 +63,7 @@ struct DeviceChoice
 //
 // `ChannelParameters::replaceSound` is a released parameter ID and stays exactly what it has
 // always been: an index, 0..7, into the family's loaded banks. But the list those banks sit
-// in is built from two folders at launch (built-ins, then ~/Music/DLIVE/Samples), sorted by
+// in is built from two folders at launch (built-ins, then ~/Music/DINE/Samples), sorted by
 // name - so the index means "the fourth kick I happened to find today", which is not an
 // identity. Shipping a new built-in, renaming a file, or a sample that fails to decode this
 // morning all move it, and the session plays a different drum without saying so.
@@ -75,7 +75,7 @@ struct SampleChoice
 {
     std::string family;      // "kick", "snare", "toms" - the folder a bank is filed under
     std::string name;        // the sound's name, which is its file name without the extension
-    bool user = false;       // true: one of the engineer's own, from ~/Music/DLIVE/Samples
+    bool user = false;       // true: one of the engineer's own, from ~/Music/DINE/Samples
     std::string path;        // relative to that folder, for a user sound ("Snare/My Snare.wav")
 
     bool set() const noexcept { return ! name.empty(); }

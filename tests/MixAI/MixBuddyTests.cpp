@@ -65,7 +65,7 @@ TEST_CASE ("Mix Buddy: why can't I hear it - the first thing on the path that ex
     CHECK (offers (healthy, BuddyActionKind::RunTuneMix));
     CHECK (offers (healthy, BuddyActionKind::OpenInspector));
 
-    // Nothing arriving is a source problem, said before anything DLIVE does.
+    // Nothing arriving is a source problem, said before anything DINE does.
     auto dead = s;
     dead.strips[3].inputRmsDb = -110.0f;
     dead.strips[3].mute = true;                       // ... even when it is muted as well
@@ -143,7 +143,7 @@ TEST_CASE ("Mix Buddy: it never changes the mix, and the one button that can pro
     CHECK (MixBuddy::answer ("purple elephant", s).notUnderstood);
 }
 
-TEST_CASE ("Mix Buddy: how-to answers name DLIVE's own controls")
+TEST_CASE ("Mix Buddy: how-to answers name DINE's own controls")
 {
     const auto s = aService();
     CHECK (MixBuddy::answer ("How do I save this mix?", s).text.find ("Cmd-S") != std::string::npos);

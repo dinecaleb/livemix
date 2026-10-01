@@ -1,8 +1,8 @@
-# Drum sample replacement in DLIVE: scope
+# Drum sample replacement in DINE: scope
 
 Written 2026-09-24, before any implementation; Phase 1 was built the same day (see **What was built** at the
 end). The question: replace or blend the live kick, snare and tom hits with samples, in a live mix, without
-breaking what DLIVE promises - a sample-synchronous channel path, honest latency, an audio thread that never
+breaking what DINE promises - a sample-synchronous channel path, honest latency, an audio thread that never
 allocates, a Tune that is deterministic and idempotent, and plain words on the surface. This document says
 how each part works, what it costs and what it threatens; where the build differed from the plan, the
 section at the end says so.
@@ -25,7 +25,7 @@ section at the end says so.
   (the real 21-input service; where the recordings are is in `docs/BUILD-AND-VERIFY.md`) and reports hits found, bleed
   ignored, mis-triggers and detection delay per drum. The threshold rules are written from what it shows,
   not from what this document guesses.
-- **DLIVE only, in the first version.** Kick, snare and toms; not the plug-ins, not hi-hat, overheads or
+- **DINE only, in the first version.** Kick, snare and toms; not the plug-ins, not hi-hat, overheads or
   room (a room microphone is never gated and is never replaced either).
 
 ## Where it sits
@@ -144,7 +144,7 @@ a missed soft hit (velocity map, the blend leaves the microphone in), a double t
 
 ## Sample selection
 
-- **A built-in bank**, shipped with DLIVE, recorded dry and close, 48 kHz 24-bit mono, four velocity
+- **A built-in bank**, shipped with DINE, recorded dry and close, 48 kHz 24-bit mono, four velocity
   layers with two round-robins each - eight files per drum - for a few kicks, snares and toms. Licensing:
   our own recordings, or a library licensed for redistribution; not something to pick up from the web.
 - **User samples**: a WAV dropped onto the strip (the TRACKS page already accepts audio files on the
@@ -235,7 +235,7 @@ in the callback. Loading a bank is a message-thread decode of about 20 ms per dr
 
 ## Phases
 
-- **Phase 0, measure (small).** `dlive_trigger_check <take folder>`: runs the detector offline over the
+- **Phase 0, measure (small).** `dine_trigger_check <take folder>`: runs the detector offline over the
   QUEENSVIEW kick, snare and tom takes with the overheads as the reference for "a real hit", prints hits
   found, bleed ignored, mis-triggers, double triggers and detection delay per drum for a grid of rise,
   threshold and band settings. The profile's numbers are written from this table. No engine change.
@@ -251,7 +251,7 @@ in the callback. Loading a bank is a message-thread decode of about 20 ms per dr
 ## Decisions needed before Phase 1
 
 1. The bank: record our own, or license one that allows redistribution.
-2. DLIVE only first, or the Dine Drums plug-in in the same step (recommended: DLIVE only).
+2. DINE only first, or the Dine Drums plug-in in the same step (recommended: DINE only).
 3. The word on the surface: "Sample" (proposed), "Reinforce", or "Trigger" (engineer's word, Advanced only).
 4. Whether Phase 0's numbers are good enough to skip the lookahead switch for good.
 
@@ -281,7 +281,7 @@ and the reference renders pass); thirteen `replace*` parameters appended to `Cha
 `ProfileData.cpp`; `tune::setSampleReplacement` fitting threshold, level, band, mask and rise from the
 listen and never touching the switch, blend or sound; a `SampleBank` published by pointer through
 `MixEngine::setSampleBanks`; `app/native/SampleLibrary` decoding the bank (the shipped one in `app/Samples`,
-copied into the bundle; the engineer's own in `~/Music/DLIVE/Samples`); the SAMPLE stage on every list that
+copied into the bundle; the engineer's own in `~/Music/DINE/Samples`); the SAMPLE stage on every list that
 reads a chain and as a device in the Inspector; five engine tests, a tune test and an app test; a benchmark
 section of its own. Measured (`livemix_benchmark`): six kick strips with the stage on cost about 7 µs more
 per 128-sample block than with it off.
@@ -302,7 +302,7 @@ per 128-sample block than with it off.
 - **The kit tuned around the samples.** With a sample on, TUNE gates that microphone far harder (the sample carries
   the body; the microphone supplies the attack), and once any drum is sampled the hi-hat gets a gentle expander,
   the unsampled drum microphones close further, and the hat, overheads and room take their high-pass to the top
-  of its range - what they hear of the sampled drums is the dirt in a clean kit (`docs/DLIVE-MIX-ENGINEER.md`).
+  of its range - what they hear of the sampled drums is the dirt in a clean kit (`docs/DINE-MIX-ENGINEER.md`).
 - **Two defaults for a first service.** A sampled snare keeps a shallow expander (20 dB, 4:1, threshold low) so its
   ghost notes - which the sample never fires on - still come through the microphone; a sampled kick or tom closes
   hard. Toms play their sample as recorded until "Follows the drum" is switched on by ear, because the drum's pitch
@@ -310,7 +310,7 @@ per 128-sample block than with it off.
 - **HEAR IT.** A button on the stage plays the chosen sound once, at the level the stage would play it, into the
   engineer's listen (the monitor bus) and nowhere else; the broadcast never hears an audition, and with no solo
   output the app says so rather than playing it into the room.
-- **Phase 0, on the QUEENSVIEW takes** (`build/app/dlive_trigger_check "<folder>" 60 <offset> _002`): the tool
+- **Phase 0, on the QUEENSVIEW takes** (`build/app/dine_trigger_check "<folder>" 60 <offset> _002`): the tool
   measures each kick, snare and tom take as a listen does, fits the stage as TUNE fits it, runs the detector
   as the engine runs it, and prints hits, a level histogram, gaps and coincidences. The first run said the
   kick and snare trigger cleanly (tight clusters, no soft hits) and the toms did not: the listen's "event
@@ -347,12 +347,12 @@ Three things were left open when Phases 1 and 2 stopped, and they are done.
 
 **A sound of this church's own, imported from the strip.** The Sample stage in the Inspector carries ADD A
 SOUND beside HEAR IT. A `.wav` (or AIFF, or FLAC) from anywhere on the Mac is **decoded first and copied
-second**: a file DLIVE cannot read never reaches somebody's session folder, so a Sunday is not where they find
+second**: a file DINE cannot read never reaches somebody's session folder, so a Sunday is not where they find
 out. `SampleLibrary::importSound` does both and returns the name it filed the sound under, or the sentence
 saying why not.
 
 **The session carries its own sounds, so it is portable.** `SampleLibrary::setSessionFolder` adds a third
-source after the bundle and `~/Music/DLIVE/Samples`: `<session>/Samples/<kick|snare|toms>/`. An import goes
+source after the bundle and `~/Music/DINE/Samples`: `<session>/Samples/<kick|snare|toms>/`. An import goes
 there whenever the session has a folder, so handing the folder to somebody else - or opening it on the booth
 Mac next Sunday - hands them the kick it was mixed with. It is a copy, never a link: deleting the original
 changes nothing. `Sound::inSession` says which sounds are the session's own. The host reloads the library with

@@ -724,7 +724,7 @@ juce::String LivePage::autopilotText() const
 {
     const auto limit = juce::String (controller.getAutopilotLimits().maxTotalDb, 0);
     return look.autopilotOn ? juce::String (juce::CharPointer_UTF8 ("Group faders only, \xc2\xb1")) + limit + " dB max. Touch a fader to take over."
-                            : juce::String (juce::CharPointer_UTF8 ("Off. Engage it and DLIVE holds the mix you set: group faders only, "
+                            : juce::String (juce::CharPointer_UTF8 ("Off. Engage it and DINE holds the mix you set: group faders only, "
                                                                      "inside \xc2\xb1")) + limit + " dB of where you engaged it, and every move says why.";
 }
 

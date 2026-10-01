@@ -77,7 +77,7 @@ public:
     // Why a take was stopped by something other than the person (a sample-rate change), once.
     juce::String takeStopNotice() { auto n = stopNotice; stopNotice.clear(); return n; }
 
-    // Message thread, after a session is opened. Takes that were still being written when DLIVE
+    // Message thread, after a session is opened. Takes that were still being written when DINE
     // last closed (a crash mid-set) get a valid header from what is on disk and go on the track
     // they were recording, at the place they started, unless a clip already has them. Returns
     // what was found, one sentence each (Recorder::Recovered::note).

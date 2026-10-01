@@ -1,7 +1,7 @@
-// Headless DLIVE UI snapshots: builds the real controller, DAW engine and MainView
+// Headless DINE UI snapshots: builds the real controller, DAW engine and MainView
 // without a device, feeds a synthetic 16-input band through the engine, writes a short
 // multitrack to disk so the timeline has real waveforms, then walks every workspace and
-// state and writes PNGs. Usage: dlive_ui_snapshots <output-dir>
+// state and writes PNGs. Usage: dine_ui_snapshots <output-dir>
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_events/juce_events.h>
 #include "native/DawEngine.h"
@@ -60,7 +60,7 @@ namespace
         int numInputs() const { return int (channels.size()); }
 
         // Reads `seconds` from `offset` out of every file in the folder whose name names a
-        // source DLIVE knows. Returns a sentence on failure, "" on success.
+        // source DINE knows. Returns a sentence on failure, "" on success.
         juce::String load (const juce::File& folder, double seconds, double offset)
         {
             if (! folder.isDirectory()) return "There is no folder at " + folder.getFullPathName();
@@ -100,7 +100,7 @@ namespace
                 stems.push_back (std::move (stem));
             }
 
-            if (stems.empty()) return "No file in " + folder.getFullPathName() + " names a source DLIVE knows.";
+            if (stems.empty()) return "No file in " + folder.getFullPathName() + " names a source DINE knows.";
 
             // The desk order the design draws: the kit, then the band, then the voices, then the
             // room - which is the order the engine already puts a group in, so sorting by group
@@ -384,8 +384,8 @@ namespace
 // this machine; what matters is the direction, and that no workspace is anywhere near the
 // 33 ms a 30 Hz tick has to fit inside.
 //
-//   dlive_ui_snapshots --frames [channels=48] [frames=120]
-//   dlive_ui_snapshots --paint  [channels=48] [frames=120]   the same, plus the paint tree
+//   dine_ui_snapshots --frames [channels=48] [frames=120]
+//   dine_ui_snapshots --paint  [channels=48] [frames=120]   the same, plus the paint tree
 // ---------------------------------------------------------------------------
 // The band on the desk. Given a real multitrack (--stems) every input is assigned from the
 // file that recorded it, by the name the console wrote; otherwise the synthetic sixteen are
@@ -541,7 +541,7 @@ static int measureFrames (int channels, int frames, bool detail)
     std::vector<Result> results;
 
     // Deliberately no window. Timing a real one on macOS measures the window server's vsync,
-    // not DLIVE: the same run varies by an order of magnitude. Rendering into an image
+    // not DINE: the same run varies by an order of magnitude. Rendering into an image
     // measures only this application's own drawing, which is the thing a performance pass can
     // actually change and the thing a regression would show up in.
 
@@ -585,7 +585,7 @@ static int measureFrames (int channels, int frames, bool detail)
         rig.pump (120);
 
         // NativeImageType, not the default software one, and that is the whole difference
-        // between measuring DLIVE and measuring a renderer DLIVE never uses. On macOS a window
+        // between measuring DINE and measuring a renderer DINE never uses. On macOS a window
         // paints through CoreGraphics, where a run of text goes to CTFontDrawGlyphs; a plain
         // juce::Image paints through JUCE's own software rasteriser, which builds an outline
         // per glyph behind a 128-entry cache and re-builds it the moment a page has more
@@ -671,7 +671,7 @@ static int measureFrames (int channels, int frames, bool detail)
 // three that actually turn up - a 13" laptop, a 15" laptop and a 1080p monitor - so a
 // layout that only holds together at the developer's window is caught before a Sunday.
 //
-//   dlive_ui_snapshots --sizes <dir>
+//   dine_ui_snapshots --sizes <dir>
 // ---------------------------------------------------------------------------
 static int renderSizes (const juce::File& dir)
 {
@@ -729,7 +729,7 @@ static int renderSizes (const juce::File& dir)
 // into its neighbour? Rendered at the smallest window the application allows, because that
 // is where a bigger word runs out of room first.
 //
-//   dlive_ui_snapshots --text-sizes <dir>
+//   dine_ui_snapshots --text-sizes <dir>
 // ---------------------------------------------------------------------------
 static int renderTextSizes (const juce::File& dir)
 {
@@ -822,7 +822,7 @@ int main (int argc, char** argv)
     if (stemsFolder == juce::File() )
     {
         // So --sizes and --frames pick the same recording up without repeating it.
-        const auto fromEnv = juce::SystemStats::getEnvironmentVariable ("DLIVE_STEMS", {});
+        const auto fromEnv = juce::SystemStats::getEnvironmentVariable ("DINE_STEMS", {});
         if (fromEnv.isNotEmpty()) stemsFolder = juce::File (fromEnv);
     }
     argc = int (args.size());
@@ -912,7 +912,7 @@ int main (int argc, char** argv)
                     a.inputA = channel++;
                     d.session.inputs.push_back (a);
                 }
-            const auto file = library.getChildFile (juce::File::createLegalFileName (juce::String (seed.name)) + ".dlive.json");
+            const auto file = library.getChildFile (juce::File::createLegalFileName (juce::String (seed.name)) + ".dine.json");
             SessionStore::save (d, file);
             file.setLastModificationTime (juce::Time::getCurrentTime() - juce::RelativeTime::hours (seed.hoursAgo));
             rig.services.addSession (seed.name, file, file.getLastModificationTime());
@@ -1045,7 +1045,7 @@ int main (int argc, char** argv)
     view.getMixPage().selectRow (-1);
     rig.feed (0.2);
 
-    // WHAT SHOULD DLIVE TUNE: the scope picker the verb opens with. All three, because the
+    // WHAT SHOULD DINE TUNE: the scope picker the verb opens with. All three, because the
     // whole point of it is that the two that were invisible are now the same size as the one
     // that was not.
     {
@@ -1121,7 +1121,7 @@ int main (int argc, char** argv)
         struct SlowProvider final : MixReasoningProvider
         {
             LocalMixReasoningProvider inner;
-            std::string getName() const override { return "DLIVE built-in (offline)"; }
+            std::string getName() const override { return "DINE built-in (offline)"; }
             bool isAvailable() const override { return true; }
             bool sendsDataExternally() const override { return false; }
             MixReasoningResponse reason (const MixReasoningRequest& r, const std::atomic<bool>& cancel) override
@@ -1158,7 +1158,7 @@ int main (int argc, char** argv)
         // From a preferences file of its own: the same PNG comes out on a machine where every
         // guide has already been dismissed as on one where none has.
         const auto prefs = juce::File::getSpecialLocation (juce::File::tempDirectory)
-                               .getChildFile ("dlive-guide-snapshot.json");
+                               .getChildFile ("dine-guide-snapshot.json");
         prefs.deleteFile();
         MainView::setGuidesUsed (true, prefs);
         view.showPage (MainView::Page::Mixer);
@@ -1570,7 +1570,7 @@ int main (int argc, char** argv)
     view.closeSheets();
     rig.feed (0.3);
 
-    // ---- the smallest window DLIVE allows (MainWindow::setResizeLimits). A workspace that
+    // ---- the smallest window DINE allows (MainWindow::setResizeLimits). A workspace that
     // only works at the developer's resolution is a workspace that breaks on a laptop at the
     // back of a church, so every one of them is rendered here too.
     view.closeSheets();
@@ -1586,7 +1586,7 @@ int main (int argc, char** argv)
         rig.snap (dir, small.second);
     }
 
-    // ---- FIRST SUNDAY: what a volunteer meets the first time they open DLIVE.
+    // ---- FIRST SUNDAY: what a volunteer meets the first time they open DINE.
     view.closeSheets();
     rig.view->setSize (1520, 960);
     view.showTutorial();

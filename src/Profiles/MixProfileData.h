@@ -8,7 +8,7 @@
 namespace livemix
 {
 
-// Mix-level profile data: how DLIVE routes, pans, sends and balances a whole
+// Mix-level profile data: how DINE routes, pans, sends and balances a whole
 // band. Numbers only (MixProfileData.cpp); the decisions that use them live in
 // src/Mix. Per-source targets stay in ProfileData.cpp.
 namespace MixProfile
@@ -157,7 +157,7 @@ namespace MixProfile
         // a trim rather than a move.
         float maxBusFaderMoveDb = 6.0f;
         // Gain staging is the first move in a mix and the console is the right place for it.
-        // DLIVE will make a quiet input work digitally, but past this much digital gain the
+        // DINE will make a quiet input work digitally, but past this much digital gain the
         // preamp itself is wrong (a digital raise lifts the preamp's noise with the source), so
         // the app says so and names the input. Advice only: nothing about the mix changes.
         float digitalGainAdviceDb = 9.0f;
@@ -237,7 +237,7 @@ namespace MixProfile
     const Relationships& relationships (StyleProfileId profile);
 
     // ---- SPEECH PRIORITY: the band steps back while somebody is speaking ----
-    // The one thing in DLIVE that keeps working after TUNE has finished, and the only place a
+    // The one thing in DINE that keeps working after TUNE has finished, and the only place a
     // level moves on its own. It exists because a preacher over a vamping band is the one
     // moment a fixed balance cannot serve: the words need to be in front, and the band was
     // balanced for a song. It is off unless somebody turns it on, and when it is on it is
@@ -319,7 +319,7 @@ namespace MixProfile
         float panDelta = 0.25f;
         float widthDelta = 0.3f;
 
-        // Building a space out of the reverb DLIVE has, rather than asking for a preset.
+        // Building a space out of the reverb DINE has, rather than asking for a preset.
         float reverbDecayScale = 0.5f;       // +-50 % of the return's own character at full strength
         float reverbPreDelayMs = 30.0f;
         float reverbDampingDelta = 25.0f;    // %

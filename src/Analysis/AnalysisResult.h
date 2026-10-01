@@ -105,7 +105,7 @@ struct AnalysisResult
     float loudnessGatedLufs = -120.0f;
 
     // Tempo, from the periodicity of the onsets (0 = none found). A tempo-synced delay is only in time if
-    // the tempo is right, and a live console has no host play head to read it from: DLIVE measures it.
+    // the tempo is right, and a live console has no host play head to read it from: DINE measures it.
     // Confidence is how far the winning periodicity stands above the rest, 0..1.
     float tempoBpm = 0.0f;
     float tempoConfidence = 0.0f;

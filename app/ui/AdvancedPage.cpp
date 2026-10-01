@@ -13,7 +13,7 @@ namespace livemix
 namespace
 {
     // The design's Inspector (`07 - Inspector - Sample`, 73:10195): a 180 pt channel rail, the
-    // stage editor beside it, and the 280 pt column of what DLIVE did. Inside the editor the
+    // stage editor beside it, and the 280 pt column of what DINE did. Inside the editor the
     // name sits at y = 16, the signal path at 80 and the stage card at 132.
     constexpr int kHeadH   = 80;   // the channel's name, and Simple / Advanced / RE-TUNE beside it
     constexpr int kPathTop = 80;   // where the signal path's row begins
@@ -153,7 +153,7 @@ public:
 //
 // The same five controls the plug-in's Simple view has, for whatever this channel is - a voice
 // gets WARMTH, CLARITY, SMOOTH, STEADY and CLEAN-UP; a drum gets PUNCH, BODY, ATTACK, TONE and
-// BLEED - and under them what DLIVE did to this channel, in sentences, its level, and the two
+// BLEED - and under them what DINE did to this channel, in sentences, its level, and the two
 // verbs that matter: TUNE CHANNEL and PUT BACK.
 //
 // 50 IS THE PLAN. A knob does not start from the profile's baseline the way the plug-in's
@@ -189,7 +189,7 @@ public:
 
         tuneButton.setCaps (true);
         tuneButton.setFontPx (12.0f);
-        tuneButton.setTooltip ("DLIVE listens to this channel on its own and sets its chain. Nothing else in the mix moves.");
+        tuneButton.setTooltip ("DINE listens to this channel on its own and sets its chain. Nothing else in the mix moves.");
         tuneButton.onClick = [this] { if (onTune && strip >= 0) onTune (strip); };
         addAndMakeVisible (tuneButton);
 
@@ -277,7 +277,7 @@ public:
 
         g.setColour (Dine::ink);
         g.setFont (Dine::text (13.0f, 600));
-        Dine::drawText (g, "What DLIVE did", lay.didHead, juce::Justification::centredLeft, true);
+        Dine::drawText (g, "What DINE did", lay.didHead, juce::Justification::centredLeft, true);
 
         // The sentences TUNE already wrote for this channel, as a list a volunteer can read.
         const auto notes = sentences();
@@ -547,7 +547,7 @@ private:
 };
 
 // ------------------------------------------------------------------ Trail
-// WHAT DLIVE DID, to this channel.
+// WHAT DINE DID, to this channel.
 //
 // The design's right-hand column (`74:11725`): one record per thing that ever set this
 // channel, newest first - when it happened, what did it, the sentence that says what it
@@ -607,7 +607,7 @@ public:
         auto head = area.removeFromTop (kHeadH).reduced (kPad, 0).withTrimmedTop (16);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (13.0f, 600));
-        Dine::drawText (g, "What DLIVE did", head.removeFromTop (18), juce::Justification::topLeft, true);
+        Dine::drawText (g, "What DINE did", head.removeFromTop (18), juce::Justification::topLeft, true);
 
         if (const int gh = gainHeight(); gh > 0)
             paintGain (g, area.removeFromTop (gh).reduced (10, 0).withTrimmedBottom (8));
@@ -661,7 +661,7 @@ private:
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (10.0f));
         if (std::fabs (advice.digitalGainDb) >= 0.05f)
-            Dine::drawText (g, "DLIVE " + db1 (advice.digitalGainDb), figures.removeFromRight (66), juce::Justification::centredRight);
+            Dine::drawText (g, "DINE " + db1 (advice.digitalGainDb), figures.removeFromRight (66), juce::Justification::centredRight);
         Dine::drawText (g, advice.capturePeakDb <= -119.0f ? juce::String ("no signal")
                                                            : juce::String (advice.capturePeakDb, 1) + " dBFS in",
                     figures, juce::Justification::centredLeft, true);
@@ -830,7 +830,7 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
     addAndMakeVisible (retuneButton);
     tuneChannelButton.setCaps (true);
     tuneChannelButton.setFontPx (11.0f);
-    tuneChannelButton.setTooltip ("DLIVE listens to this channel and sets its chain and level. A channel linked to its other "
+    tuneChannelButton.setTooltip ("DINE listens to this channel and sets its chain and level. A channel linked to its other "
                                   "half is tuned with it. Nothing else in the mix moves.");
     tuneChannelButton.onClick = [this]
     {
@@ -887,7 +887,7 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
     railTab->onClick = [this] { setRailShown (! railShown); };
     addAndMakeVisible (*railTab);
 
-    trailTab = std::make_unique<DinePanelTab> (DinePanelTab::Side::Right, "What DLIVE did");
+    trailTab = std::make_unique<DinePanelTab> (DinePanelTab::Side::Right, "What DINE did");
     trailTab->onClick = [this] { setTrailShown (! trailShown); };
     addAndMakeVisible (*trailTab);
 
@@ -1244,7 +1244,7 @@ void AdvancedPage::refresh()
     // and the workspace's two bands - and repainting the whole Inspector thirty times a
     // second for that is the single most expensive thing the app was doing: on a 48-channel
     // console one full repaint of this page costs more than a 30 Hz frame has
-    // (dlive_ui_snapshots --frames). So it only happens when something it draws has changed.
+    // (dine_ui_snapshots --frames). So it only happens when something it draws has changed.
     const InspectorLook now { selection.isBus, selection.bus, selection.strip, int (rows.size()),
                               controller.isBypassed(), controller.isPrepared(), railShown, trailShown,
                               controller.getTuneCount() };
@@ -1336,7 +1336,7 @@ juce::String AdvancedPage::tunedLabel() const
             if (juce::String (it->what).startsWith ("TUNE") && it->whenMs > 0)
                 return "tuned " + juce::Time (juce::int64 (it->whenMs)).formatted ("%l:%M %p").trim();
     }
-    return controller.getPlan() != nullptr ? juce::String ("tuned by DLIVE") : juce::String ("the baseline");
+    return controller.getPlan() != nullptr ? juce::String ("tuned by DINE") : juce::String ("the baseline");
 }
 
 void AdvancedPage::resized()

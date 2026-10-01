@@ -76,7 +76,7 @@ if (LIVEMIX_BUILD_PLUGIN)
         FetchContent_MakeAvailable(JUCE)
     endif()
     # Embedded UI fonts shared by every Dine product (Inter, Barlow, Barlow Condensed, IBM Plex Mono - SIL OFL,
-    # see assets/fonts). DLIVE's v3 design is set in Inter; the plug-ins keep Barlow.
+    # see assets/fonts). DINE's v3 design is set in Inter; the plug-ins keep Barlow.
     juce_add_binary_data(LiveMixFonts
         NAMESPACE LiveMixFonts
         SOURCES
@@ -100,7 +100,7 @@ if (LIVEMIX_BUILD_PLUGIN)
     add_subdirectory(modules/Guitar)
     add_subdirectory(modules/Bass)
     add_subdirectory(modules/FX)
-    # DLIVE standalone application and offline tools (app/), hosts of the same engine.
+    # DINE standalone application and offline tools (app/), hosts of the same engine.
     add_subdirectory(app)
 endif()
 

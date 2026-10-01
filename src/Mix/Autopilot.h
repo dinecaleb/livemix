@@ -10,7 +10,7 @@ namespace livemix
 // ---------------------------------------------------------------------------
 // AUTOPILOT
 //
-// The second thing in DLIVE allowed to move a level by itself, and the rules it lives under
+// The second thing in DINE allowed to move a level by itself, and the rules it lives under
 // are in CLAUDE.md because they are not negotiable: deterministic (there is no AI anywhere in
 // this file), off by default, engaged only on purpose, group faders only, bounded to a few dB
 // of the mix it was engaged on, and every move a Mix history entry with the sentence that

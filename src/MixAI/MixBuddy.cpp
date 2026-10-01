@@ -175,7 +175,7 @@ namespace
         if (st.bypass) return finish ("BYPASS is on: every fader, gain and effect is out of the way and you are hearing the raw inputs. Turn BYPASS off to hear the mix.");
         if (c.inputRmsDb <= -70.0f)
             return finish (who + " has no signal arriving at input " + (c.input > 0 ? std::to_string (c.input) : std::string ("?"))
-                           + ". That is before DLIVE does anything: check the cable, the microphone's switch or battery, phantom power, "
+                           + ". That is before DINE does anything: check the cable, the microphone's switch or battery, phantom power, "
                              "and that the console is sending that channel. CHECK INPUTS shows every input at once.");
         if (c.mute) return finish (who + " is muted. Press its M to bring it back.");
         if (g.mute) return finish ("The " + groupName (c.bus) + " group is muted, and " + who + " is in it. Unmute the group.");
@@ -216,7 +216,7 @@ namespace
         a.detail.push_back ("Channel fader " + dB (c.faderDb) + "; digital gain " + dB (c.inputGainDb));
         if (c.clipped || c.inputPeakDb > -3.0f)
             a.text = who + " is arriving too hot" + std::string (c.clipped ? " and has clipped" : "") + ". That is at the console, "
-                     "before DLIVE: turn the preamp down there. Nothing after it can take a clip back out.";
+                     "before DINE: turn the preamp down there. Nothing after it can take a clip back out.";
         else
             a.text = who + " arrives at a healthy level, so this is a balance question: bring its fader down a little, or run TUNE on "
                      "it so the level is set against the rest of the mix.";
@@ -277,7 +277,7 @@ namespace
                             + " LUFS, aiming at " + num (st.targetLufs) + " LUFS");
         a.detail.push_back ("True peak " + num (st.truePeakDb) + " dBTP, ceiling " + num (st.ceilingDb) + " dBTP");
         const float delta = st.integratedLufs > -100.0f ? st.integratedLufs - st.targetLufs : 0.0f;
-        std::string where = st.integratedLufs <= -100.0f ? std::string ("DLIVE has not measured enough of the service yet to say. ")
+        std::string where = st.integratedLufs <= -100.0f ? std::string ("DINE has not measured enough of the service yet to say. ")
                           : std::fabs (delta) <= 1.0f ? "The mix is on its target. "
                           : delta < 0.0f ? "The mix is " + num (-delta) + " LU under its target. "
                                          : "The mix is " + num (delta) + " LU over its target. ";
@@ -291,7 +291,7 @@ namespace
     }
 
     // ---------------------------------------------------------------------------------------
-    // A SOUND THAT IS WRONG: what usually causes it and where DLIVE would fix it. Mix Buddy
+    // A SOUND THAT IS WRONG: what usually causes it and where DINE would fix it. Mix Buddy
     // explains; the change itself is TUNE's, or the engineer's.
     // ---------------------------------------------------------------------------------------
     BuddyAnswer tone (const std::string& q, int s, const BuddySnapshot& st)
@@ -366,8 +366,8 @@ namespace
 namespace
 {
     // ---------------------------------------------------------------------------------------
-    // HOW DO I: DLIVE's own controls, by the names on the screen. Every label here was checked
-    // against app/ui; a control that does not exist is never named, and where DLIVE does not
+    // HOW DO I: DINE's own controls, by the names on the screen. Every label here was checked
+    // against app/ui; a control that does not exist is never named, and where DINE does not
     // do something (a new bus, a shortcut for mix undo) the answer says so.
     // ---------------------------------------------------------------------------------------
     struct HowTo
@@ -396,14 +396,14 @@ namespace
           "AUTOPILOT turns it off, and every move it made is in the Mix history.",
           none },
         { { "save" }, {},
-          "File > Save (Cmd-S), or Save As... (Cmd-Shift-S) for a copy under a new name. DLIVE also writes an autosave beside "
+          "File > Save (Cmd-S), or Save As... (Cmd-Shift-S) for a copy under a new name. DINE also writes an autosave beside "
           "the session a couple of seconds after every change, and if it is ever closed without saying goodbye, the next "
           "launch asks \"Recover session?\" with the unsaved work.",
           none },
         { { "yesterday", "last week", "last sunday", "previous session", "open a session", "open session", "old session", "restore", "recover" }, {},
           "A whole session: File > Open Session... (Cmd-O) takes you to Sessions, with search and \"Recent\". An earlier mix "
           "inside this session: the Mix history lists every place to go back to - press \"Restore\" on one. After a crash, "
-          "DLIVE offers the unsaved work itself when it opens: \"Recover\", \"Open last saved\" or \"Keep both\".",
+          "DINE offers the unsaved work itself when it opens: \"Recover\", \"Open last saved\" or \"Keep both\".",
           [] { return std::vector<BuddyAction> { show (BuddyPage::Sessions, "Open Sessions"), act (BuddyActionKind::OpenHistory, "Open Mix history") }; } },
         { { "undo", "go back", "take back" }, {},
           "Mix > Undo takes the mix back one change, and the TUNE page has \"Undo mix\" and \"Redo mix\". Cmd-Z undoes edits on "
@@ -419,7 +419,7 @@ namespace
         { { "bus", "group", "route", "routing" }, {},
           "A channel's group comes from what it is: set \"What it is\" for each input on the Inputs page, and the Group column "
           "follows - a backing singer goes to BGV, a pastor's microphone to SPEECH, a crowd microphone to AMBIENCE. The groups "
-          "are fixed: DRUMS, BASS, MUSIC, BGV, LEAD, SPEECH and AMBIENCE, into MASTER. DLIVE does not make new buses, and a "
+          "are fixed: DRUMS, BASS, MUSIC, BGV, LEAD, SPEECH and AMBIENCE, into MASTER. DINE does not make new buses, and a "
           "channel cannot be sent to a group its role does not belong to. The group faders are on the MIXER beside the master "
           "and on LIVE.",
           [] { return std::vector<BuddyAction> { show (BuddyPage::Assign, "Open Inputs"), show (BuddyPage::Mixer, "Open MIXER") }; } },
@@ -433,7 +433,7 @@ namespace
         { { "interface", "audio device", "device", "sound card", "console" }, {},
           "ROUTING > Audio device lists the devices on this Mac: pick the one your console connects through, and \"Rescan "
           "devices\" if it has only just been plugged in. The sample rate and buffer are shown there too. If the device is "
-          "pulled out mid-service, DLIVE says so in the status foot and reopens it by itself when it comes back.",
+          "pulled out mid-service, DINE says so in the status foot and reopens it by itself when it comes back.",
           [] { return std::vector<BuddyAction> { show (BuddyPage::Device, "Open Audio device") }; } },
         { { "record" }, {},
           "Set each track to record with its R (Track > \"Set Every Track to Record\" does all of them), then press record on the "
@@ -443,7 +443,7 @@ namespace
         { { "crowd", "congregation", "audience", "room mic" }, {},
           "Set each crowd microphone's role to Crowd mic on the Inputs page, so it goes to AMBIENCE. TUNE never gates it and "
           "keeps it wide, with a high-pass to keep the stage's low end out of it. Its job is to make the stream sound like a "
-          "service: bring the AMBIENCE group up for congregational singing and applause, and down for the sermon - DLIVE does "
+          "service: bring the AMBIENCE group up for congregational singing and applause, and down for the sermon - DINE does "
           "not ride it for you, and speech priority leaves it alone.",
           [] { return std::vector<BuddyAction> { show (BuddyPage::Assign, "Open Inputs") }; } },
         { { "speech priority", "duck" }, {},
@@ -470,7 +470,7 @@ namespace
         { { "warning", "dropped", "dropout", "device lost", "red", "status" }, {},
           "The status foot along the bottom says what is wrong in one word each. \"Dropped\" counts audio buffers the Mac did "
           "not get to in time - a glitch; close other apps or raise the buffer on Audio device. \"Device lost\" means the "
-          "interface went away; DLIVE reopens it when it returns. \"Disk\" turns to a warning under fifteen minutes of recording "
+          "interface went away; DINE reopens it when it returns. \"Disk\" turns to a warning under fifteen minutes of recording "
           "room. In CHECK INPUTS, SILENT, LOW, HOT and CLIP describe the signal arriving from the console.",
           [] { return std::vector<BuddyAction> { act (BuddyActionKind::OpenCheckInputs, "CHECK INPUTS") }; } },
         { { "compressor", "compression", "steady" }, {},
@@ -485,7 +485,7 @@ namespace
           "want: a vocal buried in the keys is often fixed on the keys.",
           [] { return std::vector<BuddyAction> { show (BuddyPage::Inspector, "Open the Inspector") }; } },
         { { "tutorial", "getting started", "learn", "teach", "first time", "new to" }, {},
-          "Help > \"Getting started\" walks through DLIVE one workspace at a time, and Help > \"Show the guides again\" brings back "
+          "Help > \"Getting started\" walks through DINE one workspace at a time, and Help > \"Show the guides again\" brings back "
           "the card on each workspace. The short version: Inputs (what each channel is), CHECK INPUTS, TUNE MIX, KEEP, then "
           "LIVE for the service.",
           none },
@@ -559,7 +559,7 @@ BuddyAnswer MixBuddy::answer (const std::string& question, const BuddySnapshot& 
     if (! st.running && (asksWhy (q) || saysQuiet (q)))
     {
         BuddyAnswer a;
-        a.text = "No mix is running yet: DLIVE needs its inputs assigned and an audio device open before there is anything to "
+        a.text = "No mix is running yet: DINE needs its inputs assigned and an audio device open before there is anything to "
                  "hear. Start on the Inputs page, then ROUTING > Audio device.";
         a.actions.push_back (show (BuddyPage::Assign, "Open Inputs"));
         return a;
@@ -616,7 +616,7 @@ BuddyAnswer MixBuddy::answer (const std::string& question, const BuddySnapshot& 
 
     BuddyAnswer a;
     a.notUnderstood = true;
-    a.text = "Mix Buddy did not follow that. Ask how to do something in DLIVE (\"how do I solo a group?\"), or why something "
+    a.text = "Mix Buddy did not follow that. Ask how to do something in DINE (\"how do I solo a group?\"), or why something "
              "sounds the way it does (\"why is the pastor's microphone quiet?\").";
     return a;
 }

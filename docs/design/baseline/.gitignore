@@ -1,5 +1,5 @@
 # The baseline renders themselves are not committed: 70 PNGs at 2x plus the takes they were
-# rendered from come to a third of a gigabyte, and dlive_ui_snapshots is not deterministic
+# rendered from come to a third of a gigabyte, and dine_ui_snapshots is not deterministic
 # (the same build renders most screens a pixel or two apart), so a committed PNG could not be
 # diffed anyway. What is committed is the record beside them - the frame costs, the benchmark,
 # the RTSan run and the stems the renders were made from - and the commands in README.md,

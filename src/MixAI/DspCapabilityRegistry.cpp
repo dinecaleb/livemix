@@ -115,7 +115,7 @@ namespace
             if (cap.parameters.empty() && available)
             {
                 cap.available = false;
-                cap.unavailableBecause = std::string ("DLIVE does not fit a ") + dspProcessorLabel (p)
+                cap.unavailableBecause = std::string ("DINE does not fit a ") + dspProcessorLabel (p)
                                        + " to this kind of source.";
             }
             t.processors.push_back (std::move (cap));
@@ -153,7 +153,7 @@ namespace
 
         // MixEngine turns the limiter stage on for the master bus and nowhere else.
         addFromSpecs (DspProcessor::Limiter, master,
-                      "DLIVE runs the limiter on the master bus only, where it holds the broadcast ceiling.");
+                      "DINE runs the limiter on the master bus only, where it holds the broadcast ceiling.");
     }
 }
 

@@ -1,6 +1,6 @@
-// Real-device soak check for the DLIVE audio host: opens a device through AudioHost with a
+// Real-device soak check for the DINE audio host: opens a device through AudioHost with a
 // small session, runs the callback for a few seconds and reports what the engine saw.
-//   dlive_device_check [seconds=5] [input device name] [output device name] [buffer=64]
+//   dine_device_check [seconds=5] [input device name] [output device name] [buffer=64]
 // Without names the device with the most inputs is used for input and the default output for output.
 #include <juce_events/juce_events.h>
 #include "native/AudioHost.h"
@@ -27,7 +27,7 @@ int main (int argc, char** argv)
 
     // What macOS thinks about the microphone, and what enumeration can see without it. Both
     // are read before anything is opened, because the question docs/SESSION-STATE.md §4 leaves
-    // open is exactly "does a refused microphone stop DLIVE seeing devices, or only hearing
+    // open is exactly "does a refused microphone stop DINE seeing devices, or only hearing
     // them?" - and the answer is a line of output rather than an argument.
     {
         const auto mic = MicPermission::check();

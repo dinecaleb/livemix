@@ -14,9 +14,9 @@ inline constexpr int kMixIntentSchemaVersion = 1;
 //
 // An intent says nothing about processors. "The lead should come forward while staying
 // warm, and the keys should make room for it" is an intent; a 2.5 dB cut at 2.8 kHz with
-// a Q of 1.2 is the answer DLIVE works out afterwards. Keeping the two apart is what lets
+// a Q of 1.2 is the answer DINE works out afterwards. Keeping the two apart is what lets
 // the reasoning layer be creative without being able to reach into the audio path, and it
-// is what lets the same intent be satisfied differently as DLIVE's toolbox grows.
+// is what lets the same intent be satisfied differently as DINE's toolbox grows.
 enum class MixObjectiveType : int
 {
     Presence = 0,       // forward or back in the mix's foreground
@@ -41,7 +41,7 @@ const char* mixObjectiveLabel (MixObjectiveType) noexcept;      // "Presence"
 MixObjectiveType mixObjectiveFromId (const std::string&) noexcept;   // Count when unknown
 
 // One desired outcome. `strength` carries the direction in its sign: +1 is as far
-// towards the objective as DLIVE will go in one Tune, -1 is as far the other way
+// towards the objective as DINE will go in one Tune, -1 is as far the other way
 // (back, darker, looser), 0 is "leave this alone".
 struct MixObjective
 {
@@ -74,7 +74,7 @@ struct MixIntent
     bool noChangeRequired = false;          // the model is allowed to say the mix is finished
     std::string summary;                    // one or two plain sentences about the whole mix
     std::vector<MixTargetIntent> targets;
-    // Anything asked for that DLIVE was told about but could not express as an objective.
+    // Anything asked for that DINE was told about but could not express as an objective.
     // Kept so the honest answer survives all the way to the user.
     std::vector<std::string> unsupportedRequests;
 

@@ -29,7 +29,7 @@ namespace
     }
 
     // Every objective the resolver knows how to build. Sent as an enum so the model cannot
-    // ask for a kind of change DLIVE has no way to express.
+    // ask for a kind of change DINE has no way to express.
     juce::var objectiveTypes()
     {
         juce::Array<juce::var> a;
@@ -57,7 +57,7 @@ namespace
                 { "character", object ({ { "type", "string" },
                                          { "description", "For character only, on an effect return: the kind of space wanted, in your own "
                                                           "words (\"warm medium plate\", \"short vintage spring\"). Empty otherwise. Ask for what "
-                                                          "you want; DLIVE will build the closest honest thing it has, or say it cannot." } }) },
+                                                          "you want; DINE will build the closest honest thing it has, or say it cannot." } }) },
                 { "preserveArticulation", object ({ { "type", "boolean" },
                                                     { "description", "Depth must not cost the words." } }) },
                 { "preserveTransients", object ({ { "type", "boolean" },
@@ -89,7 +89,7 @@ namespace
                                                                  "often the correct one." } }) },
                 { "targets", object ({ { "type", "array" }, { "items", target } }) },
                 { "unsupportedRequests", object ({ { "type", "array" }, { "items", object ({ { "type", "string" } }) },
-                                                   { "description", "Anything you judged the mix needs that is not a DLIVE mix decision - "
+                                                   { "description", "Anything you judged the mix needs that is not a DINE mix decision - "
                                                                     "a preamp that is set wrong, a microphone out of phase, a player who "
                                                                     "needs to be told. Said plainly; the user is shown these." } }) } }) } });
     }
@@ -104,7 +104,7 @@ juce::String OpenAiMixProvider::buildRequestBody (const MixReasoningRequest& req
 {
     juce::String user;
     user << "THE MIX\n" << juce::String (request.context.write (true)) << "\n\n";
-    user << "WHAT DLIVE CAN DO\n" << juce::String (request.capabilities.write (true)) << "\n\n";
+    user << "WHAT DINE CAN DO\n" << juce::String (request.capabilities.write (true)) << "\n\n";
 
     if (request.refinement && request.hasVerification)
     {
@@ -123,7 +123,7 @@ juce::String OpenAiMixProvider::buildRequestBody (const MixReasoningRequest& req
         if (! request.userRequest.empty())
             user << "\nThe engineer also asked for this, in their own words: \"" << juce::String (request.userRequest) << "\"\n";
         // Repeatability is part of the brief, not a setting. The same band on the same Sunday
-        // has to get the same mix, or nobody can learn what DLIVE does. A different reading is
+        // has to get the same mix, or nobody can learn what DINE does. A different reading is
         // only ever asked for by name.
         if (request.variation <= 0)
             user << "\nThis is the primary mix decision for this listen. Be repeatable: given these same "
@@ -138,7 +138,7 @@ juce::String OpenAiMixProvider::buildRequestBody (const MixReasoningRequest& req
     }
 
     auto* schemaWrapper = new juce::DynamicObject();
-    schemaWrapper->setProperty ("name", "dlive_mix_intent");
+    schemaWrapper->setProperty ("name", "dine_mix_intent");
     schemaWrapper->setProperty ("strict", true);
     schemaWrapper->setProperty ("schema", intentSchema());
 
@@ -178,7 +178,7 @@ juce::String OpenAiMixProvider::buildRequestBody (const MixReasoningRequest& req
     }
     // The seed is the fingerprint of this exact listen (MixContext::fingerprint), so the same
     // audio asks the same question with the same seed. It is a best effort on the provider's
-    // side - which is why DLIVE also caches the answer rather than trusting it alone.
+    // side - which is why DINE also caches the answer rather than trusting it alone.
     body->setProperty ("seed", juce::var ((juce::int64) (request.seed & 0x7FFFFFFFFFFFull)));
     body->setProperty ("response_format", juce::var (format));
     body->setProperty ("messages", messages);
@@ -257,7 +257,7 @@ MixReasoningResponse OpenAiMixProvider::reason (const MixReasoningRequest& reque
     {
         out.error = result.error == "cancelled"
                         ? "Cancelled."
-                        : "Internet connection unavailable. DLIVE can go on mixing and recording normally; "
+                        : "Internet connection unavailable. DINE can go on mixing and recording normally; "
                           "TUNE LIVE MIX needs a connection for the cloud engineer.";
         return out;
     }

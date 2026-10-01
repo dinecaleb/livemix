@@ -7,7 +7,7 @@ namespace livemix
 // ---------------------------------------------------------------------------
 // WHERE A DEVICE ACTUALLY IS
 //
-// "No audio devices" was DLIVE's answer to four different situations, only one of which was
+// "No audio devices" was DINE's answer to four different situations, only one of which was
 // true, and the one it was most often wrong about is the one that matters at 9:55 on a
 // Sunday: the console is plugged in, macOS is refusing the microphone, and the app looks
 // broken. So the states are named, and each one carries the sentence that says what to do.
@@ -23,7 +23,7 @@ enum class DeviceStage
     ChannelsKnown,  // enumerated: how many inputs and outputs it has is known
     OutputOpen,     // playing and mixing, but not hearing the inputs
     Open,           // inputs and outputs both running
-    InputRefused,   // macOS will not let DLIVE hear the inputs
+    InputRefused,   // macOS will not let DINE hear the inputs
     Disconnected,   // it was open and went away
     Count
 };
@@ -66,13 +66,13 @@ inline juce::String inputRefusedSentence (const juce::String& inputDevice, const
                                           bool micDenied, const juce::String& deviceError)
 {
     if (micDenied)
-        return "DLIVE can play and mix, but macOS is not letting it hear the inputs. "
-               "System Settings > Privacy & Security > Microphone, switch DLIVE on, and open it again."
+        return "DINE can play and mix, but macOS is not letting it hear the inputs. "
+               "System Settings > Privacy & Security > Microphone, switch DINE on, and open it again."
                + (outputDevice.isNotEmpty() ? " The mix is going out of " + outputDevice + " in the meantime." : juce::String());
 
     juce::String s = inputDevice.isNotEmpty()
-        ? "DLIVE can play and mix, but " + inputDevice + " would not open its inputs."
-        : juce::String ("DLIVE can play and mix, but the inputs would not open.");
+        ? "DINE can play and mix, but " + inputDevice + " would not open its inputs."
+        : juce::String ("DINE can play and mix, but the inputs would not open.");
     if (deviceError.isNotEmpty()) s += " " + deviceError.trimCharactersAtEnd (".") + ".";
     if (outputDevice.isNotEmpty()) s += " The mix is going out of " + outputDevice + ".";
     return s;
@@ -80,7 +80,7 @@ inline juce::String inputRefusedSentence (const juce::String& inputDevice, const
 
 // NOTHING IS LISTENING, AND NOBODY WAS OVERRULED.
 //
-// macOS had never been asked about the microphone, DLIVE said what it wanted it for, and the
+// macOS had never been asked about the microphone, DINE said what it wanted it for, and the
 // answer was Not now. The output opened on its own, so the session opens, plays, mixes, saves
 // and exports exactly as it would; the meters are still, and this is the sentence that says
 // so. It is not a failure and it does not read like one - it names the one press that changes
@@ -98,11 +98,11 @@ inline juce::String inputsNotAskedSentence (const juce::String& inputDevice, con
 // HOT-PLUG: a console pulled out mid-service, and put back
 //
 // Two questions, both decided here so they are decided once and can be tested with no device
-// on the machine: may DLIVE open the device again by itself, and what does it say while it
-// waits. A reopen is only ever the device the session already had - DLIVE never picks a
+// on the machine: may DINE open the device again by itself, and what does it say while it
+// waits. A reopen is only ever the device the session already had - DINE never picks a
 // different console because one happened to appear - and only after the one it had went away
 // on its own. Everything else (nothing was open, the user closed it, a different device
-// arrived) is somebody's decision to make, not DLIVE's.
+// arrived) is somebody's decision to make, not DINE's.
 // ---------------------------------------------------------------------------
 struct DeviceReturn
 {
@@ -137,7 +137,7 @@ inline juce::String deviceLostSentence (const DeviceState& d, bool recording)
     juce::String s = (what.isNotEmpty() ? what : juce::String ("The audio device")) + " stopped. ";
     s += recording ? "The take so far is safe on disk and the session is untouched. "
                    : "Nothing about the mix or the session has changed. ";
-    s += "DLIVE opens it again by itself the moment it comes back.";
+    s += "DINE opens it again by itself the moment it comes back.";
     return s;
 }
 
@@ -183,10 +183,10 @@ inline juce::String deviceSentence (const DeviceState& d, bool anyDeviceConnecte
             return d.input + "  " + juce::String (d.inputChannels) + " in, " + juce::String (d.outputChannels) + " out";
         case DeviceStage::OutputOpen:
         case DeviceStage::InputRefused:
-            return d.why.isNotEmpty() ? d.why : juce::String ("DLIVE can play and mix, but it is not hearing any inputs.");
+            return d.why.isNotEmpty() ? d.why : juce::String ("DINE can play and mix, but it is not hearing any inputs.");
         case DeviceStage::Disconnected:
             return (d.input.isNotEmpty() ? d.input : d.output)
-                     + " was unplugged. DLIVE opens it again by itself when it comes back.";
+                     + " was unplugged. DINE opens it again by itself when it comes back.";
         case DeviceStage::Selected:
         case DeviceStage::ChannelsKnown:
         case DeviceStage::Present:

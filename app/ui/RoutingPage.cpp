@@ -392,8 +392,8 @@ void RoutingPage::showMapMenu (const juce::File& file, const juce::String& name)
                 if (! InputMapStore::load (file, map)) { if (onToast) onToast ("That patch could not be read."); return; }
                 chooser = std::make_unique<juce::FileChooser> ("Export \"" + name + "\"",
                                                                juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-                                                                   .getChildFile (juce::File::createLegalFileName (name) + ".dlivemap.json"),
-                                                               "*.dlivemap.json");
+                                                                   .getChildFile (juce::File::createLegalFileName (name) + ".dinemap.json"),
+                                                               "*.dinemap.json");
                 chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
                                       [this, map] (const juce::FileChooser& fc)
                                       {

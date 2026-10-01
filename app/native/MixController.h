@@ -21,7 +21,7 @@
 namespace livemix
 {
 
-// The message-thread owner of one DLIVE mix: the session (who is what), the engine,
+// The message-thread owner of one DINE mix: the session (who is what), the engine,
 // the listen (TUNE MIX), the plan and its BEFORE / AFTER preview, the five macros and
 // Advanced edits. The UI talks only to this class and reads only plain data from it;
 // the audio thread touches nothing here except process(). No JUCE.
@@ -47,7 +47,7 @@ public:
     // What the source is drawn as. Empty goes back to the role's own icon. Like a rename
     // this is a label: no rebuild, and nothing about the mix or the plan changes.
     void setInputIcon (int strip, const std::string& icon);
-    // THE FOCAL SOURCE: the one the mix is built around. Unpinned, DLIVE picks the lead
+    // THE FOCAL SOURCE: the one the mix is built around. Unpinned, DINE picks the lead
     // microphone somebody is really singing into; pinning settles it when there is more than
     // one and the loudest is not the one. It changes nothing you can hear until the next TUNE.
     void setFocusInput (int strip);
@@ -88,7 +88,7 @@ public:
 
     // ---- THE SESSION'S OWN STATE: rebuilt from the assignments, with no device in sight ----
     //
-    // rebuild() is what makes a DLIVE session a document rather than a side effect of an open
+    // rebuild() is what makes a DINE session a document rather than a side effect of an open
     // audio device. It builds the routing graph from the assignments and carries the kept mix
     // across it - every strip that survived keeps its chain, its gain, its fader and its sends,
     // found by the same identity the timeline uses for its clips - and it needs neither a
@@ -211,7 +211,7 @@ public:
 
     // ---- TUNE LIVE MIX: the AI mix engineer ----
     // The same listen, the same deterministic plan and the same BEFORE / AFTER as TUNE MIX,
-    // with a reasoning pass on top: DLIVE listens, builds the professional mix it always
+    // with a reasoning pass on top: DINE listens, builds the professional mix it always
     // builds, asks a mix engineer what this band still needs, resolves that into changes it
     // can actually make, checks every one of them, applies them, listens again and makes one
     // conservative correction. The audio path is untouched by any of it - the reasoning runs
@@ -230,14 +230,14 @@ public:
         // asks for 1, 2, 3 ... - a different reading of the same measurements, requested by
         // name instead of arrived at by surprise.
         int variation = 0;
-        // Work from the listen DLIVE already has rather than asking the band to play again.
+        // Work from the listen DINE already has rather than asking the band to play again.
         // This is what makes TRY ANOTHER MIX instant, and it is also what makes the comparison
         // fair: two readings of the *same* performance, not of two different ones.
         bool reuseListen = false;
     };
     void startTuneLiveMix (const LiveTuneSettings& s);
     void startTuneLiveMix() { startTuneLiveMix (LiveTuneSettings {}); }
-    // A different professional reading of the listen DLIVE already has. No new listen, no
+    // A different professional reading of the listen DINE already has. No new listen, no
     // waiting for the band: the measurements are the same, the interpretation is not.
     void tryAnotherMix();
     int getMixVariation() const noexcept { return liveSettings.variation; }
@@ -260,7 +260,7 @@ public:
     void clearReference();
     const ReferenceProfile& getReference() const noexcept { return reference; }
     bool hasReference() const noexcept { return reference.valid; }
-    // Aim the mix at the reference using the listen DLIVE already has, so "sound like this"
+    // Aim the mix at the reference using the listen DINE already has, so "sound like this"
     // does not cost another 30 seconds of the band's time. With no listen to work from it
     // starts one, and the reference is used when that listen lands.
     bool hasListened() const noexcept { return listened; }
@@ -413,17 +413,17 @@ public:
     BuddySnapshot buddySnapshot() const;
     // AskForChange, pressed: the request goes to TUNE LIVE MIX as a proposal. Returns false,
     // with the reason in the conversation, when it cannot run (LIVE SAFE, a proposal already
-    // waiting for KEEP or REVERT, nothing heard yet, DLIVE busy).
+    // waiting for KEEP or REVERT, nothing heard yet, DINE busy).
     bool askForChange (const std::string& request);
     // A proposal Mix Buddy asked for is on BEFORE / AFTER, waiting for KEEP or REVERT.
     bool hasBuddyProposal() const noexcept { return ! buddyRequest.empty() && plan.has_value() && stage == Stage::Preview; }
     const std::vector<ChatTurn>& getChat() const noexcept { return chat; }
     void clearChat() { chat.clear(); }
     bool isChatBusy() const noexcept { return liveRun && chatRun; }
-    // Can a request be made at all? The chat works from the listen DLIVE already has.
+    // Can a request be made at all? The chat works from the listen DINE already has.
     bool canChat() const noexcept { return prepared && listened && lastCapture.valid; }
 
-    // ---- BYPASS: hear the inputs with nothing DLIVE does ----
+    // ---- BYPASS: hear the inputs with nothing DINE does ----
     // Every chain is bypassed, faders and input gains go back to their starting point and
     // the returns go silent, so what comes out is the console feed itself. Nothing about
     // the kept mix changes: switch it off and the mix is exactly as it was. Mutes and solos
@@ -518,11 +518,11 @@ public:
 
     // ---- RESET MIX TO RAW ----
     //
-    // Everything DLIVE has decided about the sound, taken back: every strip's chain, gain,
+    // Everything DINE has decided about the sound, taken back: every strip's chain, gain,
     // fader, pan and sends, every group's chain and fader, the returns, the master and the
     // macros, all the way back to the session's own baseline - the mix a service starts from,
     // before anything has been listened to. Sample replacement goes with it, because a
-    // replaced kick is something DLIVE decided.
+    // replaced kick is something DINE decided.
     //
     // NOT BYPASS. Bypass is a way of *listening*: it leaves the kept mix alone and switching it
     // off puts everything back. This throws the kept mix away and is meant to.
@@ -695,17 +695,17 @@ public:
     // What the last listen says about one input's level. Gain staging comes before cleanup,
     // effect, mix and master, so this is the one thing the app says about an input before it
     // says anything else. `known` is false until a plan exists. `consoleMoveDb` is what the
-    // preamp on the desk should still do - DLIVE has already done what it can digitally.
+    // preamp on the desk should still do - DINE has already done what it can digitally.
     struct InputAdvice
     {
         // `Digital` is the quiet one that matters most in a church: the level works, but only
-        // because DLIVE raised (or lowered) it by a lot digitally. The preamp is the right
+        // because DINE raised (or lowered) it by a lot digitally. The preamp is the right
         // place for that move - a digital raise lifts the preamp's noise with the source.
         enum class Level { Unknown, NotHeard, Faint, Low, Healthy, Hot, Clipping, Bleed, Digital };
         bool known = false;
         Level level = Level::Unknown;
-        float capturePeakDb = -120.0f;    // the loudest moment at the device, before DLIVE's gain
-        float digitalGainDb = 0.0f;       // the input gain DLIVE set
+        float capturePeakDb = -120.0f;    // the loudest moment at the device, before DINE's gain
+        float digitalGainDb = 0.0f;       // the input gain DINE set
         float consoleMoveDb = 0.0f;       // what the preamp should still move; 0 = nothing to do
         std::string headline;             // "TURN THE PREAMP UP 6 dB" / "HEALTHY"
         std::string detail;               // the sentence that explains it
@@ -831,7 +831,7 @@ private:
     std::string lastMilestone;          // what the last one was, in the words the menu uses
     MixEngine engine;
     MixCapture capture;
-    // The last complete listen, kept so a reference (or a re-plan) can work from what DLIVE
+    // The last complete listen, kept so a reference (or a re-plan) can work from what DINE
     // already heard instead of asking the band to play again.
     MixCapture::Result lastCapture;
     MixParameters lastCaptureAt;

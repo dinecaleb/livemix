@@ -22,20 +22,20 @@ Suggestion suggestFrom (const juce::Array<Device>& devices, const juce::String& 
     }
 
     // The broadcast is whatever is already carrying the mix. If that is a combined device
-    // DLIVE built earlier, the console's own device is inside it, so the pieces are found by
+    // DINE built earlier, the console's own device is inside it, so the pieces are found by
     // name instead and the old one is replaced.
     const Device* broadcast = nullptr;
     for (const auto& d : devices)
-        if (! d.isDliveBuilt && d.name == currentOutputDeviceName) { broadcast = &d; break; }
+        if (! d.isDineBuilt && d.name == currentOutputDeviceName) { broadcast = &d; break; }
     if (broadcast == nullptr)
         for (const auto& d : devices)
-            if (! d.isDliveBuilt && ! d.isAggregate && d.outputChannels > 2) { broadcast = &d; break; }
+            if (! d.isDineBuilt && ! d.isAggregate && d.outputChannels > 2) { broadcast = &d; break; }
     if (broadcast == nullptr)
         for (const auto& d : devices)
-            if (! d.isDliveBuilt) { broadcast = &d; break; }
+            if (! d.isDineBuilt) { broadcast = &d; break; }
     if (broadcast == nullptr)
     {
-        s.problem = "DLIVE could not work out which output carries the broadcast.";
+        s.problem = "DINE could not work out which output carries the broadcast.";
         return s;
     }
 
@@ -60,7 +60,7 @@ Suggestion suggestFrom (const juce::Array<Device>& devices, const juce::String& 
     const Device* headphones = nullptr;
     for (const auto& d : devices)
     {
-        if (d.isDliveBuilt || d.isAggregate || d.uid == broadcast->uid) continue;
+        if (d.isDineBuilt || d.isAggregate || d.uid == broadcast->uid) continue;
         if (headphones == nullptr || rank (d) < rank (*headphones)) headphones = &d;
     }
 

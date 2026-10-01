@@ -1,5 +1,5 @@
 // THEMES: the document, the presets, the folder and the preference (app/native/ThemeStore).
-// No window: the UI half is checked by dlive_ui_snapshots (the binding table, and a render
+// No window: the UI half is checked by dine_ui_snapshots (the binding table, and a render
 // of the console under every built-in theme).
 #include "TestFramework.h"
 #include "native/ThemeStore.h"
@@ -11,7 +11,7 @@ namespace
 {
     juce::File scratch (const juce::String& name)
     {
-        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dlive-theme-tests").getChildFile (name);
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dine-theme-tests").getChildFile (name);
         dir.deleteRecursively();
         dir.createDirectory();
         return dir;
@@ -92,7 +92,7 @@ TEST_CASE ("Themes: a file that is not a theme, from the future, nameless or wit
     Theme t; juce::String why;
     juce::var v;
     juce::JSON::parse (R"({ "kind": "session", "schema": 1, "name": "x", "colours": {} })", v);
-    CHECK (! ThemeStore::fromVar (v, t, why) && why.contains ("not a DLIVE theme"));
+    CHECK (! ThemeStore::fromVar (v, t, why) && why.contains ("not a DINE theme"));
     juce::JSON::parse (R"({ "kind": "theme", "schema": 99, "name": "x", "colours": {} })", v);
     CHECK (! ThemeStore::fromVar (v, t, why) && why.contains ("newer"));
     juce::JSON::parse (R"({ "kind": "theme", "schema": 1, "colours": {} })", v);
@@ -100,7 +100,7 @@ TEST_CASE ("Themes: a file that is not a theme, from the future, nameless or wit
     juce::JSON::parse (R"({ "kind": "theme", "schema": 1, "name": "x", "colours": { "accent": "lime" } })", v);
     CHECK (! ThemeStore::fromVar (v, t, why) && why.contains ("accent"));
     CHECK (! ThemeStore::fromVar (juce::var ("text"), t, why));
-    CHECK (! ThemeStore::load (juce::File ("/nowhere/none.dlivetheme.json"), t, why) && why.contains ("no file"));
+    CHECK (! ThemeStore::load (juce::File ("/nowhere/none.dinetheme.json"), t, why) && why.contains ("no file"));
 }
 
 TEST_CASE ("Themes: the folder lists yours by name, a built-in's name is refused, and delete removes the file")
@@ -117,7 +117,7 @@ TEST_CASE ("Themes: the folder lists yours by name, a built-in's name is refused
     Theme stolen;
     stolen.name = ThemeStore::kDefaultName;
     CHECK (! ThemeStore::saveUser (stolen, why, dir));
-    CHECK (why.contains ("DLIVE's own"));
+    CHECK (why.contains ("DINE's own"));
     Theme blank;
     blank.name = "   ";
     CHECK (! ThemeStore::saveUser (blank, why, dir));
@@ -154,16 +154,16 @@ TEST_CASE ("Themes: importing reads the file first and a built-in's name is kept
     Theme sent;
     sent.name = "Lime Desk";       // somebody exported a built-in and sent it on
     sent.colours["accent"] = 0xff00ff00;
-    REQUIRE (ThemeStore::save (sent, elsewhere.getChildFile ("theirs.dlivetheme.json")));
+    REQUIRE (ThemeStore::save (sent, elsewhere.getChildFile ("theirs.dinetheme.json")));
 
     Theme imported; juce::String why;
-    REQUIRE (ThemeStore::importFile (elsewhere.getChildFile ("theirs.dlivetheme.json"), imported, why, dir));
+    REQUIRE (ThemeStore::importFile (elsewhere.getChildFile ("theirs.dinetheme.json"), imported, why, dir));
     CHECK (imported.name == "Lime Desk (imported)");
     CHECK (imported.file.getParentDirectory() == dir);
     CHECK (ThemeStore::listUser (dir).size() == 1);
 
-    elsewhere.getChildFile ("bad.dlivetheme.json").replaceWithText (R"({ "kind": "theme", "schema": 1, "name": "Bad", "colours": { "ink": "white" } })");
-    CHECK (! ThemeStore::importFile (elsewhere.getChildFile ("bad.dlivetheme.json"), imported, why, dir));
+    elsewhere.getChildFile ("bad.dinetheme.json").replaceWithText (R"({ "kind": "theme", "schema": 1, "name": "Bad", "colours": { "ink": "white" } })");
+    CHECK (! ThemeStore::importFile (elsewhere.getChildFile ("bad.dinetheme.json"), imported, why, dir));
     CHECK (why.contains ("ink"));
     CHECK (ThemeStore::listUser (dir).size() == 1);
 }

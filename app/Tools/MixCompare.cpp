@@ -1,7 +1,7 @@
-// DLIVE mix comparison: a session an engineer finished by hand against a fresh TUNE MIX of the
+// DINE mix comparison: a session an engineer finished by hand against a fresh TUNE MIX of the
 // same audio.
 //
-//   dlive_mix_compare <session.dlive.json> [startSeconds=0] [seconds=40] [--link-pairs]
+//   dine_mix_compare <session.dine.json> [startSeconds=0] [seconds=40] [--link-pairs]
 //
 // The session's own clips are played for the window (stereo pairs, joined L/R stems and all),
 // the engine is built from the session's own assignments, and the window is rendered twice:
@@ -107,7 +107,7 @@ int main (int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::printf ("usage: dlive_mix_compare <session.dlive.json> [startSeconds=0] [seconds=40] [--link-pairs]\n");
+        std::printf ("usage: dine_mix_compare <session.dine.json> [startSeconds=0] [seconds=40] [--link-pairs]\n");
         return 2;
     }
     const juce::File file { juce::String (argv[1]) };

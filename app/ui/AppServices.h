@@ -51,7 +51,7 @@ public:
     // sentence. "No audio devices" is only ever the answer when there really are none.
     virtual DeviceState deviceState() { return {}; }
     // Put the microphone prompt up, once, at the moment the user asks for an input device.
-    // The callback comes back on the message thread; true when DLIVE may hear the inputs.
+    // The callback comes back on the message thread; true when DINE may hear the inputs.
     virtual void askForInputPermission (std::function<void (bool)> done) { if (done) done (true); }
     virtual void reconfigure() = 0;          // assignments changed: rebuild the graph with audio stopped
 
@@ -66,8 +66,8 @@ public:
     //
     // The whole feature, from the user's side, is two choices: which device the stream and the
     // room go out of, and which device the engineer listens on. Everything underneath is
-    // DLIVE's problem - and it is a real one, because macOS opens exactly one audio device at
-    // a time. Choosing two different devices makes DLIVE build the combined device itself
+    // DINE's problem - and it is a real one, because macOS opens exactly one audio device at
+    // a time. Choosing two different devices makes DINE build the combined device itself
     // (native/MonitorDevice.h) and route a pair to each; choosing the same device puts solo on
     // a second pair of it. Neither case mentions an Aggregate Device to anybody.
     struct MonitorSetup { bool ok = false; juce::String message; };
@@ -81,7 +81,7 @@ public:
     virtual juce::String headphonesSummary() { return {}; }
     virtual juce::String currentInputDevice() = 0;
     virtual juce::String currentOutputDevice() = 0;
-    // What to *call* the output, which is not always the device that is open. While DLIVE has
+    // What to *call* the output, which is not always the device that is open. While DINE has
     // two devices joined, the open device is one it built and the user has never heard of;
     // what they chose is the broadcast. Every piece of chrome says this rather than the name
     // of the machinery, so the toolbar and the Outputs sheet cannot appear to disagree.

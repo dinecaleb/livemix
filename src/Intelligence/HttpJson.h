@@ -7,7 +7,7 @@ namespace livemix::http
 
 // One JSON POST, with a bearer token and a cancel flag that is actually honoured - while the
 // connection is being made, while the server is thinking and while the body is being read.
-// The only place in DLIVE that talks to a network, so there is one place to audit, one place
+// The only place in DINE that talks to a network, so there is one place to audit, one place
 // that must never be given a key to log, and one place that must never be called from the
 // message thread or the audio thread.
 struct Result

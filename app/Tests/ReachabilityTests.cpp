@@ -189,7 +189,7 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
         { 660, "Standard" }, { 661, "Large" }, { 662, "Larger" },     // View > Appearance > Text size
         { 605, "Zoom In" }, { 606, "Zoom Out" }, { 607, "Zoom to Fit" },
         // Help
-        { 701, "Getting started" }, { 700, "About DLIVE" },
+        { 701, "Getting started" }, { 700, "About DINE" },
     };
 
     for (const auto& item : expected)
@@ -662,7 +662,7 @@ TEST_CASE ("Recording: REC with nothing to record from says so and records nothi
     Window w;
     REQUIRE (! w.dawEngine.getProject().tracks.empty());
     w.dawEngine.getProject().tracks[0].armed = true;
-    w.dawEngine.getProject().folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dlive-rec-refused");
+    w.dawEngine.getProject().folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dine-rec-refused");
     w.services.openOutputOnly ("Console");
     w.view->getTransportBar().toggleRecord();
     CHECK (! w.dawEngine.isRecording());
@@ -672,7 +672,7 @@ TEST_CASE ("Recording: one stray key never stops a service take")
 {
     Window w;
     REQUIRE (! w.dawEngine.getProject().tracks.empty());
-    auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dlive-rec-keys");
+    auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dine-rec-keys");
     folder.deleteRecursively();
     folder.createDirectory();
     w.dawEngine.getProject().folder = folder;

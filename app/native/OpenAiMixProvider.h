@@ -9,7 +9,7 @@ namespace livemix
 // The cloud mix engineer: a MixReasoningProvider backed by the OpenAI Chat Completions API.
 //
 // What leaves the machine is the MixContext document and the capability list - measurements,
-// source names, roles and what DLIVE can do - and nothing else. No audio, ever. No session
+// source names, roles and what DINE can do - and nothing else. No audio, ever. No session
 // file, no recordings, no device information, no key material in any log. The reply is
 // required to match a strict JSON schema and is still put through validateMixIntent, the
 // resolver and MixSafetyValidator before a single parameter moves, so a bad reply is a bad

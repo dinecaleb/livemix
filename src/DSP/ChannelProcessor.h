@@ -27,9 +27,9 @@ namespace livemix
 //   [Limiter] -> [Loudness meter] -> Output meter
 // Fixed order. Every stage is minimum-phase and sample-synchronous, so the chain
 // adds no latency and reports 0; only a product that enables the limiter (Dine Master,
-// DLIVE's master bus) reports the limiter's lookahead (Limiter::kLookaheadMs, 1.5 ms),
+// DINE's master bus) reports the limiter's lookahead (Limiter::kLookaheadMs, 1.5 ms),
 // and it does so constantly - on, off or in an A/B - so a host's compensation never jumps.
-// The sample stage exists only where MixEngine configures it (DLIVE's kick, snare and tom
+// The sample stage exists only where MixEngine configures it (DINE's kick, snare and tom
 // strips): its detector reads the channel before the filters, its sample lands after the
 // gate, and off it is bit-transparent and adds nothing.
 class ChannelProcessor : public Processor
@@ -40,7 +40,7 @@ public:
         bool limiter = false;        // the limiter stage exists (latency is reported even when bypassed)
         bool loudnessMeter = false;  // run the BS.1770 meter on the output
         bool widthMeter = false;     // measure stereo correlation after the width stage
-        bool sampleReplacement = false; // the sample stage exists (a DLIVE drum strip)
+        bool sampleReplacement = false; // the sample stage exists (a DINE drum strip)
     };
     void configure (const Options& o) noexcept { options = o; }
     const Options& getOptions() const noexcept { return options; }

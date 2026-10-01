@@ -13,7 +13,7 @@ namespace livemix
 // ---------------------------------------------------------------------------
 // MIX BUDDY: "why can't I hear channel 14?", "how do I save this mix?"
 //
-// The experienced DLIVE engineer sitting beside you. Ask how to do something, or why something
+// The experienced DINE engineer sitting beside you. Ask how to do something, or why something
 // sounds the way it does, and the answer is read from the session as it is right now - the
 // input arriving, the fader, the group, the compressor, the master - and says what it found.
 //
@@ -23,7 +23,7 @@ namespace livemix
 // that can change anything, a proposed change, goes to BEFORE / AFTER like every other
 // proposal: KEEP and REVERT, here or on TUNE, decide it, and LIVE SAFE refuses it.
 //
-// It works with no account and no network: the answers are DLIVE's own, deterministic, and
+// It works with no account and no network: the answers are DINE's own, deterministic, and
 // the machine in a church sound booth is very often not on the internet.
 // ---------------------------------------------------------------------------
 class ChatSheet : public juce::Component

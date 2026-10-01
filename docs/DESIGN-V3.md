@@ -1,10 +1,10 @@
-# DLIVE v3 — the Full UX Mockup, and how it is being built
+# DINE v3 — the Full UX Mockup, and how it is being built
 
-The design is the Figma file `2wv5QSnvrSSQXtDzfuShIn` — **"DLIVE — Full UX Mockup"**, page
+The design is the Figma file `2wv5QSnvrSSQXtDzfuShIn` — **"DINE — Full UX Mockup"**, page
 `v3 · Screens` (`70:9050`) with its component sheet on `v3 · Components` (`60:9144`). It was
 generated from `docs/FIGMA-MAKE-PROMPT.md`, so the function inventory in that prompt is the
 contract this design is measured against: **nothing in it may disappear.** The earlier
-"DLIVE Desktop v2" work in the same file was scrapped on 2026-09-28; this is its replacement
+"DINE Desktop v2" work in the same file was scrapped on 2026-09-28; this is its replacement
 and it is not a reskin of it.
 
 This file is the map from the design to the code. Read it before touching `app/ui`.
@@ -199,7 +199,7 @@ places the brief and the product's own rules met.
 | **The stacked group bar on a session row** | Not drawn | Kept, before the date | It is the one thing on the library screen that says what kind of service a session was. The inventory asks for it by name. |
 | **The Inputs table** | One flat table, three bulk buttons, All / Not used | The same, plus a list button beside the filter | Grouping by bus, one group at a time, the saved patches and Clear every assignment are all inventory items the design left no home for. They are one press away under that button and under Quick actions. |
 | **LIVE's strips (06b)** | Six groups and FX returns | Every group bus, so Ambience too, then FX returns | A group the session has is a group the room can hear, so it has a strip; an unused one says "Off" rather than disappearing and moving every other strip along. The master has no strip on LIVE, as drawn: its headroom and loudness are on the health strip. |
-| **LIVE's "What I hear" (06b)** | Two segment tracks, the headphones and a level | ... and a DIM key before the level | The headphones' DIM has no other home in DLIVE; dropping it would take away "turn my ears down to talk to someone" during a service. The two tracks stack when the rail is narrow. |
+| **LIVE's "What I hear" (06b)** | Two segment tracks, the headphones and a level | ... and a DIM key before the level | The headphones' DIM has no other home in DINE; dropping it would take away "turn my ears down to talk to someone" during a service. The two tracks stack when the rail is narrow. |
 | **LIVE's rail cards when off (06b)** | Drawn on only | LIVE SAFE and Autopilot each say "... is off" with a "Turn on ›" link | The frame is of a locked console with Autopilot holding. Off, the card says so in a sentence; turning either off stays the toolbar's one press. |
 | **LIVE's RECORD (06b)** | Not on the page | Not on the page | The transport's Record is in the toolbar on every workspace; the health strip says what is being written. |
 | **ROUTING's sections** | Audio device, Inputs, Outputs | ... and Patches | The design draws no screen for the patches a church saves, and they are in the inventory. |
@@ -215,16 +215,16 @@ places the brief and the product's own rules met.
 | **An EQ band** | A gain knob per band under the curve | ... and, for the band you picked, its frequency, Q and shape underneath | A band with no frequency or Q is not a band an engineer can use, and the Inspector is the one place those live. Picking is all that changes; the sound never does. |
 | **The Inspector's head, rail and path** | Name, one line, Simple / Advanced, RE-TUNE; a rail of names and dots; a chip of a lamp and a name | The same, exactly | Implemented as drawn, which means the v2 Inspector lost: the head's IN / OUT meters, input gain, pan, level, MUTE, SOLO and EFFECTS; the rail's per-row level bar and the engine's rate / buffer / latency along its foot; and the path chip's number, icon, value and work bar. Every one of them is on MIXER, on the strip, on the chain foot, in the sidebar's device line or in the status bar - none is more than one press away, and the room the Inspector got back is spent on the thing it is actually for. |
 | **The trail's stage lines** | Records with PUT BACK | The same | The v2 column listed every stage with a TUNED / EDITED / NOT USED badge and its sentence. The stage card now says who set *it* and why, in its own head and foot, so the column is what the design makes it: the channel's history, and the way back to any of it. The master's loudness readout moved with it - it is on the Mixer's master column and in the status foot. |
-| **The signal path's lamp** | A lamp and the stage's name on a chip; the lamp reads as a switch | The lamp is a reading only - lit accent for DLIVE's setting, `monitor` for a hand edit, an empty ring for a stage out of the chain. The chip selects, and nothing else | A chip that selected when you clicked its name and toggled when you clicked its left 18 pt had two controls in one cell with only one of them drawn, so picking a stage read as broken - the same click did different things depending on a pixel. The switch is where it is written in words: `Off | On` at the top of the card the chip opens, and the chip's own menu. |
+| **The signal path's lamp** | A lamp and the stage's name on a chip; the lamp reads as a switch | The lamp is a reading only - lit accent for DINE's setting, `monitor` for a hand edit, an empty ring for a stage out of the chain. The chip selects, and nothing else | A chip that selected when you clicked its name and toggled when you clicked its left 18 pt had two controls in one cell with only one of them drawn, so picking a stage read as broken - the same click did different things depending on a pixel. The switch is where it is written in words: `Off | On` at the top of the card the chip opens, and the chip's own menu. |
 | **The Sends stage** | Not drawn (`Stage Controls / *` has no sends symbol) | The drawing is one ladder per effect return, and the controls are one 48 pt knob per send, in the same knob row every other stage uses | A send is a knob on every console ever built. It was a row of horizontal sliders, which read as neither a console nor a DAW; the knob cell was already the product's one rotary, so the sends simply became cells in it. |
 | **A level on a reading** | A bar | A ladder - lit and unlit steps, the way the Meter component is drawn | The trims' "Arriving / After trim / Into the fader" and the sends' amounts are readings, and a filled bar with a track behind it is the shape of a control. Nothing on a drawing should look like something you could drag. |
 | **A level that is not a channel fader** | Drawn as a fader wherever it appears | A knob: the Inspector's Simple LEVEL (56 pt), an output feed's level (26 pt), the monitor level (28 pt) | The fader is the mixer strip's, standing up, where a column of them line up and are read together. A level on its own - one feed in a table, one channel in an inspector, the engineer's own listen - is a rotary on any desk, and a fader lying on its side is the one shape in this product that read as unprofessional to a sound engineer. The Mixer's LIST row keeps its horizontal fader: it is a table, its rows do line up, and it is drawn as a real machined cap, not as a slider. |
 | **The trail's gain card** | Records only | ... with a gain-staging card above them when the input needs attention | A preamp that is wrong is the one thing no amount of tuning can put right. It appears only when `InputAdvice::needsAttention()` is true, so a healthy input still leaves the column a history and nothing else. |
 
-### The gaps: what the design draws that DLIVE does not do yet
+### The gaps: what the design draws that DINE does not do yet
 
 *(EXPORT's Group stems, Raw multitrack, AIFF and its loudness choice were on this list and are
-not any more: `app/native/MixBounce` writes all four, and `dlive_app_tests` measures the
+not any more: `app/native/MixBounce` writes all four, and `dine_app_tests` measures the
 loudness one back out of the file it made.)*
 
 - **The Appearance sheet's swatch grid.** The design shows the palette as unlabelled squares;
@@ -243,5 +243,5 @@ loudness one back out of the file it made.)*
 5. **Sheets** — listening, result, TUNE CHANNEL, check, reference, outputs, Mix Buddy, history,
    appearance, export, recover, reset to raw, the tour.
 
-Each step is verified by looking at `build/app-snapshots/*.png` (`scripts/dlive.sh --shots`),
-never by reasoning about layout code, and `dlive_app_tests` must stay green throughout.
+Each step is verified by looking at `build/app-snapshots/*.png` (`scripts/dine.sh --shots`),
+never by reasoning about layout code, and `dine_app_tests` must stay green throughout.

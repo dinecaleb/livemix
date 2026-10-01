@@ -98,7 +98,7 @@ public:
         monoButton.setCaps (true); muteButton.setCaps (true);
         monoButton.setFontPx (10.0f); muteButton.setFontPx (10.0f);
         // A mute is amber wherever it is pressed, so a muted feed reads as muted and not
-        // as something DLIVE is doing.
+        // as something DINE is doing.
         muteButton.setTint (Dine::keyMute);
         muteButton.setStyle (f.mute ? DineButton::Style::Filled : DineButton::Style::Standard);
         monoButton.setButtonText ("MONO");
@@ -252,11 +252,11 @@ OutputsSheet::OutputsSheet (MixController& c, AppServices& s) : controller (c), 
     addButton.onClick = [this] { addFeed(); };
 
     // The second of the two choices this sheet exists for: which device the engineer listens
-    // on. Picking a different one from the broadcast is allowed and is the normal case - DLIVE
+    // on. Picking a different one from the broadcast is allowed and is the normal case - DINE
     // joins the two underneath, and the words "aggregate device" never appear.
     addAndMakeVisible (soloDeviceButton);
     soloDeviceButton.setTooltip ("The device you listen on. Solo a channel and it comes out here - the room and "
-                                 "the stream never hear it. It can be a different box from the broadcast; DLIVE "
+                                 "the stream never hear it. It can be a different box from the broadcast; DINE "
                                  "joins them for you.");
     soloDeviceButton.onClick = [this] { chooseSoloDevice(); };
 
@@ -329,7 +329,7 @@ void OutputsSheet::showSoloDeviceMenu (MixController& controller, AppServices& s
     for (const auto& d : services.outputDevices())
     {
         if (d.outputChannels <= 0) continue;
-        if (d.name.startsWith ("DLIVE Monitoring")) continue;   // one DLIVE made: not a building block
+        if (d.name.startsWith ("DINE Monitoring")) continue;   // one DINE made: not a building block
         names.add (d.name);
     }
 
@@ -384,7 +384,7 @@ void OutputsSheet::refresh()
         rows[size_t (i)]->setVisible (used);
         if (used) rows[size_t (i)]->set (feeds.feeds[size_t (i)], i > 0);
     }
-    // While a combined device is open the *open* device is DLIVE's own; what the user chose
+    // While a combined device is open the *open* device is DINE's own; what the user chose
     // is the broadcast device, and that is what this has to say.
     const auto broadcast = services.broadcastOutputDevice();
     deviceButton.setValue (broadcast.isEmpty() ? "None" : broadcast);
@@ -558,7 +558,7 @@ void OutputsSheet::paint (juce::Graphics& g)
     g.setFont (Dine::text (12.5f));
     Dine::drawFittedText (g, headphones.isNotEmpty()
                           ? headphones + " While LIVE SAFE is on the monitor bus cannot be re-routed: the room and the stream never hear it, and it never disappears on you."
-                          : juce::String ("Pick the device you listen on above. It can be a different box from the broadcast - DLIVE joins them for you."),
+                          : juce::String ("Pick the device you listen on above. It can be a different box from the broadcast - DINE joins them for you."),
                       foot, juce::Justification::topLeft, 2);
 }
 

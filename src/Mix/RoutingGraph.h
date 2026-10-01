@@ -24,7 +24,7 @@ struct StripRoute
     int numChannels() const noexcept { return inputB >= 0 ? 2 : 1; }
 };
 
-// The routing DLIVE builds from the assignments. Deterministic: the same
+// The routing DINE builds from the assignments. Deterministic: the same
 // session always gives the same graph. The user never edits this directly;
 // Advanced mode may later expose the sends.
 struct RoutingGraph

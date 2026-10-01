@@ -360,7 +360,7 @@ const Relationships& relationships (StyleProfileId profile)
         r.backingBelowLeadDb = 4.0f;
         // FITTED TO AN ENGINEER'S OWN MIX (2026-09-30). The Praise stems, mixed by hand to a
         // finish the engineer called decent, against a fresh TUNE MIX of the same 40 seconds
-        // (`dlive_mix_compare`, 13:10): the lead on top with the drums driving it - DRUMS 7.6 dB
+        // (`dine_mix_compare`, 13:10): the lead on top with the drums driving it - DRUMS 7.6 dB
         // up, MUSIC 8 down, BGV 11 down against the lead. The numbers move most of the way, not
         // all of it: one song and one engineer, and the group faders that carry them are bounded.
         r.busBelowVocalsDb[size_t (MixBus::Drums)]  = 3.0f;

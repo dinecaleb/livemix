@@ -176,7 +176,7 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (13.0f));
     Dine::drawFittedText (g, previewing() ? "Heard " + name + " on its own. Nothing else in the mix moved."
-                                          : "The console keeps playing behind this sheet. DLIVE listens to this input alone and "
+                                          : "The console keeps playing behind this sheet. DINE listens to this input alone and "
                                             "proposes a chain for it. Nothing is committed by asking.",
                           r.removeFromTop (36), juce::Justification::topLeft, 2);
     r.removeFromTop (16);
@@ -224,7 +224,7 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
         auto body = text.removeFromTop (60);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        Dine::drawFittedText (g, waiting ? "Play this source the way it is played in the service. DLIVE starts as soon as it hears it, "
+        Dine::drawFittedText (g, waiting ? "Play this source the way it is played in the service. DINE starts as soon as it hears it, "
                                     "and the rest of the mix keeps running underneath."
                                   : "Keep playing. Only " + name + " is decided from this listen - every other channel, the groups "
                                     "and the master stay exactly where they are.",

@@ -8,7 +8,7 @@ namespace livemix
 // Listening to a reference recording: the file half of REFERENCE MIX.
 //
 // The measurement itself is the engine's (one AnalysisAccumulator, the same one every
-// listen uses), so what DLIVE knows about a finished record and what it knows about the
+// listen uses), so what DINE knows about a finished record and what it knows about the
 // band are the same kind of knowledge. All this adds is the decoder and the patience to
 // walk a five-minute song.
 namespace ReferenceAudio

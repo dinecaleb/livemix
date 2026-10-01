@@ -18,10 +18,10 @@ inline constexpr int kDspCapabilitySchemaVersion = 1;
 // and from how MixEngine actually configures each processor, so it cannot drift away from
 // the engine: the limiter exists on the master because that is the only place MixEngine
 // turns the stage on, and the width stage is offered where the signal is really stereo.
-// Nothing invents a processor DLIVE does not have.
+// Nothing invents a processor DINE does not have.
 enum class DspProcessor : int
 {
-    InputGain = 0,     // DLIVE's own digital preamp (never the console's)
+    InputGain = 0,     // DINE's own digital preamp (never the console's)
     HighPass,
     LowPass,
     Gate,

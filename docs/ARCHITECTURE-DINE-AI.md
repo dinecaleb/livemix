@@ -1,13 +1,13 @@
-# DLIVE AI Mix Engineer — TUNE LIVE MIX
+# DINE AI Mix Engineer — TUNE LIVE MIX
 
-*2026-09-12. Read `docs/ARCHITECTURE-DLIVE.md` first: this layer sits above the mix engine
+*2026-09-12. Read `docs/ARCHITECTURE-DINE.md` first: this layer sits above the mix engine
 and the deterministic planner, and changes neither.*
 
 ---
 
 ## 1. What this is
 
-DLIVE already contains a professional mix engineer: `MixPlanner`. It listens to the band,
+DINE already contains a professional mix engineer: `MixPlanner`. It listens to the band,
 measures every input at once, tunes each source, resolves the relationships between them,
 fits the faders from loudness, tunes the buses and the master, and lands one pass. It is
 deterministic and it is tested to be idempotent.
@@ -54,7 +54,7 @@ professional mix and a sentence saying what happened. The audio never stops for 
 | Is it safe and valid? | `MixSafetyValidator` |
 | Execute it | `MixEngine`, through the same `publish()` a fader uses |
 
-The reasoning layer is creative at the **intent** level. DLIVE is authoritative at the
+The reasoning layer is creative at the **intent** level. DINE is authoritative at the
 **capability** level. The safety layer is authoritative at the **execution** level.
 
 ## 3. The pieces
@@ -85,8 +85,8 @@ so it is testable with no host, no device and no network.
   on the deterministic plan. It is where honesty lives: every action carries `EXACT`,
   `APPROXIMATED`, `SUBSTITUTED` or `UNSUPPORTED`. A spring reverb is built from the plate
   engine - short, band-limited, modulated - and says what it will not have. A gated reverb
-  needs a gate across the return, which DLIVE has not got, so nothing is applied and the
-  reason reaches the user. Separation is a narrow static cut because DLIVE has no dynamic EQ,
+  needs a gate across the return, which DINE has not got, so nothing is applied and the
+  reason reaches the user. Separation is a narrow static cut because DINE has no dynamic EQ,
   and the plan says so.
 - **`MixSafetyValidator`** checks every action against the registry's own ranges and against
   `MixProfile::aiBounds()`. It refuses rather than reinterprets: capture gain (that belongs to
@@ -135,7 +135,7 @@ chooses.
 ## 7. Privacy
 
 The offline engineer sends nothing anywhere. The cloud provider sends the `MixContext`
-document and the capability list - measurements, source names, roles, what DLIVE can do - and
+document and the capability list - measurements, source names, roles, what DINE can do - and
 **never audio, never a recording, never a session file**. `sendsDataExternally()` is what the
 listen sheet reads to say so while the run is going. Keys live in `AISettings`
 (`~/Library/Application Support/LiveMix/ai-settings.xml` or `OPENAI_API_KEY`), never in a
@@ -155,10 +155,10 @@ provider** and sounds exactly as it did.
 build-engine/tests/livemix_tests          # RelationshipEngine, MixContext, MixIntent,
                                           # the registry, the resolver, the validator,
                                           # and the whole slice end to end, offline
-build/app/dlive_app_tests                 # the controller's live run, a dead provider,
+build/app/dine_app_tests                 # the controller's live run, a dead provider,
                                           # and the cloud provider's request/response
-build/app/dlive_ui_snapshots <dir>         # 08b-tune-live-listening, 09b-tune-live-result
-build/app/dlive_mix_stems "<stems>" 30 <out>   # the deterministic path is unchanged
+build/app/dine_ui_snapshots <dir>         # 08b-tune-live-listening, 09b-tune-live-result
+build/app/dine_mix_stems "<stems>" 30 <out>   # the deterministic path is unchanged
 ```
 
 ## 10. What is deliberately not here

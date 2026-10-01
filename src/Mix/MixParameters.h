@@ -13,7 +13,7 @@ namespace livemix
 struct StripParameters
 {
     ChannelParameters channel;
-    float inputGainDb = 0.0f;                           // digital preamp before analysis and the chain (the console gain DLIVE owns)
+    float inputGainDb = 0.0f;                           // digital preamp before analysis and the chain (the console gain DINE owns)
     float faderDb = 0.0f;
     float pan = 0.0f;                                   // -1 = left .. +1 = right (balance on stereo strips)
     bool mute = false;

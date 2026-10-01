@@ -37,7 +37,7 @@ struct TuneContext
     bool sampled = false;
     bool kitSampled = false;
     // Whether this chain carries the sample stage at all. The stage exists only where MixEngine
-    // turns it on - DLIVE's kick, snare, tom and hat strips - and no plug-in has it, so without
+    // turns it on - DINE's kick, snare, tom and hat strips - and no plug-in has it, so without
     // this a plug-in's Tune would propose a detector for a processor that is not in its chain
     // and not in its parameter table. Fitting the trigger is still done with the switch *off*
     // (that is the point: it says what to switch on), which is why `sampled` cannot answer it.

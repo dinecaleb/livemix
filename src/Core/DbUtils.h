@@ -20,7 +20,7 @@ inline float gainToDb (float gain) noexcept
 
 // A value that is not a number comes back as `lo`, never as itself: std::min/std::max hand a
 // NaN straight through, and a fader or a gain that is NaN is silence at best and a latched
-// filter at worst. Every setter in DLIVE bounds its input with this, so this is where a NaN
+// filter at worst. Every setter in DINE bounds its input with this, so this is where a NaN
 // stops.
 template <typename T>
 inline T clamp (T value, T lo, T hi) noexcept

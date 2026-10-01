@@ -234,8 +234,8 @@ const std::vector<Telemetry::Milestone>& Telemetry::milestones()
         { "drums_fire",    "Drums sounding fire",     "Your first drum tune." },
         { "bass_locked",   "Bass locked in",          "Your first bass tune." },
         { "your_sound",    "That's your sound",       "Your first saved mix." },
-        { "one_hour",      "One hour live",           "An hour of mixing with DLIVE." },
-        { "ten_hours",     "Ten hours behind the mix", "Ten hours of mixing with DLIVE." },
+        { "one_hour",      "One hour live",           "An hour of mixing with DINE." },
+        { "ten_hours",     "Ten hours behind the mix", "Ten hours of mixing with DINE." },
     };
     return all;
 }
@@ -253,7 +253,7 @@ void trackError (const juce::String& area, const juce::String& code, bool recove
 }
 
 Telemetry::Telemetry (Config c)
-    : juce::Thread ("DLIVE telemetry"),
+    : juce::Thread ("DINE telemetry"),
       config (std::move (c)),
       sessionId (juce::Uuid().toDashedString()),
       startedAt (juce::Time::getCurrentTime())
@@ -483,8 +483,8 @@ juce::var Telemetry::sanitiseValue (const juce::Identifier& key, const juce::var
 
 juce::String Telemetry::sanitiseStack (const juce::String& raw)
 {
-    // "12  DLIVE   0x0000000102f8c3a4 _ZN7livemix13MixController4pollEv + 123"
-    //  -> "12 DLIVE livemix::MixController::poll() + 123". The address changes with every
+    // "12  DINE   0x0000000102f8c3a4 _ZN7livemix13MixController4pollEv + 123"
+    //  -> "12 DINE livemix::MixController::poll() + 123". The address changes with every
     // launch and says nothing without the slide; the module and the symbol are the report.
     juce::StringArray out;
     juce::StringArray lines;

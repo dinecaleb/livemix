@@ -1,6 +1,6 @@
-# DLIVE: the mix engineer
+# DINE: the mix engineer
 
-TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE SAFE, repeatability, MIX BUDDY, delivery loudness, RAISE LOUDNESS and MASTER SOUND, the AMBIENCE bus, input mappings, the six sound profiles and linked faders. Moved verbatim from the old CLAUDE.md (2026-09-19); the architecture is `docs/ARCHITECTURE-DLIVE-AI.md` and `docs/ARCHITECTURE-DLIVE.md`.
+TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE SAFE, repeatability, MIX BUDDY, delivery loudness, RAISE LOUDNESS and MASTER SOUND, the AMBIENCE bus, input mappings, the six sound profiles and linked faders. Moved verbatim from the old CLAUDE.md (2026-09-19); the architecture is `docs/ARCHITECTURE-DINE-AI.md` and `docs/ARCHITECTURE-DINE.md`.
 
 - **WHAT THE MIX IS BUILT AROUND (2026-09-25).** Every rule that said "the lead" used to find one for
   itself - the vocal pocket took the loudest, the follow-down rule the first in the list, the backing
@@ -29,7 +29,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   congregation microphone deliberately is not. Measured on the planner's song → sermon → song sequence:
   the band comes back within 0.5 LU of where it left instead of 2.3 dB hotter.
 - **A LISTEN WITH NO PERFORMANCE IN IT IS REFUSED (2026-09-25).** Two ways of asking, both in
-  `MixPlanner`: every input DLIVE could hear was steady (never quiet, never far above its own average,
+  `MixPlanner`: every input DINE could hear was steady (never quiet, never far above its own average,
   `stuckSourceCrestDb` 4), or what arrived at the mix never moved at all (`minMasterCrestDb` 4). QUEENSVIEW
   take 002 at 450 s is the case - a kick channel stuck at -2.5 dBFS with a 2.5 dB crest was the only thing
   "playing" and the master went 7.5 dB up to meet it. One held chord measures the same way, which is why a
@@ -51,7 +51,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   polyphase interpolator, 12 taps per phase), so the number the readouts have always called dBTP is one.
   A session now starts on **Livestream** (-14 LUFS, -1 dBTP); Church Broadcast is the television spec and
   says so on its card.
-- **SPEECH PRIORITY (2026-09-25)** is the only thing in DLIVE that moves a level on its own, and it is off
+- **SPEECH PRIORITY (2026-09-25)** is the only thing in DINE that moves a level on its own, and it is off
   until somebody turns it on (Mix menu, `MixSession::speechPriority`). While the speech group carries
   somebody speaking, DRUMS, BASS and MUSIC step back into the master - 4 dB at 150 ms with a 250 ms hold
   and an 800 ms release, 6 dB under Talk and Podcast, numbers in `MixProfile::speechPriority`. Not the
@@ -87,7 +87,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   they were would change the blend rather than the tone - and the blend is what the hierarchy rules own. Mix
   Buddy hears "the vocals", "the voices" and "the singers" as the lead, and "BGV", "backing" and "choir" as the
   backing group.
-- **AUTOPILOT (2026-09-28, `src/Mix/Autopilot.h`, `MixController::setAutopilot`).** The second thing in DLIVE
+- **AUTOPILOT (2026-09-28, `src/Mix/Autopilot.h`, `MixController::setAutopilot`).** The second thing in DINE
   allowed to move a level by itself, and the rules it lives under are in `CLAUDE.md` because they are not
   negotiable: deterministic (there is no AI anywhere in `Autopilot.cpp`), off by default, engaged only on
   purpose, group faders only, bounded to `maxTotalDb` of the mix it was engaged on, every move a Mix history
@@ -166,7 +166,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   and a session with no voice in it - a drums-only capture - still builds neither.
   The Inspector's SENDS stage says `off` with its lamp out while the switch is off, because a level that is
   being read but not heard has to look like one.
-- **RESET MIX TO RAW (2026-09-28, `MixController::resetMixToRaw`).** Everything DLIVE has decided about the
+- **RESET MIX TO RAW (2026-09-28, `MixController::resetMixToRaw`).** Everything DINE has decided about the
   sound, taken back: every strip's chain, gain, fader, pan and sends, every group's chain and fader, the
   returns, the master, the macros and the sample replacement, all the way to `startingPoint (session, graph)` -
   the mix a service starts from before anything has been listened to. **It is not BYPASS.** Bypass is a way of
@@ -192,7 +192,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   narrows the plan through `MixPlanner::restrictTo` with a `PlanSelection` of exactly those strips: the buses,
   the master and every unpicked channel are `before`, so what is proposed is what the mix becomes when it is
   kept. One picked channel *is* TUNE CHANNEL, with its shorter listen, and the picker never has to say so.
-- **TUNE LIVE MIX** (the AI Mix Engineer, 2026-09-12; see `docs/ARCHITECTURE-DLIVE-AI.md`) is a reasoning layer
+- **TUNE LIVE MIX** (the AI Mix Engineer, 2026-09-12; see `docs/ARCHITECTURE-DINE-AI.md`) is a reasoning layer
   **above** `MixPlanner`, never instead of it. The deterministic plan is built first and always, so a dead network,
   a timeout or a malformed reply leaves the user with a professional mix and a sentence. Everything is JUCE-free in
   `src/MixAI` (+ `src/Core/Json`): `RelationshipEngine` (measures, never decides - masking, hierarchy, low-end
@@ -214,7 +214,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   Inspector work on it unchanged - one source of truth. `MixController::startTuneLiveMix` drives it; the verify
   listen keeps the applied mix audible (`liveVerifying`); LIVE SAFE blocks it like any re-tune. The session stores
   the run's record under `tuneLive` next to the kept mix, so **reopening a session never contacts a provider**.
-  Verify with `build-engine/tests/livemix_tests`, `build/app/dlive_app_tests` and the `08b` / `09b` UI snapshots.
+  Verify with `build-engine/tests/livemix_tests`, `build/app/dine_app_tests` and the `08b` / `09b` UI snapshots.
 - **REFERENCE MIX** ("make it sound like this") aims the mix at a finished recording. The engine half is
   JUCE-free in `src/Mix/ReferenceMix.{h,cpp}`: `ReferenceProfile` (schema v1 - the tonal balance, crest,
   loudness, correlation and tempo of a record, stored with the session so reopening never re-reads the file),
@@ -239,8 +239,8 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   Mix > MATCH TO REFERENCE), which draws the two balances against each other and prints what matching will aim
   for and what it refuses to copy *before* the button is pressed. `SessionStore` stores the measurement under
   `reference`; a document from a schema this build does not know is ignored rather than half-read. Verify with
-  `build-engine/tests/livemix_tests` (`Reference*`), `build/app/dlive_app_tests`, the `07c` / `07d` snapshots
-  and `build/app/dlive_mix_stems "<stems>" 30 <outdir> gospel -1 broadcast <reference.wav>` (the REFERENCE MIX
+  `build-engine/tests/livemix_tests` (`Reference*`), `build/app/dine_app_tests`, the `07c` / `07d` snapshots
+  and `build/app/dine_mix_stems "<stems>" 30 <outdir> gospel -1 broadcast <reference.wav>` (the REFERENCE MIX
   block, and RE-TUNE still saying NO CHANGE REQUIRED).
 - **WHAT A MICROPHONE HEARS BETWEEN THE SOUNDS (2026-09-18, from the QUEENSVIEW recording).** Three balance faults
   found on a real 21-input service, all in `MixPlanner` / the analysis, all with the numbers in `MixProfileData`:
@@ -258,8 +258,8 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   bounded at 18 dB (was 12): a live sum at -22 LUFS asked for a -14 stream is a 15 dB move, and stopping short left
   RE-TUNE with something to say. Measured on four 40 s windows of the recording: the vocal spill mics went from
   +30/+37 dB to +14/+18, the snare's gain from +13 to 0, and the toms from a 5 dB spread to 1 dB. The recording is
-  `~/Music/DLIVE/QUEEENSVIEW WIRED/Audio Files` (take `_002`, 534 s, 21 inputs; symlink the files under role names
-  for `dlive_mix_stems`, windows at 30 / 120 / 200 / 300 s).
+  `~/Music/DINE/QUEEENSVIEW WIRED/Audio Files` (take `_002`, 534 s, 21 inputs; symlink the files under role names
+  for `dine_mix_stems`, windows at 30 / 120 / 200 / 300 s).
 - **THE CYMBALS ARE THE SUM, NOT A CHANNEL (2026-09-30, from the QUEENSVIEW recording).** "Sometimes the cymbals are
   a lot" after TUNE: no channel was too bright on its own, but the overheads and hi-hat were ~60 % of the mix's
   6-12 kHz and ~94 % above 12 kHz, and every microphone near the kit hears them. Nothing summed the top end.
@@ -273,7 +273,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   and the profile), never the shelf the strip runs, so the rule never measures its own earlier cut and a re-tune
   says NO CHANGE REQUIRED. `shapeAir` itself no longer leaves a lift on a source measured *brighter* than its
   profile: the drum bus used to be "smoothed" to +0.5 dB. Measured (6-12 kHz vs 1-3 kHz of the `after` render,
-  `dlive_mix_stems ... gospel <t> livestream --check`): 30 s -5.0 -> -6.5, 120 s -7.4 -> -7.7, 200 s -7.6 -> -8.0,
+  `dine_mix_stems ... gospel <t> livestream --check`): 30 s -5.0 -> -6.5, 120 s -7.4 -> -7.7, 200 s -7.6 -> -8.0,
   300 s -4.6 -> -6.9 dB; the bright windows move most, the balanced ones barely, all four pass `--check`. What is
   left above 6 kHz in the bright windows is the voices' own air and the spill-limited microphones' level, not the
   cymbal mics. Levels are still unweighted RMS; a K-weighted balance would read the cymbals ~4 dB louder, but it
@@ -289,7 +289,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   mono channels of one kind in the console pans them as a pair (`stereoPairWidth`). The engineer's taste beyond
   this (which keyboard leads, the lead's 1 kHz cut) is arrangement, not a rule. Evaluate with a 30-mono-channel cut
   of 13:00-15:00 (the only stretch with band and lead together).
-- **FITTING TUNE TO AN ENGINEER'S OWN MIX (2026-09-30).** `build/app/dlive_mix_compare "<session>.dlive.json" <start> 40
+- **FITTING TUNE TO AN ENGINEER'S OWN MIX (2026-09-30).** `build/app/dine_mix_compare "<session>.dine.json" <start> 40
   --link-pairs` renders a hand-finished session's own audio through its kept mix and through a fresh TUNE MIX, and
   prints where every channel and group lands against the lead in each. On the Praise stems (Modern Worship, windows
   790 / 830 / 870 s) it showed the lead buried and the drums not driving; the Worship group balance, snare sample
@@ -332,7 +332,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   `OpenAiMixProvider` sends `temperature: 0` and `top_p: 1` for the primary mix (a reasoning model takes only the
   seed), and the brief tells every provider to be repeatable. **TRY ANOTHER MIX** is the only way to a different
   reading: `LiveTuneSettings::variation` 1, 2, 3 ... - asked for by name, and itself repeatable -
-  and it works from the listen DLIVE already has (`reuseListen`), so two readings are compared against the same
+  and it works from the listen DINE already has (`reuseListen`), so two readings are compared against the same
   performance. Verify with the `Repeatability: ...` tests, which pin a deliberately drifting provider.
 - **MIX BUDDY** is help, not a second mixing engine (rebuilt 2026-09-30; `src/MixAI/MixBuddy`, `app/ui/ChatSheet`,
   `MixController::askBuddy`). TUNE MIX improves a mix, Autopilot holds one, and Mix Buddy explains, diagnoses and
@@ -342,7 +342,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   can't I hear channel 14" walks that path from the outside in and says the first thing that explains it (MUTE,
   BYPASS, no signal at the input, a muted channel or group, a solo in place, a fader or group down, speech priority,
   a weak preamp, a squashing compressor, else masking and TUNE MIX). "How do I" answers name only controls that
-  exist, checked against `app/ui`, and say so where DLIVE does not do a thing (a new bus, a shortcut for mix undo).
+  exist, checked against `app/ui`, and say so where DINE does not do a thing (a new bus, a shortcut for mix undo).
   **Asking never changes the mix**: no parameter, no history entry, no undo step (`AppTests`: "Mix Buddy: a
   question never changes the mix"). Answers end in buttons (`BuddyAction`, performed by
   `MainView::performBuddyAction`): show a page, open a channel in the Inspector, solo it in the engineer's own
@@ -365,7 +365,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   by KEEP. (Earlier text here said TUNE never sets the switch; the code has done so since the kit work of
   2026-09-25. Whether it should, for toms especially, is an open product question in `docs/AUDIT-2026-09-30.md`.)
   Kick-out and snare-bottom are never fitted, so two samples never land on one hit. Every number is absolute from
-  the capture: a re-tune on the same listen fits the same numbers (tested). `dlive_trigger_check` runs the fit and
+  the capture: a re-tune on the same listen fits the same numbers (tested). `dine_trigger_check` runs the fit and
   the detector over real takes (`docs/DRUM-SAMPLE-REPLACEMENT-SCOPE.md`).
   **A sampled kit is tuned as one** (`TuneContext::sampled` / `kitSampled`, filled by `MixPlanner` from the strips'
   own switches and from the ones this TUNE turns on, so the same settings and listen still give the same plan). A
@@ -388,7 +388,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   record of its own ("Put back: TUNE MIX"). 24 records per channel. The history is saved in the session document
   (`SessionStore::Document::history`, absent in older files) and carried across a rearrangement by the same
   `matchInputs` identity as the kept mix (`carryStripHistory`), dropping the records of an input that became a
-  different source. The Inspector's trail shows it under the stages (`docs/DLIVE-APP.md`).
+  different source. The Inspector's trail shows it under the stages (`docs/DINE-APP.md`).
 - **HOW LOUD THE FINISHED MIX SHOULD BE** is a setting now (`MixSession::delivery`, `DeliveryLoudness`). It used to
   be a hidden consequence of the purpose: "Church Broadcast" quietly meant EBU R128, which is -23 LUFS - right for a
   television feed and about 9 dB under what a church stream is expected to be - and nothing said so. The target is
@@ -397,7 +397,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   loudness), not a gain added at the end: at -14 the stems land at -14.7 LUFS, -3.2 dBTP and the same 14.5 dB crest
   as the -23 mix, and RE-TUNE still says NO CHANGE REQUIRED. `MixController::getMasterLoudness()` is the one place
   the master's LUFS-I / short-term / true peak / limiter reduction / target / headroom are read, so no two pages can
-  disagree. Check with `dlive_mix_stems "<stems>" 30 <out> gospel -1 broadcast:-14`.
+  disagree. Check with `dine_mix_stems "<stems>" 30 <out> gospel -1 broadcast:-14`.
 - **RAISE LOUDNESS and MASTER SOUND** (2026-09-17, the MASTER band on TUNE and the Mix menu). *Raise loudness to
   target* (`MixController::raiseLoudnessToTarget`, previewed by `previewLoudnessMove`) gets the master to the delivery
   target (YouTube / Facebook / Spotify = -14 LUFS) in one move without re-tuning: the move is the gap between the
@@ -425,7 +425,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   range between a held note and a wailed one with an attack slow enough to keep the reed, the high-pass sits under
   the horn's own lowest note, and it is never expanded. Both are in `StemNames`, `Dine::roleGroups`, the ASSIGN
   kits and `Dine::busTint`.
-- **INPUT MAPPINGS** (`app/native/InputMapStore.{h,cpp}`, `~/Music/DLIVE/Input Maps/*.dlivemap.json`, File menu).
+- **INPUT MAPPINGS** (`app/native/InputMapStore.{h,cpp}`, `~/Music/DINE/Input Maps/*.dinemap.json`, File menu).
   A church patches the same desk the same way every week; a map is the patch and nothing else - device channel,
   name, source, stereo link - deliberately not a mix. Save / rename / duplicate / import / export / apply. The one
   rule that matters: applying a map must never route audio to the wrong place, so an input the open device cannot
@@ -444,7 +444,7 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   voice; talk = the speaking voice is the reference, every voice held steadier (release never under 80 ms) and
   de-essed harder, the band a bed 8 dB under (`busBelowVocalsDb`), a voice dry. Append to the enum, never
   reorder: the index is in sessions, plug-in presets and input maps. The PURPOSE AND SOUND page wraps the
-  cards (`soundGridHeight`); `dlive_mix_stems` takes `gospel|worship|rock|rnb|jazz|talk`. The four purposes are
+  cards (`soundGridHeight`); `dine_mix_stems` takes `gospel|worship|rock|rnb|jazz|talk`. The four purposes are
   unchanged (their names are church-flavoured; the numbers are not).
 - **LINKED FADERS** (2026-09-18). `StripParameters::linkGroup` (0 = none) and `MixController::linkStrips /
   unlinkStrip / getStripLink / linkedWith / linkedNames`. A link is **relative, about level and solo**:
@@ -460,4 +460,4 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   group; a group of one dissolves. The UI is
   the strip's / header's right-click menu ("Link fader with" / "Linked faders", ticked members, "Unlink this
   fader"), `Dine::drawLinkGlyph` beside the name (MIXER) and before the fader (TRACKS), and the fader tooltip
-  names the partners. Tests: `Linked faders: ...` in `dlive_app_tests`.
+  names the partners. Tests: `Linked faders: ...` in `dine_app_tests`.

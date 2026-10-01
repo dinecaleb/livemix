@@ -1,4 +1,4 @@
-# DLIVE: the monitor (solo) bus and the second device
+# DINE: the monitor (solo) bus and the second device
 
 How solo never changes what the room hears, and how the broadcast and the engineer's headphones share one CoreAudio device. Moved verbatim from the old CLAUDE.md (2026-09-19).
 
@@ -13,16 +13,16 @@ How solo never changes what the room hears, and how the broadcast and the engine
   `AFL` after it. Strips, group buses and FX returns can all be soloed (`FxSlotParameters::solo`). The whole monitor
   path is skipped when no feed carries it, so a session that never uses it costs nothing; solo with nowhere to go is
   said once rather than silently doing nothing (`MixController::hasMonitorOutput`). Verify with the `MixEngine: solo
-  ...` / `MixEngine: PFL ...` tests and `Monitor: solo is monitoring ...` in `dlive_app_tests`.
+  ...` / `MixEngine: PFL ...` tests and `Monitor: solo is monitoring ...` in `dine_app_tests`.
   **From the user's side the whole feature is two pickers** on the Outputs sheet - "Broadcast"
-  and "Solo" - and everything under them is DLIVE's problem, because macOS opens exactly one
+  and "Solo" - and everything under them is DINE's problem, because macOS opens exactly one
   audio device at a time. Two different devices makes `app/native/MonitorDevice` build the
   combined CoreAudio device itself: **unstacked** (a *stacked* aggregate is a Multi-Output
   Device, which mirrors one bus to every device in it - which is precisely why a private solo
   was impossible before), with the broadcast as clock master and **drift correction on the
   solo device**, because Dante and a USB interface do not share a clock. The same device with
   four or more outputs needs no aggregate at all: solo takes its outputs 3-4. Choosing
-  "nowhere" removes what DLIVE made and puts the Mac back. The words "Aggregate Device" never
+  "nowhere" removes what DINE made and puts the Mac back. The words "Aggregate Device" never
   reach the user; a device the *user* built is never touched (only ours carries our UID). The
   picking rules live apart from CoreAudio in `MonitorDevicePick.cpp` so they are tested
   without a device - the one that matters is "never suggest the laptop speaker when a real
@@ -45,7 +45,7 @@ How solo never changes what the room hears, and how the broadcast and the engine
   CLEAR SOLO is one press; and the sentence beside them is the one a volunteer needs, which is that the room is
   fine. With nothing soloed it takes no space at all, so a console that never uses solo is exactly as it was. A
   sheet never covers it (`columnBounds()`). `MixController::getSoloed()` is where the list comes from, so the
-  window never walks the three arrays itself; `dlive_ui_tests` asserts the band is on every workspace when
+  window never walks the three arrays itself; `dine_ui_tests` asserts the band is on every workspace when
   anything is soloed and on none of them when nothing is.
 - **SOLO ON A SECOND DEVICE, WITH DANTE (2026-09-18, the QUEENSVIEW session).** Broadcast on Dante Virtual Soundcard
   and solo on a Scarlett went silent. Two causes, both in the machinery under the two pickers: the built device put
@@ -60,7 +60,7 @@ How solo never changes what the room hears, and how the broadcast and the engine
   fits beside it) passed to `AudioHost::open (..., outputChannels)`. The engine and the feeds address the *open*
   channels packed in device order (`slotForOutputChannel`, and `getOutputChannelNames()` lists them the same way),
   so a pair at 64-65 is slot 14-15 and never falls off the engine. `HostServices::consoleInput()` is the console's
-  device while the built one carries it; nothing outside `Main.cpp` ever sees "DLIVE Monitoring" as an input. The
+  device while the built one carries it; nothing outside `Main.cpp` ever sees "DINE Monitoring" as an input. The
   session stores `inputDevice` / `outputDevice` as the devices the user chose plus `soloDevice`, and
   `restoreSolo` rebuilds the pairing on opening, so a Mac that lost the built device comes back right. A failed
   join waits for the console device to be republished before reopening it and says if that failed too, instead

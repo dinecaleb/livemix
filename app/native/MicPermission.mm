@@ -27,7 +27,7 @@ State check()
 void request (std::function<void (bool)> done)
 {
     if (check() != State::Undetermined) { if (done) done (check() == State::Granted); return; }
-    // The answer arrives on a private queue; everything DLIVE does with it belongs on the
+    // The answer arrives on a private queue; everything DINE does with it belongs on the
     // message thread, so it is handed back there.
     [AVCaptureDevice requestAccessForMediaType: AVMediaTypeAudio
                              completionHandler: ^(BOOL granted)

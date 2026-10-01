@@ -12,7 +12,7 @@
 #   cmake -S . -B build-rtsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 #         -DCMAKE_C_COMPILER=$LLVM/bin/clang -DCMAKE_CXX_COMPILER=$LLVM/bin/clang++ \
 #         -DLIVEMIX_RTSAN=ON -DLIVEMIX_COPY_PLUGIN_AFTER_BUILD=OFF
-#   cmake --build build-rtsan --target livemix_tests dlive_app_tests livemix_drums_plugin_tests ...
+#   cmake --build build-rtsan --target livemix_tests dine_app_tests livemix_drums_plugin_tests ...
 set -uo pipefail
 cd "$(dirname "$0")/.."
 BUILD_DIR="${1:-build-rtsan}"
@@ -21,7 +21,7 @@ export RTSAN_OPTIONS="halt_on_error=false:print_stats_on_exit=1:suppressions=$SU
 
 candidates=(
     "$BUILD_DIR/tests/livemix_tests"
-    "$BUILD_DIR/app/dlive_app_tests"
+    "$BUILD_DIR/app/dine_app_tests"
     "$BUILD_DIR/modules/Drums/livemix_plugin_tests"
     "$BUILD_DIR/modules/Drums/livemix_drums_plugin_tests"
     "$BUILD_DIR/modules/Vocals/livemix_vocals_plugin_tests"

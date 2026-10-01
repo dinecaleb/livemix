@@ -9,7 +9,7 @@ namespace livemix
 
 // ---------------------------------------------------------------------------
 // captureSession / applySession: the only two functions that move a session between the
-// file and the live objects. Both are in DLIVE_APP_SOURCES, so both are tested. The code
+// file and the live objects. Both are in DINE_APP_SOURCES, so both are tested. The code
 // they replace lived in app/Main.cpp, which no test compiles - see docs/SESSION-STATE.md.
 // ---------------------------------------------------------------------------
 

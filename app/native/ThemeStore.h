@@ -9,7 +9,7 @@ namespace livemix
 // ---------------------------------------------------------------------------
 // THEMES
 //
-// The look of DLIVE is a table of named colours (`Dine::` in app/ui/AppTheme.h): the desk,
+// The look of DINE is a table of named colours (`Dine::` in app/ui/AppTheme.h): the desk,
 // the window, the cards, the ink, the accent, the status colours, the console keys and the
 // group tints. A theme is that table written down. Pick one and every workspace, sheet,
 // menu and meter reads it - the way an editor's colour theme changes the whole editor and
@@ -17,7 +17,7 @@ namespace livemix
 //
 // Two kinds exist. The **built-in** themes ship with the app and cannot be changed: the v2
 // design ("Studio Teal", the default), the lime desk, a slate, a tape-warm one and a light
-// one. **Your** themes are files in ~/Music/DLIVE/Themes - one JSON document per theme,
+// one. **Your** themes are files in ~/Music/DINE/Themes - one JSON document per theme,
 // so a theme can be sent to somebody else, kept in a backup or written by hand. A theme
 // only has to name the colours it changes: whatever it leaves out comes from the theme it
 // says it is `basedOn` (a built-in), and from Studio Teal after that, so "the default with
@@ -28,7 +28,7 @@ namespace livemix
 // Appearance sheet, the View menu) lives in app/ui.
 //
 // A theme never touches the session or the mix. It is a preference of this Mac, stored in
-// ~/Music/DLIVE/preferences.json, not of the document.
+// ~/Music/DINE/preferences.json, not of the document.
 // ---------------------------------------------------------------------------
 
 struct ThemeToken
@@ -56,7 +56,7 @@ struct Theme
 namespace ThemeStore
 {
     inline constexpr const char* kDefaultName = "Studio Teal";
-    inline constexpr const char* kExtension = ".dlivetheme.json";
+    inline constexpr const char* kExtension = ".dinetheme.json";
 
     // Every colour a theme may set, in the order the sheet shows them.
     const std::vector<ThemeToken>& tokens();

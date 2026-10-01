@@ -1,13 +1,13 @@
 // The window's own buttons, inside the toolbar.
 //
-// The v3 design puts the three macOS window buttons at x = 16 / 36 / 56 of DLIVE's one 52 pt
+// The v3 design puts the three macOS window buttons at x = 16 / 36 / 56 of DINE's one 52 pt
 // toolbar, not on a title bar above it (`Toolbar v3.4`, 117:32462). That is a window-server
 // arrangement, not a drawing one: macOS still draws and runs those buttons, and the window is
 // still a native, resizable, full-screen-capable window - the content view is simply allowed
 // to extend under a title bar that has been made transparent and emptied of its title.
 //
 // JUCE has no call for this, so this is the one place the application speaks to AppKit about
-// its own window. Everything here is a no-op on any window it is not given, and DLIVE looks
+// its own window. Everything here is a no-op on any window it is not given, and DINE looks
 // and works the same if it silently does nothing: the toolbar leaves the room at its left
 // empty either way.
 //

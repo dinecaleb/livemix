@@ -1,9 +1,9 @@
 === build-rtsan/tests/livemix_tests
 scripts/rtsan.sh: line 37: 73094 Abort trap: 6           "$exe" > "$log" 2>&1
 --- build-rtsan/tests/livemix_tests: 0 RealtimeSanitizer report(s), exit 134 (full log: build-rtsan/tests/livemix_tests.rtsan.log)
-=== build-rtsan/app/dlive_app_tests
+=== build-rtsan/app/dine_app_tests
 scripts/rtsan.sh: line 37: 73100 Abort trap: 6           "$exe" > "$log" 2>&1
---- build-rtsan/app/dlive_app_tests: 0 RealtimeSanitizer report(s), exit 134 (full log: build-rtsan/app/dlive_app_tests.rtsan.log)
+--- build-rtsan/app/dine_app_tests: 0 RealtimeSanitizer report(s), exit 134 (full log: build-rtsan/app/dine_app_tests.rtsan.log)
 === build-rtsan/modules/Drums/livemix_drums_plugin_tests
 scripts/rtsan.sh: line 37: 73105 Abort trap: 6           "$exe" > "$log" 2>&1
 --- build-rtsan/modules/Drums/livemix_drums_plugin_tests: 0 RealtimeSanitizer report(s), exit 134 (full log: build-rtsan/modules/Drums/livemix_drums_plugin_tests.rtsan.log)

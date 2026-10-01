@@ -1,7 +1,7 @@
 // THE TEXT CACHE: the same pixels JUCE would have drawn, and far fewer layouts to draw them.
 //
 // Every `g.drawText` in the application became `Dine::drawText`, because JUCE's own layout
-// cache holds 128 strings for the whole window and one workspace of DLIVE uses several times
+// cache holds 128 strings for the whole window and one workspace of DINE uses several times
 // that - so past 128 each paint re-shaped what the paint before it had shaped. Measured on a
 // 48-channel console, TUNE's warm repaint was 20.0 ms and INSPECTOR's 19.0; with the layouts
 // kept they are 9.6 and 6.9.
@@ -53,7 +53,7 @@ namespace
         return image;
     }
 
-    // The faces DLIVE actually draws with, at the sizes it draws them: Barlow for words, the
+    // The faces DINE actually draws with, at the sizes it draws them: Barlow for words, the
     // tracked caps for labels, IBM Plex Mono for numbers. Tracking matters here - a tracked run
     // shapes differently, so a cache that got it wrong would show up on the labels first.
     std::vector<juce::Font> everyStyle()
@@ -272,7 +272,7 @@ TEST_CASE ("Text size: every role grows with it, no metric does, and the layouts
 // A name is data and is ellipsised on purpose; a fixed word cut to "Clo..." is a cell that is
 // too small, and no amount of reading layout code finds one - the cell is only too small once
 // the face, the Text size and the string meet each other. So the drawing keeps the list, and
-// `dlive_ui_snapshots` walks every workspace with it on. This is the audit's own test.
+// `dine_ui_snapshots` walks every workspace with it on. This is the audit's own test.
 TEST_CASE ("Text: the clipping audit reports what was cut and nothing that fitted")
 {
     Dine::setTextScale (1.0f);

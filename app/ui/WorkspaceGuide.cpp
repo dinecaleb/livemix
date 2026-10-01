@@ -18,13 +18,13 @@ namespace
           "Faders, mutes and meters. M is mute, S is solo, R sets a track to record - and solo only goes "
           "to your own headphones, never to the room or the stream." },
         { "tune", "TUNE MIX listens, then does the mix.",
-          "DLIVE hears the whole band for thirty seconds and sets every level, tone and effect for this "
+          "DINE hears the whole band for thirty seconds and sets every level, tone and effect for this "
           "room, then tells you what it did and why. Nothing changes until you press KEEP." },
         { "live", "The service, on one screen.",
           "What is recording, what is going out, and one fader per group. Scenes keep a whole mix under "
           "a name, and LIVE SAFE locks the things that could go wrong by accident." },
         { "inspector", "One channel, in full detail.",
-          "Every stage of a channel, what it is set to, and whether DLIVE set it or you did. Change "
+          "Every stage of a channel, what it is set to, and whether DINE set it or you did. Change "
           "anything you like - the column at the right remembers it, and puts it back in one press." },
     };
 
@@ -77,7 +77,7 @@ int WorkspaceGuide::wantedHeight() const
 void WorkspaceGuide::paint (juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat();
-    // Lifted off the workspace, with the accent hairline that says DLIVE is the one talking.
+    // Lifted off the workspace, with the accent hairline that says DINE is the one talking.
     g.setColour (juce::Colours::black.withAlpha (0.35f));
     g.fillRoundedRectangle (r.translated (0.0f, 2.0f), Dine::Radius::card);
     Dine::fillRounded (g, r, Dine::card, Dine::Radius::card);

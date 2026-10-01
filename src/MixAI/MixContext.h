@@ -79,7 +79,7 @@ struct MixContextTrack
     std::vector<std::string> processing;                // the chain stages actually on
 
     std::string signalHealth;           // "Healthy" / "Low" / "Hot" / "Clipping" / "No signal" / "Faint"
-    float capturePeakDb = -120.0f;      // at the device, before any DLIVE gain
+    float capturePeakDb = -120.0f;      // at the device, before any DINE gain
     float consoleMoveDb = 0.0f;         // what the preamp itself should still do; 0 = nothing
 
     MixContextMeasurements measurements;
@@ -100,7 +100,7 @@ struct MixContextBus
 };
 
 // Whether the listen is worth reasoning about at all. A confident mix built from a band
-// that was not playing is worse than no mix: DLIVE says what it needs instead.
+// that was not playing is worse than no mix: DINE says what it needs instead.
 struct MixCaptureAdequacy
 {
     bool sufficient = false;

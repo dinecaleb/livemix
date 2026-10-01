@@ -18,7 +18,7 @@ Products, parameters, Tune, profiles, wording and the AI switch - the rules the 
   `forEachDspField` (`src/DSP/ChannelParameters.h`). Adding a DSP parameter = add the struct field, the ParamID, the spec,
   and the visitor line; `ParameterSpecTests` / `ProductTuneTests` catch mismatches. Chain order: ChannelProcessor (Input,
   filters, gate, [sample], corrective EQ, de-esser, comp, transient, tone EQ, saturation, width, output trim, [limiter], [loudness
-  meter]). The sample stage exists only where `MixEngine` configures it - DLIVE's kick, snare and tom strips
+  meter]). The sample stage exists only where `MixEngine` configures it - DINE's kick, snare and tom strips
   (`Options::sampleReplacement`); no plug-in carries it, and off it is bit-transparent.
 - Never rename a released parameter ID (sessions/automation depend on them).
 - Tune (`src/Tune`): `TuneEngine` = analysis + `Profiles::targets (profile, role)` + `strategyFor(family)`

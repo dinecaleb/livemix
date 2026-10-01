@@ -1,14 +1,14 @@
-# Dine / DLIVE
+# Dine plug-ins and DINE
 
-**DLIVE** (2026-09) is **the live recording and broadcast DAW**, built on the same engine.
+**DINE** (2026-09) is **the live recording and broadcast DAW**, built on the same engine.
 Connect. Record. Mix. Tune. Broadcast.
 
 Four workspaces over one session — **TRACKS** (timeline, clips, waveforms), **MIXER**, **TUNE**, **LIVE** — with a real
 transport, multitrack recording of the raw inputs to WAV, playback and basic clip editing, session folders, and a
 stereo master export. TUNE MIX sits on top of the DAW rather than replacing it: play the band for thirty seconds and
-DLIVE builds the mix, on live inputs or on what you just recorded. See `docs/MILESTONE-7.md` (the DAW milestone)
-and `docs/ARCHITECTURE-DLIVE.md` (the mix engine); code in `src/Mix` (engine), `app/native` (DAW + mix host) and
-`app/ui` (workspaces). Run it with `open build/app/DLive_artefacts/Release/DLIVE.app` (or copy the bundle to
+DINE builds the mix, on live inputs or on what you just recorded. See `docs/MILESTONE-7.md` (the DAW milestone)
+and `docs/ARCHITECTURE-DINE.md` (the mix engine); code in `src/Mix` (engine), `app/native` (DAW + mix host) and
+`app/ui` (workspaces). Run it with `open build/app/DineApp_artefacts/Release/DINE.app` (or copy the bundle to
 /Applications); without a band, use **Import a multitrack...** on the first page and point it at a folder of stems.
 
 A family of professional live/broadcast mixing plugins built on one shared engine (Dine Core). The goal is
@@ -69,20 +69,20 @@ modules/Common/      ChannelPluginProcessor (juce::AudioProcessor, Tune preview:
                      DineChannelProduct.cmake (one function builds a product's AU + Standalone + tests + snapshot tool)
 modules/Drums|Vocals|Keys|Master|Guitar|Bass/  thin product classes + CMake (see each README.md)
 modules/FX/          FxProcessor, FxEditor, FxPanels (Simple / Advanced), FxPresets, plugin target (see modules/FX/README.md)
-app/                 DLIVE, the application
+app/                 DINE, the application
   native/            Project (tracks, clips, markers), Transport, Recorder (raw WAV per armed track),
                      ClipSource + TimelinePlayer (clips -> audio), DawEngine (device -> record / play / mix),
                      MixController (the mix, no JUCE), AudioHost (CoreAudio), SessionStore (versioned JSON),
                      MultitrackImport, MixBounce (offline stereo bounce), ThemeStore (themes: the document,
                      the built-ins, the folder, the preference - see docs/THEMES.md)
   ui/                MainView (sidebar + toolbar + workspace + transport), TracksPage, MixerPage, MixPage (TUNE),
-                     LivePage, AdvancedPage (the Channel Inspector), TransportBar, AppTheme (DLIVE v2 tokens,
+                     LivePage, AdvancedPage (the Channel Inspector), TransportBar, AppTheme (DINE v2 tokens,
                      themeable), ThemeSheet (View > Appearance: pick, edit, save, import, export a theme)
-  Tools/             dlive_mix_stems, dlive_ui_snapshots, dlive_device_check
-  Tests/             dlive_app_tests (controller, DAW, documents, import, bounce)
+  Tools/             dine_mix_stems, dine_ui_snapshots, dine_device_check
+  Tests/             dine_app_tests (controller, DAW, documents, import, bounce)
 tests/               unit tests (custom header-only framework), plugin integration tests, benchmark,
                      regression renders (tests/reference/*.f32, regenerate with LIVEMIX_REGEN_REFERENCES=1)
-scripts/             bootstrap / build / dlive (build + run) / test / package (zip for a tester) / validate_au
+scripts/             bootstrap / build / dine (build + run) / test / package (zip for a tester) / validate_au
 external/JUCE/       vendored JUCE 8.0.8 (git-ignored; scripts/bootstrap.sh clones it)
 ```
 
@@ -102,13 +102,13 @@ Artefacts: `build/modules/<Product>/LiveMix<Product>_artefacts/Release/{AU,Stand
 and FX. The AUs are copied to `~/Library/Audio/Plug-Ins/Components/Dine <Product>.component` after each build
 (`-DLIVEMIX_COPY_PLUGIN_AFTER_BUILD=OFF` to disable).
 
-## Run DLIVE
+## Run DINE
 
 ```sh
-scripts/dlive.sh                # build (Release) and open DLIVE.app — the fast loop: only the app, not the plug-ins
-scripts/dlive.sh --build        # build only     --debug  from build-debug/
-scripts/dlive.sh --tests        # dlive_app_tests + livemix_tests
-scripts/dlive.sh --shots [dir]  # every workspace as PNGs (default: build/app-snapshots)
+scripts/dine.sh                # build (Release) and open DINE.app — the fast loop: only the app, not the plug-ins
+scripts/dine.sh --build        # build only     --debug  from build-debug/
+scripts/dine.sh --tests        # dine_app_tests + livemix_tests
+scripts/dine.sh --shots [dir]  # every workspace as PNGs (default: build/app-snapshots)
 ```
 
 ## Share a test build
@@ -118,7 +118,7 @@ scripts/package.sh              # build and zip for this Mac      --universal  a
 scripts/package.sh --no-build   # zip what is already built       --out <dir>  default: dist/
 ```
 
-Leaves `DLIVE-<version>-<date>.zip` and `NOTES.txt` in `~/Documents/dliveApp` (`--out <dir>`) — **send both**. With
+Leaves `DINE-<version>-<date>.zip` and `NOTES.txt` in `~/Documents/dineApp` (`--out <dir>`) — **send both**. With
 no `DEVELOPER_ID` set the signature is ad-hoc and the tester right-click > Opens it once; with `DEVELOPER_ID`,
 `TEAM_ID` and `NOTARY_PROFILE` set the same script signs with the hardened runtime, notarizes and staples, and
 the build opens with no warning at all (see `BUILD-RUN-SHARE.md`).
@@ -135,10 +135,10 @@ build/modules/<P>/livemix_<p>_plugin_tests           # shared channel-plugin sui
 build/modules/FX/livemix_fx_plugin_tests
 build/modules/Drums/livemix_tune_stems "<Source>" <file.aif> [seconds]   # offline Tune on a recorded stem
 build/tests/livemix_benchmark   # drums: 1/8/16/32/48 instances x 32/64/128/256 samples; FX: 1/4/8/16 x 64/128/256
-build/app/dlive_app_tests                          # DLIVE: controller, transport, recorder, timeline, documents
-build/app/dlive_mix_stems "<stems folder>" 30 out/ # TUNE MIX on a real multitrack; exit 0 = idempotent re-tune
-build/app/dlive_device_check 8 "<stems folder>"    # import + timeline playback through a real CoreAudio device
-build/app/dlive_ui_snapshots out/                  # every DLIVE workspace and state as PNGs
+build/app/dine_app_tests                          # DINE: controller, transport, recorder, timeline, documents
+build/app/dine_mix_stems "<stems folder>" 30 out/ # TUNE MIX on a real multitrack; exit 0 = idempotent re-tune
+build/app/dine_device_check 8 "<stems folder>"    # import + timeline playback through a real CoreAudio device
+build/app/dine_ui_snapshots out/                  # every DINE workspace and state as PNGs
 scripts/validate_au.sh          # auval for every Dine AU (Lmdr Lmvo Lmky Lmma Lmfx)
 scripts/benchmark_compare.py build/benchmark.txt   # the benchmark against scripts/benchmark-baseline.txt (fails > 15 % slower)
 scripts/rtsan.sh build-rtsan    # RealtimeSanitizer over the test suites (a -DLIVEMIX_RTSAN=ON build with upstream LLVM)
@@ -157,11 +157,11 @@ the benchmark against its committed baseline (`scripts/benchmark-baseline.txt`, 
 - **Latency, honestly.** The channel path is sample-synchronous and minimum-phase and adds no latency: filters,
   gate, EQs, de-esser, compressor (no lookahead), transient shaper, saturation, width and trim all report 0. The one
   exception is the lookahead limiter (`Limiter::kLookaheadMs` = 1.5 ms, 72 samples at 48 kHz), which only a product
-  that turns the stage on has - Dine Master, and DLIVE's master bus - and it is reported to the host through
+  that turns the stage on has - Dine Master, and DINE's master bus - and it is reported to the host through
   `setLatencySamples` *constantly*, whether the limiter is on, off or in a loudness-matched A/B, so the host's
   compensation never jumps. Dine FX is zero latency (pre-delay is part of the sound, not reported latency).
   `tests/DSP/NewStageTests.cpp` ("Latency honesty ...") pins the reported number to the limiter's lookahead.
-- **A take survives a crash.** DLIVE's recorder (`app/native/Recorder`) has the writer thread rewrite each WAV's
+- **A take survives a crash.** DINE's recorder (`app/native/Recorder`) has the writer thread rewrite each WAV's
   header every 15 s of audio and keep a `<take>.wav.recording.json` sidecar beside it (rate, channels, track,
   timeline start, frames so far) that a clean stop deletes; a sidecar found on the next open is a take the app
   died in, and `Recorder::recoverUnfinishedTakes` rebuilds its header from the bytes on disk and puts it back on

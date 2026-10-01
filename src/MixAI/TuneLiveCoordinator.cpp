@@ -253,7 +253,7 @@ void TuneLiveCoordinator::startWorker (bool refinement)
         }
         catch (const std::exception& e)
         {
-            // A provider is third-party code as far as DLIVE is concerned. It is allowed to
+            // A provider is third-party code as far as DINE is concerned. It is allowed to
             // fail; it is not allowed to take the application down with it.
             r = {};
             r.error = std::string ("The reasoning provider failed: ") + e.what();
@@ -325,7 +325,7 @@ void TuneLiveCoordinator::poll()
             finish();
             return;
         }
-        fail (r.error.empty() ? "DLIVE could not complete TUNE LIVE MIX. Your mix has not been changed."
+        fail (r.error.empty() ? "DINE could not complete TUNE LIVE MIX. Your mix has not been changed."
                               : r.error + " Your mix has not been changed.");
         return;
     }
@@ -453,7 +453,7 @@ std::string TuneLiveCoordinator::getStatusText() const
         case State::CapturingInitial:     return "Listening to the full band...";
         case State::AnalyzingInitial:     return "Working out what is happening between the sources...";
         case State::WaitingForReasoning:  return "Building the mix...";
-        case State::Resolving:            return "Working out how to do it with what DLIVE has...";
+        case State::Resolving:            return "Working out how to do it with what DINE has...";
         case State::Validating:           return "Checking every change is safe...";
         case State::Applying:             return "Applying the mix...";
         case State::CapturingVerify:      return "Listening again to what it did...";

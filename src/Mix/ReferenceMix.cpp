@@ -65,7 +65,7 @@ ReferenceAdequacy adequacy (const AnalysisResult& a, StyleProfileId profile)
     ReferenceAdequacy r;
     if (! a.valid)
     {
-        r.reason = "DLIVE could not read that file.";
+        r.reason = "DINE could not read that file.";
         r.guidance = "Try a WAV, AIFF, MP3 or M4A of the finished song.";
         return r;
     }
@@ -85,7 +85,7 @@ ReferenceAdequacy adequacy (const AnalysisResult& a, StyleProfileId profile)
     if (a.silencePercent > B.maxSilencePercent)
     {
         r.reason = num ("%.0f %%", double (a.silencePercent)) + " of that file is silence.";
-        r.guidance = "DLIVE would be measuring the gaps. Use a recording that plays most of the way through.";
+        r.guidance = "DINE would be measuring the gaps. Use a recording that plays most of the way through.";
         return r;
     }
     r.usable = true;
@@ -141,7 +141,7 @@ SourceTargets targets (const SourceTargets& base, const ReferenceProfile& ref,
         t.bandTargetDb[size_t (i)] = aim;
         // Matching aims closer than the profile's own "that will do": the point of a reference
         // is the difference you can hear between two records, which is smaller than a tolerance
-        // meant to stop DLIVE fussing over a source that is already fine.
+        // meant to stop DINE fussing over a source that is already fine.
         t.bandToleranceDb[size_t (i)] = std::min (base.bandToleranceDb[size_t (i)], B.toleranceDb);
 
         auto& m = out.bands[size_t (i)];
@@ -246,7 +246,7 @@ SourceTargets targets (const SourceTargets& base, const ReferenceProfile& ref,
     }
 
     out.limits.push_back ("A reference sets the tone of the finished mix, not who is loud inside it. "
-                          "The balance between your sources stays where DLIVE heard it should be.");
+                          "The balance between your sources stays where DINE heard it should be.");
     return t;
 }
 

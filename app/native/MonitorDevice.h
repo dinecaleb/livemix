@@ -13,7 +13,7 @@ namespace livemix
 // device by hand - which is four steps, in an application the volunteer has never opened,
 // twenty minutes before a service.
 //
-// So DLIVE builds it. One button.
+// So DINE builds it. One button.
 //
 // The distinction that matters, and the reason solo could never be private before: a
 // **Multi-Output Device** sends the *same* stereo to every device in it. One bus, mirrored -
@@ -41,7 +41,7 @@ namespace MonitorDevice
         juce::String uid;
         int outputChannels = 0;
         bool isAggregate = false;       // already a combined device: never a building block
-        bool isDliveBuilt = false;      // one of ours, from a previous run
+        bool isDineBuilt = false;      // one of ours, from a previous run
         int inputChannels = 0;          // after the flags, so the brace-initialised lists in the tests still read
         // What the device is, from CoreAudio's transport type - never from its name. A name is a
         // label the maker chose ("LOGIC OUT", "GF340A") and says nothing reliable about whether
@@ -63,7 +63,7 @@ namespace MonitorDevice
     juce::Array<Device> outputDevices();
     Device findDevice (const juce::String& name);   // empty uid when there is no such device
 
-    // What DLIVE would pick if the user just presses the button. The broadcast is whatever is
+    // What DINE would pick if the user just presses the button. The broadcast is whatever is
     // already carrying the mix; the headphones are the best remaining real device - preferring
     // something that looks like an interface over the Mac's own speakers, because a booth has
     // headphones plugged into an interface and nobody wants their solo on the laptop speaker.
@@ -81,7 +81,7 @@ namespace MonitorDevice
     // not a platform call - so they live apart from CoreAudio and are tested without a device.
     Suggestion suggestFrom (const juce::Array<Device>&, const juce::String& currentOutputDeviceName);
 
-    // The channel layout of the device DLIVE builds, decided before CoreAudio is asked for anything
+    // The channel layout of the device DINE builds, decided before CoreAudio is asked for anything
     // and tested without it. CoreAudio lays an aggregate device's channels out in the order of its
     // pieces, so the order here *is* the channel map: the console's input device goes first (its
     // inputs keep the numbers every track and assignment already uses), then the broadcast, then the
@@ -120,16 +120,16 @@ namespace MonitorDevice
         juce::String summary;           // one sentence for the toast
     };
 
-    // Builds (or rebuilds) DLIVE's own aggregate device from these two - and the console's input
+    // Builds (or rebuilds) DINE's own aggregate device from these two - and the console's input
     // device, when there is one, so the built device is the only device open (see Layout). Replacing
     // one it made earlier is safe and is what happens when the interface changes; a device the *user*
     // made is never touched.
     Result combine (const Device& broadcast, const Device& headphones, const Device* input = nullptr);
 
-    // Removes the device DLIVE built, if it exists. Used by "stop using my headphones" so the
+    // Removes the device DINE built, if it exists. Used by "stop using my headphones" so the
     // Mac is left the way it was found.
-    bool removeDliveDevice();
-    bool dliveDeviceExists();
+    bool removeDineDevice();
+    bool dineDeviceExists();
 
     // The manual route, for when creating fails or the platform has no aggregate devices.
     void openAudioMidiSetup();

@@ -12,7 +12,7 @@ namespace livemix
 
 // REFERENCE MIX: "make it sound like this."
 //
-// Add a finished song and DLIVE aims the master at it - the tonal balance it has, how wide
+// Add a finished song and DINE aims the master at it - the tonal balance it has, how wide
 // it sits, how dense it is - using the listen it already has of the band. The sheet's job
 // is to be honest about the trade: it draws the reference's balance against this mix's,
 // says in sentences what matching will aim for, and lists what a reference is not allowed
@@ -48,7 +48,7 @@ private:
     State state() const;
     juce::Rectangle<int> cardBounds() const;
     void updateControls();
-    ReferenceMatch preview() const;       // what matching would aim for, from the listen DLIVE already has
+    ReferenceMatch preview() const;       // what matching would aim for, from the listen DINE already has
     int listHeight() const;               // exactly what the aims and the limits take, so the card fits them
     void drawBalance (juce::Graphics&, juce::Rectangle<int>) const;
 

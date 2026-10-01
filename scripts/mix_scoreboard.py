@@ -6,7 +6,7 @@
     scripts/mix_scoreboard.py --only praise-worship
 
 A reference is a session an engineer finished by hand, listed in scripts/mix-scoreboard.txt with the windows to
-listen to. For each window build/app/dlive_mix_compare renders the session's own audio through the kept mix and
+listen to. For each window build/app/dine_mix_compare renders the session's own audio through the kept mix and
 through a fresh TUNE MIX and prints a SCORE line (see app/Tools/MixCompare.cpp):
 
     channels  RMS distance of every channel against the lead, TUNE vs HAND (dB)
@@ -32,7 +32,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 MANIFEST = HERE / "mix-scoreboard.txt"
 BASELINE = HERE / "mix-scoreboard-baseline.txt"
-TOOL = ROOT / "build" / "app" / "dlive_mix_compare"
+TOOL = ROOT / "build" / "app" / "dine_mix_compare"
 FIGURES = ("channels", "groups", "lead", "tone")
 SCORE = re.compile(r"^SCORE window=(\S+) (.*)$")
 
@@ -86,7 +86,7 @@ def main():
     args = ap.parse_args()
 
     if not TOOL.exists():
-        sys.exit(f"{TOOL} is not built: cmake --build build --target dlive_mix_compare --parallel 4")
+        sys.exit(f"{TOOL} is not built: cmake --build build --target dine_mix_compare --parallel 4")
 
     baseline = read_baseline()
     results, skipped, worse = {}, [], []

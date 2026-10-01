@@ -1,13 +1,13 @@
-# Figma Make prompt — DLIVE design revamp
+# Figma Make prompt — DINE design revamp
 
 Paste everything below the line into Figma Make. It asks for a complete new design
-language for DLIVE, built against a function inventory that may not shrink.
+language for DINE, built against a function inventory that may not shrink.
 
 ---
 
 ## MISSION
 
-Redesign **DLIVE** — a live recording, mixing and broadcast DAW for churches — from
+Redesign **DINE** — a live recording, mixing and broadcast DAW for churches — from
 the ground up, visually. Every screen, every control and every piece of information
 listed below must still be there and still be reachable in the same number of moves
 or fewer. **Nothing is allowed to disappear in the name of a cleaner picture.**
@@ -81,7 +81,7 @@ and must read identically on all of them:
 | **Soloed** | this and nothing else | same |
 | **Set to record** | this input will be written to disk | timeline headers, mixer strips |
 | **Monitoring** | you are hearing the live input, not the timeline | same |
-| **Tuned by DLIVE** vs **hand-edited** | who set this value | every parameter, everywhere |
+| **Tuned by DINE** vs **hand-edited** | who set this value | every parameter, everywhere |
 | **LIVE SAFE on** | the sound is locked; re-routes and re-tunes are blocked | globally |
 
 A muted channel must still show its meter moving (grey), because "nothing is there"
@@ -110,7 +110,7 @@ Nine screens plus six sheets. Redesign all of them. Keep every item.
 - **Toast** for confirmations. **Menu bar**: File, Edit, Track, Mix, Transport, View,
   Help — full item list in the appendix; every menu item must have a home in the UI too.
 - **Collapsible panels**: sidebar, TUNE's input rail, the Inspector's channel rail and
-  its "what DLIVE did" column. A folded panel must leave a visible, named handle
+  its "what DINE did" column. A folded panel must leave a visible, named handle
   behind — the middle of the workspace gets the width, the panel stays one click away.
   `[` and `]` toggle the panel on each side of whatever page you are on.
 
@@ -197,7 +197,7 @@ One console surface, not a row of cards. Two layouts and a filter:
 The heart of the product.
 
 - **Mix health**, in sentences, with the gain-staging note first, naming the inputs.
-- **TUNE MIX** — the deterministic one. Press it, DLIVE listens to the band for ~30
+- **TUNE MIX** — the deterministic one. Press it, DINE listens to the band for ~30
   seconds, then proposes a whole mix.
 - **TUNE LIVE MIX** — the same listen with a reasoning layer on top, then a second
   listen to verify what it did. It can fail, time out, or be offline: when it does,
@@ -252,7 +252,7 @@ Three columns:
   second, a transfer, the envelope before and after, the stereo picture, the levels
   either side of a trim, the sends — a knob for every number under that, then the
   stage's choices. The sentence that says what it is for closes the card.
-- **Right column** — what DLIVE did: one record per tune and per hand edit, newest
+- **Right column** — what DINE did: one record per tune and per hand edit, newest
   first, each with its clock, what did it, the sentence, and **PUT BACK**. A gain
   card sits above them when the input needs attention.
 - Chain stages available: Input, filters, gate, corrective EQ, de-esser, compressor,
@@ -271,7 +271,7 @@ are on, so the console keeps playing behind it) · **AI Mix Chat**.
 
 One input's level has seven states: **Faint / Not heard / Low / Hot / Clipping /
 Digital / Healthy**, each with a console move in dB and a sentence. "Digital" is the
-one that matters in a church: the level works, but only because DLIVE raised it
+one that matters in a church: the level works, but only because DINE raised it
 digitally, which lifts the preamp's hiss with the source. It appears as a chip on
 timeline headers and mixer strips, as a card at the top of the Inspector's right
 column, as the plan's first note, and in mix health. Design a chip that survives at
@@ -290,7 +290,7 @@ column, as the plan's first note, and in mix health. Design a chip that survives
 4. BYPASS lets you hear the raw console feed; it never touches the kept mix, and
    faders are disabled while it is on.
 5. LIVE SAFE blocks anything that re-routes or re-tunes, and says so by name.
-6. Hand-edited values stay visibly hand-edited until "Back to DLIVE" or REVERT.
+6. Hand-edited values stay visibly hand-edited until "Back to DINE" or REVERT.
 7. Nothing is committed by asking — every proposal lands on BEFORE / AFTER first.
 8. Keyboard: Space play/stop · Return to start · R record · L loop · B bypass ·
    T tune channel · M marker · `[` `]` panels · ⌃⌘S sidebar · ⌘1–5 workspaces ·
@@ -355,4 +355,4 @@ Clear Solo · Bypass: Hear the Inputs · Mix Engineer: Use the Cloud Model
 **Transport** Play / Stop · Record · Return to Start · Loop
 **View** Tracks · Mixer · Tune · Live · Inspector · Open Mixer in a New Window ·
 Outputs… · Show/Hide Sidebar · Show/Hide the two side panels · Zoom In / Out / to Fit
-**Help** About DLIVE
+**Help** About DINE

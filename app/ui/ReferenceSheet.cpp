@@ -41,7 +41,7 @@ namespace
 class ReferenceSheet::Measurer : public juce::Thread
 {
 public:
-    Measurer (const juce::File& f, StyleProfileId p) : juce::Thread ("DLIVE reference"), file (f), profile (p) {}
+    Measurer (const juce::File& f, StyleProfileId p) : juce::Thread ("DINE reference"), file (f), profile (p) {}
     ~Measurer() override { stopThread (5000); }
 
     void run() override
@@ -90,7 +90,7 @@ ReferenceSheet::ReferenceSheet (MixController& c) : controller (c)
         controller.startReferenceMatch();
         if (onToast) onToast (listened ? "Aimed at " + juce::String (controller.getReference().name)
                                             + ". Compare it with BEFORE, then KEEP or REVERT."
-                                       : "DLIVE has not heard the band yet, so it is listening first.");
+                                       : "DINE has not heard the band yet, so it is listening first.");
         if (onClose) onClose();
     };
     close.onClick = [this] { if (onClose) onClose(); };
@@ -174,7 +174,7 @@ void ReferenceSheet::updateControls()
                       && controller.getStage() != MixController::Stage::Planning && ! controller.isTuningLive());
 }
 
-// What matching would aim for, worked out from the listen DLIVE already has. It is the same
+// What matching would aim for, worked out from the listen DINE already has. It is the same
 // function the planner calls, so what the sheet promises and what the master gets cannot
 // drift apart. With a plan already aimed at this reference, that plan's own record is used.
 ReferenceMatch ReferenceSheet::preview() const
@@ -323,7 +323,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
         r.removeFromTop (6);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        Dine::drawFittedText (g, "DLIVE is measuring the whole song the way it measures the band: its tonal balance, how dense it "
+        Dine::drawFittedText (g, "DINE is measuring the whole song the way it measures the band: its tonal balance, how dense it "
                           "is and how wide it sits. The console keeps running while it reads.",
                           r.removeFromTop (56), juce::Justification::topLeft, 3);
         return;
@@ -352,7 +352,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
         // The title is already at the top of the sheet; this state says what adding one does.
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        Dine::drawFittedText (g, "Add a finished song and DLIVE aims the master at it: the tonal balance it has, how wide it sits "
+        Dine::drawFittedText (g, "Add a finished song and DINE aims the master at it: the tonal balance it has, how wide it sits "
                           "and how dense it is. It uses the listen it already has of your band, so it costs nothing at the "
                           "console.",
                           r.removeFromTop (56), juce::Justification::topLeft, 3);
@@ -364,7 +364,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
         const char* lines[] = {
             "The master's tone, image and density follow the reference.",
             "How loud the stream is delivered does not: that belongs to the broadcast.",
-            "Who is loud in the mix does not: DLIVE balances your band from what it heard."
+            "Who is loud in the mix does not: DINE balances your band from what it heard."
         };
         const Dine::Icon icons[] = { Dine::Icon::Check, Dine::Icon::Warn, Dine::Icon::Warn };
         const juce::Colour tints[] = { Dine::accent, Dine::ink3, Dine::ink3 };

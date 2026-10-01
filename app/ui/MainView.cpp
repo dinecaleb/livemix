@@ -318,7 +318,7 @@ class MainView::StatusBar : public juce::Component
 public:
     StatusBar (MixController& c, AppServices& s) : controller (c), services (s) { setOpaque (true); }
 
-    bool takeStopped = false;           // the last take was stopped by DLIVE, not by a person (TransportBar)
+    bool takeStopped = false;           // the last take was stopped by DINE, not by a person (TransportBar)
 
     void update (bool slow)
     {
@@ -540,7 +540,7 @@ public:
         }
         items[0]->setTooltip ("The device, the inputs and the output feeds. Under LIVE SAFE nothing there can be "
                               "changed until you say you mean it.");
-        items[1]->setTooltip ("The interface DLIVE is running on, its rate and its buffer.");
+        items[1]->setTooltip ("The interface DINE is running on, its rate and its buffer.");
         items[2]->setTooltip ("The patch: what is plugged into every input, and what each one is.");
         items[3]->setTooltip ("The output feeds: where the mix, or one group, is sent as well as the main pair.");
         setOpaque (true);
@@ -725,7 +725,7 @@ class MainView::MixerWindow : public juce::DocumentWindow, private juce::Timer
 {
 public:
     MixerWindow (MixController& c, AppServices& s, MainView& owner)
-        : juce::DocumentWindow ("Mixer " + juce::String (Glyph::dash()) + " DLIVE", Dine::window,
+        : juce::DocumentWindow ("Mixer " + juce::String (Glyph::dash()) + " DINE", Dine::window,
                                 juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton
                                     | juce::DocumentWindow::maximiseButton),
           view (owner)
@@ -765,7 +765,7 @@ public:
     PageWindow (const juce::String& title, std::unique_ptr<juce::Component> content,
                 std::function<void()> refreshFn, std::function<void()> rebuildFn, std::function<void()> closeFn,
                 int minW, int minH, int w, int h)
-        : juce::DocumentWindow (title + " " + juce::String (Glyph::dash()) + " DLIVE", Dine::window,
+        : juce::DocumentWindow (title + " " + juce::String (Glyph::dash()) + " DINE", Dine::window,
                                 juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton
                                     | juce::DocumentWindow::maximiseButton),
           page (std::move (content)), refreshPage (std::move (refreshFn)), rebuildPage (std::move (rebuildFn)), onClose (std::move (closeFn))
@@ -859,7 +859,7 @@ public:
                                     ? "Reference: " + juce::String (view.controller.getReference().name) + juce::String (Glyph::ellip())
                                     : "Add a Reference Mix...");
                 m.addSeparator();
-                // SPEECH PRIORITY: the one thing in DLIVE that moves a level by itself, so it
+                // SPEECH PRIORITY: the one thing in DINE that moves a level by itself, so it
                 // says what it does rather than only what it is called.
                 m.addItem (413, "Speech Priority: the band steps back while somebody speaks", true,
                            view.controller.getSpeechPriority(), nullptr);
@@ -902,7 +902,7 @@ public:
                     m.addSubMenu ("Master Sound", sound);
                 }
                 m.addSeparator();
-                // AUTOPILOT: the second thing in DLIVE allowed to move a level by itself, and
+                // AUTOPILOT: the second thing in DINE allowed to move a level by itself, and
                 // the only way to turn it on. Ticked while it is holding the mix.
                 m.addItem (415, "Autopilot: hold this mix", true, view.controller.isAutopilotOn());
                 m.addSeparator();
@@ -949,7 +949,7 @@ public:
                 m.addItem (615, "Show/Hide the two side panels");
                 m.addSeparator();
                 {
-                    // Every theme, DLIVE's own then yours, the chosen one ticked; then the sheet.
+                    // Every theme, DINE's own then yours, the chosen one ticked; then the sheet.
                     juce::PopupMenu appearance;
                     view.themeMenuNames.clear();
                     bool mine = false;
@@ -989,7 +989,7 @@ public:
                 // docs/ANALYTICS.md: what is sent, and what never is.
                 if (auto* t = Telemetry::instance(); t != nullptr && t->isConfigured())
                     m.addItem (703, "Share anonymous usage data", true, t->isSharing());
-                m.addItem (700, "About DLIVE");
+                m.addItem (700, "About DINE");
                 break;
         }
         return m;
@@ -1098,13 +1098,13 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     addAndMakeVisible (*sidebarButton);
 
     tuneLiveButton = std::make_unique<ToolbarToggle> ("TUNE LIVE MIX", ToolbarToggle::Kind::Verb, Dine::Icon::TuneNav);
-    tuneLiveButton->setTooltip ("Start TUNE LIVE MIX from any workspace: DLIVE listens to the band, builds its mix and reasons "
+    tuneLiveButton->setTooltip ("Start TUNE LIVE MIX from any workspace: DINE listens to the band, builds its mix and reasons "
                                 "about what this band still needs. The listen and the result open on TUNE. Press again to stop.");
     tuneLiveButton->onClick = [this] { handleCommand (405); };
     addChildComponent (*tuneLiveButton);
 
     chatButton = std::make_unique<ToolbarToggle> ("MIX BUDDY", ToolbarToggle::Kind::Glyph, Dine::Icon::Chat);
-    chatButton->setTooltip ("Open or close Mix Buddy, DLIVE's mix engineer in plain words: ask for a change to the mix - "
+    chatButton->setTooltip ("Open or close Mix Buddy, DINE's mix engineer in plain words: ask for a change to the mix - "
                             "a source, a level, a tone. It proposes; you keep.");
     chatButton->onClick = [this] { if (chatSheet != nullptr) closeSheets(); else showChat(); };
     addChildComponent (*chatButton);
@@ -1126,7 +1126,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     muteButton->onClick = [this] { controller.setBroadcastMute (! controller.isBroadcastMuted()); updateChrome(); };
     addChildComponent (*muteButton);
 
-    // AUTOPILOT is the fourth broadcast key and the second thing in DLIVE allowed to move a
+    // AUTOPILOT is the fourth broadcast key and the second thing in DINE allowed to move a
     // level by itself, so it is on the chrome wherever you are: lit while it is on, one press off.
     autopilotButton = std::make_unique<ToolbarToggle> ("AUTOPILOT", ToolbarToggle::Kind::Key, Dine::Icon::None, Dine::monitor);
     autopilotButton->setTooltip ("Hold the mix you set. Autopilot moves group faders only, slowly, inside a few dB of "
@@ -1192,14 +1192,14 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     routingPage->onApplyMap = [this] (const juce::File& file) { applyInputMapping (file); };
     routingPage->onImportMap = [this]
     {
-        mapChooser = std::make_unique<juce::FileChooser> ("Import an input patch", juce::File(), "*.dlivemap.json");
+        mapChooser = std::make_unique<juce::FileChooser> ("Import an input patch", juce::File(), "*.dinemap.json");
         mapChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                                  [this] (const juce::FileChooser& fc)
                                  {
                                      const auto file = fc.getResult();
                                      if (file == juce::File()) return;
                                      InputMap imported;
-                                     if (! InputMapStore::load (file, imported)) { showToast ("That is not a DLIVE input patch."); return; }
+                                     if (! InputMapStore::load (file, imported)) { showToast ("That is not a DINE input patch."); return; }
                                      if (! InputMapStore::save (imported)) { showToast ("That patch could not be saved."); return; }
                                      showToast ("Imported \"" + imported.name + "\".");
                                      showPage (Page::Maps);
@@ -1660,7 +1660,7 @@ juce::String MainView::panelName (bool left) const
         if (page == Page::Inspector) return "Channels";
         return "Sidebar";
     }
-    if (page == Page::Inspector) return "What DLIVE did";
+    if (page == Page::Inspector) return "What DINE did";
     return {};
 }
 
@@ -1776,7 +1776,7 @@ void MainView::applyTextSize (float scale, const juce::String& name)
     showToast ("Text size: " + name);
 }
 
-// RESET MIX TO RAW. Everything DLIVE decided about the sound, taken back to the session's
+// RESET MIX TO RAW. Everything DINE decided about the sound, taken back to the session's
 // baseline. It is asked for out loud because it throws a service's mixing away - and answered
 // with what it keeps, because the list of things it does *not* touch is the reassuring part.
 void MainView::resetMixToRaw()
@@ -1785,7 +1785,7 @@ void MainView::resetMixToRaw()
     closeSheets();
     choiceSheet = std::make_unique<ChoiceSheet> (
         "Reset the mix to raw?",
-        "Every channel goes back to how it sounded before DLIVE touched it, ready to show raw, then "
+        "Every channel goes back to how it sounded before DINE touched it, ready to show raw, then "
         "TUNE MIX, then the finished mix again.");
     choiceSheet->setColumns (
         { "Resets", Dine::warn, { "Faders, pans and sends", "EQ, dynamics and effects", "TUNE MIX results",
@@ -1830,7 +1830,7 @@ void MainView::offerRecovery (RecoveryOffer offer)
     choiceSheet->grabKeyboardFocus();
 }
 
-// macOS IS ABOUT TO ASK. The one thing a volunteer needs to be told is that DLIVE is not
+// macOS IS ABOUT TO ASK. The one thing a volunteer needs to be told is that DINE is not
 // asking for the room's microphone - it is asking for the desk - and that macOS has one switch
 // for both. Two columns: what it listens to, and what it does with it. Saying no costs nothing
 // that matters, and the note says so rather than leaving it to be found out.
@@ -1840,18 +1840,18 @@ void MainView::explainMicrophone (MicrophoneAsk ask)
     const auto what = ask.device.isNotEmpty() ? ask.device : juce::String ("your audio device");
     choiceSheet = std::make_unique<ChoiceSheet> (
         "macOS is about to ask about the microphone",
-        "DLIVE is opening " + what + ". macOS calls every audio input a microphone "
+        "DINE is opening " + what + ". macOS calls every audio input a microphone "
         + juce::String (Glyph::dash()) + " a thirty-two channel desk and this Mac's own mic are the "
-        "same switch " + Glyph::dash() + " so it asks once, the first time DLIVE listens.");
+        "same switch " + Glyph::dash() + " so it asks once, the first time DINE listens.");
     choiceSheet->setColumns (
-        { "What DLIVE listens to", Dine::accent, { "The inputs of " + what,
+        { "What DINE listens to", Dine::accent, { "The inputs of " + what,
                                                    "Nothing else on this Mac",
                                                    "Only while a device is open" }, true },
         { "What it does with them", Dine::ink2, { "The meters, the mix and the broadcast",
                                                   "Recording, on the tracks you set to record",
                                                   "TUNE, which listens and then sets the mix",
                                                   "No audio leaves this Mac" }, true });
-    choiceSheet->setNote ("Say Not now and DLIVE still plays, mixes, saves and exports. Only the meters stay still.",
+    choiceSheet->setNote ("Say Not now and DINE still plays, mixes, saves and exports. Only the meters stay still.",
                           "You can change it any time in System Settings > Privacy & Security > Microphone.");
 
     // Escape, or the sheet closed any other way, is Not now: a session has to open either way,
@@ -1941,7 +1941,7 @@ void MainView::tuneChannel (int strip, const MixController::ListenSettings& sett
     }
     if (controller.getStage() == MixController::Stage::Listening || controller.getStage() == MixController::Stage::Planning)
     {
-        showToast ("DLIVE is already listening. Let it finish, or cancel it first.");
+        showToast ("DINE is already listening. Let it finish, or cancel it first.");
         return;
     }
 
@@ -2113,14 +2113,14 @@ void MainView::openInputMappings()
         if (chosen == 901) { saveInputMapping(); return; }
         if (chosen == 900)
         {
-            mapChooser = std::make_unique<juce::FileChooser> ("Import an input mapping", juce::File(), "*.dlivemap.json");
+            mapChooser = std::make_unique<juce::FileChooser> ("Import an input mapping", juce::File(), "*.dinemap.json");
             mapChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                                      [this] (const juce::FileChooser& fc)
                                      {
                                          const auto file = fc.getResult();
                                          if (file == juce::File()) return;
                                          InputMap imported;
-                                         if (! InputMapStore::load (file, imported)) { showToast ("That is not a DLIVE input mapping."); return; }
+                                         if (! InputMapStore::load (file, imported)) { showToast ("That is not a DINE input mapping."); return; }
                                          if (! InputMapStore::save (imported)) { showToast ("That mapping could not be saved."); return; }
                                          showToast ("Imported \"" + imported.name + "\". Open Input Mappings to apply it.");
                                      });
@@ -2164,8 +2164,8 @@ void MainView::openInputMappings()
             {
                 mapChooser = std::make_unique<juce::FileChooser> ("Export input mapping",
                                                                   juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-                                                                      .getChildFile (juce::File::createLegalFileName (map.name) + ".dlivemap.json"),
-                                                                  "*.dlivemap.json");
+                                                                      .getChildFile (juce::File::createLegalFileName (map.name) + ".dinemap.json"),
+                                                                  "*.dinemap.json");
                 mapChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
                                          [this, map] (const juce::FileChooser& fc)
                                          {
@@ -2424,7 +2424,7 @@ void MainView::handleCommand (int id)
             controller.startReferenceMatch();
             showToast (controller.hasListened()
                            ? "Aimed at " + juce::String (controller.getReference().name) + ". Compare it with BEFORE, then KEEP or REVERT."
-                           : "DLIVE has not heard the band yet, so it is listening first.");
+                           : "DINE has not heard the band yet, so it is listening first.");
             break;
         case 305:
         case 306:
@@ -2459,14 +2459,14 @@ void MainView::handleCommand (int id)
             if (usingCloudMixEngineer && ! OpenAiMixProvider().isAvailable())
             {
                 usingCloudMixEngineer = false;
-                showToast ("No API key is configured, so DLIVE is using its own mix engineer.");
+                showToast ("No API key is configured, so DINE is using its own mix engineer.");
                 break;
             }
             if (usingCloudMixEngineer) controller.setReasoningProvider (std::make_shared<OpenAiMixProvider>());
             else controller.setReasoningProvider (nullptr);
             showToast (usingCloudMixEngineer
                            ? "TUNE LIVE MIX will ask the cloud mix engineer. Measurements and source names are sent; no audio ever leaves this machine."
-                           : "TUNE LIVE MIX is back on DLIVE's own mix engineer. Nothing leaves this machine.");
+                           : "TUNE LIVE MIX is back on DINE's own mix engineer. Nothing leaves this machine.");
             break;
         }
 
@@ -2558,13 +2558,13 @@ void MainView::handleCommand (int id)
             if (auto* t = Telemetry::instance())
             {
                 t->setSharing (! t->isSharing());
-                showToast (t->isSharing() ? "DLIVE will share anonymous usage data: which features are used and what went "
+                showToast (t->isSharing() ? "DINE will share anonymous usage data: which features are used and what went "
                                             "wrong. Never audio, names, files or anything you type."
                                           : "Nothing more will be shared. Milestones still work; they live on this Mac.");
             }
             break;
         case 700:
-            showToast ("DLIVE - the live recording and broadcast DAW. Connect. Record. Mix. Tune. Broadcast.");
+            showToast ("DINE - the live recording and broadcast DAW. Connect. Record. Mix. Tune. Broadcast.");
             break;
         default: break;
     }
@@ -2851,7 +2851,7 @@ void MainView::chooseOutput()
     const juce::String current = services.broadcastOutputDevice();
     for (int i = 0; i < outs.size(); ++i)
     {
-        if (outs[i].name.startsWith ("DLIVE Monitoring")) continue;
+        if (outs[i].name.startsWith ("DINE Monitoring")) continue;
         m.addItem (i + 1, outs[i].name, true, outs[i].name == current);
     }
 
@@ -2899,7 +2899,7 @@ void MainView::timerCallback()
     if (slowTicks == 90)
         if (auto* t = Telemetry::instance(); t != nullptr && t->needsNotice())
         {
-            showToast ("DLIVE shares anonymous usage and crash reports - which features are used and what went wrong. "
+            showToast ("DINE shares anonymous usage and crash reports - which features are used and what went wrong. "
                        "Never audio, names, files or anything you type. Help > Share anonymous usage data turns it off.");
             t->markNoticeShown();
         }
@@ -3015,7 +3015,7 @@ void MainView::paint (juce::Graphics& g)
         {
             g.setColour (Dine::ink2);
             g.setFont (Dine::caps (13.0f, 0.14f, 600));
-            Dine::drawText (g, "DLIVE", mark, juce::Justification::centredLeft, true);
+            Dine::drawText (g, "DINE", mark, juce::Justification::centredLeft, true);
         }
     }
 

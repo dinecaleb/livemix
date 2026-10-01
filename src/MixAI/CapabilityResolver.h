@@ -12,7 +12,7 @@ namespace livemix
 //
 // Deterministic: the same intent against the same session always resolves to the same plan,
 // which is what makes the reasoning layer testable and what keeps a re-run from drifting.
-// The resolver is also where honesty lives. When an intent asks for something DLIVE does not
+// The resolver is also where honesty lives. When an intent asks for something DINE does not
 // have, it either builds a credible facsimile out of what it does have and says so, chooses a
 // different tool that serves the same musical end and says so, or reports that it cannot -
 // it never quietly does something else and calls it done.

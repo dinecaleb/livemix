@@ -422,7 +422,7 @@ TEST_CASE ("MixPlanner: a close drum microphone is not lifted again by the next 
     // The situation the rule is for has to actually arise, or this test guards nothing.
     REQUIRE (stripNamed (first, "Tom L").inputGainDb >= MixProfile::relationships (StyleProfileId::ModernGospel).maxCloseMicRaiseDb);
 
-    rig.engine.setParameters (first.proposed);        // the user kept it; now DLIVE listens again through it
+    rig.engine.setParameters (first.proposed);        // the user kept it; now DINE listens again through it
     auto ctx = rig.context (rig.listen (in));
     ctx.current = ctx.atCapture = first.proposed;
     const auto second = MixPlanner::plan (ctx);

@@ -87,7 +87,7 @@ ProcessingPlan validate (const ProcessingPlan& in, const Context& ctx, Report* r
         {
             reject (a, processor != nullptr && ! processor->unavailableBecause.empty()
                            ? processor->unavailableBecause
-                           : std::string ("DLIVE does not have a ") + dspProcessorLabel (a.processor) + " on " + target->name + ".");
+                           : std::string ("DINE does not have a ") + dspProcessorLabel (a.processor) + " on " + target->name + ".");
             continue;
         }
 
@@ -104,7 +104,7 @@ ProcessingPlan validate (const ProcessingPlan& in, const Context& ctx, Report* r
         if (a.processor == DspProcessor::InputGain && ! B.allowInputGain)
         {
             reject (a, "Capture gain belongs to the console preamp and to gain staging, not to a mix decision. "
-                       "DLIVE says what the preamp should do instead.");
+                       "DINE says what the preamp should do instead.");
             continue;
         }
         if (a.processor == DspProcessor::Gate)
@@ -114,7 +114,7 @@ ProcessingPlan validate (const ProcessingPlan& in, const Context& ctx, Report* r
                                 || (track != nullptr && sustainedFamily (track->family));
             if (sustained && a.paramId == ParamID::gateOn && a.value >= 0.5f)
             {
-                reject (a, "A sustained source would be chopped by an expander, so DLIVE does not gate it.");
+                reject (a, "A sustained source would be chopped by an expander, so DINE does not gate it.");
                 continue;
             }
         }
@@ -192,7 +192,7 @@ ProcessingPlan validate (const ProcessingPlan& in, const Context& ctx, Report* r
         if (clamped)
         {
             ++report.clamped;
-            if (a.note.empty()) a.note = "Held to " + num ("%.2f", double (value)) + " by DLIVE's mix bounds.";
+            if (a.note.empty()) a.note = "Held to " + num ("%.2f", double (value)) + " by DINE's mix bounds.";
         }
         ++accepted;
     }

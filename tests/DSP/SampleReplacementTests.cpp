@@ -351,7 +351,7 @@ TEST_CASE ("ChannelProcessor: the sample stage exists only where it is configure
     CHECK (a.data[0] == b.data[0]);
     CHECK (plain.getLatencySamples() == 0);
 
-    // Configured (a DLIVE drum strip): the sample lands, the latency is still zero, and
+    // Configured (a DINE drum strip): the sample lands, the latency is still zero, and
     // steady-state process() never allocates.
     ChannelProcessor drum;
     ChannelProcessor::Options o; o.sampleReplacement = true;

@@ -128,7 +128,7 @@ TracksPage::TracksPage (MixController& c, AppServices& s) : controller (c), serv
           "Set every track to record, and click again to set none. Nothing is captured until you press Record.",
           [this] { setAllToRecord (! allSetToRecord()); });
     make (monitorAllButton, "All to input",
-          "Hear every input through DLIVE - what a soundcheck is. Click again to put them all back to Auto: "
+          "Hear every input through DINE - what a soundcheck is. Click again to put them all back to Auto: "
           "the recording while it rolls, the input while it is stopped and set to record.",
           [this] { setAllToInput (! allSetToInput()); });
     make (loopButton, "Loop",
@@ -515,7 +515,7 @@ void TracksPage::refresh()
     //
     // A timeline is the most expensive surface in the app: names, chips, faders, keys,
     // waveforms and a playhead, times however many channels the church has. Repainting all of
-    // it thirty times a second because a meter moved is what made DLIVE feel slower than a
+    // it thirty times a second because a meter moved is what made DINE feel slower than a
     // DAW should, so nothing here repaints more than it has to.
     //
     //   the playhead moved  -> the ruler and the lanes (the headers have not changed)
@@ -1604,7 +1604,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
     juce::String note, briefNote;
     if (chip.text == "DIGITAL")
     {
-        note = "The level works only because DLIVE raised it digitally. Raise the console gain instead.";
+        note = "The level works only because DINE raised it digitally. Raise the console gain instead.";
         briefNote = "Raise the console gain";
     }
     else if (std::fabs (pan) >= 0.005f)
@@ -2385,7 +2385,7 @@ juce::String TracksPage::getTooltip()
         }
     }
     if (tuneCell (track).contains (p))
-        return "TUNE this channel: DLIVE listens to it on its own and sets its chain. RE-TUNE any time, while the band plays.";
+        return "TUNE this channel: DINE listens to it on its own and sets its chain. RE-TUNE any time, while the band plays.";
     if (faderCell (track).contains (p))
         return controller.getStripLink (track) != 0
                    ? "Level for this track. Linked with " + juce::String (controller.linkedNames (track))
@@ -2563,7 +2563,7 @@ void TracksPage::addAudioFiles (const juce::StringArray& files, int track, juce:
     if (added > 0) said += added == 1 ? " on 1 new track" : " on " + juce::String (added) + " new tracks";
     if (placed < int (loaded.size())) said += " (" + juce::String (int (loaded.size()) - placed) + " left out: the session is full)";
     said += ".";
-    if (unrecognised > 0) said += " DLIVE could not tell what " + juce::String (unrecognised == 1 ? "one of them is" : "some of them are")
+    if (unrecognised > 0) said += " DINE could not tell what " + juce::String (unrecognised == 1 ? "one of them is" : "some of them are")
                                 + ": right-click the header to say the source.";
     if (onToast) onToast (said);
 }

@@ -41,7 +41,7 @@ private:
         juce::String when, what;
         bool fromTune = false;
         bool sameConsole = true;       // false: kept with different inputs, so it cannot go back on
-        bool measured = false;         // a favourite DLIVE heard, so it can be aimed at
+        bool measured = false;         // a favourite DINE heard, so it can be aimed at
         std::unique_ptr<DineButton> restore;
         std::unique_ptr<DineButton> aim;      // favourites only: aim the mix at this one
         std::unique_ptr<DineButton> drop;     // favourites only: it is not a favourite any more

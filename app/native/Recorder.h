@@ -18,7 +18,7 @@ namespace livemix
 // "Audio Files" folder. A take that cannot be written (disk full, no permission) stops
 // recording and says so instead of failing quietly.
 //
-// A take is readable even if DLIVE dies in the middle of it. A WAV header carries its sizes,
+// A take is readable even if DINE dies in the middle of it. A WAV header carries its sizes,
 // and a writer that only fills them in on close leaves an unreadable file behind a crash, so
 // while a take is being written the writer thread (never the audio thread) rewrites the
 // header every headerFlushSeconds of audio, and keeps a sidecar beside each file -
@@ -84,7 +84,7 @@ public:
 
     // ---- Recovery ----
 
-    // A take that was still being written when DLIVE last closed.
+    // A take that was still being written when DINE last closed.
     struct Recovered
     {
         int trackIndex = -1;
@@ -153,7 +153,7 @@ private:
     };
     void writeSidecars();
 
-    juce::TimeSliceThread thread { "DLIVE recorder" };
+    juce::TimeSliceThread thread { "DINE recorder" };
     SidecarWriter sidecarWriter { *this };
     std::vector<Sidecar> sidecars;
     int fifoSamples = 0;

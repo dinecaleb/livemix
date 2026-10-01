@@ -173,7 +173,7 @@ json::Value MixContextTrack::toJson() const
     health.set ("state", signalHealth);
     health.set ("capturePeakDbfsAtDevice", capturePeakDb);
     // Capture gain and mix gain are different things and the context says so: this is the
-    // move the console preamp itself should make, which no fader inside DLIVE can do for it.
+    // move the console preamp itself should make, which no fader inside DINE can do for it.
     health.set ("consolePreampMoveDb", consoleMoveDb);
     v.set ("signalHealth", std::move (health));
     v.set ("measurements", measurements.toJson());
@@ -211,7 +211,7 @@ json::Value MixCaptureAdequacy::toJson() const
 json::Value MixContext::toJson() const
 {
     auto v = json::Value::object();
-    v.set ("schema", "dlive.mixContext");
+    v.set ("schema", "dine.mixContext");
     v.set ("schemaVersion", schemaVersion);
 
     auto s = json::Value::object();
@@ -342,7 +342,7 @@ MixContext buildMixContext (const MixPlanContext& ctx, const MixPlan& plan)
     if (ad.seconds < kMinListenSeconds)
     {
         ad.reason = "The listen was only " + std::to_string (int (std::round (ad.seconds))) + " seconds long.";
-        ad.guidance = "Have the band play and run TUNE MIX again so DLIVE hears a full passage.";
+        ad.guidance = "Have the band play and run TUNE MIX again so DINE hears a full passage.";
     }
     else if (ad.tracksActive == 0)
     {

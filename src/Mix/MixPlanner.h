@@ -46,7 +46,7 @@ struct StripPlan
     std::vector<Recommendation> mixItems;   // relationship and balance decisions about this strip
     float faderBeforeDb = 0.0f, faderDb = 0.0f;
     float inputGainBeforeDb = 0.0f, inputGainDb = 0.0f;   // digital preamp
-    float capturePeakDb = -120.0f;          // the loudest moment at the device during the listen, before any DLIVE gain
+    float capturePeakDb = -120.0f;          // the loudest moment at the device during the listen, before any DINE gain
 };
 
 struct BusPlan

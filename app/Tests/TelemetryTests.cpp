@@ -11,7 +11,7 @@ namespace
 {
     juce::File scratch (const juce::String& name)
     {
-        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dlive-telemetry-tests").getChildFile (name);
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dine-telemetry-tests").getChildFile (name);
         dir.deleteRecursively();
         dir.createDirectory();
         return dir;
@@ -136,7 +136,7 @@ TEST_CASE ("Telemetry: rows carry the install, the run and the platform, and nev
     FakeServer server;
     Telemetry t (config (dir, &server));
     t.start();
-    t.track ("session_opened", { { "source", "user" }, { "inputs", 24 }, { "note", "/Users/somebody/Music/Sunday.dlive" } });
+    t.track ("session_opened", { { "source", "user" }, { "inputs", 24 }, { "note", "/Users/somebody/Music/Sunday.dine" } });
     drain (t);
     const auto rows = rowsSent (server);
     CHECK (countEvent (rows, "app_started") == 1);
@@ -272,9 +272,9 @@ TEST_CASE ("Telemetry: a run that never said goodbye is reported by the next one
     // What the signal handler would have left beside it.
     dir.getChildFile ("telemetry-crash.txt").replaceWithText (
         "signal=11\n"
-        "0   DLIVE                               0x0000000102f8c000 onFatalSignal + 252\n"
+        "0   DINE                               0x0000000102f8c000 onFatalSignal + 252\n"
         "1   libsystem_platform.dylib            0x000000018f5617a4 _sigtramp + 56\n"
-        "0   DLIVE                               0x0000000102f8c3a4 _ZN7livemix13MixController4pollEv + 123\n"
+        "0   DINE                               0x0000000102f8c3a4 _ZN7livemix13MixController4pollEv + 123\n"
         "1   /Users/somebody/Library/Frameworks/X.dylib 0x0000000102f8c3a5 main + 4\n");
 
     server.bodies.clear();
@@ -390,10 +390,10 @@ TEST_CASE ("Telemetry: an hour of mixing is an hour, whenever it was earned")
 TEST_CASE ("Telemetry: a stack is frame, module and symbol - never an address or a folder")
 {
     const auto s = Telemetry::sanitiseStack (
-        "3   DLIVE                               0x0000000100a1b2c3 _ZN7livemix9DawEngine13stopRecordingEv + 44\n"
+        "3   DINE                               0x0000000100a1b2c3 _ZN7livemix9DawEngine13stopRecordingEv + 44\n"
         "4   libsystem_c.dylib                   0x0000000190a1b2c3 abort + 180\n"
         "garbage\n");
-    CHECK_MESSAGE (s.contains ("3 DLIVE livemix::DawEngine::stopRecording() + 44"), s.toStdString());
+    CHECK_MESSAGE (s.contains ("3 DINE livemix::DawEngine::stopRecording() + 44"), s.toStdString());
     CHECK (s.contains ("4 libsystem_c.dylib abort + 180"));
     CHECK (! s.contains ("0x"));
     CHECK (! s.contains ("garbage"));

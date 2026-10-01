@@ -11,14 +11,14 @@ namespace livemix
 
 inline constexpr int kProcessingPlanSchemaVersion = 1;
 
-// How faithfully DLIVE could answer what was asked for. Reported, never hidden: a mix
+// How faithfully DINE could answer what was asked for. Reported, never hidden: a mix
 // engineer who says "done" when they substituted something else is not one you can trust.
 enum class ResolutionStatus : int
 {
-    Exact = 0,      // DLIVE has exactly this
-    Approximated,   // built out of what DLIVE has; close, and said so
+    Exact = 0,      // DINE has exactly this
+    Approximated,   // built out of what DINE has; close, and said so
     Substituted,    // a different tool that serves the same musical end
-    Unsupported     // DLIVE cannot do this; nothing was applied
+    Unsupported     // DINE cannot do this; nothing was applied
 };
 
 const char* resolutionStatusId (ResolutionStatus) noexcept;
@@ -26,7 +26,7 @@ const char* resolutionStatusLabel (ResolutionStatus) noexcept;
 
 // Unchanged is not a refusal: the bounds simply left nothing to do, which is an ordinary
 // outcome of refining a mix that is already close. It is kept in the plan for the record and
-// left out of what the user is shown, because "DLIVE declined to move a control by 0 dB" is
+// left out of what the user is shown, because "DINE declined to move a control by 0 dB" is
 // not a decision anybody needs to read.
 enum class MixActionStatus : int { Proposed = 0, Accepted, Clamped, Rejected, Unchanged };
 const char* mixActionStatusId (MixActionStatus) noexcept;
@@ -51,7 +51,7 @@ struct MixAction
     json::Value toJson() const;
 };
 
-// What DLIVE is actually going to do, in DLIVE's own terms. Versioned and serialisable:
+// What DINE is actually going to do, in DINE's own terms. Versioned and serialisable:
 // this is what a session stores so that yesterday's mix opens the same tomorrow, with no
 // provider, no network and no reasoning.
 struct ProcessingPlan

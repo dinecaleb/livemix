@@ -1,6 +1,6 @@
 # Analytics, stability reports and milestones
 
-What DLIVE sends, why, and what it never sends. Every event below exists to answer a question
+What DINE sends, why, and what it never sends. Every event below exists to answer a question
 in the last column; **an event that answers no question here is not added**, and a new one
 is added to this file in the same commit as the code that sends it.
 
@@ -20,7 +20,7 @@ is added to this file in the same commit as the code that sends it.
    Device figures (dropouts, CPU, sample rate) are read from counters once a second on the
    message thread. Nothing new runs in `process()`, `processBlock()` or the CoreAudio callback.
 2. **Fails silently.** No URL or key configured, no network, a 5xx, sharing switched off: to
-   the rest of DLIVE all of these look the same, which is that nothing happens. Unsent rows wait
+   the rest of DINE all of these look the same, which is that nothing happens. Unsent rows wait
    in `telemetry-queue.jsonl`, capped at 2,000 with the oldest dropped first, and go out on a
    later launch. Retries back off from 30 s to 15 min. A 4xx other than 408/429 drops that batch
    and counts it, so one bad row can't block every later one.
@@ -31,8 +31,8 @@ is added to this file in the same commit as the code that sends it.
    for hardware (`interface`, `builtin`). An aggregate device or a pair of headphones is often
    named after its owner, so for those only the kind is sent.
 4. **Anonymous.** `install_id` is a random UUID made on first launch and stored in
-   `~/Library/DLIVE/telemetry.json`. It is kept out of sessions and out of `~/Music`.
-   `session_id` is one launch of the app (a "run"), not a DLIVE session document.
+   `~/Library/DINE/telemetry.json`. It is kept out of sessions and out of `~/Music`.
+   `session_id` is one launch of the app (a "run"), not a DINE session document.
 5. **The user can switch it off.** Help > *Share anonymous usage data* (shown only when a
    project is configured). Off also empties the queue. The milestones keep working, because
    they are the user's and live on the Mac.
@@ -48,8 +48,8 @@ is added to this file in the same commit as the code that sends it.
 
 | Where | What |
 | --- | --- |
-| `telemetry.local.cmake` at the top of the tree (git-ignored, never committed) | `set(DLIVE_SUPABASE_URL "https://sagthwycbpdcwdwzpiia.supabase.co")` and `set(DLIVE_SUPABASE_ANON_KEY "<legacy anon key>")`. Every build on that Mac bakes them in, the packaged tester build included. |
-| CMake cache `DLIVE_SUPABASE_URL`, `DLIVE_SUPABASE_ANON_KEY` | The same, for one build directory (`-DDLIVE_SUPABASE_URL=...`). The local file wins when both are set. |
+| `telemetry.local.cmake` at the top of the tree (git-ignored, never committed) | `set(DINE_SUPABASE_URL "https://sagthwycbpdcwdwzpiia.supabase.co")` and `set(DINE_SUPABASE_ANON_KEY "<legacy anon key>")`. Every build on that Mac bakes them in, the packaged tester build included. |
+| CMake cache `DINE_SUPABASE_URL`, `DINE_SUPABASE_ANON_KEY` | The same, for one build directory (`-DDINE_SUPABASE_URL=...`). The local file wins when both are set. |
 | Environment variables of the same names | Override the build: a developer pointing a run at a test project. |
 | Neither | Off. Nothing is queued or sent; milestones still work. |
 
@@ -91,7 +91,7 @@ up to the limits; it can be found by `received_at` and deleted. The per-source l
 address PostgREST passes in `request.headers` (`cf-connecting-ip`, else the first
 `x-forwarded-for`); it has not been exercised against the live project yet.
 
-## Local files (`~/Library/DLIVE/`)
+## Local files (`~/Library/DINE/`)
 
 | File | What | Lifetime |
 | --- | --- | --- |
@@ -117,7 +117,7 @@ address PostgREST passes in `request.headers` (`cf-connecting-ip`, else the firs
 
 | Event | Props | Question it answers |
 | --- | --- | --- |
-| `app_started` | `first_run`, `launch` (nth on this install), `days_since_install`, `previous_run_crashed`, `mac_model` (e.g. `Mac17,8`), `cpu_cores`, `ram_gb` | DAU/WAU/MAU; new vs returning; sessions per user; retention (day N of `days_since_install`); the hardware DLIVE runs on |
+| `app_started` | `first_run`, `launch` (nth on this install), `days_since_install`, `previous_run_crashed`, `mac_model` (e.g. `Mac17,8`), `cpu_cores`, `ram_gb` | DAU/WAU/MAU; new vs returning; sessions per user; retention (day N of `days_since_install`); the hardware DINE runs on |
 | `app_ended` | `uptime_s`, `mixing_s`, `xruns`, `cpu_peak` (%), `rss_mb` | session duration; time spent mixing; a clean end (its absence plus `app_crash` = a crash) |
 | `session_heartbeat` | every 5 min: `uptime_s`, `mixing_s`, `xruns`, `cpu_peak`, `rss_mb`, `inputs`, `tracks` | duration of a run that never ended cleanly; typical channel and track count while mixing |
 | `feature_first_use` | `feature`, `days_since_install`, `launch` | which features are discovered, how soon, and which are never touched. Features: `tune_channel`, `tune_group`, `tune_channels`, `tune_mix`, `tune_live`, `tune_mix_buddy`, `keep_some`, `autopilot`, `sample_replacement`, `preset_scene`, `preset_favourite`, `preset_input_map`, `preset_recall`, `mix_buddy`, `recording`, `live_view`, `live_safe`, `speech_priority`, `auto_mix` |
@@ -142,7 +142,7 @@ assigned. A gap of more than 5 s between ticks (the Mac asleep) counts as nothin
 | `tune_result` | `scope` (`channel` / `group` / `channels` / `mix` / `live` / `mix_buddy`), `outcome` (`proposal` / `no_change` / `nothing_heard` / `no_signal` / `too_short` / `failed` / `cancelled`), `family` + `kind` (channel scope, from `UsageIds.h`), `group` (group scope: `DRUMS`, `BASS`, ...), `channels`, `inputs`, `changes`, `heard` | Tune use by scope; the most-tuned channel types; how often a listen fails and why (Tune failures) |
 | `tune_decision` | `decision` (`kept` / `kept_some` / `reverted`), same scope fields, `changes` | Tune acceptance rate, full and partial |
 
-A proposal left on preview when a new listen starts is kept by DLIVE itself, and counts as `kept`.
+A proposal left on preview when a new listen starts is kept by DINE itself, and counts as `kept`.
 
 ### Features
 
@@ -150,7 +150,7 @@ A proposal left on preview when a new listen starts is kept by DLIVE itself, and
 | --- | --- | --- |
 | `autopilot` | `state` (`on` / `off` / `refused`), `reason` when refused (`no_mix` / `silent`) | Autopilot adoption and its refusals |
 | `sample_replacement_on` | `instrument` (`kick` / `snare` / `tom` ...), `by` (`hand` / `tune`) | sample replacement adoption, by instrument |
-| `preset_saved` | `kind` (`scene` / `favourite` / `input_map`), `inputs` for a map | saved mixes and patches. DLIVE has no channel presets, so scenes, favourites and input maps stand in for them |
+| `preset_saved` | `kind` (`scene` / `favourite` / `input_map`), `inputs` for a map | saved mixes and patches. DINE has no channel presets, so scenes, favourites and input maps stand in for them |
 | `preset_applied` | `kind` | whether saved mixes get used again |
 | `mix_buddy_used` | - | Mix Buddy use. The request's words are never sent |
 | `live_view_opened` | `audio_running` | the Live workspace, which is the closest thing to a broadcast mode. There is no "go live" action |
@@ -175,7 +175,7 @@ A proposal left on preview when a new listen starts is kept by DLIVE itself, and
 | Event | Props | Question |
 | --- | --- | --- |
 | `app_crash` | Sent on the next launch, under **the session ID and version of the run that died**. `detected` (`signal`, or `no_goodbye` for a kill, a power cut or a hang ended by force quit), `signal`, `exception_type` (the C++ type, never its message), `stack` (up to 48 frames of frame, module and demangled symbol, with no addresses and no folders), plus the run's last context: `uptime_s`, `mixing_s`, `xruns`, `activity`, `device_kind`, `device_model`, `sample_rate`, `buffer`, `inputs`, `recording` | crash-free runs and installs; crashes by version, OS, device and activity |
-| `error` | `area`, `code`, `recovered`, plus the moment's context: `activity`, `audio_running`, `device_kind`, `device_model`, `sample_rate`, `buffer`, `inputs`, `recording`, and the fields listed below | the most common failure areas, and how often DLIVE carries on by itself |
+| `error` | `area`, `code`, `recovered`, plus the moment's context: `activity`, `audio_running`, `device_kind`, `device_model`, `sample_rate`, `buffer`, `inputs`, `recording`, and the fields listed below | the most common failure areas, and how often DINE carries on by itself |
 | `telemetry_health` | `failed_sends`, `dropped_rows`, `last_status` | the telemetry's own failures, kept apart from the product's |
 
 Error codes, all of them:
@@ -241,7 +241,7 @@ from cohort c group by 1 order by 1;
 
 ## What is not covered, and why
 
-- **Audio engine failures other than a lost device.** DLIVE's engine doesn't fail on its own. A
+- **Audio engine failures other than a lost device.** DINE's engine doesn't fail on its own. A
   device that stops is `device_lost`, and a restart is `device_returned`. Dropouts are the
   device's own xrun count; there is no CoreAudio overload listener.
 - **A hang.** No watchdog. A hang ended by Force Quit shows up as `app_crash` with

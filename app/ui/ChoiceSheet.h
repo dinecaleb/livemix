@@ -8,7 +8,7 @@
 namespace livemix
 {
 
-// The two sheets DLIVE uses to ask before something it cannot quietly undo: RESET THE MIX TO
+// The two sheets DINE uses to ask before something it cannot quietly undo: RESET THE MIX TO
 // RAW (`25`, 88:23073) and RECOVER SESSION? (`23`, 88:22923). They are the same shape, so they
 // are one component: a title, one sentence, two columns that say exactly what will happen and
 // exactly what will not, a note under them, and the buttons - the destructive one in red type

@@ -1,5 +1,5 @@
 # Builds and checks the whole repo on every push and pull request: the engine, the six Dine
-# plug-ins, Dine FX, DLIVE and every test, then the benchmark against its committed baseline
+# plug-ins, Dine FX, DINE and every test, then the benchmark against its committed baseline
 # and Apple's AU validation. macos-latest is an Apple-silicon runner; the benchmark baseline in
 # scripts/benchmark-baseline.txt has to come from that class of machine (see the script).
 name: CI
@@ -102,7 +102,7 @@ jobs:
           grep -q "LIVEMIX_HAVE_RTSAN:INTERNAL=1" build-rtsan/CMakeCache.txt || { echo "RTSan is not available with this compiler"; exit 1; }
 
       - name: Build the test executables
-        run: cmake --build build-rtsan --target livemix_tests livemix_drums_plugin_tests livemix_vocals_plugin_tests livemix_keys_plugin_tests livemix_master_plugin_tests livemix_guitar_plugin_tests livemix_bass_plugin_tests livemix_fx_plugin_tests dlive_app_tests
+        run: cmake --build build-rtsan --target livemix_tests livemix_drums_plugin_tests livemix_vocals_plugin_tests livemix_keys_plugin_tests livemix_master_plugin_tests livemix_guitar_plugin_tests livemix_bass_plugin_tests livemix_fx_plugin_tests dine_app_tests
 
       - name: Run under RTSan (any unsafe call from a real-time entry point fails the job)
         run: scripts/rtsan.sh build-rtsan

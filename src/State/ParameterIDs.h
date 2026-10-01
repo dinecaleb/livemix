@@ -51,7 +51,7 @@ namespace livemix::ParamID
     inline constexpr const char* gateRatio     = "gateRatio";
     inline constexpr const char* gateScHpf     = "gateScHpf";   // detector high-pass, Hz (0 = off)
 
-    // Sample replacement (DLIVE drum strips: kick, snare, toms). The detector, the blend, the sound.
+    // Sample replacement (DINE drum strips: kick, snare, toms). The detector, the blend, the sound.
     inline constexpr const char* replaceOn        = "replaceOn";
     inline constexpr const char* replaceBlend     = "replaceBlend";     // 0 = the microphone, 1 = the sample
     inline constexpr const char* replaceThreshold = "replaceThreshold"; // dBFS at the detector

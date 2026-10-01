@@ -1,10 +1,10 @@
-# Would a small local model make DLIVE's plain-English layer better?
+# Would a small local model make DINE's plain-English layer better?
 
 **Research only. Nothing in this document is in the product, and nothing in it should be until the
 measurement in §7 has actually been taken.** Written 2026-09-28 as Phase 4 item 2 of
 `docs/ROADMAP-RELIABILITY.md`.
 
-The question is narrow on purpose. It is **not** "should DLIVE use AI" - it already can, optionally, through
+The question is narrow on purpose. It is **not** "should DINE use AI" - it already can, optionally, through
 `MixReasoningProvider`, and the rules for that are in `CLAUDE.md`. It is: **would a ~1-4 B model, quantized and
 shipped in the bundle, read what an engineer types better than `MixRequestParser` does today, by enough to
 justify what it costs?**
@@ -31,7 +31,7 @@ do with the ones it half-understands".
 Twelve phrases through `readMixRequest` on the standard test band (the probe was temporary and is not in the
 tree; the table is its output, verbatim in substance).
 
-| Typed | What DLIVE did | Verdict |
+| Typed | What DINE did | Verdict |
 | --- | --- | --- |
 | `Bring the lead vocal forward` | Lead **and** LEAD, presence +0.60 each | works, but see §3 |
 | `Don't make the vocals harsh` | LEAD, brightness −0.55 | accidentally right |
@@ -50,7 +50,7 @@ tree; the table is its output, verbatim in substance).
 
 - **Negation and scoping** (`not harsh, leave them alone`; `take the reverb off X but leave it on Y`). The
   matcher is substring-based, so a word inside a negation, a contrast or an exclusion reads the same as the
-  word on its own. This is the damaging class: DLIVE acts, confidently, in a direction nobody asked for.
+  word on its own. This is the damaging class: DINE acts, confidently, in a direction nobody asked for.
 - **Metaphor colliding with the vocabulary** (`wet cardboard box` → "wet" → more reverb). Rare, but the same
   shape: a confident wrong move rather than a refusal.
 
@@ -66,14 +66,14 @@ needs no model.
 ## 4. So what would a model actually buy?
 
 Honestly: **the four rows above, and very little else.** Every other failure in the table is a refusal, and a
-refusal costs the engineer one retype in DLIVE's own vocabulary - which the chat already shows them.
+refusal costs the engineer one retype in DINE's own vocabulary - which the chat already shows them.
 
 That is the answer the roadmap asked to be said out loud if it was the answer. **It is few.**
 
 Two things temper it:
 
 - The four are not evenly weighted. "Take the reverb off the pastor but leave it on the singers" is a *normal
-  sentence a volunteer would type*, and DLIVE doing the opposite of it on a Sunday is a real failure, not a
+  sentence a volunteer would type*, and DINE doing the opposite of it on a Sunday is a real failure, not a
   cosmetic one. Frequency, not count, is the number that matters, and nobody has counted it - see §7.
 - Anaphora (`a bit more`) is the one capability a model adds that no table can: the chat has a history and the
   parser has no memory of it. It refuses safely today, so this is comfort rather than correctness.
@@ -93,7 +93,7 @@ to be measured before any of them is relied on.
 | Cold start (load + first token) | seconds, dominated by reading the weights off disk |
 | Per request | a short structured reply is tens of tokens, so sub-second once warm |
 
-The sizes are the number that should stop the conversation. DLIVE's own bundle is tens of megabytes. A 1.6 GB
+The sizes are the number that should stop the conversation. DINE's own bundle is tens of megabytes. A 1.6 GB
 model is **two orders of magnitude** more than the application it is helping, shipped to a church booth Mac to
 improve four sentences in twelve.
 
@@ -138,15 +138,15 @@ would settle it, in this order:
 ## 8. Recommendation: **DEFER**, and do §7.2 now
 
 Not "build": the measured benefit is four sentences in twelve, and the cost is a bundle two orders of magnitude
-larger plus a memory-pressure risk on exactly the machine DLIVE is meant to be reliable on. Nothing in §4
+larger plus a memory-pressure risk on exactly the machine DINE is meant to be reliable on. Nothing in §4
 justifies that today.
 
 Not "drop": the one class that a model genuinely fixes - negation, contrast and exclusion - contains at least
-one sentence a volunteer would plausibly type, and DLIVE currently does the opposite of it. That is worth
+one sentence a volunteer would plausibly type, and DINE currently does the opposite of it. That is worth
 keeping on the list.
 
 **Defer, and take the cheap half now.** The negation/contrast guard in §7.2 turns every measured unsafe case
-into DLIVE's own safe refusal, for fifty lines and no megabytes. The duplicate-target bug in §3 is worth fixing
+into DINE's own safe refusal, for fifty lines and no megabytes. The duplicate-target bug in §3 is worth fixing
 the same afternoon. If, after both, the logged residue in §7.1 is still material, this document has a real
 number to reopen on - and if it is not, then the honest answer was that the deterministic parser plus a
 refusal was always good enough, which is the answer this study currently expects.

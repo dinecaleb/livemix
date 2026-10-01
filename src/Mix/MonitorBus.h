@@ -9,7 +9,7 @@ namespace livemix
 // THE MONITOR (SOLO) BUS
 //
 // A live console has two outputs that are not the same thing: what the room and the
-// broadcast hear, and what the engineer hears. DLIVE keeps them apart. Pressing S on a
+// broadcast hear, and what the engineer hears. DINE keeps them apart. Pressing S on a
 // channel puts that channel into the *monitor* bus - headphones, a pair of nearfields,
 // whatever the monitor feed is routed to - and the master carries on untouched. That is
 // the whole point: an engineer has to be able to find the buzz on channel 9 during the
@@ -17,7 +17,7 @@ namespace livemix
 //
 // The one exception is deliberate, named and never the default: SoloMode::InPlace is the
 // old destructive behaviour (mute-everything-else on the main mix), which is right when
-// DLIVE is being used to mix a recording with nobody listening. The UI says which is on.
+// DINE is being used to mix a recording with nobody listening. The UI says which is on.
 // ---------------------------------------------------------------------------
 
 enum class SoloMode : int

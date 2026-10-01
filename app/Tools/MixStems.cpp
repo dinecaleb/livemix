@@ -1,11 +1,11 @@
-// DLIVE offline success test: a folder of recorded stems goes through the complete
+// DINE offline success test: a folder of recorded stems goes through the complete
 // standalone pipeline with no audio device and no UI.
 //
-//   dlive_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dlive-out] [gospel|worship|rock|rnb|jazz|talk] [offsetSeconds] [broadcast|livestream|recording[:LUFS]] [reference.wav] [--check]
+//   dine_mix_stems <stems folder> [seconds=30] [outdir=<folder>/dine-out] [gospel|worship|rock|rnb|jazz|talk] [offsetSeconds] [broadcast|livestream|recording[:LUFS]] [reference.wav] [--check]
 //
 // The delivery target can be named outright: "broadcast:-14" aims the whole gain structure at
 // -14 LUFS instead of the purpose's own standard, which is the one knob that decides whether a
-// DLIVE master sounds competitive next to everything else the viewer watches.
+// DINE master sounds competitive next to everything else the viewer watches.
 //
 // The last argument is optional: a finished recording to aim the mix at (REFERENCE MIX). The
 // master is then tuned toward that record's tonal balance, image and density instead of toward
@@ -104,12 +104,12 @@ int main (int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::printf ("usage: dlive_mix_stems <stems folder> [seconds=30] [outdir] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording] [reference.wav]\n");
+        std::printf ("usage: dine_mix_stems <stems folder> [seconds=30] [outdir] [gospel|worship] [offsetSeconds] [broadcast|livestream|recording] [reference.wav]\n");
         return 2;
     }
     const juce::File folder { juce::String (argv[1]) };
     const float seconds = argc > 2 ? juce::String (argv[2]).getFloatValue() : 30.0f;
-    const juce::File outDir = argc > 3 ? juce::File (juce::String (argv[3])) : folder.getChildFile ("dlive-out");
+    const juce::File outDir = argc > 3 ? juce::File (juce::String (argv[3])) : folder.getChildFile ("dine-out");
     StyleProfileId profile = StyleProfileId::ModernGospel;
     if (argc > 4)
     {
@@ -239,7 +239,7 @@ int main (int argc, char** argv)
         }
     }
     const int numSamples = int (std::min (juce::int64 (seconds * sr), length - start));
-    std::printf ("DLIVE mix of %s\n%d stems, %.0f Hz, window %.1f s from %.1f s, %s, %s\n\n", folder.getFileName().toRawUTF8(), int (open.size()), sr,
+    std::printf ("DINE mix of %s\n%d stems, %.0f Hz, window %.1f s from %.1f s, %s, %s\n\n", folder.getFileName().toRawUTF8(), int (open.size()), sr,
                  double (numSamples) / sr, double (start) / sr, styleProfileName (profile), mixPurposeName (purpose));
 
     // ---- 3. Session: one input per mono stem, two per stereo stem ----

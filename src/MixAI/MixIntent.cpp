@@ -95,7 +95,7 @@ int MixIntent::objectiveCount() const noexcept
 json::Value MixIntent::toJson() const
 {
     auto v = json::Value::object();
-    v.set ("schema", "dlive.mixIntent");
+    v.set ("schema", "dine.mixIntent");
     v.set ("schemaVersion", schemaVersion);
     v.set ("noChangeRequired", noChangeRequired);
     v.set ("summary", summary);

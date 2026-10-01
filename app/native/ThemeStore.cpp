@@ -1,4 +1,5 @@
 #include "ThemeStore.h"
+#include "AppFolders.h"
 
 namespace livemix
 {
@@ -48,7 +49,7 @@ namespace
         { "ink4",        "Ink",      "A label, a disabled word." },
         { "glyph",       "Ink",      "A resting icon." },
         { "panMark",     "Ink",      "The centre mark of a balance." },
-        { "accent",      "Accent",   "The primary action, the active tab, what is selected, what DLIVE tuned, the meters." },
+        { "accent",      "Accent",   "The primary action, the active tab, what is selected, what DINE tuned, the meters." },
         { "accentHover", "Accent",   "The accent under the pointer." },
         { "accentDeep",  "Accent",   "The accent pressed." },
         { "onAccent",    "Accent",   "Type on an accent button." },
@@ -269,7 +270,7 @@ bool ThemeStore::parseHex (const juce::String& text, juce::uint32& argb)
 juce::var ThemeStore::toVar (const Theme& t)
 {
     auto* root = new juce::DynamicObject();
-    root->setProperty ("app", "DLIVE");
+    root->setProperty ("app", "DINE");
     root->setProperty ("kind", "theme");
     root->setProperty ("schema", Theme::kSchemaVersion);
     root->setProperty ("name", t.name);
@@ -288,12 +289,12 @@ juce::var ThemeStore::toVar (const Theme& t)
 bool ThemeStore::fromVar (const juce::var& v, Theme& out, juce::String& why)
 {
     auto* root = object (v);
-    if (root == nullptr) { why = "This is not a DLIVE theme file."; return false; }
-    if (root->getProperty ("kind").toString() != "theme") { why = "This is not a DLIVE theme file."; return false; }
+    if (root == nullptr) { why = "This is not a DINE theme file."; return false; }
+    if (root->getProperty ("kind").toString() != "theme") { why = "This is not a DINE theme file."; return false; }
     const int schema = int (root->getProperty ("schema"));
     if (schema > Theme::kSchemaVersion)
     {
-        why = "This theme was made by a newer DLIVE (schema " + juce::String (schema) + "); this build reads schema "
+        why = "This theme was made by a newer DINE (schema " + juce::String (schema) + "); this build reads schema "
               + juce::String (Theme::kSchemaVersion) + ".";
         return false;
     }
@@ -340,7 +341,7 @@ bool ThemeStore::save (const Theme& t, const juce::File& file)
 // ---------------------------------------------------------------- the folder
 juce::File ThemeStore::folder()
 {
-    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("DLIVE").getChildFile ("Themes");
+    return AppFolders::music().getChildFile ("Themes");
 }
 
 juce::String ThemeStore::safeFileName (const juce::String& name)
@@ -384,7 +385,7 @@ bool ThemeStore::saveUser (Theme& t, juce::String& why, const juce::File& dir)
 {
     t.name = t.name.trim();
     if (t.name.isEmpty() || safeFileName (t.name).isEmpty()) { why = "Give the theme a name first."; return false; }
-    if (isBuiltInName (t.name)) { why = "'" + t.name + "' is one of DLIVE's own themes. Save yours under another name."; return false; }
+    if (isBuiltInName (t.name)) { why = "'" + t.name + "' is one of DINE's own themes. Save yours under another name."; return false; }
     t.builtIn = false;
     t.file = fileFor (t.name, dir);
     if (! save (t, t.file)) { why = "The theme could not be written to " + t.file.getFullPathName(); return false; }
@@ -410,7 +411,7 @@ bool ThemeStore::importFile (const juce::File& source, Theme& imported, juce::St
 // ---------------------------------------------------------------- the preference
 juce::File ThemeStore::preferencesFile()
 {
-    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("DLIVE").getChildFile ("preferences.json");
+    return AppFolders::music().getChildFile ("preferences.json");
 }
 
 juce::String ThemeStore::chosenTheme (const juce::File& prefs)

@@ -18,7 +18,7 @@ ReferenceAudio::Result ReferenceAudio::measure (const juce::File& file, StylePro
     std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
     if (reader == nullptr || reader->lengthInSamples <= 0 || reader->sampleRate <= 0.0)
     {
-        out.error = "DLIVE could not read " + file.getFileName() + ". Try a WAV, AIFF, MP3 or M4A.";
+        out.error = "DINE could not read " + file.getFileName() + ". Try a WAV, AIFF, MP3 or M4A.";
         return out;
     }
 
@@ -42,7 +42,7 @@ ReferenceAudio::Result ReferenceAudio::measure (const juce::File& file, StylePro
         block.clear();
         if (! reader->read (&block, 0, n, pos, true, channels > 1))
         {
-            out.error = "DLIVE could not read all of " + file.getFileName() + ".";
+            out.error = "DINE could not read all of " + file.getFileName() + ".";
             return out;
         }
         for (int i = 0; i < n; ++i)

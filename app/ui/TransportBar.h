@@ -59,7 +59,7 @@ private:
     bool playing = false, recording = false, looping = false;
     juce::int64 lastPosition = -1, lastLength = -1;
     bool dropSaid = false;                      // this take's "the disk fell behind" has been said
-    bool stoppedByItself = false;               // the last take was stopped by DLIVE (disk, device), not a person
+    bool stoppedByItself = false;               // the last take was stopped by DINE (disk, device), not a person
     bool stopPressed = false;                   // a person stopped this take (so its ending is not news)
 
     juce::Rectangle<int> keysWell, clockWell, timeCell, lengthCell, divider;

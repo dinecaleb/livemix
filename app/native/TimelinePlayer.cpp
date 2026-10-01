@@ -16,7 +16,7 @@ namespace
     }
 }
 
-TimelinePlayer::TimelinePlayer() : juce::Thread ("DLIVE timeline") {}
+TimelinePlayer::TimelinePlayer() : juce::Thread ("DINE timeline") {}
 
 TimelinePlayer::~TimelinePlayer()
 {

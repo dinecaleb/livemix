@@ -39,7 +39,7 @@ namespace
         c.role = role;
         c.profile = profile;
         c.current = StyleProfile::baseline (role, profile);
-        c.hasSampleStage = sampleReplacementAppropriate (roleFamily (role));   // a DLIVE drum strip, as MixPlanner builds it
+        c.hasSampleStage = sampleReplacementAppropriate (roleFamily (role));   // a DINE drum strip, as MixPlanner builds it
         return c;
     }
 

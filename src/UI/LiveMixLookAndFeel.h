@@ -74,7 +74,7 @@ public:
     // (soft-capped — heavy tracking is intentionally avoided). Weights: 400/500/600/700.
     static juce::Font condensed (float px, int weight = 600, float spacingEm = 0.0f);
     static juce::Font body (float px, int weight = 400, float spacingEm = 0.0f);
-    // Inter: the face DLIVE's v3 design is set in. The plug-ins stay on Barlow (`body`).
+    // Inter: the face DINE's v3 design is set in. The plug-ins stay on Barlow (`body`).
     static juce::Font inter (float px, int weight = 400, float spacingEm = 0.0f);
     static juce::Font mono (float px, int weight = 400, float spacingEm = 0.0f);
 

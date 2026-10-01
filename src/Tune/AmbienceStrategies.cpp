@@ -1,7 +1,7 @@
 // Crowd / ambience microphones, and the saxophone.
 //
 // Two families that arrived together (2026-09) because a live broadcast needs both and
-// DLIVE had neither. They have nothing in common musically; what they share is that
+// DINE had neither. They have nothing in common musically; what they share is that
 // treating them as something else was audibly wrong:
 //
 //   A crowd microphone routed through the drum-room rules got gated, transient-shaped and

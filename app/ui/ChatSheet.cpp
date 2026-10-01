@@ -35,7 +35,7 @@ public:
             // real questions that are guaranteed an answer rather than a blinking caret.
             Row intro;
             intro.kind = Row::Kind::Intro;
-            intro.text = "Ask how to do something in DLIVE, or why something sounds the way it does. For example:";
+            intro.text = "Ask how to do something in DINE, or why something sounds the way it does. For example:";
             intro.lines = MixBuddy::examples();
             const int textWidth = width - 2 * kBubblePad;
             intro.bounds = { 0, y, width, 2 * kBubblePad + textHeight (intro.text, textWidth, 13.0f) + 6
@@ -349,7 +349,7 @@ void ChatSheet::paint (juce::Graphics& g)
     g.setColour (Dine::ink4);
     g.setFont (Dine::text (10.5f));
     Dine::drawText (g, controller.hasBuddyProposal() ? juce::String ("A proposed change is on BEFORE / AFTER. Nothing is kept until you press KEEP.")
-                                                    : juce::String ("Built into DLIVE. Works offline."),
+                                                    : juce::String ("Built into DINE. Works offline."),
                     foot, juce::Justification::centredLeft, true);
 }
 
