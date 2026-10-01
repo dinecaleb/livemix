@@ -49,8 +49,7 @@ RoutingGraph RoutingGraph::build (const MixSession& session)
     for (int i = 0; i < int (session.inputs.size()) && int (g.strips.size()) < kMaxStrips; ++i)
     {
         const auto& in = session.inputs[size_t (i)];
-        if (! in.enabled || in.inputA < 0) continue;
-        if (roleFamily (in.role) == RoleFamily::Master) continue; // the master is never an input
+        if (! inputHasStrip (in)) continue;   // unnamed, unpatched, or the master (never an input)
 
         StripRoute r;
         r.input = i;

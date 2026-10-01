@@ -316,6 +316,26 @@ inline std::vector<int> matchInputs (const MixSession& previous, const MixSessio
     return out;
 }
 
+// Whether an input is a strip on the console. An input with no source said (a multitrack file
+// DLIVE could not name), one with no device channel, and a finished mix are listed but never
+// processed - so an input's place in the list and its strip on the console are two different
+// numbers whenever one of those sits above it. RoutingGraph::build decides by this, and so must
+// everything that turns one into the other (stripsOfInputs).
+inline bool inputHasStrip (const InputAssignment& in) noexcept
+{
+    return in.enabled && in.inputA >= 0 && roleFamily (in.role) != RoleFamily::Master;
+}
+
+// The strip each input is on, or -1 for one that has none: the same walk RoutingGraph::build makes.
+inline std::vector<int> stripsOfInputs (const MixSession& session)
+{
+    std::vector<int> out (session.inputs.size(), -1);
+    int next = 0;
+    for (size_t i = 0; i < session.inputs.size() && next < kMaxStrips; ++i)
+        if (inputHasStrip (session.inputs[i])) out[i] = next++;
+    return out;
+}
+
 // Which internal bus a source belongs to. Bass runs to the master on its own bus, as the brief asks.
 inline constexpr MixBus mixBusForFamily (RoleFamily f) noexcept
 {

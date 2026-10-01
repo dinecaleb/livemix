@@ -147,7 +147,7 @@ TracksPage::TracksPage (MixController& c, AppServices& s) : controller (c), serv
     for (auto* b : { snapButton.get(), followButton.get() }) { b->setFontPx (12.0f); b->setPadX (10); }
 
     chainStrip.setEmpty ("Click a clip to read its chain here. Double-click a track header to open that channel in the Inspector.");
-    chainStrip.onOpen = [this] { if (selection.track >= 0 && onOpenStrip) onOpenStrip (selection.track); };
+    chainStrip.onOpen = [this] { if (const int strip = stripOf (selection.track); strip >= 0 && onOpenStrip) onOpenStrip (strip); };
     addAndMakeVisible (chainStrip);
 
     updateToolbar();
@@ -161,11 +161,11 @@ void TracksPage::updateChainStrip()
 {
     const auto& project = services.daw().getProject();
     const auto& params = controller.getBase();
-    if (selection.track >= 0 && selection.track < numTracks() && selection.track < params.numStrips)
+    if (const int strip = stripOf (selection.track); strip >= 0 && selection.track < numTracks())
     {
         const auto& input = controller.getSession().inputs[size_t (selection.track)];
         chainStrip.setSource (juce::String (input.name), laneColourFor (input.role),
-                              params.strips[size_t (selection.track)].channel, false, input.isStereo(), hasSampleStage (input.role));
+                              params.strips[size_t (strip)].channel, false, input.isStereo(), hasSampleStage (input.role));
     }
     else
     {
@@ -184,6 +184,15 @@ int TracksPage::numTracks() const
     const auto& session = controller.getSession();
     const auto& project = services.daw().getProject();
     return juce::jmin (int (session.inputs.size()), int (project.tracks.size()));
+}
+
+int TracksPage::stripOf (int track) const
+{
+    const auto& inputs = controller.getSession().inputs;
+    if (track < 0 || track >= int (inputs.size()) || ! inputHasStrip (inputs[size_t (track)])) return -1;
+    int strip = 0;
+    for (int i = 0; i < track; ++i) if (inputHasStrip (inputs[size_t (i)])) ++strip;
+    return strip < controller.getBase().numStrips ? strip : -1;
 }
 
 int TracksPage::trackHeight (int track) const
@@ -362,12 +371,13 @@ juce::Rectangle<int> TracksPage::faderCell (int track) const
 // by accident. Hold Shift for a quarter-speed move, the same as the console's faders.
 void TracksPage::dragFader (int track, int x, bool fine, bool alone)
 {
-    if (track < 0 || track >= controller.getBase().numStrips) return;
+    const int strip = stripOf (track);
+    if (strip < 0) return;
     const auto cell = faderCell (track);
     if (cell.isEmpty()) return;
     const float travel = float (x - dragStartX) / float (juce::jmax (1, cell.getWidth()));
     const float norm = juce::jlimit (0.0f, 1.0f, dragFaderNorm + travel * (fine ? 0.25f : 1.0f));
-    controller.setStripFader (track, std::round (faderRange().convertFrom0to1 (norm) * 10.0f) * 0.1f, ! alone);
+    controller.setStripFader (strip, std::round (faderRange().convertFrom0to1 (norm) * 10.0f) * 0.1f, ! alone);
     // A fader has to feel immediate, which means repainting the row it is on and the readout
     // that follows it - not the whole timeline, which at 48 channels costs more than a frame.
     // A linked move lands on the partners' rows too.
@@ -472,18 +482,23 @@ void TracksPage::refresh()
     const int tracks = numTracks();
     if (int (peaks.size()) != tracks) peaks.assign (size_t (tracks), -120.0f);
     if (controller.isPrepared())
-        for (int i = 0; i < juce::jmin (tracks, controller.getEngine().getNumStrips()); ++i)
+    {
+        const auto strips = stripsOfInputs (controller.getSession());
+        for (int i = 0; i < juce::jmin (tracks, int (strips.size())); ++i)
         {
-            const float now = controller.getEngine().getStrip (i).getOutputMeter().consumeMaxPeakDb();
+            const int strip = strips[size_t (i)];
+            if (strip < 0 || strip >= controller.getEngine().getNumStrips()) { peaks[size_t (i)] = -120.0f; continue; }
+            const float now = controller.getEngine().getStrip (strip).getOutputMeter().consumeMaxPeakDb();
             peaks[size_t (i)] = juce::jmax (now, peaks[size_t (i)] - 2.0f);
         }
+    }
 
     if (adviceForTune != controller.getTuneCount() || int (advice.size()) != tracks)
     {
         adviceForTune = controller.getTuneCount();
         advice.clear();
         advice.reserve (size_t (tracks));
-        for (int i = 0; i < tracks; ++i) advice.push_back (controller.getInputAdvice (i));
+        for (int i = 0; i < tracks; ++i) advice.push_back (controller.getInputAdvice (stripOf (i)));
         repaint();
     }
 
@@ -530,6 +545,30 @@ void TracksPage::refresh()
         // it, so it is left alone.
         repaint (getLocalBounds().withTrimmedLeft (headerWidth).withTrimmedTop (kToolbarHeight)
                                  .withTrimmedBottom (footHeight()));
+    }
+
+    // What the headers draw from the mix - M, S, the fader, the pan, the link - changes from
+    // places this page never hears about: the solo cleared from the top bar, a mute on the
+    // mixer, a scene recalled. Only the meters were being repainted, so a header kept its old
+    // S lit (half of it, where a meter's repaint clipped through) after the solo had gone.
+    {
+        const auto& params = controller.getBase();
+        std::uint64_t h = 1469598103934665603ull;
+        auto mixIn = [&h] (std::uint64_t v) { h = (h ^ v) * 1099511628211ull; };
+        mixIn (std::uint64_t (params.numStrips));
+        mixIn (controller.isBypassed() ? 1u : 0u);
+        for (int i = 0; i < params.numStrips; ++i)
+        {
+            const auto& st = params.strips[size_t (i)];
+            mixIn ((st.mute ? 1u : 0u) | (st.solo ? 2u : 0u));
+            mixIn (std::uint64_t (std::lround (st.faderDb * 10.0f)) ^ (std::uint64_t (std::lround (st.pan * 100.0f)) << 20));
+            mixIn (std::uint64_t (st.linkGroup));
+        }
+        if (h != paintedMixState)
+        {
+            paintedMixState = h;
+            repaint (getLocalBounds().withTrimmedTop (kToolbarHeight).withTrimmedBottom (footHeight()));
+        }
     }
 
     // The meters, one narrow strip per track, and only where the reading really changed. A
@@ -1112,12 +1151,12 @@ void TracksPage::headerMenu (int track)
                              case 3: matchNamesToClips(); break;
                              case 4: if (onOpenAssign) onOpenAssign(); break;
                              case 5: selection = { track, -1 }; updateChainStrip();
-                                     if (onOpenStrip) onOpenStrip (track); break;
+                                     if (onOpenStrip && stripOf (track) >= 0) onOpenStrip (stripOf (track)); break;
                              case 6: selection = { track, -1 }; updateChainStrip(); repaint();
-                                     if (onTuneStrip) onTuneStrip (track); break;
+                                     if (onTuneStrip && stripOf (track) >= 0) onTuneStrip (stripOf (track)); break;
                              case 7: moveTrack (track, track - 1); break;
                              case 8: moveTrack (track, track + 1); break;
-                             case 9: controller.unlinkStrip (track); repaint(); break;
+                             case 9: controller.unlinkStrip (stripOf (track)); repaint(); break;
                              default: break;
                          }
                      });
@@ -1535,9 +1574,10 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
     g.fillRect (row);
 
     const auto& params = controller.getBase();
-    const bool inRange = track < params.numStrips;
-    const bool mute = inRange && params.strips[size_t (track)].mute;
-    const bool solo = inRange && params.strips[size_t (track)].solo;
+    const int strip = stripOf (track);
+    const bool inRange = strip >= 0;
+    const bool mute = inRange && params.strips[size_t (strip)].mute;
+    const bool solo = inRange && params.strips[size_t (strip)].solo;
     const bool dim = mute;
     const bool monitoring = state.monitor != MonitorMode::Off;
 
@@ -1556,7 +1596,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
 
     const auto chip = gainChipFor (track < int (advice.size()) ? advice[size_t (track)] : MixController::InputAdvice {});
     const bool wrongName = nameMismatch (track);
-    const float pan = inRange ? params.strips[size_t (track)].pan : 0.0f;
+    const float pan = inRange ? params.strips[size_t (strip)].pan : 0.0f;
     // A track header is a narrow cell, and the sentence that fits a 1520 pt window does not
     // fit a 1180 pt one. Each note carries the short way of saying the same thing, and the
     // draw below picks whichever the row really has room for - rather than cutting the long
@@ -1598,7 +1638,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
         if (wrongName && nameCell.getWidth() >= 13)
             Dine::drawIcon (g, Dine::Icon::Warn, nameCell.removeFromLeft (13).toFloat().withSizeKeepingCentre (11.0f, 11.0f), Dine::warn);
         // Linked faders: the mark after the name, in the accent, the same one the mixer draws.
-        if (inRange && params.strips[size_t (track)].linkGroup != 0 && nameCell.getWidth() >= 22)
+        if (inRange && params.strips[size_t (strip)].linkGroup != 0 && nameCell.getWidth() >= 22)
             Dine::drawLinkGlyph (g, nameCell.withTrimmedLeft (6).removeFromLeft (16).toFloat(), Dine::accent);
     }
     if (! compact && note.isNotEmpty())
@@ -1641,7 +1681,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
     }
 
     // ---- the fader and its level
-    const float faderDb = inRange ? params.strips[size_t (track)].faderDb : 0.0f;
+    const float faderDb = inRange ? params.strips[size_t (strip)].faderDb : 0.0f;
     if (const auto cell = faderCell (track); ! cell.isEmpty())
     {
         const float norm = faderRange().convertTo0to1 (juce::jlimit (-60.0f, 12.0f, faderDb));
@@ -1674,9 +1714,10 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
     const auto& params = controller.getBase();
     bool anySolo = false;
     for (int i = 0; i < params.numStrips; ++i) anySolo = anySolo || params.strips[size_t (i)].solo;
-    const bool inRange = track < params.numStrips;
-    const bool dim = inRange && (params.strips[size_t (track)].mute
-                                 || (anySolo && ! params.strips[size_t (track)].solo));
+    const int strip = stripOf (track);
+    const bool inRange = strip >= 0;
+    const bool dim = inRange && (params.strips[size_t (strip)].mute
+                                 || (anySolo && ! params.strips[size_t (strip)].solo));
 
     // The lane is the same plane as its header, with the same 2 px of ground under it.
     g.setColour (Dine::window);
@@ -1915,15 +1956,24 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
         }
 
         // The quick fader, before anything else claims the click.
+        const int strip = stripOf (track);
+        auto noStrip = [&]
+        {
+            if (strip >= 0) return false;
+            if (onToast) onToast (juce::String (controller.getSession().inputs[size_t (track)].name)
+                                  + " is not on the console yet: right-click the header and say what it is.");
+            return true;
+        };
         if (const auto cell = faderCell (track); ! cell.isEmpty() && cell.expanded (0, 4).contains (p))
         {
+            if (noStrip()) return;
             if (controller.isBypassed()) { if (onToast) onToast ("BYPASS is on: the faders are the console's while you compare."); return; }
             selection = { track, -1 };
             drag = Drag::Fader;
             dragTrack = track;
             dragStartX = p.x;
             dragFaderNorm = faderRange().convertTo0to1 (
-                juce::jlimit (-60.0f, 12.0f, controller.getBase().strips[size_t (track)].faderDb));
+                juce::jlimit (-60.0f, 12.0f, controller.getBase().strips[size_t (strip)].faderDb));
             return;
         }
 
@@ -1933,7 +1983,7 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
             selection = { track, -1 };
             updateChainStrip();
             repaint();
-            if (onTuneStrip) onTuneStrip (track);
+            if (! noStrip() && onTuneStrip) onTuneStrip (strip);
             return;
         }
 
@@ -1951,8 +2001,9 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
                     services.touchSession();
                 }
                 else if (k == 1) cycleMonitor (track);
-                else if (k == 2) controller.setStripMute (track, ! controller.getBase().strips[size_t (track)].mute);
-                else             controller.setStripSolo (track, ! controller.getBase().strips[size_t (track)].solo);
+                else if (noStrip()) return;
+                else if (k == 2) controller.setStripMute (strip, ! controller.getBase().strips[size_t (strip)].mute);
+                else             controller.setStripSolo (strip, ! controller.getBase().strips[size_t (strip)].solo);
                 repaint();
                 return;
             }
@@ -2238,13 +2289,13 @@ void TracksPage::mouseDoubleClick (const juce::MouseEvent& e)
         // Double-click a fader for unity, exactly as the mixer's faders do.
         if (const auto cell = faderCell (track); ! cell.isEmpty() && cell.expanded (0, 4).contains (p))
         {
-            if (! controller.isBypassed()) { controller.setStripFader (track, 0.0f); repaint(); }
+            if (! controller.isBypassed() && stripOf (track) >= 0) { controller.setStripFader (stripOf (track), 0.0f); repaint(); }
             return;
         }
         for (int k = 0; k < 4; ++k) if (keyCell (track, k).contains (p)) return;
         selection = { track, -1 };
         updateChainStrip();
-        if (onOpenStrip) onOpenStrip (track);
+        if (onOpenStrip && stripOf (track) >= 0) onOpenStrip (stripOf (track));
         repaint();
         return;
     }

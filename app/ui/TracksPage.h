@@ -125,6 +125,11 @@ private:
     int trackHeight (int track) const;
     int totalTrackHeight() const;
     int numTracks() const;
+    // The console strip a track's input is on, or -1: a track is a row of the session's inputs
+    // and a strip exists only for one with a source said (stripsOfInputs), so the two numbers
+    // part company below any track DLIVE could not name. Every M, S, fader, pan, meter and
+    // chain on a header goes through this - by its own row it worked its neighbour's channel.
+    int stripOf (int track) const;
     double samplesPerPixel() const;
     double gridSeconds() const;                       // the ruler's current tick, in seconds
     int sampleToX (juce::int64 sample) const;
@@ -227,6 +232,7 @@ private:
     bool dragOrderLifted = false;
     juce::int64 loopAnchor = 0;
     bool loopWasEnabled = false, loopMoved = false;   // a click inside the loop toggles it; a drag moves it
+    std::uint64_t paintedMixState = 0;               // what the headers last drew from the mix (see the tick)
     int dropTrack = -2, dropX = -1;                   // a file drag in progress (see dropTargetAt)
     double dragStartScrollX = 0.0;
 

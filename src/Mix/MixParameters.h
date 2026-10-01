@@ -149,17 +149,25 @@ inline MixParameters carryMix (const MixParameters& from, const MixSession& prev
 {
     MixParameters out = baseline;
     out.numStrips = next.numStrips();
+    // The match is between *inputs*; the mix is kept per *strip*. The two are different numbers
+    // whenever an input with no strip sits above another (an unnamed multitrack file), so both
+    // ends go through the strip each input is on - by position alone, dragging a track past an
+    // unnamed one handed every strip below it its neighbour's fader.
     const auto match = matchInputs (previous, next);
-    for (size_t n = 0; n < match.size() && int (n) < out.numStrips; ++n)
+    const auto stripWas = stripsOfInputs (previous);
+    const auto stripNow = stripsOfInputs (next);
+    for (size_t n = 0; n < match.size(); ++n)
     {
         const int was = match[n];
-        if (was < 0 || was >= from.numStrips) continue;
+        if (was < 0) continue;
+        const int fromStrip = stripWas[size_t (was)], toStrip = stripNow[n];
+        if (fromStrip < 0 || fromStrip >= from.numStrips || toStrip < 0 || toStrip >= out.numStrips) continue;
         // An input that became a different source does *not* keep its chain: a kick's gate and
         // its 60 Hz shelf are wrong on a voice, and silently carrying them across would be the
         // one case where following the input is worse than starting again. Everything else
         // about that input - and every other strip - survives.
         if (previous.inputs[size_t (was)].role != next.inputs[n].role) continue;
-        out.strips[n] = from.strips[size_t (was)];
+        out.strips[size_t (toStrip)] = from.strips[size_t (fromStrip)];
     }
 
     out.buses = from.buses;

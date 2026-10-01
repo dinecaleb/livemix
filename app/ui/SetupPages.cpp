@@ -1584,6 +1584,18 @@ void AssignPage::commit()
         a.enabled = true;
         s.inputs.push_back (a);
     }
+    // The order is the one the tracks were arranged in, not the desk's: an input that was
+    // already assigned keeps its place, and a new one goes after them in channel order.
+    // Rebuilding by channel undid every rearrangement made on TRACKS the moment this page
+    // was opened again.
+    const auto& before = controller.getSession().inputs;
+    auto placeOf = [&before] (const InputAssignment& a)
+    {
+        for (size_t i = 0; i < before.size(); ++i) if (before[i].inputA == a.inputA) return int (i);
+        return int (before.size()) + a.inputA;
+    };
+    std::stable_sort (s.inputs.begin(), s.inputs.end(),
+                      [&] (const InputAssignment& x, const InputAssignment& y) { return placeOf (x) < placeOf (y); });
     controller.setSession (s);
     continueButton.setEnabled (assignedCount() > 0);
     repaint();

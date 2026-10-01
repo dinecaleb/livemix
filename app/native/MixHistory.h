@@ -179,17 +179,21 @@ inline std::vector<StripTuneRecord> carryStripHistory (const std::vector<StripTu
                                                        const MixSession& previous, const MixSession& next)
 {
     std::vector<StripTuneRecord> out;
+    // A record is kept against a strip, and the match is between inputs (see carryMix).
     const auto match = matchInputs (previous, next);
+    const auto stripWas = stripsOfInputs (previous);
+    const auto stripNow = stripsOfInputs (next);
     for (size_t n = 0; n < match.size(); ++n)
     {
         const int was = match[n];
         if (was < 0 || was >= int (previous.inputs.size())) continue;
         if (previous.inputs[size_t (was)].role != next.inputs[n].role) continue;
+        if (stripWas[size_t (was)] < 0 || stripNow[n] < 0) continue;
         for (const auto& r : from)
-            if (r.strip == was)
+            if (r.strip == stripWas[size_t (was)])
             {
                 out.push_back (r);
-                out.back().strip = int (n);
+                out.back().strip = stripNow[n];
             }
     }
     return out;

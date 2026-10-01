@@ -4131,3 +4131,38 @@ TEST_CASE ("Stereo pair: two mono stems linked on ASSIGN keep both sides, and co
     CHECK (gone[0] == "OH");
     folder.deleteRecursively();
 }
+
+TEST_CASE ("Rearranging tracks: every strip keeps its own mix when an input has no strip")
+{
+    // A multitrack import lists a file it could not name as an input with no strip (disabled),
+    // so an input's place in the list and its strip on the console are different numbers.
+    MixSession before;
+    before.name = "Rearrange";
+    before.inputs = { { "Click", ChannelRole::KickIn, 0, -1, false },
+                      { "Kick", ChannelRole::KickIn, 1, -1 },
+                      { "Keys", ChannelRole::Piano, 2, 3 },
+                      { "Lead", ChannelRole::LeadVocal, 4, -1 } };
+    MixController controller;
+    controller.setSession (before);
+    REQUIRE (controller.getGraph().numStrips() == 3);
+    controller.setStripFader (0, -11.0f, false);   // Kick
+    controller.setStripFader (1, -7.0f, false);    // Keys
+    controller.setStripFader (2, -3.0f, false);    // Lead
+
+    MixSession after = before;
+    auto keys = after.inputs[2];
+    after.inputs.erase (after.inputs.begin() + 2);
+    after.inputs.insert (after.inputs.begin(), keys);   // Keys dragged to the top
+    controller.setSession (after);
+
+    const auto& g = controller.getGraph();
+    REQUIRE (g.numStrips() == 3);
+    for (int s = 0; s < g.numStrips(); ++s)
+    {
+        const auto name = g.strips[size_t (s)].name;
+        const float fader = controller.getKept().strips[size_t (s)].faderDb;
+        if (name == "Kick") CHECK (std::abs (fader - (-11.0f)) < 0.01f);
+        if (name == "Keys") CHECK (std::abs (fader - (-7.0f)) < 0.01f);
+        if (name == "Lead") CHECK (std::abs (fader - (-3.0f)) < 0.01f);
+    }
+}
