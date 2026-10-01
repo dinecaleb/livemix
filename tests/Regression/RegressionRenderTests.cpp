@@ -29,7 +29,7 @@ namespace
         cp.setParameters (p);
         testsig::Buffer sig (c.channels, total);
         testsig::fillDrumHits (sig, sr, 0.6f, 0.02f, 0.2f, 0.09f, 110.0f, 42);
-        for (int i = 0; i < total; i += block) { auto v = sig.view (i, block); cp.process (v); }
+        for (int i = 0; i < total; i += block) { auto v = sig.view (i, std::min (block, total - i)); cp.process (v); }
         std::vector<float> out;
         for (auto& ch : sig.data) out.insert (out.end(), ch.begin(), ch.end());
         return out;

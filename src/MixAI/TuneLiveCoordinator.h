@@ -2,6 +2,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -11,6 +12,7 @@
 #include "MixReasoningProvider.h"
 #include "MixSafetyValidator.h"
 #include "ProcessingPlan.h"
+#include "Mix/MeasuredMix.h"
 
 namespace livemix
 {
@@ -46,6 +48,7 @@ public:
         Ready,                   // LIVE MIX READY
         Failed,
         Cancelled,
+        MeasuringProposal,       // offline replay before this snapshot can be previewed
         Count
     };
 
@@ -85,6 +88,8 @@ public:
         bool refinementChanged = false;
         int variation = 0;
         std::uint64_t contextFingerprint = 0;    // the identity of the listen this run reasoned about
+        bool offlineVerified = false, offlineSafe = false;
+        int offlineRenders = 0, offlineCorrections = 0;
         bool answerFromCache = false;            // this exact question had already been answered
         std::vector<std::string> problems;      // anything a reply carried that had to be dropped
     };
@@ -99,7 +104,7 @@ public:
 
     // ---- Driven by MixController ----
     void beginListening (const std::string& sessionId);
-    void onListenComplete (const MixPlanContext&, const MixPlan& baseline);
+    void onListenComplete (const MixPlanContext&, const MixPlan& baseline, const SampleBankTable* banks = nullptr);
     void poll();                                   // message thread, ~30 Hz
     void onApplied();                              // the proposal is on the mix
     void beginVerifyListening();
@@ -151,6 +156,7 @@ public:
 
 private:
     void startWorker (bool refinement);
+    void startMeasuredVerification (bool refinement);
     void joinWorker();
     void resolveAndValidate (bool refinement);
     void setState (State s) noexcept { state.store (int (s), std::memory_order_release); }
@@ -165,6 +171,9 @@ private:
     std::atomic<bool> workerDone { false };
     std::thread worker;
 
+    std::optional<SampleBankTable> measuredBanks;
+    MeasuredMix::Result measuredResponse;
+    bool measuringRefinement = false;
     MixPlanContext planContext;          // the listen the run is reasoning about
     MixPlan baselinePlan;                // the deterministic mix: what the actions are deltas on
     DspCapabilityRegistry registry;

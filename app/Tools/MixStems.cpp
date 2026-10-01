@@ -24,6 +24,7 @@
 #include "Mix/MixEngine.h"
 #include "native/StemNames.h"
 #include "Mix/OfflineCapture.h"
+#include "Mix/MeasuredMix.h"
 #include "Mix/MixPlanner.h"
 #include "DSP/Compressor.h"
 #include "Analysis/AnalysisAccumulator.h"
@@ -31,6 +32,7 @@
 #include "Profiles/MixProfileData.h"
 #include "Profiles/Profile.h"
 #include "Core/DbUtils.h"
+#include "Core/Json.h"
 #include <cstdio>
 #include <memory>
 #include <vector>
@@ -63,13 +65,17 @@ namespace
     }
 
     // Renders the window through the engine with the parameters it currently holds. Optionally listens.
-    juce::AudioBuffer<float> render (MixEngine& engine, const std::vector<const float*>& inputs, int numSamples, int block, OfflineCapture* capture)
+    juce::AudioBuffer<float> render (const MixSession& session, const MixParameters& parameters, double sr, const std::vector<const float*>& inputs, int numSamples, int block, OfflineCapture* capture)
     {
         juce::AudioBuffer<float> out (2, numSamples);
         out.clear();
         std::vector<const float*> in (inputs.size());
         float* op[2];
-        engine.reset();
+        auto fresh = std::make_unique<MixEngine>();
+        auto& engine = *fresh;
+        engine.prepare (sr, block, session);
+        engine.setParameters (parameters);
+        engine.setTap (capture);
         if (capture != nullptr) capture->start();
         for (int pos = 0; pos < numSamples; pos += block)
         {
@@ -275,7 +281,7 @@ int main (int argc, char** argv)
         for (int ch = 0; ch < s.channels; ++ch) inputs.push_back (s.audio.getReadPointer (ch));
 
     // ---- 4. Engine + routing ----
-    const int block = 128;
+    const int block = 256;
     MixEngine engine;
     engine.prepare (sr, block, session);
     std::printf ("\nROUTING (built automatically)\n%s\n", engine.getGraph().describe().c_str());
@@ -288,12 +294,12 @@ int main (int argc, char** argv)
     MixParameters raw = engine.getAppliedParameters();
     raw.bypassProcessing = true;
     engine.setParameters (raw);
-    const auto rawMix = render (engine, inputs, numSamples, block, nullptr);
+    const auto rawMix = render (session, raw, sr, inputs, numSamples, block, nullptr);
 
     // BEFORE: the baselines, while listening. This is TUNE MIX.
     const MixParameters before = startingPoint (session, engine.getGraph());
     engine.setParameters (before);
-    const auto beforeMix = render (engine, inputs, numSamples, block, &capture);
+    const auto beforeMix = render (session, before, sr, inputs, numSamples, block, &capture);
     const auto listened = capture.finish();
     engine.setTap (nullptr);
 
@@ -304,7 +310,54 @@ int main (int argc, char** argv)
     ctx.atCapture = before;
     ctx.capture = listened;
     ctx.reference = reference;
-    const MixPlan plan = MixPlanner::plan (ctx);
+    // Same converter samples for the old prediction-based proposal and measured refinement.
+    auto replay = std::make_shared<MixCapture::Replay>();
+    replay->sampleRate = sr; replay->frames = numSamples;
+    for (const auto& stem : stems)
+    {
+        replay->channels.push_back (stem.channels);
+        std::vector<float> interleaved (size_t (numSamples * stem.channels));
+        for (int frame = 0; frame < numSamples; ++frame)
+            for (int channel = 0; channel < stem.channels; ++channel)
+                interleaved[size_t (frame * stem.channels + channel)] = stem.audio.getSample (channel, frame);
+        replay->strips.push_back (std::move (interleaved));
+    }
+    ctx.capture.replay = replay;
+    const auto predictedPlan = MixPlanner::plan (ctx);
+    const auto evaluated = MeasuredMix::plan (ctx);
+    const MixPlan plan = evaluated.plan;
+    engine.setParameters (predictedPlan.proposed);
+    const auto predictedMix = render (session, predictedPlan.proposed, sr, inputs, numSamples, block, nullptr);
+    auto report = json::Value::object();
+    report.set ("schema_version", 1); report.set ("fallback", evaluated.fallback);
+    report.set ("renders", evaluated.renders); report.set ("accepted_passes", evaluated.acceptedPasses);
+    auto metrics = [&] (const MeasuredMix::Render& audio, const MixParameters& parameters)
+    {
+        auto value = json::Value::object();
+        const auto check = MeasuredMix::verify (ctx, parameters, audio);
+        const auto& m = audio.capture.masterOutput;
+        value.set ("available", check.available); value.set ("safe", check.safe);
+        value.set ("gated_lufs", m.loudnessGatedLufs); value.set ("true_peak_dbtp", m.truePeakDb);
+        value.set ("crest_db", m.crestFactorDb); value.set ("spectral_error_db", check.spectralErrorDb);
+        value.set ("loudness_error_lu", check.loudnessErrorLu); value.set ("relationship_penalty_db", check.relationshipPenaltyDb);
+        value.set ("objective_score", check.score);
+        auto relations = json::Value::array();
+        for (const auto& relation : check.relationships)
+        {
+            auto item = json::Value::object(); item.set ("metric", relation.metric);
+            item.set ("bus", relation.busA); item.set ("against_bus", relation.busB);
+            item.set ("source", relation.stripA); item.set ("against", relation.stripB);
+            item.set ("value", relation.value); item.set ("tolerance", relation.tolerance);
+            item.set ("concern", relation.concern); relations.add (std::move (item));
+        }
+        value.set ("relationships", std::move (relations)); return value;
+    };
+    report.set ("before", metrics (evaluated.before, before));
+    report.set ("predicted", metrics (evaluated.initial, predictedPlan.proposed));
+    report.set ("measured", metrics (evaluated.after, plan.proposed));
+    outDir.createDirectory();
+    if (! outDir.getChildFile ("evaluation.json").replaceWithText (report.write (true)))
+    { std::fprintf (stderr, "cannot write evaluation.json\n"); return 5; }
 
     std::printf ("%s\n", plan.headline.c_str());
     for (const auto& n : plan.notes) std::printf ("  %s\n", n.c_str());
@@ -350,12 +403,12 @@ int main (int argc, char** argv)
 
     // ---- 5. AFTER ----
     engine.setParameters (plan.proposed);
-    const auto afterMix = render (engine, inputs, numSamples, block, nullptr);
+    const auto afterMix = render (session, plan.proposed, sr, inputs, numSamples, block, nullptr);
 
     // RE-TUNE: the band plays again with the plan running; the second listen refines what one pass could
     // only predict (compressors fitted by the first pass change the processed levels the faders were set from).
     engine.setTap (&capture);
-    const auto afterListenMix = render (engine, inputs, numSamples, block, &capture);
+    const auto afterListenMix = render (session, plan.proposed, sr, inputs, numSamples, block, &capture);
     const auto listenedAgain = capture.finish();
     engine.setTap (nullptr);
     MixPlanContext ctx2;
@@ -420,11 +473,12 @@ int main (int argc, char** argv)
         }
     }
     engine.setParameters (retune.proposed);
-    const auto retunedMix = render (engine, inputs, numSamples, block, nullptr);
+    const auto retunedMix = render (session, retune.proposed, sr, inputs, numSamples, block, nullptr);
 
     outDir.createDirectory();
     writeWav (outDir.getChildFile ("raw.wav"), rawMix, sr);
     writeWav (outDir.getChildFile ("before.wav"), beforeMix, sr);
+    writeWav (outDir.getChildFile ("predicted.wav"), predictedMix, sr);
     writeWav (outDir.getChildFile ("after.wav"), afterMix, sr);
     writeWav (outDir.getChildFile ("after-retuned.wav"), retunedMix, sr);
 
@@ -438,7 +492,7 @@ int main (int argc, char** argv)
 
     // ---- 6. The same listen again: nothing may change ----
     ctx.current = plan.proposed;
-    const MixPlan again = MixPlanner::plan (ctx);
+    const MixPlan again = MeasuredMix::plan (ctx).plan;
     std::printf ("\nRE-TUNE on the same listen: %s (%d parameters, %d faders, %d sends, %d gains)\n", again.headline.c_str(), again.parametersChanged, again.fadersChanged, again.sendsChanged, again.gainsChanged);
     if (! again.noChangeRequired)
     {
@@ -484,6 +538,14 @@ int main (int argc, char** argv)
             if (! ok) ++failures;
         };
         std::printf ("\nCHECK\n");
+        require (! evaluated.fallback, "measured evaluation available", evaluated.fallback ? 1.0 : 0.0, 0.0);
+        require (evaluated.verification.safe, "measured mix safety", evaluated.verification.safe ? 0.0 : 1.0, 0.0);
+        const auto initialCheck = MeasuredMix::verify (ctx, predictedPlan.proposed, evaluated.initial);
+        require (evaluated.verification.score <= initialCheck.score + 0.01, "objective score regression", evaluated.verification.score - initialCheck.score, 0.01);
+        require (std::fabs (m.truePeakDb - evaluated.after.capture.masterOutput.truePeakDb) <= 0.05f,
+                 "export matches measured true peak", std::fabs (m.truePeakDb - evaluated.after.capture.masterOutput.truePeakDb), 0.05);
+        require (std::fabs (m.loudnessGatedLufs - evaluated.after.capture.masterOutput.loudnessGatedLufs) <= 0.05f,
+                 "export matches measured loudness", std::fabs (m.loudnessGatedLufs - evaluated.after.capture.masterOutput.loudnessGatedLufs), 0.05);
         require (m.truePeakDb <= ceiling + 0.3f, "true peak under the ceiling (dBTP)", double (m.truePeakDb), double (ceiling + 0.3f));
         require (std::fabs (lufs - target) <= 2.0f, "loudness near the target (LU off)", double (std::fabs (lufs - target)), 2.0);
         require (m.stereoCorrelation > 0.3f, "mono-safe (correlation)", double (m.stereoCorrelation), 0.3);

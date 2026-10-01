@@ -36,6 +36,15 @@ public:
         unsigned long long triggerStrips = 0;
     };
 
+    // Converter PCM, interleaved per strip, shared immutably with planning workers.
+    struct Replay
+    {
+        double sampleRate = 48000.0;
+        int frames = 0;
+        std::vector<int> channels;
+        std::vector<std::vector<float>> strips;
+    };
+
     struct Result
     {
         bool valid = false;
@@ -45,6 +54,7 @@ public:
         std::array<AnalysisResult, int (MixBus::Count)> buses {};    // what each bus chain received (valid only for used buses)
         AnalysisResult masterOutput;                                 // what left the master: the loudness the listener heard
         int droppedFrames = 0;
+        std::shared_ptr<const Replay> replay; // absent on dropout, misalignment or memory limit
     };
 
     MixCapture();
@@ -75,6 +85,7 @@ private:
     struct Stream
     {
         AnalysisFifo fifo;
+        AnalysisFifo converter;
         AnalysisAccumulator accumulator;
         int channels = 1;
         bool used = false;
@@ -98,6 +109,11 @@ private:
     std::array<std::atomic<double>, kMaxStrips> postSumSquares {};
     std::array<std::atomic<long long>, kMaxStrips> postSamples {};
     std::array<std::atomic<int>, kMaxStrips> converterClips {};   // full-scale samples before the digital gain
+
+    std::shared_ptr<Replay> replay;
+    bool replayAligned = true;
+    int replayLimit = 0;
+    std::vector<float> converterBuffer;
 
     Settings settings;
     int targetFrames = 0;

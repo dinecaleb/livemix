@@ -48,6 +48,15 @@ public:
         writePos.store (pos, std::memory_order_release);
     }
 
+    // Consumer-only availability snapshot, for synchronized multi-stream captures.
+    int availableFrames() const noexcept
+    {
+        const int r = readPos.load (std::memory_order_relaxed);
+        const int w = writePos.load (std::memory_order_acquire);
+        const int n = w - r;
+        return n < 0 ? n + capacity : n;
+    }
+
     // Worker thread. Returns number of frames copied into dest (interleaved).
     int pop (float* dest, int maxFrames) noexcept
     {

@@ -1114,3 +1114,37 @@ TEST_CASE ("AI MIX CHAT: a request goes through the same bounds as a Tune, offli
         CHECK_NEAR (proposed.strips[size_t (i)].inputGainDb, chat.baseline.proposed.strips[size_t (i)].inputGainDb, 1.0e-4f);
     }
 }
+
+TEST_CASE ("TUNE LIVE MIX: retained converter audio is measured before application")
+{
+    Rig rig (band());
+    auto audio = bandAudio();
+    auto ctx = rig.context (rig.listen (audio));
+    auto replay = std::make_shared<MixCapture::Replay>();
+    replay->sampleRate = kSr; replay->frames = audio.numSamples();
+    for (const auto& route : ctx.graph.strips)
+    {
+        const auto& input = ctx.session.inputs[size_t (route.input)];
+        const int channels = input.numChannels(); replay->channels.push_back (channels);
+        replay->strips.emplace_back();
+        for (int f = 0; f < replay->frames; ++f)
+        {
+            replay->strips.back().push_back (audio.data[size_t (input.inputA)][size_t (f)]);
+            if (channels == 2) replay->strips.back().push_back (audio.data[size_t (input.inputB)][size_t (f)]);
+        }
+    }
+    ctx.capture.replay = replay;
+    TuneLiveCoordinator tune;
+    tune.beginListening ("measured-test");
+    tune.onListenComplete (ctx, MixPlanner::plan (ctx));
+    for (int i = 0; i < 10000 && tune.isWaitingOnProvider(); ++i)
+    {
+        tune.poll();
+        std::this_thread::sleep_for (std::chrono::milliseconds (1));
+    }
+    tune.poll();
+    REQUIRE (tune.getState() == TuneLiveCoordinator::State::Applying);
+    CHECK (tune.getDiagnostics().offlineVerified);
+    CHECK (tune.getDiagnostics().offlineRenders >= 3);
+    CHECK (tune.wantsApply());
+}

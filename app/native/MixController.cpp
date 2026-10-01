@@ -19,12 +19,15 @@ MixController::MixController()
 }
 MixController::~MixController()
 {
+    cancelPlanning();
+    if (measuredPlanning.valid()) measuredPlanning.wait();
     engine.setTap (nullptr);
     capture.abort();
 }
 
 void MixController::setSession (const MixSession& s)
 {
+    cancelPlanning();
     session = s;
     // The document has moved ahead of the graph, which is a different thing from having no
     // graph. The engine keeps running the one it was prepared with until a host calls
@@ -57,6 +60,7 @@ void MixController::setSession (const MixSession& s)
 // ---------------------------------------------------------------------------
 void MixController::rebuild()
 {
+    cancelPlanning();
     capture.abort();
     const MixSession previous = builtSession;
     const bool had = built;
@@ -104,6 +108,7 @@ void MixController::rebuild()
 // the rate it is running at do not, because they belong to this Mac and this moment.
 void MixController::resetDocument()
 {
+    cancelPlanning();
     capture.abort();
     // Autopilot holds the mix it was engaged on. Another session is not that mix, so it goes
     // off - said, and with its history written - rather than carrying its target across.
@@ -1475,27 +1480,12 @@ void MixController::startReferenceMatch()
     ctx.reference = reference;
     ctx.retune = lastCaptureRetune;
     clearTuningScope();
-    stage = Stage::Planning;
-    plan = MixPlanner::plan (ctx);
-
-    if (plan->valid && plan->stripsHeard > 0)
-    {
-        ++tuneCount;
-        stage = Stage::Preview;
-        compare = Compare::After;
-        if (onMessage) onMessage (plan->headline);
-    }
-    else
-    {
-        if (onMessage) onMessage (plan ? plan->headline : "MIX: NO SIGNAL");
-        plan.reset();
-        stage = restingStage();
-    }
-    publish();
+    launchPlanning (ctx, true);
 }
 
 void MixController::abortTuneMix()
 {
+    cancelPlanning();
     if (liveRun)
     {
         // Cancelling a live run never leaves half a mix behind: nothing was ever applied to
@@ -1575,22 +1565,7 @@ void MixController::startTuneLiveMix (const LiveTuneSettings& s)
         ctx.capture = lastCapture;
         ctx.reference = reference;
         ctx.retune = lastCaptureRetune;
-        stage = Stage::Planning;
-        plan = MixPlanner::plan (ctx);
-        if (! plan || ! plan->valid || plan->stripsHeard == 0)
-        {
-            const std::string headline = plan ? plan->headline : std::string ("MIX: NO SIGNAL");
-            plan.reset();
-            tuneLive.cancel();
-            endTuneLive (headline + " Nothing was changed.", false, "no_signal");
-            return;
-        }
-        ++tuneCount;
-        stage = Stage::Preview;
-        compare = Compare::After;
-        publish();
-        tuneLive.onListenComplete (ctx, *plan);
-        pollTuneLive();
+        launchPlanning (ctx);
         return;
     }
     startListening (s.initial, -1);
@@ -1621,20 +1596,7 @@ void MixController::applyLiveProposal()
     if (! plan) return;
     plan->before = liveBefore;
     plan->proposed = tuneLive.getProposed();
-    plan->parametersChanged = MixPlanner::countParameterChanges (plan->before, plan->proposed);
-    plan->fadersChanged = 0;
-    plan->gainsChanged = 0;
-    plan->sendsChanged = 0;
-    for (int i = 0; i < plan->proposed.numStrips && i < plan->before.numStrips; ++i)
-    {
-        const auto& a = plan->before.strips[size_t (i)];
-        const auto& b = plan->proposed.strips[size_t (i)];
-        if (std::fabs (a.faderDb - b.faderDb) >= 0.1f) ++plan->fadersChanged;
-        if (std::fabs (a.inputGainDb - b.inputGainDb) >= 0.1f) ++plan->gainsChanged;
-        for (int f = 0; f < int (FxSlot::Count); ++f)
-            if (std::fabs (a.sendDb[size_t (f)] - b.sendDb[size_t (f)]) >= 0.1f) { ++plan->sendsChanged; break; }
-    }
-    plan->noChangeRequired = plan->parametersChanged == 0 && plan->fadersChanged == 0 && plan->sendsChanged == 0;
+    MixPlanner::refreshSummary (*plan);
     stage = Stage::Preview;
     compare = Compare::After;
     liveVerifying = false;
@@ -1749,6 +1711,42 @@ void MixController::pollTuneLive()
     }
 }
 
+void MixController::launchPlanning (const MixPlanContext& ctx, bool masterOnly)
+{
+    cancelPlanning();
+    if (measuredPlanning.valid()) measuredPlanning.wait();
+    planningCancel = std::make_shared<std::atomic<bool>> (false);
+    planningContext = ctx;
+    planningRevision = revision;
+    const auto flag = planningCancel;
+    const auto* liveBanks = engine.getSampleBanks();
+    const auto banks = liveBanks ? std::optional<SampleBankTable> (*liveBanks) : std::nullopt;
+    auto selection = MixPlanner::PlanSelection::all (ctx.graph.numStrips());
+    if (masterOnly) { selection = MixPlanner::PlanSelection::none(); selection.buses[size_t (MixBus::Master)] = true; }
+    else if (tuningBus >= 0) selection = MixPlanner::PlanSelection::group (ctx.graph, MixBus (tuningBus));
+    else if (tuningStrip >= 0 || ! tuningStrips.empty())
+    {
+        selection = MixPlanner::PlanSelection::none();
+        if (tuningStrip >= 0)
+        {
+            selection.strips[size_t (tuningStrip)] = true;
+            const auto group = ctx.current.strips[size_t (tuningStrip)].linkGroup;
+            for (int i = 0; group != 0 && i < ctx.current.numStrips; ++i)
+                if (ctx.current.strips[size_t (i)].linkGroup == group
+                    && roleFamily (ctx.graph.strips[size_t (i)].role) == roleFamily (ctx.graph.strips[size_t (tuningStrip)].role)) selection.strips[size_t (i)] = true;
+        }
+        else for (int i : tuningStrips) if (i >= 0 && i < ctx.current.numStrips) selection.strips[size_t (i)] = true;
+    }
+    stage = Stage::Planning;
+    measuredPlanning = std::async (std::launch::async, [ctx, flag, banks, selection]
+    {
+        const auto baseline = MixPlanner::plan (ctx);
+        try { return MeasuredMix::plan (ctx, banks ? &*banks : nullptr, flag.get(), &selection); }
+        catch (...) { MeasuredMix::Result result; result.plan = MixPlanner::restrictTo (baseline, selection, ctx.graph, ctx.session.profile);
+                      result.plan.notes.push_back ("Offline measurement unavailable; retained the deterministic proposal."); return result; }
+    });
+}
+
 void MixController::poll()
 {
     // AUTOPILOT, if it is on: the operator's own mix, held where they left it. Message thread,
@@ -1770,9 +1768,10 @@ void MixController::poll()
 
     // A live run spends most of its time somewhere other than a listen - reasoning, resolving,
     // checking, applying - so its state machine is advanced whatever the stage says.
-    if (liveRun && stage != Stage::Listening) { pollTuneLive(); return; }
-    if (stage != Stage::Listening) return;
-    const auto s = capture.getState();
+    if (liveRun && stage != Stage::Listening && stage != Stage::Planning) { pollTuneLive(); return; }
+    if (stage != Stage::Listening && stage != Stage::Planning) return;
+    const bool collecting = stage == Stage::Listening;
+    const auto s = ! collecting && measuredPlanning.valid() ? MixCapture::State::Complete : capture.getState();
     if (s == MixCapture::State::Complete)
     {
         stage = Stage::Planning;
@@ -1788,6 +1787,20 @@ void MixController::poll()
         // A first mix is free to put everything where it belongs; a later one is a correction
         // to something the room is already listening to, and moves one fader only so far.
         ctx.retune = mixed;
+        if (collecting)
+        {
+            launchPlanning (ctx);
+            return;
+        }
+        if (! measuredPlanning.valid() || measuredPlanning.wait_for (std::chrono::seconds (0)) != std::future_status::ready) return;
+        auto measured = measuredPlanning.get();
+        if (planningCancel->load() || revision != planningRevision)
+        {
+            if (liveRun) { tuneLive.cancel(); endTuneLive ("The mix changed while it was being checked. Tune again to use the new settings.", false, "cancelled"); }
+            else { stage = restingStage(); if (onMessage) onMessage ("The mix changed while it was being checked. Tune again to use the new settings."); }
+            return;
+        }
+        ctx = planningContext;
         // Keep the listen. A reference added afterwards, and any re-plan, work from what the
         // band already played rather than asking them to play it again.
         lastCapture = ctx.capture;
@@ -1810,7 +1823,7 @@ void MixController::poll()
 
         // The listen ran with the macros applied; the plan is built on the macro-free mix, and the macros
         // stay where the user left them (50 = the plan).
-        plan = MixPlanner::plan (ctx);
+        plan = std::move (measured.plan);
 
         if (liveRun)
         {
@@ -1828,7 +1841,7 @@ void MixController::poll()
             stage = Stage::Preview;
             compare = Compare::After;
             publish();
-            tuneLive.onListenComplete (ctx, *plan);
+            tuneLive.onListenComplete (ctx, *plan, engine.getSampleBanks());
             pollTuneLive();
             return;
         }

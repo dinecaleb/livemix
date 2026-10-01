@@ -228,6 +228,23 @@ namespace MixProfile
     };
     const Relationships& relationships (StyleProfileId profile);
 
+    // Offline proposal evaluation: bounded work and acceptance tolerances, not realtime DSP.
+    struct MeasuredTune
+    {
+        int maxPasses = 3;
+        float replaySeconds = 12.0f;
+        int replayBytes = 128 * 1024 * 1024;
+        float maxCompetitorCutPerPassDb = 1.0f;
+        float maxMasterStepDb = 1.5f, maxMasterTotalDb = 3.0f;
+        float minScoreImprovement = 0.05f;
+        float maxSpectralRegressionDb = 0.25f, maxLoudnessRegressionLu = 0.25f;
+        float maxRelationshipRegressionDb = 0.1f, maxCrestLossDb = 1.0f;
+        float truePeakToleranceDb = 0.1f, minCorrelation = -0.1f;
+        float relationshipWindowSeconds = 0.5f, coactivityRangeDb = 10.0f;
+        float presenceBandReuseHz = 1000.0f;
+    };
+    const MeasuredTune& measuredTune();
+
     // ---- SPEECH PRIORITY: the band steps back while somebody is speaking ----
     // The one thing in DLIVE that keeps working after TUNE has finished, and the only place a
     // level moves on its own. It exists because a preacher over a vamping band is the one

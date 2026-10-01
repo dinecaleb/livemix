@@ -601,6 +601,12 @@ const Voicing& voicing (StyleProfileId profile, MasterVoicing which)
     return table[size_t (i >= 0 && i < int (MasterVoicing::Count) ? i : 0)];
 }
 
+const MeasuredTune& measuredTune()
+{
+    static const MeasuredTune limits;
+    return limits;
+}
+
 const LoudnessLift& loudnessLift()
 {
     static const LoudnessLift lift;
