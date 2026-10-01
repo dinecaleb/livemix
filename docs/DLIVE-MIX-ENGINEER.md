@@ -289,6 +289,13 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   mono channels of one kind in the console pans them as a pair (`stereoPairWidth`). The engineer's taste beyond
   this (which keyboard leads, the lead's 1 kHz cut) is arrangement, not a rule. Evaluate with a 30-mono-channel cut
   of 13:00-15:00 (the only stretch with band and lead together).
+- **FITTING TUNE TO AN ENGINEER'S OWN MIX (2026-09-30).** `build/app/dlive_mix_compare "<session>.dlive.json" <start> 40
+  --link-pairs` renders a hand-finished session's own audio through its kept mix and through a fresh TUNE MIX, and
+  prints where every channel and group lands against the lead in each. On the Praise stems (Modern Worship, windows
+  790 / 830 / 870 s) it showed the lead buried and the drums not driving; the Worship group balance, snare sample
+  level and toms were moved toward the hand mix (channel RMS difference 8.6 -> 6.1 dB at 790 s), toms no longer
+  switch their sample on by themselves, and Kick Out is not blended under Kick In. Fit only what is consistent across
+  windows: a gated-shut tom or which kick microphone carries the drum is the recording's, not a rule.
 - **LIVE SAFE is a policy, not a tooltip** (`src/Mix/LiveSafe.h`), enforced in `MixController` rather than in a menu
   handler - a guard in `MainView` only covers the menu, and the AI, the chat, a macro and a keyboard shortcut all
   reach the mix without passing one. It never locks the emergency controls (mute, solo, the monitor, the transport,
