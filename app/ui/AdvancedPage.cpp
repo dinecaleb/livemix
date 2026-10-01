@@ -828,6 +828,15 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
     retuneButton.setTooltip ("Listen again and build the mix from what it hears now. Nothing is committed until KEEP.");
     retuneButton.onClick = [this] { if (onRetune) onRetune(); };
     addAndMakeVisible (retuneButton);
+    tuneChannelButton.setCaps (true);
+    tuneChannelButton.setFontPx (11.0f);
+    tuneChannelButton.setTooltip ("DLIVE listens to this channel and sets its chain and level. A channel linked to its other "
+                                  "half is tuned with it. Nothing else in the mix moves.");
+    tuneChannelButton.onClick = [this]
+    {
+        if (onTuneChannel && ! selection.isBus && selection.strip >= 0) onTuneChannel (selection.strip);
+    };
+    addChildComponent (tuneChannelButton);
 
     // The two keys that change what the room hears, on the channel that is open.
     for (auto* b : { &muteButton, &soloButton })
@@ -1046,6 +1055,7 @@ void AdvancedPage::setSimpleView (bool on)
     path->setVisible (! on);
     chain->setVisible (! on);
     if (simple->isVisible()) simple->reseed();
+    tuneChannelButton.setVisible (! on && ! selection.isBus && selection.strip >= 0);
     resized();
     repaint();
 }
@@ -1057,10 +1067,10 @@ void AdvancedPage::refreshKeys()
 {
     const bool master = selection.isBus && selection.bus == MixBus::Master;
     const bool wanted = ! master && (selection.isBus || selection.strip >= 0);
-    if (muteButton.isVisible() != wanted)
+    // Whether the keys are wanted is decided here; whether they fit is the layout's call.
+    if (headKeysWanted != wanted)
     {
-        muteButton.setVisible (wanted);
-        soloButton.setVisible (wanted);
+        headKeysWanted = wanted;
         resized();
     }
     if (! wanted) return;
@@ -1085,6 +1095,10 @@ void AdvancedPage::refreshKeys()
 void AdvancedPage::showSelection()
 {
     refreshKeys();
+    {
+        const bool want = ! simpleView && ! selection.isBus && selection.strip >= 0;
+        if (tuneChannelButton.isVisible() != want) { tuneChannelButton.setVisible (want); resized(); }
+    }
     simple->setStrip (selection.isBus ? -1 : selection.strip);
     simple->setVisible (simpleView && ! selection.isBus && selection.strip >= 0);
     path->setVisible (! simple->isVisible());
@@ -1272,6 +1286,7 @@ void AdvancedPage::paintHead (juce::Graphics& g, juce::Rectangle<int> area) cons
 {
     const auto& graph = controller.getGraph();
     auto r = area.reduced (kPadX, 0);
+    r.setRight (juce::jmin (r.getRight(), headControlsLeft - 12));
 
     juce::String title, sub;
     juce::Colour tint = busTint (selection.isBus ? selection.bus : MixBus::Master);
@@ -1290,7 +1305,13 @@ void AdvancedPage::paintHead (juce::Graphics& g, juce::Rectangle<int> area) cons
         title = s.name;
         sub = deviceInLabel (s).toUpperCase() + "  " + Glyph::dot() + "  " + sentenceCase (mixBusName (s.bus));
     }
-    sub += "  " + juce::String (Glyph::dot()) + "  " + tunedLabel();
+    // On a narrow window the line gives up its last part first (when it was tuned), then the
+    // group, rather than be cut off in the middle of a word.
+    const auto subFont = Dine::text (12.0f);
+    const int subRoom = r.getWidth() - 12;
+    const juce::String withTuned = sub + "  " + juce::String (Glyph::dot()) + "  " + tunedLabel();
+    if (Dine::textWidth (subFont, withTuned) <= subRoom) sub = withTuned;
+    else if (Dine::textWidth (subFont, sub) > subRoom) sub = sub.upToFirstOccurrenceOf (juce::String ("  ") + Glyph::dot(), false, false);
 
     // The colour bar beside the name: which group this channel belongs to, said once.
     Dine::fillRounded (g, r.removeFromLeft (3).withTrimmedTop (20).withHeight (40).toFloat(), tint, 1.5f);
@@ -1368,23 +1389,44 @@ void AdvancedPage::resized()
     // SIMPLE / ADVANCED and RE-TUNE sit level with the channel's name, at the right.
     {
         auto row = area.withTrimmedTop (24).withHeight (Dine::Metric::control).reduced (kPadX, 0);
+        // What the row holds, by priority: the channel's name keeps kNameMin, RE-TUNE and the
+        // view tabs always fit, TUNE CHANNEL says the verb alone (TUNE) when the row is short,
+        // and MUTE / SOLO step out of the head last - they are on every strip anyway - rather
+        // than land on the name, which is what a narrow window used to do.
+        constexpr int kNameMin = 180;
         const int rw = juce::jmax (76, retuneButton.idealWidth());
+        const int tabs = juce::jmax (56, juce::jmax (simpleTab.idealWidth(), advancedTab.idealWidth()) + 10) * 2 + 6;
+        const int kw = juce::jmax (52, juce::jmax (muteButton.idealWidth(), soloButton.idealWidth()));
+        const bool keysWanted = headKeysWanted;
+        const int keys = keysWanted ? 20 + 6 + 2 * kw : 0;
+        tuneChannelButton.setButtonText ("TUNE CHANNEL");
+        auto tuneW = [&] { return tuneChannelButton.isVisible() ? juce::jmax (tuneChannelButton.getButtonText() == "TUNE" ? 64 : 112,
+                                                                              tuneChannelButton.idealWidth()) + 10 : 0; };
+        if (row.getWidth() - (rw + 10 + tuneW() + tabs + keys) < kNameMin) tuneChannelButton.setButtonText ("TUNE");
+        const bool keysFit = row.getWidth() - (rw + 10 + tuneW() + tabs + keys) >= kNameMin;
+
         retuneButton.setBounds (row.removeFromRight (rw));
         row.removeFromRight (10);
-        const int each = juce::jmax (56, juce::jmax (simpleTab.idealWidth(), advancedTab.idealWidth()) + 10);
-        viewTrack.setBounds (row.removeFromRight (each * 2 + 6));
+        if (tuneChannelButton.isVisible())
+        {
+            tuneChannelButton.setBounds (row.removeFromRight (tuneW() - 10));
+            row.removeFromRight (10);
+        }
+        viewTrack.setBounds (row.removeFromRight (tabs));
         auto track = viewTrack.getLocalBounds().reduced (2, 2);
         simpleTab.setBounds (track.removeFromLeft (track.getWidth() / 2));
         track.removeFromLeft (2);
         advancedTab.setBounds (track);
-        if (muteButton.isVisible())
+        muteButton.setVisible (keysWanted && keysFit);
+        soloButton.setVisible (keysWanted && keysFit);
+        if (keysWanted && keysFit)
         {
             row.removeFromRight (20);
-            const int kw = juce::jmax (52, juce::jmax (muteButton.idealWidth(), soloButton.idealWidth()));
             soloButton.setBounds (row.removeFromRight (kw));
             row.removeFromRight (6);
             muteButton.setBounds (row.removeFromRight (kw));
         }
+        headControlsLeft = row.getRight();
     }
 
     if (simpleView && simple->isVisible())

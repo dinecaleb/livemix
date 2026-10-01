@@ -104,6 +104,11 @@ private:
     DineButton simpleTab { "Simple", DineButton::Style::Segment };
     DineButton advancedTab { "Advanced", DineButton::Style::Segment };
     DineButton retuneButton { "RE-TUNE", DineButton::Style::Standard };
+    // TUNE CHANNEL in Advanced, beside RE-TUNE: Simple's card has its own, and a channel
+    // shown as its full chain was the one place the verb for it could not be found.
+    DineButton tuneChannelButton { "TUNE CHANNEL", DineButton::Style::Filled };
+    int headControlsLeft = 1 << 20;   // where the head's buttons begin: the name stops short of them
+    bool headKeysWanted = false;      // MUTE / SOLO belong to this selection (not the master); resized() decides if they fit
     // MUTE and SOLO on the channel the Inspector has open. The design's head does not draw
     // them, and for a while this page did not carry them - but "is this one heard" and "is
     // this the only one I am hearing" are two of the states an engineer changes while looking
