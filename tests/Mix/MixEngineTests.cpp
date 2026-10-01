@@ -722,3 +722,114 @@ TEST_CASE ("MixEngine: the device is never handed more than full scale")
     CHECK (quiet.getClampedOutputBlocks() == 0);
     CHECK (quiet.getNonFiniteBlocks() == 0);
 }
+
+TEST_CASE ("MixEngine: share the mics opens the one speaking, steps the others back, hands over, and holds in a pause")
+{
+    // Three speaking microphones round a table. Each hears the room, and the one next to the
+    // person talking hears them too, 20 dB down - which is the bleed the automixer is for.
+    MixSession s;
+    s.inputs = { { "Host", ChannelRole::Speech, 0, -1 }, { "Guest", ChannelRole::Speech, 1, -1 }, { "Guest 2", ChannelRole::Speech, 2, -1 } };
+    MixEngine e;
+    e.prepare (kSr, 64, s);
+    REQUIRE (e.getGraph().strips[0].bus == MixBus::Speech);
+
+    auto setOn = [&] (bool on)
+    {
+        auto p = e.getAppliedParameters();
+        p.bypassProcessing = true;                      // the automixer, not a chain, is what is measured
+        p.autoMix.enabled = on;
+        p.autoMix.depthDb = 15.0f;
+        p.autoMix.thresholdDb = -50.0f;
+        p.autoMix.attackMs = 10.0f;
+        p.autoMix.releaseMs = 100.0f;
+        p.autoMix.member = {};
+        for (int i = 0; i < 3; ++i) p.autoMix.member[size_t (i)] = true;
+        e.setParameters (p);
+    };
+    // `talker` speaks (0.3) into their own mic and 20 dB down into the others; -1 is a pause.
+    auto play = [&] (int talker, int samples)
+    {
+        Device d (3, 2, samples);
+        testsig::fillNoise (d.in, 0.001f);              // the room, about -60 dBFS
+        if (talker >= 0)
+            for (int m = 0; m < 3; ++m)
+            {
+                auto& c = d.in.data[size_t (m)];
+                const float amp = m == talker ? 0.3f : 0.03f;
+                for (size_t i = 0; i < c.size(); ++i) c[i] += amp * std::sin (2.0f * float (M_PI) * 220.0f * float (i) / float (kSr));
+            }
+        d.run (e, 64);
+    };
+
+    // Off: nothing moves, whoever talks.
+    setOn (false);
+    play (0, int (kSr / 2));
+    for (int i = 0; i < 3; ++i) CHECK_NEAR (e.getAutoMixGainDb (i), 0.0f, 0.01f);
+
+    // On, the host talking: the host's mic is open, the guests' are stepped back by about the depth.
+    setOn (true);
+    play (0, int (kSr / 2));
+    CHECK (e.getAutoMixGainDb (0) > -1.0f);
+    CHECK (e.getAutoMixGainDb (1) < -12.0f);
+    CHECK (e.getAutoMixGainDb (2) < -12.0f);
+    CHECK (e.getAutoMixGainDb (1) >= -15.5f);           // never further than the depth
+
+    // The guest answers: the hand-over.
+    play (1, int (kSr / 2));
+    CHECK (e.getAutoMixGainDb (1) > -1.0f);
+    CHECK (e.getAutoMixGainDb (0) < -12.0f);
+
+    // A pause: nobody over the threshold, so the last speaker stays open and nothing pumps.
+    play (-1, int (kSr / 2));
+    CHECK (e.getAutoMixGainDb (1) > -1.0f);
+    CHECK (e.getAutoMixGainDb (0) < -12.0f);
+
+    // Off again: every mic comes back to its fader, at a release rather than a step.
+    setOn (false);
+    play (0, int (kSr / 2));
+    for (int i = 0; i < 3; ++i) CHECK_NEAR (e.getAutoMixGainDb (i), 0.0f, 0.1f);
+
+    // And it never allocates on the audio thread.
+    setOn (true);
+    Device d (3, 2, 64 * 16);
+    testsig::fillNoise (d.in, 0.2f);
+    d.run (e, 64);
+    {
+        alloctrack::Scope scope;
+        d.run (e, 64);
+        CHECK (alloctrack::getCount() == 0);
+    }
+}
+
+TEST_CASE ("MixEngine: share the mics never changes what a pre-fade listen hears")
+{
+    MixSession s;
+    s.inputs = { { "Host", ChannelRole::Speech, 0, -1 }, { "Guest", ChannelRole::Speech, 1, -1 } };
+    MixEngine e;
+    e.prepare (kSr, 64, s);
+    auto listenTo = [&] (bool on)
+    {
+        e.reset();
+        auto p = e.getAppliedParameters();
+        p.bypassProcessing = true;
+        p.autoMix.enabled = on;
+        p.autoMix.member = {};
+        p.autoMix.member[0] = p.autoMix.member[1] = true;
+        p.strips[1].solo = true;                        // the engineer listens to the guest's mic
+        p.monitor.point = SoloPoint::PFL;
+        e.setParameters (p);
+        OutputFeeds feeds;
+        feeds.count = 2;
+        feeds.feeds[0] = OutputFeed { 0, 1, MixBus::Master, 0.0f, false, false, false };
+        feeds.feeds[1] = OutputFeed { 2, 3, MixBus::Master, 0.0f, false, false, true };
+        e.setOutputFeeds (feeds);
+        Device d (2, 4, int (kSr));
+        sineOnInput (d, 0, 220.0f, 0.3f);               // the host talking
+        sineOnInput (d, 1, 330.0f, 0.03f);              // ... what the guest's mic hears
+        d.run (e, 64);
+        return std::make_pair (d.rms (2, int (kSr) / 2), d.rms (0, int (kSr) / 2));
+    };
+    const auto off = listenTo (false), on = listenTo (true);
+    REQUIRE (off.first > 0.001f);
+    CHECK_NEAR (gainToDb (on.first / off.first), 0.0f, 0.5f);   // the engineer hears the mic as it is
+}

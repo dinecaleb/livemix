@@ -255,6 +255,10 @@ struct MixSession
     // purpose - a mix that moves on its own is a mix an engineer has to trust before they can
     // use it, and most services do not need it. Numbers in MixProfile::speechPriority.
     bool speechPriority = false;
+    // SHARE THE MICS: the speaking microphones as an automatic mixer - the one speaking open,
+    // the others back (MixParameters::AutoMix). Off by default for the same reason speech
+    // priority is. Numbers in MixProfile::autoMix.
+    bool autoMix = false;
     // How loud the finished mix should be. FromPurpose keeps the delivery role's own standard,
     // which is what every session made before this setting existed had, so nothing about an
     // old session changes when it is opened.

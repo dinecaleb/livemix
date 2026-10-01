@@ -168,7 +168,7 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
         // Mix
         { 405, "TUNE LIVE MIX" }, { 400, "TUNE MIX" }, { 404, "TUNE CHANNEL" },
         { 407, "MATCH TO REFERENCE" }, { 408, "Reference" },
-        { 413, "Speech Priority" }, { 409, "Mix Buddy" }, { 410, "Try Another Mix" },
+        { 413, "Speech Priority" }, { 416, "Share the Mics" }, { 409, "Mix Buddy" }, { 410, "Try Another Mix" },
         { 411, "Undo" }, { 412, "Redo" }, { 420, "Loudness" },
         { 415, "Autopilot" }, { 414, "Reset Mix to Raw" },
         { 401, "Centre Macro Pads" }, { 402, "Clear Solo" }, { 403, "Bypass" },

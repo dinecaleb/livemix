@@ -228,6 +228,26 @@ void MixController::setSpeechPriority (bool on)
     touch();
 }
 
+void MixController::setAutoMix (bool on)
+{
+    if (session.autoMix == on) return;
+    session.autoMix = on;
+    usage ({ "auto_mix", { { "on", on ? "true" : "false" } }, {} });
+    publish();
+    if (onMessage)
+    {
+        int members = 0;
+        for (const auto& s : graph.strips) if (s.bus == MixBus::Speech) ++members;
+        onMessage (! on ? std::string ("Share the mics is off: every speaking mic stays where its fader is.")
+                   : members < 2 ? std::string ("Share the mics is on. It works between two or more speaking mics - assign another "
+                                                "microphone as speech and the one talking will open while the others step back.")
+                                 : "Share the mics is on: whoever is speaking is open and the other "
+                                   + std::to_string (members - 1) + (members == 2 ? " mic steps" : " mics step") + " back, so the room hears one "
+                                   "mic's worth of noise. Your listen is not changed.");
+    }
+    touch();
+}
+
 void MixController::setPurpose (MixPurpose p) { session.purpose = p; touch(); }
 
 void MixController::setDelivery (DeliveryLoudness d)
@@ -509,6 +529,19 @@ MixParameters MixController::compose() const
         out.speechDuck.attackMs = sp.attackMs;
         out.speechDuck.releaseMs = sp.releaseMs;
         out.speechDuck.holdMs = sp.holdMs;
+    }
+    // SHARE THE MICS, the same way: a way of working, from the session and the profile. Its
+    // members are the speaking microphones - the ones on the SPEECH group.
+    {
+        const auto& am = MixProfile::autoMix (session.profile);
+        out.autoMix.enabled = session.autoMix;
+        out.autoMix.depthDb = am.depthDb;
+        out.autoMix.thresholdDb = am.thresholdDb;
+        out.autoMix.attackMs = am.attackMs;
+        out.autoMix.releaseMs = am.releaseMs;
+        out.autoMix.member = {};
+        for (int i = 0; i < graph.numStrips() && i < kMaxStrips; ++i)
+            out.autoMix.member[size_t (i)] = graph.strips[size_t (i)].bus == MixBus::Speech;
     }
     out.broadcastDim = broadcastDim;
     out.broadcastMute = broadcastMute;

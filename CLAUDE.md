@@ -31,7 +31,7 @@ file under `docs/` — read the one for the area you are touching before changin
   measured from where a source will actually land, never from where the profile wishes it were. The master is
   fitted to a band, so a sermon-only listen leaves it alone and sets the speech group by what leaves the mix.
   A listen with no performance in it is refused rather than mixed.
-- **Two things move a level by themselves, and both are off by default.** *Speech priority* ducks DRUMS, BASS
+- **Three things move a level by themselves, and all are off by default.** *Speech priority* ducks DRUMS, BASS
   and MUSIC into the master while the speech group is open. Never the voices, never the room, never the
   returns, and never the engineer's listen - it is applied where a group is summed into the master, after the
   monitor has taken its copy.
@@ -45,6 +45,12 @@ file under `docs/` — read the one for the area you are touching before changin
   audio, and holds still while the arrangement differs from the one it learnt. **Within tolerance it does nothing,
   and that is the default outcome** (`tests/Mix/AutopilotTests.cpp` asserts it). One press turns it off, and an
   engineer's own move on a fader it had been correcting hands that fader straight back.
+  *Share the mics* is the third (2026-09-30): the speaking microphones (the SPEECH group) as a gain-sharing
+  automatic mixer for a podcast table or a panel - each member's gain is its share of the members' voice power, so
+  the one speaking is open, the others step back by at most `MixProfile::AutoMix::depthDb`, and with nobody over the
+  threshold every gain holds (the last speaker stays open). On the audio thread, allocation-free, gains decided from
+  the previous block's levels; applied after the listen tap (TUNE measures the mic) and never to a pre-fade listen.
+  It cleans by closing the mics nobody is using - there is no spectral denoiser, which would cost latency.
 - **AI is optional, validated and never auto-applied.** Default Off, explicit user action only, a
   `SafetyValidator` / `MixSafetyValidator` on every path, the deterministic result as the fallback on any
   failure, AI output never enters the proposed parameters, nothing AI-related on the audio thread, and a

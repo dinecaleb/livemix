@@ -255,6 +255,23 @@ namespace MixProfile
     };
     const SpeechPriority& speechPriority (StyleProfileId profile);
 
+    // ---- SHARE THE MICS: the speaking microphones as an automatic mixer ----
+    // A gain-sharing automixer, the booth's: each member's level follows its share of every
+    // member's voice, so the one speaking is open and the rest step back, by at most depthDb.
+    // The room hears one open microphone's worth whatever the count, which is what takes the
+    // hiss, the air handling and each mic's bleed of the others out of a panel.
+    struct AutoMix
+    {
+        float depthDb = 15.0f;         // how far a microphone nobody is speaking into steps back
+        // A member's level (processed, before its fader) under which nobody counts as speaking.
+        // With nobody speaking the gains hold where they were: the last speaker stays open
+        // rather than every mic opening into the room between sentences.
+        float thresholdDb = -50.0f;
+        float attackMs = 10.0f;        // a microphone opens within a syllable
+        float releaseMs = 220.0f;      // ... and steps back slower than a word, so nobody is clipped mid-phrase
+    };
+    const AutoMix& autoMix (StyleProfileId profile);
+
     // The peak rise time (ms) of a source, from Relationships (see compPeakRise*Ms).
     float compPeakRiseMs (StyleProfileId profile, ChannelRole role);
 

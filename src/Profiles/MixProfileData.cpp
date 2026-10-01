@@ -179,6 +179,21 @@ float blendBelowPrimaryDb (ChannelRole role)
     }
 }
 
+const AutoMix& autoMix (StyleProfileId profile)
+{
+    static const AutoMix standard {};
+    // Talk / podcast: the table is the whole programme, nothing plays under it, and a mic left
+    // a little open is the one thing a listener hears. Deeper, and the hand-over a touch quicker.
+    static const AutoMix talk = []
+    {
+        AutoMix a;
+        a.depthDb = 20.0f;
+        a.releaseMs = 180.0f;
+        return a;
+    }();
+    return profile == StyleProfileId::TalkPodcast ? talk : standard;
+}
+
 float defaultBusFaderDb (StyleProfileId, MixBus)
 {
     return 0.0f;

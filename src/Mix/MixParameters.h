@@ -100,6 +100,23 @@ struct MixParameters
     };
     SpeechDuck speechDuck;
 
+    // SHARE THE MICS: an automatic mixer for the speaking microphones (a podcast table, a
+    // panel, an interview). Off unless the engineer turns it on. While on, each member's level
+    // follows its share of everybody's voice: whoever is speaking is open, the others step back
+    // by up to `depthDb`, and two people trading lines hand over without a gap. The room always
+    // hears one open microphone's worth, so the background noise and the bleed of every open
+    // mic falls to one mic's. Nobody speaking holds the last speaker open. Set from the session
+    // and the profile on every publish, never kept and never saved with a mix.
+    struct AutoMix
+    {
+        bool enabled = false;
+        float depthDb = 15.0f;
+        float thresholdDb = -50.0f;
+        float attackMs = 10.0f, releaseMs = 220.0f;      // MixProfile::AutoMix sets these
+        std::array<bool, kMaxStrips> member {};
+    };
+    AutoMix autoMix;
+
     // The engineer's own listen: where solo goes, what the monitor carries, how loud it is.
     // Monitoring, never mix - nothing here changes the master, the plan or an export. It
     // rides in MixParameters rather than beside it only because solo is a per-strip flag and

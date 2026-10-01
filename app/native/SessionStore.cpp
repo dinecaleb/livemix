@@ -622,6 +622,7 @@ juce::var toVar (const Document& d)
     }
     obj->setProperty ("inputs", inputs);
     if (d.session.speechPriority) obj->setProperty ("speechPriority", true);   // absent = off, which is the default
+    if (d.session.autoMix) obj->setProperty ("autoMix", true);                 // the same
     juce::Array<juce::var> macros;
     for (float v : d.macros.v) macros.add (v);
     obj->setProperty ("macros", macros);
@@ -736,6 +737,7 @@ bool fromVar (const juce::var& v, Document& d)
             d.session.inputs.push_back (in);
         }
     d.session.speechPriority = obj->hasProperty ("speechPriority") && bool (obj->getProperty ("speechPriority"));
+    d.session.autoMix = obj->hasProperty ("autoMix") && bool (obj->getProperty ("autoMix"));
     if (auto* macros = obj->getProperty ("macros").getArray())
         for (int i = 0; i < std::min (int (MixMacro::Count), macros->size()); ++i) d.macros.set (MixMacro (i), float (double (macros->getReference (i))));
     d.tuneCount = int (obj->getProperty ("tuneCount"));

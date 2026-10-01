@@ -296,6 +296,18 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   level and toms were moved toward the hand mix (channel RMS difference 8.6 -> 6.1 dB at 790 s), toms no longer
   switch their sample on by themselves, and Kick Out is not blended under Kick In. Fit only what is consistent across
   windows: a gated-shut tom or which kick microphone carries the drum is the recording's, not a rule.
+- **SHARE THE MICS (2026-09-30): the speaking microphones as an automatic mixer.** Mix > Share the Mics, off by
+  default, saved with the session (`MixSession::autoMix`), set on every publish like speech priority
+  (`MixParameters::AutoMix`, numbers in `MixProfile::autoMix`: depth 15 dB, 20 for Talk/Podcast; threshold
+  -50 dBFS; open 10 ms, step back 220 ms / 180 ms). Members are the strips on the SPEECH group. `MixEngine` keeps a
+  mean-square envelope per member (5 ms up, 90 ms down) and at the end of each block sets every member's target to
+  the square root of its share of the summed power, floored at the depth - a Dugan-style gain-sharing mixer, so the
+  room hears one open mic's worth of noise and bleed whatever the count, two people at once each sit 3 dB down, and
+  a hand-over has no gap. Nobody over the threshold: the targets hold, so the last speaker stays open and nothing
+  pumps in a pause. Applied after the listen tap and the PFL copy (`Strip::preAuto`); muted members take no share.
+  Not a denoiser: it removes the noise of the mics nobody is speaking into, not the noise inside the open one (a
+  spectral denoiser needs look-ahead, and the channel path adds no latency). Tests: `MixEngineTests` (hand-over,
+  pause, depth, off, PFL, allocation).
 - **LIVE SAFE is a policy, not a tooltip** (`src/Mix/LiveSafe.h`), enforced in `MixController` rather than in a menu
   handler - a guard in `MainView` only covers the menu, and the AI, the chat, a macro and a keyboard shortcut all
   reach the mix without passing one. It never locks the emergency controls (mute, solo, the monitor, the transport,

@@ -2304,6 +2304,7 @@ namespace
             s.delivery = DeliveryLoudness::StreamingLoud;
             s.voicing = MasterVoicing::Car;
             s.speechPriority = true;
+            s.autoMix = true;
             s.inputs[3].focus = true;                  // the lead is pinned
             s.inputs[2].icon = "waveform";
             controller.setSession (s);
@@ -2384,6 +2385,7 @@ namespace
         CHECK (a.session.delivery == b.session.delivery);
         CHECK (a.session.voicing == b.session.voicing);
         CHECK (a.session.speechPriority == b.session.speechPriority);
+        CHECK (a.session.autoMix == b.session.autoMix);
         CHECK (a.session.focusInput() == b.session.focusInput());
         REQUIRE (a.session.inputs.size() == b.session.inputs.size());
         for (size_t i = 0; i < a.session.inputs.size(); ++i)

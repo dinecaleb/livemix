@@ -812,6 +812,11 @@ public:
                 // says what it does rather than only what it is called.
                 m.addItem (413, "Speech Priority: the band steps back while somebody speaks", true,
                            view.controller.getSpeechPriority(), nullptr);
+                // SHARE THE MICS: the speaking mics as an automatic mixer - a podcast table, a
+                // panel, an interview. The second thing that moves a level by itself, so it too
+                // says what it does.
+                m.addItem (416, "Share the Mics: the one speaking opens, the others step back", true,
+                           view.controller.getAutoMix(), nullptr);
                 m.addSeparator();
                 m.addItem (409, "Mix Buddy" + juce::String (Glyph::ellip()));
                 m.addItem (410, "Try Another Mix", view.controller.canTryAnotherMix());
@@ -2303,6 +2308,7 @@ void MainView::handleCommand (int id)
                                                                           : "Master voiced for " + juce::String (masterVoicingName (MasterVoicing (id - 450))).toLowerCase() + ".");
             break;
         case 413: controller.setSpeechPriority (! controller.getSpeechPriority()); break;
+        case 416: controller.setAutoMix (! controller.getAutoMix()); break;
         case 402: controller.clearSolos(); showToast ("Solo cleared."); break;
         case 403: setBypass (! controller.isBypassed()); break;
         case 406:

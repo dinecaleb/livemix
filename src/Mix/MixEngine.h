@@ -63,6 +63,11 @@ public:
     const MixParameters& getAppliedParameters() const noexcept { return applied; } // audio-thread view (read for display only)
     // What speech priority is doing right now, dB (<= 0). Any thread.
     float getSpeechDuckDb() const noexcept { return speechDuckDb.load (std::memory_order_relaxed); }
+    // SHARE THE MICS: how far strip `i` is stepped back right now (0 = open), for the UI and the tests.
+    float getAutoMixGainDb (int i) const noexcept
+    {
+        return i >= 0 && i < int (strips.size()) ? strips[size_t (i)]->autoGainDb.load (std::memory_order_relaxed) : 0.0f;
+    }
 
     // Audio thread. inputs: device channels; outputs: at least 1 channel (mono sum) or 2 (L/R).
     // Every output channel is written: the feeds decide what lands where, the rest is silence.
@@ -184,6 +189,13 @@ private:
         // since it was last read, and whether it has hit full scale. CHECK INPUTS reads these.
         std::atomic<float> converterPeak { 0.0f };
         std::atomic<bool> converterClipped { false };
+        // SHARE THE MICS (MixParameters::AutoMix). The member's voice level (a mean-square
+        // envelope of the processed signal), the gain it is at and the one it is heading for,
+        // and the signal as it was before that gain - what a pre-fade listen hears.
+        bool autoMember = false;
+        float autoEnv = 0.0f, autoGain = 1.0f, autoTarget = 1.0f;
+        std::array<std::vector<float>, kMaxChannels> preAuto;
+        std::atomic<float> autoGainDb { 0.0f };
     };
     struct Bus
     {
@@ -275,6 +287,10 @@ private:
     float speechLowCoeff = 0.0f, speechHighCoeff = 0.0f, speechEnvUp = 0.0f, speechEnvDown = 0.0f;
     bool speechVoiced = false;           // the detector's own state, before the hold
     std::atomic<float> speechDuckDb { 0.0f };   // what it is doing, for the UI
+    // SHARE THE MICS: resolved once per publish (applyParameters), used per block.
+    bool autoOn = false;
+    float autoThresholdPow = 1.0e-5f, autoDepthGain = 0.18f;
+    float autoAttackCoeff = 0.0f, autoReleaseCoeff = 0.0f, autoEnvUp = 0.0f, autoEnvDown = 0.0f;
     KitTriggerTable kitTriggers;                                 // the drum strips' word to each other (audio thread only)
     Smoother broadcastGain;                                      // DIM (-20 dB) / MUTE on every feed but the listen
     std::vector<float> broadcastRamp;                            // the smoother, per sample, for the block (feeds share it)

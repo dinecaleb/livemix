@@ -120,7 +120,7 @@ address PostgREST passes in `request.headers` (`cf-connecting-ip`, else the firs
 | `app_started` | `first_run`, `launch` (nth on this install), `days_since_install`, `previous_run_crashed`, `mac_model` (e.g. `Mac17,8`), `cpu_cores`, `ram_gb` | DAU/WAU/MAU; new vs returning; sessions per user; retention (day N of `days_since_install`); the hardware DLIVE runs on |
 | `app_ended` | `uptime_s`, `mixing_s`, `xruns`, `cpu_peak` (%), `rss_mb` | session duration; time spent mixing; a clean end (its absence plus `app_crash` = a crash) |
 | `session_heartbeat` | every 5 min: `uptime_s`, `mixing_s`, `xruns`, `cpu_peak`, `rss_mb`, `inputs`, `tracks` | duration of a run that never ended cleanly; typical channel and track count while mixing |
-| `feature_first_use` | `feature`, `days_since_install`, `launch` | which features are discovered, how soon, and which are never touched. Features: `tune_channel`, `tune_group`, `tune_channels`, `tune_mix`, `tune_live`, `tune_mix_buddy`, `keep_some`, `autopilot`, `sample_replacement`, `preset_scene`, `preset_favourite`, `preset_input_map`, `preset_recall`, `mix_buddy`, `recording`, `live_view`, `live_safe`, `speech_priority` |
+| `feature_first_use` | `feature`, `days_since_install`, `launch` | which features are discovered, how soon, and which are never touched. Features: `tune_channel`, `tune_group`, `tune_channels`, `tune_mix`, `tune_live`, `tune_mix_buddy`, `keep_some`, `autopilot`, `sample_replacement`, `preset_scene`, `preset_favourite`, `preset_input_map`, `preset_recall`, `mix_buddy`, `recording`, `live_view`, `live_safe`, `speech_priority`, `auto_mix` |
 | `milestone_unlocked` | `milestone`, `mixing_hours` | how far people get (see Milestones) |
 
 "Mixing time" is wall-clock time with the audio device running and at least one input
@@ -156,6 +156,7 @@ A proposal left on preview when a new listen starts is kept by DLIVE itself, and
 | `live_view_opened` | `audio_running` | the Live workspace, which is the closest thing to a broadcast mode. There is no "go live" action |
 | `live_safe` | `on` | LIVE SAFE use |
 | `speech_priority` | `on` | speech priority use |
+| `auto_mix` | `on` | share-the-mics (the speaking mics as an automatic mixer) use |
 
 ### Recording and the device
 

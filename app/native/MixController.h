@@ -56,6 +56,9 @@ public:
     // is always what is really there. How far and how slowly is the profile's (MixProfile).
     void setSpeechPriority (bool on);
     bool getSpeechPriority() const noexcept { return session.speechPriority; }
+    // SHARE THE MICS (MixParameters::AutoMix): the speaking mics as an automatic mixer. Off by default.
+    void setAutoMix (bool on);
+    bool getAutoMix() const noexcept { return session.autoMix; }
     float getSpeechDuckDb() const noexcept { return engine.getSpeechDuckDb(); }
     int getFocusInput() const noexcept { return session.focusInput(); }
     void setPurpose (MixPurpose p);

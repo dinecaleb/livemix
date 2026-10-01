@@ -118,6 +118,7 @@ namespace
         if (event == "live_view_opened")      return "live_view";
         if (event == "live_safe")             return (bool) p.getWithDefault ("on", false) ? "live_safe" : juce::String();
         if (event == "speech_priority")       return (bool) p.getWithDefault ("on", false) ? "speech_priority" : juce::String();
+        if (event == "auto_mix")              return (bool) p.getWithDefault ("on", false) ? "auto_mix" : juce::String();
         return {};
     }
 

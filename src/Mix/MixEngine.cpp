@@ -130,6 +130,7 @@ void MixEngine::prepare (double sampleRate, int maxBlockSize, const MixSession& 
         for (int ch = 0; ch < kMaxChannels; ++ch)
         {
             s->scratch[size_t (ch)].assign (size_t (maxBlock), 0.0f);
+            s->preAuto[size_t (ch)].assign (size_t (maxBlock), 0.0f);
             s->ptrs[size_t (ch)] = s->scratch[size_t (ch)].data();
         }
         strips.push_back (std::move (s));
@@ -207,7 +208,12 @@ void MixEngine::prepare (double sampleRate, int maxBlockSize, const MixSession& 
 
 void MixEngine::reset() noexcept
 {
-    for (auto& s : strips) s->processor.reset();
+    for (auto& s : strips)
+    {
+        s->processor.reset();
+        s->autoEnv = 0.0f; s->autoGain = 1.0f; s->autoTarget = 1.0f;
+        s->autoGainDb.store (0.0f, std::memory_order_relaxed);
+    }
     for (auto& b : buses) b.processor.reset();
     for (auto& f : fx) f.chain.reset();
 }
@@ -232,6 +238,21 @@ void MixEngine::applyParameters (const MixParameters& p) noexcept
         speechReleaseCoeff = coeffFor (sd.releaseMs);
         speechOffCoeff = coeffFor (800.0f);            // switched off mid-service: back at a release, never a step
         speechHoldSamples = sd.holdMs * 0.001f * float (sr);
+    }
+    // Share the mics: the same - coefficients here, never in process().
+    {
+        const auto& am = p.autoMix;
+        auto coeffFor = [this] (float ms) { return 1.0f - std::exp (-1.0f / std::max (1.0f, float (sr) * 0.001f * std::max (1.0f, ms))); };
+        autoOn = am.enabled;
+        const float t = dbToGain (am.thresholdDb);
+        autoThresholdPow = t * t;
+        autoDepthGain = dbToGain (-std::fabs (am.depthDb));
+        autoAttackCoeff = coeffFor (am.attackMs);
+        autoReleaseCoeff = coeffFor (am.releaseMs);
+        autoEnvUp = coeffFor (5.0f);          // the detector: a syllable's onset ...
+        autoEnvDown = coeffFor (90.0f);       // ... and long enough not to follow every vowel down
+        for (int i = 0; i < numStrips && i < kMaxStrips; ++i)
+            strips[size_t (i)]->autoMember = am.member[size_t (i)];
     }
     const int n = p.numStrips < numStrips ? p.numStrips : numStrips;
 
@@ -489,6 +510,44 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             guard (view, s.processor, nonFinite);
             if (listening) t->pushStripProcessed (i, view);
 
+            // ---- SHARE THE MICS: this member's voice level, and the gain it is heading for ----
+            // The gain itself was decided at the end of the last block from every member's level
+            // (a member cannot know its share until all of them have been heard); a block's lag
+            // is a millisecond or two, which is nothing to a microphone opening. Applied after the
+            // listen tap, so TUNE measures the microphone and not the automixer.
+            bool autoScaled = false;
+            if (s.autoMember && (autoOn || s.autoGain < 0.9999f))
+            {
+                float e = 0.0f;
+                for (int ch = 0; ch < s.channels; ++ch)
+                    for (int k = 0; k < n; ++k) e += s.ptrs[size_t (ch)][k] * s.ptrs[size_t (ch)][k];
+                e /= float (n * s.channels);
+                const float detector = e > s.autoEnv ? autoEnvUp : autoEnvDown;
+                s.autoEnv += (1.0f - std::pow (1.0f - detector, float (n))) * (e - s.autoEnv);
+
+                const float target = autoOn ? s.autoTarget : 1.0f;
+                const float c = target > s.autoGain ? autoAttackCoeff : autoReleaseCoeff;
+                const float g0 = s.autoGain;
+                const float g1 = g0 + (1.0f - std::pow (1.0f - c, float (n))) * (target - g0);
+                if (std::fabs (g1 - 1.0f) > 1.0e-5f || std::fabs (g0 - 1.0f) > 1.0e-5f)
+                {
+                    // What a pre-fade listen hears: the microphone, before the automixer.
+                    if (monitorRouted && monitorPfl)
+                        for (int ch = 0; ch < s.channels; ++ch)
+                            std::memcpy (s.preAuto[size_t (ch)].data(), s.ptrs[size_t (ch)], sizeof (float) * size_t (n));
+                    const float step = (g1 - g0) / float (n);
+                    for (int ch = 0; ch < s.channels; ++ch)
+                    {
+                        float g = g0;
+                        float* x = s.ptrs[size_t (ch)];
+                        for (int k = 0; k < n; ++k) { g += step; x[k] *= g; }
+                    }
+                    autoScaled = monitorRouted && monitorPfl;
+                }
+                s.autoGain = g1 > 0.9999f && target >= 1.0f ? 1.0f : g1;
+                s.autoGainDb.store (gainToDb (s.autoGain), std::memory_order_relaxed);
+            }
+
             Bus& bus = buses[size_t (s.bus)];
             const float* xl = s.ptrs[0];
             const float* xr = s.channels == 2 ? s.ptrs[1] : s.ptrs[0];
@@ -546,6 +605,12 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
                     const float pflGain = s.channels == 2 ? 1.0f : 0.70710678f;
                     const float al = monitorPfl ? pflGain : s.gainL.getCurrent();
                     const float ar = monitorPfl ? pflGain : s.gainR.getCurrent();
+                    // PFL hears the microphone before the automixer stepped it back.
+                    if (autoScaled)
+                    {
+                        xl = s.preAuto[0].data();
+                        xr = s.channels == 2 ? s.preAuto[1].data() : s.preAuto[0].data();
+                    }
                     float* ml = monitor.ptrs[0];
                     float* mr = monitor.ptrs[1];
                     if (ramping)
@@ -564,6 +629,30 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
                     }
                 }
             }
+        }
+
+        // ---- SHARE THE MICS: every member's share of the voices, for the next block ----
+        // Each open member's gain is its share of the members' summed voice power, so the room
+        // always hears one microphone's worth (two people at once: each 3 dB down). Nobody over
+        // the threshold: nobody is speaking, and every gain holds - the last speaker stays open.
+        if (autoOn)
+        {
+            float sum = 0.0f, loudest = 0.0f;
+            for (int i = 0; i < numStrips; ++i)
+            {
+                const Strip& s = *strips[size_t (i)];
+                if (! s.autoMember || applied.strips[size_t (i)].mute) continue;
+                sum += s.autoEnv;
+                loudest = std::max (loudest, s.autoEnv);
+            }
+            if (loudest >= autoThresholdPow && sum > 0.0f)
+                for (int i = 0; i < numStrips; ++i)
+                {
+                    Strip& s = *strips[size_t (i)];
+                    if (! s.autoMember) continue;
+                    const float share = applied.strips[size_t (i)].mute ? 0.0f : s.autoEnv / sum;
+                    s.autoTarget = std::max (autoDepthGain, std::sqrt (share));   // amplitude of a power share
+                }
         }
 
         // ---- Buses -> master ----
