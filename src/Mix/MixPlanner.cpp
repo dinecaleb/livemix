@@ -963,6 +963,135 @@ MixPlan plan (const MixPlanContext& ctx)
         }
     }
 
+    // ---- Many microphones, one instrument ----
+    // The profile's numbers are for an instrument, and a church patches instruments as several
+    // channels: the inside and the outside of the kick, the top and the bottom of the snare,
+    // a stereo keyboard as two mono stems, five playback stems. Fitting each channel to the
+    // whole instrument's level is how a kit came out all wash and no kick, and the playback
+    // came up 25 dB (the Praise stems). Three rules, all absolute from the capture:
+    //   1. Channels linked on the console that are one kind of source are one source: the
+    //      strongest one's chain on all of them, one gain, and one fader for their sum.
+    //   2. A blend microphone (Kick Out, Snare Bottom) sits under its drum's main one.
+    //   3. Several sources of one kind playing at once share that kind's level.
+    {
+        auto groupOf = [&] (int i) { return plan.proposed.strips[size_t (i)].linkGroup; };
+        auto familyOf = [&] (int i) { return roleFamily (plan.strips[size_t (i)].role); };
+        auto powerSum = [] (const std::vector<float>& dbs)
+        {
+            double e = 0.0;
+            for (float d : dbs) e += std::pow (10.0, double (d) / 10.0);
+            return e > 0.0 ? float (10.0 * std::log10 (e)) : -120.0f;
+        };
+        std::vector<bool> inLinkedSource (size_t (n), false);
+
+        // 1. Linked channels of one kind.
+        std::vector<int> seen;
+        for (int i = 0; i < n; ++i)
+        {
+            const int g = groupOf (i);
+            if (g == 0 || ! plan.strips[size_t (i)].balanced || std::find (seen.begin(), seen.end(), g) != seen.end()) continue;
+            seen.push_back (g);
+            std::vector<int> members;
+            for (int k = 0; k < n; ++k)
+                if (groupOf (k) == g && plan.strips[size_t (k)].balanced && familyOf (k) == familyOf (i)) members.push_back (k);
+            if (members.size() < 2) continue;
+            // The strongest member leads: its chain and its gain go on every member, so the pair
+            // is processed as one source and its image does not move when one side gets louder.
+            int leader = members.front();
+            for (int k : members)
+                if (ctx.capture.strips[size_t (k)].activeRmsDb > ctx.capture.strips[size_t (leader)].activeRmsDb) leader = k;
+            for (int k : members)
+            {
+                if (k == leader) continue;
+                plan.proposed.strips[size_t (k)].channel = plan.proposed.strips[size_t (leader)].channel;
+                plan.proposed.strips[size_t (k)].inputGainDb = plan.proposed.strips[size_t (leader)].inputGainDb;
+                plan.strips[size_t (k)].inputGainDb = plan.strips[size_t (leader)].inputGainDb;
+            }
+            // One fader for the sum, never above what any member's own limits allowed.
+            std::vector<float> levels;
+            float limit = R.maxFaderMoveDb;
+            for (int k : members)
+            {
+                levels.push_back (predictedProcessedActiveRmsDb (ctx, k, plan.proposed.strips[size_t (k)]));
+                limit = std::min (limit, fitFader (k, false));
+            }
+            const float target = MixProfile::mixLevelTargetDb (profile, familyOf (leader));
+            const float fader = clamp (std::min (roundHalf (target - powerSum (levels)), limit), -R.maxFaderMoveDb, R.maxFaderMoveDb);
+            std::string names;
+            for (size_t m = 0; m < members.size(); ++m)
+            {
+                plan.strips[size_t (members[m])].faderDb = fader;
+                inLinkedSource[size_t (members[m])] = true;
+                names += (m == 0 ? "" : " and ") + upper (plan.strips[size_t (members[m])].name);
+            }
+            plan.relationships.push_back (info (Recommendation::Kind::MixGain, names + " tuned as one source",
+                                                 "They are linked and they are one kind of source, so they are one instrument: "
+                                                 + upper (plan.strips[size_t (leader)].name) + "'s chain and gain are on all of them, and one fader "
+                                                 "sets their sum to where a " + std::string (styleProfileName (profile)) + " mix puts it - not each of "
+                                                 "them to it, which would put the instrument " + fmtDb (10.0f * std::log10 (float (members.size())), 0)
+                                                 + " too loud.", Confidence::High));
+        }
+
+        // 2. Blend microphones.
+        for (int i = 0; i < n; ++i)
+        {
+            auto& sp = plan.strips[size_t (i)];
+            const float below = MixProfile::blendBelowPrimaryDb (sp.role);
+            if (! sp.balanced || below <= 0.0f || inLinkedSource[size_t (i)]) continue;
+            bool primary = false;
+            for (int k = 0; k < n; ++k)
+                if (k != i && plan.strips[size_t (k)].balanced && familyOf (k) == familyOf (i)
+                    && MixProfile::blendBelowPrimaryDb (plan.strips[size_t (k)].role) <= 0.0f) primary = true;
+            if (! primary) continue;
+            sp.faderDb = clamp (sp.faderDb - below, -R.maxFaderMoveDb, R.maxFaderMoveDb);
+            sp.mixItems.push_back (info (Recommendation::Kind::MixGain, upper (sp.name) + " blended " + fmtDb (-below, 0) + " under the main microphone",
+                                         "This is the drum's second microphone. The main one is the drum; this one adds the "
+                                         + std::string (sp.role == ChannelRole::SnareBottom ? "wires" : "air and the low thump")
+                                         + ", and level with it the drum turns to wash.", Confidence::Medium));
+        }
+
+        // 3. Several of one kind at once. Drums, voices and the bass have rules of their own
+        //    (a kick is one source, the lead and the backing voices are held above).
+        auto shares = [] (RoleFamily f)
+        {
+            return f == RoleFamily::Overhead || f == RoleFamily::Room || f == RoleFamily::Piano || f == RoleFamily::ElectricPiano
+                || f == RoleFamily::Organ || f == RoleFamily::Synth || f == RoleFamily::AcousticGuitar
+                || f == RoleFamily::ElectricGuitar || f == RoleFamily::Ambience || f == RoleFamily::DrumPad;
+        };
+        std::vector<RoleFamily> done;
+        for (int i = 0; i < n; ++i)
+        {
+            const RoleFamily f = familyOf (i);
+            if (! shares (f) || std::find (done.begin(), done.end(), f) != done.end()) continue;
+            done.push_back (f);
+            std::vector<int> members;
+            std::vector<int> units;            // a linked source counts once
+            for (int k = 0; k < n; ++k)
+            {
+                const auto& sp = plan.strips[size_t (k)];
+                if (familyOf (k) != f || ! sp.balanced || ctx.capture.strips[size_t (k)].silencePercent > R.familyShareQuietPercent) continue;
+                members.push_back (k);
+                const int unit = inLinkedSource[size_t (k)] ? -groupOf (k) : k + 1;
+                if (std::find (units.begin(), units.end(), unit) == units.end()) units.push_back (unit);
+            }
+            if (units.size() < 2) continue;
+            const float drop = roundHalf (std::min (10.0f * std::log10 (float (units.size())), R.familyShareMaxDb));
+            if (drop < 0.5f) continue;
+            std::string names;
+            for (size_t m = 0; m < members.size(); ++m)
+            {
+                auto& sp = plan.strips[size_t (members[m])];
+                sp.faderDb = clamp (sp.faderDb - drop, -R.maxFaderMoveDb, R.maxFaderMoveDb);
+                names += (m == 0 ? "" : ", ") + upper (sp.name);
+            }
+            plan.relationships.push_back (info (Recommendation::Kind::MixGain, names + " share one level " + fmtDb (-drop, 1),
+                                                 std::to_string (units.size()) + " of the same kind of source play together through this listen. Each set to "
+                                                 "that kind's own level would put " + fmtDb (10.0f * std::log10 (float (units.size())), 0)
+                                                 + " more of it in the mix than the balance was built for, and the voices would be what disappeared.",
+                                                 Confidence::Medium));
+        }
+    }
+
     // ---- The top end of the whole mix: the cymbals ----
     // Every source is placed and shaped on its own, and nothing on its own is too bright: the
     // overheads sit at their level, the hi-hat at its, each voice gets the air its own capture

@@ -35,6 +35,13 @@ namespace MixProfile
 
     // How far apart several sources of the same role are spread (0 = all centre, 1 = hard left to hard right).
     float spreadForRole (ChannelRole role);
+    // Two mono channels of one instrument linked on the console are its left and right: how
+    // far apart they are panned when the link is made. A recorded stereo source is meant to be
+    // heard as wide as it was recorded; a pair of overheads or room microphones stays off the wall.
+    float stereoPairWidth (RoleFamily family);
+    // A second microphone on one drum (Kick Out, Snare Bottom) is blended under the main one,
+    // never level with it: how far under, when the main one is in the mix too. 0 = not a blend mic.
+    float blendBelowPrimaryDb (ChannelRole role);
 
     // Bus fader starting point, dB.
     float defaultBusFaderDb (StyleProfileId profile, MixBus bus);
@@ -102,6 +109,16 @@ namespace MixProfile
         // no single channel is too bright and the sum still is. Past it the cymbal microphones'
         // high shelf comes down by at most cymbalShelfMaxCutDb below the profile's own, then the
         // overhead and hi-hat faders by at most cymbalFaderMaxCutDb.
+        // MANY MICROPHONES, ONE LEVEL. Two keyboards, five playback stems, a pair of overheads
+        // patched as two mono channels: each was fitted to the level of a whole instrument, so
+        // the family arrived 3, 6 or 7 dB over the number the profile gives it and the voices
+        // went under (the Praise stems, 2026-09-30: the engineer took the overheads down 20 dB,
+        // the hi-hat 11 and the playback 14). Sources of one kind that play together share
+        // their family's level, as the lead microphones already do - by at most this much each.
+        // A microphone quiet for more than familyShareQuietPercent of the listen is taking turns
+        // (a tom between fills) and is not counted.
+        float familyShareMaxDb = 6.0f;
+        float familyShareQuietPercent = 50.0f;
         float topEndBelowUpperMidDb = 8.0f;
         float cymbalShelfMaxCutDb = 3.0f;
         float cymbalFaderMaxCutDb = 3.0f;

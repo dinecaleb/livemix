@@ -1128,3 +1128,56 @@ TEST_CASE ("MixPlanner: the mix is built around the focal source, pinned or meas
     ctx.session.setFocus (-1);
     CHECK (ctx.session.focusInput() == -1);
 }
+
+TEST_CASE ("MixPlanner: several microphones on one instrument are one level - a linked pair, a blend mic, a family")
+{
+    // The Praise stems (2026-09-30): every microphone was fitted to a whole instrument's level,
+    // so the kick's second microphone sat level with the first and a stereo keyboard patched as
+    // two mono channels came out 3 dB too loud on each side.
+    MixSession s;
+    s.profile = StyleProfileId::ModernGospel;
+    s.purpose = MixPurpose::ChurchBroadcast;
+    s.inputs = {
+        { "Kick",     ChannelRole::KickIn,    0, -1 },
+        { "Kick Out", ChannelRole::KickOut,   0, -1 },
+        { "Snare",    ChannelRole::SnareTop,  1, -1 },
+        { "Bass",     ChannelRole::BassDI,    7, -1 },
+        { "Keys L",   ChannelRole::Piano,     8, -1 },
+        { "Keys R",   ChannelRole::Piano,     9, -1 },
+        { "Lead",     ChannelRole::LeadVocal, 10, -1 },
+    };
+    Rig rig (s);
+    auto in = bandAudio();
+    // A kick playing the whole bar, so both of its microphones are placed rather than skipped.
+    std::fill (in.data[0].begin(), in.data[0].end(), 0.0f);
+    bursts (in.data[0], 100.0f, 0.7f, 0.2f, 0.15f, 0.0f, false, 1);
+    const auto cap = rig.listen (in);
+    REQUIRE (cap.valid);
+    auto ctx = rig.context (cap);
+    ctx.current.strips[4].linkGroup = ctx.current.strips[5].linkGroup = 1;
+    ctx.atCapture = ctx.current;
+    const auto plan = MixPlanner::plan (ctx);
+    REQUIRE (plan.valid);
+
+    // The linked pair is one source: one chain, one gain, one fader.
+    const auto& l = plan.proposed.strips[4];
+    const auto& r = plan.proposed.strips[5];
+    CHECK (hasRelationship (plan, "tuned as one source"));
+    CHECK (l.inputGainDb == r.inputGainDb);
+    CHECK (l.channel.compThresholdDb == r.channel.compThresholdDb);
+    CHECK (l.channel.hpfHz == r.channel.hpfHz);
+    CHECK (stripNamed (plan, "Keys L").faderDb == stripNamed (plan, "Keys R").faderDb);
+
+    // The kick's second microphone is blended under the first.
+    bool blended = false;
+    for (const auto& item : stripNamed (plan, "Kick Out").mixItems)
+        if (item.what.find ("blended") != std::string::npos) blended = true;
+    CHECK (blended);
+
+    // Deterministic and idempotent like every other rule.
+    MixPlanContext again = ctx;
+    again.current = plan.proposed;
+    const auto second = MixPlanner::plan (again);
+    if (! second.noChangeRequired) dumpDifferences (plan, second);
+    CHECK (second.noChangeRequired);
+}

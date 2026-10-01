@@ -154,6 +154,31 @@ float spreadForRole (ChannelRole role)
     }
 }
 
+float stereoPairWidth (RoleFamily family)
+{
+    switch (family)
+    {
+        case RoleFamily::Overhead:
+        case RoleFamily::Ambience: return 0.9f;
+        case RoleFamily::Room:     return 0.8f;
+        default:                   return 1.0f;
+    }
+}
+
+// Measured on the Praise stems (2026-09-30): the engineer's own mix put the snare's bottom
+// microphone 12 dB and the kick's outside microphone 7 dB under where TUNE had left them at the
+// full kick and snare level. The top of the snare and the inside of the kick are the drum; the
+// other microphone is the wire and the air, and it is blended in.
+float blendBelowPrimaryDb (ChannelRole role)
+{
+    switch (role)
+    {
+        case ChannelRole::SnareBottom: return 12.0f;
+        case ChannelRole::KickOut:     return 6.0f;
+        default:                       return 0.0f;
+    }
+}
+
 float defaultBusFaderDb (StyleProfileId, MixBus)
 {
     return 0.0f;
@@ -178,9 +203,15 @@ float mixLevelTargetDb (StyleProfileId profile, RoleFamily family)
         case RoleFamily::Choir:          db = -25.0f; break;
         case RoleFamily::Kick:           db = -20.0f; break;
         case RoleFamily::Snare:          db = -21.0f; break;
-        case RoleFamily::Tom:            db = -24.0f; break;
-        case RoleFamily::HiHat:          db = -29.0f; break;
-        case RoleFamily::Overhead:       db = -27.0f; break;
+        // The kit is the kick and the snare; everything else on it is colour under them. Two
+        // services said the same thing about where these were (2026-09-30): QUEENSVIEW came out
+        // "a lot of cymbals", and on the Praise stems the engineer's own mix put the hi-hat 11 dB,
+        // the overheads 20 and the toms 2 under where TUNE had them against the kick and snare.
+        // Each moved down 4 (toms 2) rather than the whole way: one engineer's taste is a
+        // direction, not a number, and the cymbal rule still holds the top end of the sum.
+        case RoleFamily::Tom:            db = -26.0f; break;
+        case RoleFamily::HiHat:          db = -33.0f; break;
+        case RoleFamily::Overhead:       db = -31.0f; break;
         case RoleFamily::Room:           db = -31.0f; break;
         case RoleFamily::DrumPad:        db = -25.0f; break;   // under the kick and snare, with the toms
         // Ambience is felt before it is heard. Well under everything on the stage, so the

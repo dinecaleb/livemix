@@ -2538,6 +2538,50 @@ int MixController::linkStrips (const std::vector<int>& strips)
         if (v.limited) { limited = true; verdict = v; }
         bothSides ([&] (MixParameters& m) { m.strips[size_t (i)].faderDb = s.faderDb; });
     }
+    // TWO MONO CHANNELS OF ONE INSTRUMENT ARE ITS LEFT AND RIGHT. "keys1L" and "keys1r" linked
+    // are a stereo keyboard, and a stereo keyboard panned to the middle is a mono one: the
+    // pair is spread to its own width when the link is made. Which side is which comes from the
+    // name ("L", "Left", "R"), else from the patch order. Anything else - three microphones, two
+    // different instruments - is a level link only, as it always was.
+    {
+        std::vector<int> pair;
+        for (int i = 0; i < kept.numStrips; ++i) if (kept.strips[size_t (i)].linkGroup == group) pair.push_back (i);
+        if (pair.size() == 2 && pair[0] < graph.numStrips() && pair[1] < graph.numStrips())
+        {
+            const auto& a = graph.strips[size_t (pair[0])];
+            const auto& b = graph.strips[size_t (pair[1])];
+            const auto side = [] (const std::string& name) -> int
+            {
+                std::string n;
+                for (char c : name) n += char (std::tolower ((unsigned char) c));
+                while (! n.empty() && (n.back() == ' ' || std::isdigit ((unsigned char) n.back()))) n.pop_back();
+                if (n.size() >= 4 && n.compare (n.size() - 4, 4, "left") == 0) return -1;
+                if (n.size() >= 5 && n.compare (n.size() - 5, 5, "right") == 0) return 1;
+                if (! n.empty() && n.back() == 'l') return -1;
+                if (! n.empty() && n.back() == 'r') return 1;
+                return 0;
+            };
+            const bool mono = a.inputB < 0 && b.inputB < 0;
+            if (mono && roleFamily (a.role) == roleFamily (b.role))
+            {
+                int left = pair[0], right = pair[1];
+                const int sa = side (a.name), sb = side (b.name);
+                if ((sa > 0 && sb <= 0) || (sb < 0 && sa >= 0)) std::swap (left, right);
+                const float width = MixProfile::stereoPairWidth (roleFamily (a.role));
+                for (const auto& [strip, want] : { std::pair<int, float> { left, -width }, std::pair<int, float> { right, width } })
+                {
+                    liveSafe::Verdict v;
+                    auto& s = kept.strips[size_t (strip)];
+                    s.pan = liveSafe::limitStep (safety, LiveAction::Pan, s.pan, want, v);
+                    if (v.limited) { limited = true; verdict = v; }
+                    bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].pan = s.pan; });
+                }
+                if (onMessage && ! limited)
+                    onMessage (a.name + " and " + b.name + " are now one stereo source: panned left and right, "
+                               "moved together, and tuned as one.");
+            }
+        }
+    }
     if (limited && onMessage) onMessage (verdict.reason);
     if (plan) for (int i = 0; i < kept.numStrips; ++i)
     {

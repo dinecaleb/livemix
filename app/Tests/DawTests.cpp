@@ -1058,6 +1058,8 @@ TEST_CASE ("StemNames: the labels a live desk actually writes, and no accidents 
     CHECK (guess ("Guitar") == ChannelRole::ElectricGuitarClean);
     CHECK (guess ("12-SPD-240927_2117") == ChannelRole::DrumPad);
     CHECK (guess ("drum pad") == ChannelRole::DrumPad);
+    CHECK (guess ("Kick Out") == ChannelRole::KickOut);
+    CHECK (guess ("Kick In") == ChannelRole::KickIn);
     CHECK (guess ("Pad") == ChannelRole::SynthPad);           // a pad on its own is still a synth pad
     CHECK (roleFamily (ChannelRole::DrumPad) == RoleFamily::DrumPad);
     CHECK (mixBusForRole (ChannelRole::DrumPad) == MixBus::Drums);
@@ -1770,6 +1772,31 @@ TEST_CASE ("Mix history: a change can be undone by name, and redone")
 // ---------------------------------------------------------------------------
 // Linked faders
 // ---------------------------------------------------------------------------
+TEST_CASE ("Linked faders: two mono channels of one instrument linked become its left and right")
+{
+    // "keys1r" before "keys1L" in the patch, to prove the side comes from the name.
+    MixSession s;
+    s.inputs = { { "keys1r", ChannelRole::Piano, 0, -1 }, { "keys1L", ChannelRole::Piano, 1, -1 },
+                 { "Kick", ChannelRole::KickIn, 2, -1 }, { "Lead", ChannelRole::LeadVocal, 3, -1 } };
+    MixController c;
+    c.setSession (s);
+    c.prepare (kSr, kBlock);
+    std::vector<std::string> messages;
+    c.onMessage = [&] (const std::string& m) { messages.push_back (m); };
+
+    REQUIRE (c.linkStrips ({ 0, 1 }) != 0);
+    CHECK_NEAR (c.getKept().strips[1].pan, -1.0f, 0.01);    // L
+    CHECK_NEAR (c.getKept().strips[0].pan,  1.0f, 0.01);    // r
+    REQUIRE (! messages.empty());
+    CHECK (messages.back().find ("one stereo source") != std::string::npos);
+
+    // Two different instruments linked are a level link only: nothing is panned.
+    c.setStripPan (3, 0.0f);
+    c.linkStrips ({ 2, 3 });
+    CHECK_NEAR (c.getKept().strips[2].pan, 0.0f, 0.01);
+    CHECK_NEAR (c.getKept().strips[3].pan, 0.0f, 0.01);
+}
+
 TEST_CASE ("Linked faders: members move by the same amount, keep their balance, and one can be moved alone")
 {
     MixController c;

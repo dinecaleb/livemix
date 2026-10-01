@@ -20,6 +20,7 @@ namespace StemNames
     inline const Guess* guesses (int& count)
     {
         static const Guess table[] = {
+            { "kick out", ChannelRole::KickOut }, { "kick sub", ChannelRole::KickOut }, { "kickout", ChannelRole::KickOut },
             { "kick",  ChannelRole::KickIn }, { "bd", ChannelRole::KickIn, true },
             // Playback first: "tracks" has "rack" inside it, and a backing track read as a rack
             // tom got a gate, a tom's EQ and the drum room (the Praise stems, 2026-09-30).
