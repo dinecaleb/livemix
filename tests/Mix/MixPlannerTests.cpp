@@ -1174,6 +1174,14 @@ TEST_CASE ("MixPlanner: several microphones on one instrument are one level - a 
         if (item.what.find ("blended") != std::string::npos) blended = true;
     CHECK (blended);
 
+    // TUNE CHANNEL on one side of the pair tunes both, and nothing else.
+    const auto one = MixPlanner::channelOnly (plan, 4, StyleProfileId::ModernGospel);
+    CHECK (one.proposed.strips[4].channel.compThresholdDb == plan.proposed.strips[4].channel.compThresholdDb);
+    CHECK (one.proposed.strips[5].channel.compThresholdDb == plan.proposed.strips[5].channel.compThresholdDb);
+    CHECK (one.proposed.strips[5].faderDb == plan.proposed.strips[5].faderDb);
+    CHECK (one.proposed.strips[6].faderDb == plan.before.strips[6].faderDb);   // the lead is not touched
+    CHECK (one.headline.find ("KEYS L AND KEYS R") != std::string::npos);
+
     // Deterministic and idempotent like every other rule.
     MixPlanContext again = ctx;
     again.current = plan.proposed;

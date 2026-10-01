@@ -1678,16 +1678,29 @@ MixPlan channelOnly (const MixPlan& full, int strip, StyleProfileId profile)
         return out;
     }
 
+    // A channel linked to others of its own kind (keys1L and keys1r) is one source, and the
+    // plan already decided it as one: tuning one side tunes them all, or the pair would come
+    // back with one side processed and the other not.
+    std::vector<int> members { strip };
+    if (const int g = full.before.strips[i].linkGroup; g != 0)
+        for (int k = 0; k < int (full.strips.size()) && k < full.before.numStrips; ++k)
+            if (k != strip && full.before.strips[size_t (k)].linkGroup == g
+                && roleFamily (full.strips[size_t (k)].role) == roleFamily (full.strips[i].role))
+                members.push_back (k);
+    auto isMember = [&members] (int k) { return std::find (members.begin(), members.end(), k) != members.end(); };
+
     for (auto& sp : out.strips)
     {
-        if (sp.strip == strip) continue;
+        if (isMember (sp.strip)) continue;
         sp.faderDb = sp.faderBeforeDb;
         sp.inputGainDb = sp.inputGainBeforeDb;
         sp.balanced = false;
     }
 
     const auto& sp = out.strips[i];
-    const std::string NAME = upper (sp.name);
+    std::string NAME = upper (sp.name);
+    if (members.size() == 2) NAME += " AND " + upper (out.strips[size_t (members[1])].name);
+    else if (members.size() > 2) NAME += " + " + std::to_string (members.size() - 1) + " LINKED";
     if (sp.faint)
     {
         out.headline = NAME + ": CHECK THIS INPUT";
@@ -1705,13 +1718,24 @@ MixPlan channelOnly (const MixPlan& full, int strip, StyleProfileId profile)
         return out;
     }
 
-    out.proposed.strips[i] = full.proposed.strips[i];
     out.relationships = sp.mixItems;
-    out.parametersChanged = int (diffParameters (out.before.strips[i].channel, out.proposed.strips[i].channel).size());
-    if (std::fabs (out.before.strips[i].faderDb - out.proposed.strips[i].faderDb) >= 0.01f) out.fadersChanged = 1;
-    if (std::fabs (out.before.strips[i].inputGainDb - out.proposed.strips[i].inputGainDb) >= 0.01f) out.gainsChanged = 1;
-    for (int f = 0; f < int (FxSlot::Count); ++f)
-        if (std::fabs (out.before.strips[i].sendDb[size_t (f)] - out.proposed.strips[i].sendDb[size_t (f)]) >= 0.01f) ++out.sendsChanged;
+    for (int k : members)
+    {
+        const size_t m = size_t (k);
+        out.proposed.strips[m] = full.proposed.strips[m];
+        out.parametersChanged += int (diffParameters (out.before.strips[m].channel, out.proposed.strips[m].channel).size());
+        if (std::fabs (out.before.strips[m].faderDb - out.proposed.strips[m].faderDb) >= 0.01f) ++out.fadersChanged;
+        if (std::fabs (out.before.strips[m].inputGainDb - out.proposed.strips[m].inputGainDb) >= 0.01f) ++out.gainsChanged;
+        for (int f = 0; f < int (FxSlot::Count); ++f)
+            if (std::fabs (out.before.strips[m].sendDb[size_t (f)] - out.proposed.strips[m].sendDb[size_t (f)]) >= 0.01f) ++out.sendsChanged;
+        if (k != strip)
+            for (const auto& r : out.strips[m].mixItems) out.relationships.push_back (r);
+    }
+    // The "tuned as one source" sentence belongs to the pair, so it is said once.
+    for (const auto& r : full.relationships)
+        if (members.size() > 1 && r.what.find ("tuned as one source") != std::string::npos
+            && r.what.find (upper (sp.name)) != std::string::npos)
+            out.relationships.push_back (r);
 
     out.noChangeRequired = out.parametersChanged == 0 && out.fadersChanged == 0 && out.sendsChanged == 0 && out.gainsChanged == 0;
     out.headline = out.noChangeRequired ? NAME + ": NO CHANGE REQUIRED" : NAME + " TUNED";
