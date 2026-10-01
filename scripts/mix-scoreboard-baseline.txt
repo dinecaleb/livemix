@@ -1,0 +1,5 @@
+# scripts/mix_scoreboard.py --update, 2026-10-01, at 92e2c5f
+# reference window figures (dB; distances from the engineer's own mix, smaller is closer)
+praise-worship 790 channels=6.08 groups=3.07 lead=1.60 tone=0.87
+praise-worship 830 channels=7.89 groups=1.46 lead=1.54 tone=2.64
+praise-worship 870 channels=9.68 groups=7.88 lead=-3.64 tone=1.30

@@ -1,0 +1,8 @@
+# The reference mixes scripts/mix_scoreboard.py scores TUNE MIX against: sessions an engineer finished by hand.
+# name | session (~ is your home folder) | windows in seconds, each listened to for 40 s | dlive_mix_compare flags
+#
+# Add one only when its kept mix is the engineer's own (the Mix history ends in their edits, not in a TUNE), and
+# pick windows where the band and the lead are both playing. Then run scripts/mix_scoreboard.py --update.
+
+# Modern Worship. The full band and the lead overlap only from 13:00 to 15:00.
+praise-worship | ~/Music/DLIVE/Praise mixed/Praise mixed.dlive.json | 790,830,870 | --link-pairs

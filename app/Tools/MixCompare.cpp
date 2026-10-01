@@ -275,12 +275,18 @@ int main (int argc, char** argv)
         return a.valid && a.rmsDb > -100.0f ? a.rmsDb + p.buses[size_t (b)].faderDb : -120.0f;
     };
     const float lt = groupLands (tune, plan.proposed, MixBus::Lead), lh = groupLands (handR, hand, MixBus::Lead);
+    double groupSq = 0.0, restTune = 0.0, restHand = 0.0;
+    int groupsCounted = 0;
     for (int b = 0; b < int (MixBus::Master); ++b)
     {
         if (! graph.busUsed[size_t (b)]) continue;
         const float t = groupLands (tune, plan.proposed, MixBus (b)), h = groupLands (handR, hand, MixBus (b));
         if (t <= -100.0f && h <= -100.0f) continue;
         std::printf ("  %-10s %7.1f %7.1f %7.1f\n", mixBusName (MixBus (b)), double (t - lt), double (h - lh), double ((h - lh) - (t - lt)));
+        if (MixBus (b) == MixBus::Lead) continue;
+        if (t > -100.0f) restTune += std::pow (10.0, double (t) / 10.0);
+        if (h > -100.0f) restHand += std::pow (10.0, double (h) / 10.0);
+        if (t > -100.0f && h > -100.0f) { const double d = double ((h - lh) - (t - lt)); groupSq += d * d; ++groupsCounted; }
     }
 
     const auto mt = measure (tune.out, sr), mh = measure (handR.out, sr);
@@ -299,5 +305,26 @@ int main (int argc, char** argv)
                  double (mh.stereoCorrelation - mt.stereoCorrelation));
     for (int b = 0; b < int (Band::Count); ++b) std::printf (" %9.1f", double (mh.bandEnergyDb[size_t (b)] - mt.bandEnergyDb[size_t (b)]));
     std::printf ("\n");
+
+    // ---- the score: one line for scripts/mix_scoreboard.py, every figure "how far TUNE is from the hand" ----
+    //   channels  RMS of the channel change column (dB), the lead left out
+    //   groups    RMS of the group change column (dB), the lead group left out
+    //   lead      the lead group against every other group summed, TUNE minus HAND (dB): below zero, TUNE buries it
+    //   tone      RMS of the master's band differences once the loudness difference is taken out (dB)
+    //   lufs      the master's loudness, HAND minus TUNE (dB), printed and not scored: a hand mix aims anywhere
+    const double leadVsRestTune = restTune > 0.0 ? double (lt) - 10.0 * std::log10 (restTune) : 0.0;
+    const double leadVsRestHand = restHand > 0.0 ? double (lh) - 10.0 * std::log10 (restHand) : 0.0;
+    double toneMean = 0.0, toneSq = 0.0;
+    for (int b = 0; b < int (Band::Count); ++b) toneMean += double (mh.bandEnergyDb[size_t (b)] - mt.bandEnergyDb[size_t (b)]);
+    toneMean /= double (Band::Count);
+    for (int b = 0; b < int (Band::Count); ++b)
+    {
+        const double d = double (mh.bandEnergyDb[size_t (b)] - mt.bandEnergyDb[size_t (b)]) - toneMean;
+        toneSq += d * d;
+    }
+    std::printf ("\nSCORE window=%.0f channels=%.2f groups=%.2f lead=%.2f tone=%.2f lufs=%.2f\n", start,
+                 counted > 0 ? std::sqrt (sq / counted) : 0.0, groupsCounted > 0 ? std::sqrt (groupSq / groupsCounted) : 0.0,
+                 lt > -100.0f && lh > -100.0f && restTune > 0.0 && restHand > 0.0 ? leadVsRestTune - leadVsRestHand : 0.0,
+                 std::sqrt (toneSq / double (Band::Count)), double (mh.loudnessLufs - mt.loudnessLufs));
     return 0;
 }

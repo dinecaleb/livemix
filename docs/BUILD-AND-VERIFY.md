@@ -13,6 +13,13 @@ Every build, test, snapshot and stems command, and where the real recordings are
 - Sample replacement on real drums: `build/app/dlive_trigger_check "<folder of takes>" [seconds] [offset] [name filter]`
   (`app/Tools/TriggerCheck.cpp`) fits the stage as TUNE does and runs the detector over every kick, snare and tom take,
   printing hits, a level histogram, gaps and kick / snare coincidences; the QUEENSVIEW takes are the reference set.
+- **How close TUNE MIX is to an engineer's own mix:** `scripts/mix_scoreboard.py` runs `build/app/dlive_mix_compare`
+  over every reference session in `scripts/mix-scoreboard.txt` (sessions an engineer finished by hand) and compares
+  each window's SCORE line - channels, groups, lead against the rest, tone; all distances in dB, smaller is closer -
+  with `scripts/mix-scoreboard-baseline.txt`. It fails when any figure is more than 0.5 dB further from the hand mix
+  than the baseline. Run it after any change to profile numbers, the planner or a strategy; `--update` (and commit)
+  only when the move was meant. The audio is on this Mac, so it is a local check, not CI; a missing reference is
+  skipped and said. More references are the way to make TUNE better rather than fitted to one recording.
 - Real stems for listening/offline checks: `/Users/calebwork/Downloads/stems recording` (church multitracks). Run
   `build/modules/Drums/livemix_tune_stems "<Source>" <file.aif> [seconds] [gospel|worship]` to see measurements + decisions.
 - Verify UI changes with `cmake --build build --target livemix_ui_snapshots && build/modules/Drums/livemix_ui_snapshots <dir>`
