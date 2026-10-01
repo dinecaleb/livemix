@@ -39,6 +39,7 @@ add_executable(livemix_tests
     Mix/RoutingGraphTests.cpp
     Mix/MixEngineTests.cpp
     Mix/EngineSafetyTests.cpp
+    Mix/MeasuredMixTests.cpp
     Mix/MixCaptureTests.cpp
     Mix/MixPlannerTests.cpp
     Mix/AutopilotTests.cpp

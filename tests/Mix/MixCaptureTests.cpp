@@ -98,6 +98,17 @@ TEST_CASE ("MixCapture: waits for the band, listens to every strip at once, and 
     REQUIRE (r.strips.size() == 4);
     CHECK_NEAR (r.seconds, 2.0f, 0.05);
     CHECK (r.droppedFrames == 0);
+    REQUIRE (r.replay != nullptr);
+    CHECK (r.replay->frames == 96000);
+    CHECK (r.replay->channels == std::vector<int> ({1, 2, 1, 1}));
+    // Converter PCM is independent of digital trim, and every source begins together.
+    size_t onset = 0;
+    while (onset < r.replay->strips[2].size() && std::fabs (r.replay->strips[2][onset]) < 1e-5f) ++onset;
+    REQUIRE (onset < 480);
+    const size_t offset = 24001 - onset; // first nonzero lead sample; trigger frame can include silence
+    CHECK_NEAR (r.replay->strips[2][1000], in.data[3][offset + 1000], 1e-6);
+    CHECK_NEAR (r.replay->strips[1][2000], in.data[1][offset + 1000], 1e-6);
+    CHECK_NEAR (r.replay->strips[1][2001], in.data[2][offset + 1000], 1e-6);
 
     // Raw measurements are per strip: the kick is transient, the lead is steady, the quiet strip is silence.
     CHECK (r.strips[0].transientCount >= 3);

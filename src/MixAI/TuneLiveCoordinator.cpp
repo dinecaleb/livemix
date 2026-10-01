@@ -1,5 +1,6 @@
 #include "TuneLiveCoordinator.h"
 #include <chrono>
+#include "Profiles/MixProfileData.h"
 
 namespace livemix
 {
@@ -20,6 +21,7 @@ const char* TuneLiveCoordinator::stateName (State s) noexcept
         case State::WaitingForRefinement: return "WAITING_FOR_REFINEMENT";
         case State::ValidatingRefinement: return "VALIDATING_REFINEMENT";
         case State::ApplyingRefinement:   return "APPLYING_REFINEMENT";
+        case State::MeasuringProposal:    return "MEASURING_PROPOSAL";
         case State::Ready:                return "READY";
         case State::Failed:               return "FAILED";
         case State::Cancelled:            return "CANCELLED";
@@ -62,7 +64,7 @@ bool TuneLiveCoordinator::isBusy() const noexcept
 bool TuneLiveCoordinator::isWaitingOnProvider() const noexcept
 {
     const auto s = getState();
-    return s == State::WaitingForReasoning || s == State::WaitingForRefinement;
+    return s == State::WaitingForReasoning || s == State::WaitingForRefinement || s == State::MeasuringProposal;
 }
 
 bool TuneLiveCoordinator::wantsApply() const noexcept
@@ -91,6 +93,8 @@ void TuneLiveCoordinator::reset()
     haveProposal = false;
     failure.clear();
     diagnostics = {};
+    measuredResponse = {};
+    measuredBanks.reset();
     setState (State::Idle);
 }
 
@@ -128,13 +132,14 @@ void TuneLiveCoordinator::fail (std::string why)
     setState (State::Failed);
 }
 
-void TuneLiveCoordinator::onListenComplete (const MixPlanContext& ctx, const MixPlan& baseline)
+void TuneLiveCoordinator::onListenComplete (const MixPlanContext& ctx, const MixPlan& baseline, const SampleBankTable* banks)
 {
     if (getState() != State::CapturingInitial) return;
     setState (State::AnalyzingInitial);
 
     {
         std::lock_guard<std::mutex> lock (mutex);
+        measuredBanks = banks ? std::optional<SampleBankTable> (*banks) : std::nullopt;
         planContext = ctx;
         baselinePlan = baseline;
         registry = DspCapabilityRegistry::build (ctx.session, ctx.graph);
@@ -302,6 +307,26 @@ void TuneLiveCoordinator::joinWorker()
 void TuneLiveCoordinator::poll()
 {
     const auto s = getState();
+    if (s == State::MeasuringProposal)
+    {
+        if (! workerDone.load (std::memory_order_acquire)) return;
+        joinWorker();
+        if (cancelFlag.load()) { setState (State::Cancelled); return; }
+        {
+            std::lock_guard<std::mutex> lock (mutex);
+            if (! measuredResponse.fallback)
+            {
+                proposed = measuredResponse.plan.proposed;
+                diagnostics.offlineVerified = measuredResponse.verification.available;
+                diagnostics.offlineSafe = measuredResponse.verification.safe;
+                diagnostics.offlineRenders += measuredResponse.renders;
+                diagnostics.offlineCorrections += measuredResponse.acceptedPasses;
+                for (const auto& warning : measuredResponse.verification.warnings) diagnostics.problems.push_back (warning);
+            }
+        }
+        setState (measuringRefinement ? State::ApplyingRefinement : State::Applying);
+        return;
+    }
     if (s != State::WaitingForReasoning && s != State::WaitingForRefinement) return;
     if (! workerDone.load (std::memory_order_acquire)) return;
     joinWorker();
@@ -395,8 +420,32 @@ void TuneLiveCoordinator::resolveAndValidate (bool refinement)
         }
     }
 
-    if (refinement) { diagnostics.refinementRan = true; setState (State::ApplyingRefinement); }
-    else setState (State::Applying);
+    if (refinement) diagnostics.refinementRan = true;
+    if (planContext.capture.replay) startMeasuredVerification (refinement);
+    else setState (refinement ? State::ApplyingRefinement : State::Applying);
+}
+
+void TuneLiveCoordinator::startMeasuredVerification (bool refinement)
+{
+    joinWorker();
+    measuringRefinement = refinement;
+    workerDone.store (false);
+    auto ctx = planContext;
+    auto seed = baselinePlan;
+    seed.before = ctx.current;
+    seed.proposed = proposed;
+    setState (State::MeasuringProposal);
+    worker = std::thread ([this, ctx, seed]
+    {
+        MeasuredMix::Result result; result.plan = seed;
+        try { result = MeasuredMix::refine (ctx, seed, MixProfile::measuredTune().maxPasses, measuredBanks ? &*measuredBanks : nullptr, &cancelFlag); }
+        catch (...) { /* Same deterministic fallback as a failed reasoning worker. */ }
+        {
+            std::lock_guard<std::mutex> lock (mutex);
+            measuredResponse = std::move (result);
+        }
+        workerDone.store (true, std::memory_order_release);
+    });
 }
 
 void TuneLiveCoordinator::onApplied()
@@ -461,6 +510,7 @@ std::string TuneLiveCoordinator::getStatusText() const
         case State::WaitingForRefinement: return "Making the last corrections...";
         case State::ValidatingRefinement: return "Checking the corrections...";
         case State::ApplyingRefinement:   return "Applying the corrections...";
+        case State::MeasuringProposal:    return "Measuring the proposed mix...";
         case State::Ready:                return "LIVE MIX READY";
         case State::Failed:               return getFailure();
         case State::Cancelled:            return "TUNE LIVE MIX was stopped. Your mix has not been changed.";

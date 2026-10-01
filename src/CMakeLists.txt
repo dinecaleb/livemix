@@ -40,6 +40,7 @@ add_library(livemix_engine STATIC
     Mix/RoutingGraph.cpp
     Mix/MixEngine.cpp
     Mix/MixCapture.cpp
+    Mix/MeasuredMix.cpp
     Mix/OfflineCapture.cpp
     Mix/MixPlanner.cpp
     Mix/ReferenceMix.cpp

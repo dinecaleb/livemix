@@ -3,12 +3,14 @@
 #include <atomic>
 #include <cmath>
 #include <functional>
+#include <future>
 #include <optional>
 #include <string>
 #include <vector>
 #include "Mix/MixEngine.h"
 #include "Mix/MixCapture.h"
 #include "Mix/MixPlanner.h"
+#include "Mix/MeasuredMix.h"
 #include "Mix/MixMacros.h"
 #include "Mix/OutputFeeds.h"
 #include "Mix/LiveSafe.h"
@@ -805,6 +807,12 @@ public:
     std::function<void (const UsageEvent&)> onUsage;
 
 private:
+    std::future<MeasuredMix::Result> measuredPlanning;
+    std::shared_ptr<std::atomic<bool>> planningCancel;
+    MixPlanContext planningContext;
+    unsigned long long planningRevision = 0;
+    void launchPlanning (const MixPlanContext&, bool masterOnly = false);
+    void cancelPlanning() noexcept { if (planningCancel) planningCancel->store (true); }
     void usage (UsageEvent e) const { if (onUsage) onUsage (e); }
     // The scope of the listen or proposal in hand, in the usage events' words, with the
     // instrument or group it was about added to `e`.

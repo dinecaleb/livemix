@@ -63,6 +63,7 @@ struct BusPlan
 struct MixPlan
 {
     bool valid = false;
+    bool refused = false; // unusable listen: measure if possible, but never refine it
     std::string headline;                   // "MIX TUNED" / "MIX: NO CHANGE REQUIRED" / "MIX: NO SIGNAL"
     bool noChangeRequired = false;
     MixParameters before;
@@ -93,6 +94,7 @@ struct MixPlan
 namespace MixPlanner
 {
     MixPlan plan (const MixPlanContext& ctx);
+    int focalStrip (const MixPlanContext&, const std::vector<bool>* eligible = nullptr);
 
     // TUNE CHANNEL: the same plan, narrowed to one source. A channel is never tuned by a
     // different set of rules - the listen hears the whole band and the planner decides in
@@ -132,6 +134,7 @@ namespace MixPlanner
     MixPlan restrictTo (const MixPlan& full, const PlanSelection& selection, const RoutingGraph& graph, StyleProfileId profile);
 
     // Bounded application helpers shared with the app (message thread).
+    void refreshSummary (MixPlan&); // recount and refresh Inspector values after a validated snapshot
     int countParameterChanges (const MixParameters& from, const MixParameters& to);
 
     // Where strip i's processed (pre-fader) peak lands under `strip`, predicted from the listen in `ctx`

@@ -1,5 +1,6 @@
 #include "MixCapture.h"
 #include "Core/DbUtils.h"
+#include "Profiles/MixProfileData.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -55,6 +56,7 @@ void MixCapture::prepare (double sampleRate, const RoutingGraph& graph)
         s->channels = graph.strips[size_t (i)].numChannels();
         s->used = true;
         s->fifo.prepare (kFifoFrames, s->channels);
+        s->converter.prepare (kFifoFrames, s->channels);
         s->accumulator.prepare (sr, s->channels);
         strips.push_back (std::move (s));
     }
@@ -73,6 +75,7 @@ void MixCapture::prepare (double sampleRate, const RoutingGraph& graph)
     masterOut.used = true;
     masterOut.fifo.prepare (kFifoFrames, 2);
     masterOut.accumulator.prepare (sr, 2);
+    converterBuffer.assign (size_t (kPopFrames * kMaxChannels), 0.0f);
     popBuffer.assign (size_t (kPopFrames * kMaxChannels), 0.0f);
     const int frameSize = std::max (1, int (sr / 100.0));
     staging.assign (size_t (numStrips + int (MixBus::Count) + 1), std::vector<float> (size_t (frameSize * kMaxChannels), 0.0f));
@@ -134,6 +137,7 @@ void MixCapture::pushStripInput (int strip, const AudioBlockView& raw) noexcept
 void MixCapture::countConverterClips (int strip, const AudioBlockView& raw) noexcept
 {
     if (! active.load (std::memory_order_relaxed) || strip < 0 || strip >= numStrips) return;
+    strips[size_t (strip)]->converter.push (raw);
     int clips = 0;
     for (int ch = 0; ch < raw.numChannels; ++ch)
         for (int i = 0; i < raw.numSamples; ++i)
@@ -182,14 +186,29 @@ void MixCapture::pushMasterOutput (const AudioBlockView& output) noexcept
 // While listening (consume == true) everything available goes straight in.
 int MixCapture::popAll (int maxFrames, bool consume, float triggerLin, bool& triggered)
 {
+    // Pop only a common prefix. A worker waking halfway through a device block must
+    // not discard 10 ms from one source while another source has not arrived yet.
+    for (const auto& s : strips) maxFrames = std::min (maxFrames, s->fifo.availableFrames());
+    for (const auto& b : buses) if (b.used) maxFrames = std::min (maxFrames, b.fifo.availableFrames());
+    maxFrames = std::min (maxFrames, masterOut.fifo.availableFrames());
+    if (maxFrames <= 0) return 0;
     const float heardLin = dbToGain (settings.heardDb);
     int total = 0;
+    int roundStripFrames = -1;
     auto handle = [&] (Stream& s, size_t index, bool isStrip)
     {
         if (! s.used) return;
         if (consume)
         {
             int n = s.fifo.pop (popBuffer.data(), std::min (maxFrames, int (popBuffer.size()) / s.channels));
+            if (isStrip)
+            {
+                const int cn = s.converter.pop (converterBuffer.data(), n);
+                if (cn != n) replayAligned = false;
+                const int keep = std::min ({ n, targetFrames - s.captured, replayLimit - s.captured });
+                if (replay && keep > 0 && cn == n)
+                    replay->strips[index].insert (replay->strips[index].end(), converterBuffer.begin(), converterBuffer.begin() + keep * s.channels);
+            }
             if (n <= 0) return;
             total += n;
             if (isStrip && blockPeak (popBuffer.data(), n, s.channels) >= heardLin) s.heard.store (true, std::memory_order_relaxed);
@@ -201,6 +220,15 @@ int MixCapture::popAll (int maxFrames, bool consume, float triggerLin, bool& tri
             auto& stage = staging[index];
             const int n = s.fifo.pop (stage.data(), std::min (maxFrames, int (stage.size()) / s.channels));
             stagedFrames[index] = n;
+            if (isStrip)
+            {
+                const int cn = s.converter.pop (converterBuffer.data(), n);
+                if (cn != n) replayAligned = false;
+                if (roundStripFrames < 0) roundStripFrames = n;
+                else if (roundStripFrames != n) replayAligned = false;
+                // Keep only the common trigger round; earlier waiting audio is discarded.
+                if (replay) replay->strips[index].assign (converterBuffer.begin(), converterBuffer.begin() + cn * s.channels);
+            }
             if (n <= 0) return;
             total += n;
             if (isStrip)
@@ -230,10 +258,19 @@ void MixCapture::workerLoop()
             cv.wait (lock, [this] { return startRequested.load() || shouldExit.load(); });
             if (shouldExit.load()) return;
             startRequested.store (false);
-            for (auto& s : strips) { s->accumulator.reset(); s->captured = 0; s->heard.store (false); s->fifo.clear(); s->fifo.resetDropped(); }
+            for (auto& s : strips) { s->accumulator.reset(); s->captured = 0; s->heard.store (false); s->fifo.clear(); s->fifo.resetDropped(); s->converter.clear(); s->converter.resetDropped(); }
             for (auto& b : buses) if (b.used) { b.accumulator.reset(); b.captured = 0; b.fifo.clear(); b.fifo.resetDropped(); }
             if (masterOut.used) { masterOut.accumulator.reset(); masterOut.captured = 0; masterOut.fifo.clear(); masterOut.fifo.resetDropped(); }
             for (int i = 0; i < kMaxStrips; ++i) { postPeak[size_t (i)].store (0.0f); postSumSquares[size_t (i)].store (0.0); postSamples[size_t (i)].store (0); converterClips[size_t (i)].store (0); }
+            replay = std::make_shared<Replay>();
+            replay->sampleRate = sr;
+            replay->strips.resize (size_t (numStrips));
+            replayAligned = true;
+            int channels = 0;
+            for (const auto& strip : strips) { replay->channels.push_back (strip->channels); channels += strip->channels; }
+            // At most 12 seconds and 128 MiB. No audio callback allocates or copies this object.
+            replayLimit = std::min ({ targetFrames, int (sr * MixProfile::measuredTune().replaySeconds), int (MixProfile::measuredTune().replayBytes / (sizeof(float) * size_t (std::max (1, channels)))) });
+            for (size_t i = 0; i < replay->strips.size(); ++i) replay->strips[i].reserve (size_t (replayLimit * replay->channels[i]));
             progressFrames.store (0);
         }
         if (numStrips == 0) { state.store (int (State::Failed), std::memory_order_release); continue; }
@@ -341,6 +378,12 @@ void MixCapture::workerLoop()
         r.masterOutput = masterOut.accumulator.finalise (masterOut.fifo.getDroppedFrames());
         r.seconds = float (maxCaptured / sr);
         r.valid = true;
+        replay->frames = std::min (replayLimit, strips[0]->captured);
+        for (size_t i = 0; i < strips.size(); ++i)
+            if (strips[i]->converter.getDroppedFrames() != 0 || strips[i]->fifo.getDroppedFrames() != 0
+                || replay->strips[i].size() != size_t (replay->frames * replay->channels[i])) replayAligned = false;
+        if (replayAligned && replay->frames >= int (sr * 0.4)) r.replay = replay;
+        replay.reset();
         for (const auto& a : r.strips) if (! a.valid) r.valid = false;
         {
             std::lock_guard<std::mutex> lock (resultMutex);

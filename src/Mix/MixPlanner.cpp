@@ -229,6 +229,28 @@ namespace
 
 namespace MixPlanner
 {
+int focalStrip (const MixPlanContext& ctx, const std::vector<bool>* eligible)
+{
+    const int n = std::min (ctx.graph.numStrips(), int (ctx.capture.strips.size()));
+    auto usable = [&] (int i)
+    {
+        if (eligible) return i < int (eligible->size()) && (*eligible)[size_t (i)];
+        const auto& a = ctx.capture.strips[size_t (i)];
+        return a.valid && a.silencePercent <= 95 && a.peakDb >= -70;
+    };
+    const int pinnedInput = ctx.session.focusInput();
+    for (int i = 0; pinnedInput >= 0 && i < n; ++i)
+        if (ctx.graph.strips[size_t (i)].input == pinnedInput && usable (i)) return i;
+    int best = -1; float separation = -1.0e9f;
+    for (int i = 0; i < n; ++i)
+    {
+        if (! usable (i) || roleFamily (ctx.graph.strips[size_t (i)].role) != RoleFamily::LeadVocal) continue;
+        const auto& a = ctx.capture.strips[size_t (i)];
+        if (a.activeRmsDb - a.noiseFloorDb > separation) { best = i; separation = a.activeRmsDb - a.noiseFloorDb; }
+    }
+    return best;
+}
+
 
 // What the sample stage does to a peak, dB: the crossfade `mic * (1 - blend) + sample * blend`,
 // with the sample's own peak where TUNE put it. `tune::sampledHitDb` is the same arithmetic the
@@ -316,6 +338,7 @@ MixPlan plan (const MixPlanContext& ctx)
     const int n = std::min ({ ctx.graph.numStrips(), ctx.current.numStrips, int (ctx.capture.strips.size()) });
     if (n <= 0)
     {
+        plan.refused = true;
         plan.headline = "MIX: NO SIGNAL";
         plan.notes.push_back ("Nothing was captured. Check the input device and that inputs are assigned, then Tune Mix again.");
         return plan;
@@ -429,6 +452,7 @@ MixPlan plan (const MixPlanContext& ctx)
     {
         plan.proposed = plan.before;          // a refused listen changes nothing, not even a chain
         plan.noChangeRequired = true;
+        plan.refused = true;
         plan.headline = "MIX: NO SIGNAL";
         plan.notes.push_back ("No input carried a usable signal during the listen. Have the band play and Tune Mix again.");
         plan.valid = true;
@@ -452,6 +476,7 @@ MixPlan plan (const MixPlanContext& ctx)
     {
         plan.proposed = plan.before;          // ... including the chains the strips were given above
         plan.noChangeRequired = true;
+        plan.refused = true;
         plan.headline = "MIX: THAT WAS NOT A PERFORMANCE";
         plan.notes.push_back (everythingSteady
             ? "Every input DLIVE could hear carried a steady signal rather than somebody playing: never quiet, and never far above "
@@ -685,24 +710,10 @@ MixPlan plan (const MixPlanContext& ctx)
     // level stands furthest above what it hears between phrases. The loudest lead is the wrong
     // answer when a spare microphone is lying open on a monitor wedge, which is how a mix ends
     // up built around a stand.
-    const int focal = [&] () -> int
-    {
-        const int pinned = ctx.session.focusInput();
-        if (pinned >= 0 && pinned < n && plan.strips[size_t (pinned)].heard && ! plan.strips[size_t (pinned)].bleedOnly)
-            return pinned;
-        int best = -1;
-        float bestSeparation = -1.0e9f;
-        for (int i = 0; i < n; ++i)
-        {
-            const auto& sp = plan.strips[size_t (i)];
-            if (! sp.heard || sp.bleedOnly || roleFamily (sp.role) != RoleFamily::LeadVocal) continue;
-            const auto& a = ctx.capture.strips[size_t (i)];
-            const float separation = a.activeRmsDb - a.noiseFloorDb;
-            if (separation > bestSeparation) { bestSeparation = separation; best = i; }
-        }
-        return best;
-    }();
-    if (focal >= 0 && ctx.session.focusInput() == focal && ctx.session.focusInput() >= 0)
+    std::vector<bool> focalEligible (size_t (n), false);
+    for (int i = 0; i < n; ++i) focalEligible[size_t (i)] = plan.strips[size_t (i)].heard && ! plan.strips[size_t (i)].bleedOnly;
+    const int focal = focalStrip (ctx, &focalEligible);
+    if (focal >= 0 && ctx.session.focusInput() == ctx.graph.strips[size_t (focal)].input && ctx.session.focusInput() >= 0)
         plan.relationships.push_back (info (Recommendation::Kind::Info, upper (plan.strips[size_t (focal)].name) + " is what this mix is built around",
                                              "You pinned it, so it is the reference: every level is set against it, the music makes room for it rather than "
                                              "the other way round, and nothing is held back to make room for anything else.", Confidence::High));
@@ -1823,6 +1834,31 @@ namespace
             out.parametersChanged += int (diffParameters (out.before.buses[size_t (b)].channel, out.proposed.buses[size_t (b)].channel).size());
         out.noChangeRequired = out.parametersChanged == 0 && out.fadersChanged == 0 && out.sendsChanged == 0 && out.gainsChanged == 0;
     }
+}
+
+void refreshSummary (MixPlan& out)
+{
+    recount (out);
+    for (size_t b = 0; b < out.buses.size(); ++b)
+    {
+        if (std::fabs (out.before.buses[b].faderDb - out.proposed.buses[b].faderDb) >= 0.01f) ++out.fadersChanged;
+        out.buses[b].tune.before = out.before.buses[b].channel;
+        out.buses[b].tune.proposed = out.proposed.buses[b].channel;
+        out.buses[b].tune.parametersChanged = int (diffParameters (out.buses[b].tune.before, out.buses[b].tune.proposed).size());
+    }
+    for (auto& strip : out.strips)
+    {
+        const size_t i = size_t (strip.strip);
+        if (strip.strip < 0 || strip.strip >= out.proposed.numStrips) continue;
+        strip.faderBeforeDb = out.before.strips[i].faderDb;
+        strip.inputGainBeforeDb = out.before.strips[i].inputGainDb;
+        strip.faderDb = out.proposed.strips[i].faderDb;
+        strip.inputGainDb = out.proposed.strips[i].inputGainDb;
+        strip.tune.before = out.before.strips[i].channel;
+        strip.tune.proposed = out.proposed.strips[i].channel;
+        strip.tune.parametersChanged = int (diffParameters (strip.tune.before, strip.tune.proposed).size());
+    }
+    out.noChangeRequired = countParameterChanges (out.before, out.proposed) == 0;
 }
 
 MixPlanner::PlanSelection MixPlanner::PlanSelection::all (int numStrips)

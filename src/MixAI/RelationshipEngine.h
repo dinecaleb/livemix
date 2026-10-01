@@ -40,6 +40,7 @@ struct MixRelationship
     // layer and the tests both key off it, so it never changes once released.
     std::string metric;
     int stripA = -1;              // strip index, or -1 when the side is a bus / the master / the returns
+    int busA = -1, busB = -1;  // measured group relationship, otherwise -1
     int stripB = -1;
     std::string nameA, nameB;
     float value = 0.0f;           // in the metric's own units (dB unless the name says otherwise)
@@ -50,6 +51,13 @@ struct MixRelationship
 
 namespace RelationshipEngine
 {
+    // Potential masking at actual processed strip levels. Bus gain is included; shared
+    // bus nonlinear processing cannot be attributed to individual sources. Values identify
+    // competition, not a psychoacoustic claim of audibility or simultaneous performance.
+    std::vector<MixRelationship> measureRendered (const MixPlanContext&, const MixParameters&,
+                                                  const std::vector<AnalysisResult>& processed,
+                                                  const std::vector<std::vector<AnalysisResult>>* windows = nullptr);
+
     // Measured from the listen in `ctx` and the profile's targets. `heardStrips`, when given,
     // is MixPlanner's own verdict on which strips carried a usable signal (so a faint input or a
     // speech mic heard only as spill never becomes a relationship); without it the engine makes

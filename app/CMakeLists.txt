@@ -150,6 +150,7 @@ if (LIVEMIX_BUILD_TESTS)
     # Application-layer tests: controller state machine and session document (no device, no UI).
     add_executable(dlive_app_tests
         Tests/AppTests.cpp
+        Tests/MeasuredPlanningTests.cpp
         Tests/DawTests.cpp
         Tests/RecordingTests.cpp
         Tests/ThemeTests.cpp

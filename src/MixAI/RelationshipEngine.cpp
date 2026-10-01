@@ -83,6 +83,118 @@ namespace
 namespace RelationshipEngine
 {
 
+std::vector<MixRelationship> measureRendered (const MixPlanContext& ctx, const MixParameters& p,
+                                             const std::vector<AnalysisResult>& post,
+                                             const std::vector<std::vector<AnalysisResult>>* windows)
+{
+    std::vector<MixRelationship> out;
+    const auto& R = MixProfile::relationships (ctx.session.profile);
+    const int n = std::min ({ ctx.graph.numStrips(), p.numStrips, int (post.size()) });
+    auto heard = [&] (int i) { return usable (post[size_t (i)]) && ! p.strips[size_t (i)].mute
+                                     && ! p.buses[size_t (ctx.graph.strips[size_t (i)].bus)].mute; };
+    auto family = [&] (int i) { return roleFamily (ctx.graph.strips[size_t (i)].role); };
+    auto level = [&] (int i) { return post[size_t (i)].rmsDb + p.strips[size_t (i)].faderDb
+                                  + p.buses[size_t (ctx.graph.strips[size_t (i)].bus)].faderDb; };
+    auto bandLevel = [&] (int i, Band band) { return level (i) + post[size_t (i)].bandEnergyDb[size_t (band)]; };
+    auto coactiveDifference = [&] (int competitor, int reference, Band band, float& difference)
+    {
+        if (! windows) { difference = bandLevel (competitor, band) - bandLevel (reference, band); return true; }
+        if (windows->size() != post.size()) return false;
+        const auto& a = (*windows)[size_t (competitor)]; const auto& b = (*windows)[size_t (reference)];
+        double energyA = 0, energyB = 0; int count = 0;
+        for (size_t w = 0; w < std::min (a.size(), b.size()); ++w)
+        {
+            if (! a[w].valid || ! b[w].valid
+                || a[w].rmsDb < post[size_t (competitor)].activeRmsDb - MixProfile::measuredTune().coactivityRangeDb
+                || b[w].rmsDb < post[size_t (reference)].activeRmsDb - MixProfile::measuredTune().coactivityRangeDb) continue;
+            energyA += std::pow (10.0, double (a[w].rmsDb + a[w].bandEnergyDb[size_t (band)]) / 10);
+            energyB += std::pow (10.0, double (b[w].rmsDb + b[w].bandEnergyDb[size_t (band)]) / 10); ++count;
+        }
+        if (count == 0 || energyA <= 0 || energyB <= 0) return false;
+        const float gainA = p.strips[size_t (competitor)].faderDb + p.buses[size_t (ctx.graph.strips[size_t (competitor)].bus)].faderDb;
+        const float gainB = p.strips[size_t (reference)].faderDb + p.buses[size_t (ctx.graph.strips[size_t (reference)].bus)].faderDb;
+        difference = float (10 * std::log10 (energyA / energyB)) + gainA - gainB;
+        return true;
+    };
+    auto add = [&] (MixRelationKind kind, const char* metric, int a, int b, float value, float tolerance)
+    {
+        MixRelationship r;
+        r.kind = kind; r.metric = metric; r.stripA = a; r.stripB = b;
+        r.nameA = ctx.graph.strips[size_t (a)].name; r.nameB = ctx.graph.strips[size_t (b)].name;
+        r.value = value; r.tolerance = tolerance; r.concern = value > tolerance;
+        r.headline = r.nameA + " against " + r.nameB + ": measured " + db (value)
+                     + (windows ? " (coactive processed windows plus bus faders; potential masking)."
+                              : " (processed strips plus bus faders; potential masking).");
+        out.push_back (std::move (r));
+    };
+    std::vector<bool> eligible (size_t (n), false);
+    for (int i = 0; i < n; ++i) eligible[size_t (i)] = heard (i);
+    const int focus = MixPlanner::focalStrip (ctx, &eligible);
+    if (focus >= 0)
+    {
+        double backing = 0; int loudestBacking = -1;
+        for (int i = 0; i < n; ++i)
+        {
+            if (i == focus || ! heard (i)) continue;
+            const auto f = family (i);
+            const bool bgv = f == RoleFamily::BackingVocal || f == RoleFamily::Choir;
+            if (bgv)
+            {
+                backing += std::pow (10.0, double (level (i)) / 10);
+                if (loudestBacking < 0 || level (i) > level (loudestBacking)) loudestBacking = i;
+            }
+            if (bgv || isMusicFamily (f) || f == RoleFamily::Snare || f == RoleFamily::Overhead)
+            {
+                // The profile's pocket is 2.8 kHz: upper-mid (1-3k) matters as much as
+                // presence (3-6k). Previously only the latter band was compared.
+                float upper = 0, presence = 0;
+                if (! coactiveDifference (i, focus, Band::UpperMid, upper)
+                    || ! coactiveDifference (i, focus, Band::Presence, presence)) continue;
+                const float over = std::max (upper, presence);
+                add (bgv ? MixRelationKind::LeadAndBacking : MixRelationKind::LeadAndMusic,
+                     "rendered_voice_masking_db", i, focus, over, R.maskingToleranceDb);
+            }
+        }
+        float backingOver = backing > 0 ? float (10 * std::log10 (backing)) - level (focus) : -120.0f;
+        if (windows && windows->size() == post.size())
+        {
+            double groupEnergy = 0, leadEnergy = 0;
+            const auto& lead = (*windows)[size_t (focus)];
+            for (size_t w = 0; w < lead.size(); ++w)
+            {
+                if (! lead[w].valid || lead[w].rmsDb < post[size_t (focus)].activeRmsDb - MixProfile::measuredTune().coactivityRangeDb) continue;
+                double group = 0;
+                for (int i = 0; i < n; ++i)
+                {
+                    if (! heard (i) || (family (i) != RoleFamily::BackingVocal && family (i) != RoleFamily::Choir)) continue;
+                    const auto& frames = (*windows)[size_t (i)];
+                    if (w >= frames.size() || ! frames[w].valid || frames[w].rmsDb < post[size_t (i)].activeRmsDb - MixProfile::measuredTune().coactivityRangeDb) continue;
+                    const float gain = p.strips[size_t (i)].faderDb + p.buses[size_t (ctx.graph.strips[size_t (i)].bus)].faderDb;
+                    group += std::pow (10.0, double (frames[w].rmsDb + gain) / 10);
+                }
+                if (group <= 0) continue;
+                groupEnergy += group;
+                const float gain = p.strips[size_t (focus)].faderDb + p.buses[size_t (ctx.graph.strips[size_t (focus)].bus)].faderDb;
+                leadEnergy += std::pow (10.0, double (lead[w].rmsDb + gain) / 10);
+            }
+            backingOver = groupEnergy > 0 && leadEnergy > 0 ? float (10 * std::log10 (groupEnergy / leadEnergy)) : -120.0f;
+        }
+        if (loudestBacking >= 0 && backingOver > -119.0f)
+            add (MixRelationKind::LeadAndBacking, "rendered_backing_over_lead_db", loudestBacking, focus,
+                 backingOver, -R.backingGroupBelowLeadDb);
+    }
+    for (int kick = 0; kick < n; ++kick)
+        if (heard (kick) && family (kick) == RoleFamily::Kick)
+            for (int bass = 0; bass < n; ++bass)
+                if (heard (bass) && (family (bass) == RoleFamily::ElectricBass || family (bass) == RoleFamily::SynthBass))
+                {
+                    float over = 0;
+                    if (coactiveDifference (bass, kick, Band::Sub, over))
+                        add (MixRelationKind::KickAndBass, "rendered_sub_overlap_db", bass, kick, over, R.subOverlapToleranceDb);
+                }
+    return out;
+}
+
 std::vector<MixRelationship> measure (const MixPlanContext& ctx, const std::vector<bool>* heardStrips)
 {
     std::vector<MixRelationship> out;

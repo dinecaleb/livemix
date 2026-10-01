@@ -706,11 +706,7 @@ TEST_CASE ("MixController: a channel that never played is told so, and nothing i
     f.ip.resize (7, nullptr);
     c.startTuneChannel (5, { 1.0f, -200.0f, 0.0f });
     f.play (1.6);
-    for (int i = 0; i < 300 && c.getStage() == MixController::Stage::Listening; ++i)
-    {
-        c.poll();
-        std::this_thread::sleep_for (std::chrono::milliseconds (5));
-    }
+    REQUIRE (f.waitFor (MixController::Stage::Ready));
     CHECK (c.getStage() != MixController::Stage::Preview);
     bool saidNotHeard = false;
     for (const auto& m : messages) if (m.find ("NOT HEARD") != std::string::npos) saidNotHeard = true;
@@ -759,7 +755,7 @@ TEST_CASE ("MixController: revert restores the mix that ran before the listen; a
             if ((b % 8) == 0) c.poll();
         }
     }
-    for (int i = 0; i < 300 && c.getStage() == MixController::Stage::Listening; ++i) { c.poll(); std::this_thread::sleep_for (std::chrono::milliseconds (5)); }
+    REQUIRE (f.waitFor (MixController::Stage::Ready));
     CHECK (c.getStage() == MixController::Stage::Ready);
     CHECK (! c.hasPlan());
     bool saidNoSignal = false;
@@ -1114,7 +1110,7 @@ TEST_CASE ("MixController: a reference aims the mix from the listen it already h
 
     // What the mix proposes with no reference at all: the profile's own aim, from this listen.
     c.startReferenceMatch();
-    REQUIRE (c.getStage() == MixController::Stage::Preview);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
     REQUIRE (c.hasPlan());
     CHECK (! c.getPlan()->reference.used);
     const MixParameters profileAimed = c.getPlan()->proposed;
@@ -1140,7 +1136,7 @@ TEST_CASE ("MixController: a reference aims the mix from the listen it already h
 
     // Matching works from the listen DLIVE already has - the band is not asked to play again.
     c.startReferenceMatch();
-    REQUIRE (c.getStage() == MixController::Stage::Preview);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
     REQUIRE (c.hasPlan());
     REQUIRE (c.getPlan()->reference.used);
     CHECK (c.getPlan()->reference.name == "Sunday Record");
@@ -1173,7 +1169,7 @@ TEST_CASE ("MixController: a reference aims the mix from the listen it already h
     c.clearReference();
     CHECK (! c.hasReference());
     c.startReferenceMatch();
-    REQUIRE (c.getStage() == MixController::Stage::Preview);
+    REQUIRE (f.waitFor (MixController::Stage::Preview));
     CHECK (! c.getPlan()->reference.used);
     CHECK (c.getPlan()->notes.size() > 0);
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <algorithm>
 #include <cmath>
 #include <random>
 #include "Core/AudioBlockView.h"
@@ -22,7 +23,8 @@ namespace testsig
             static thread_local std::vector<float*> tmp;
             tmp.clear();
             for (auto* p : ptrs) tmp.push_back (p + offset);
-            const int n = length < 0 ? int (data[0].size()) - offset : length;
+            const int remaining = int (data[0].size()) - offset;
+            const int n = length < 0 ? remaining : std::min (length, remaining);
             return { tmp.data(), int (ptrs.size()), n };
         }
         int numSamples() const { return int (data[0].size()); }
