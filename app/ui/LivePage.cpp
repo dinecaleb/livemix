@@ -1,4 +1,5 @@
 #include "LivePage.h"
+#include "Profiles/MixProfileData.h"
 #include "native/MixHistory.h"
 #include "OutputsSheet.h"
 #include "UI/Widgets.h"
@@ -407,6 +408,18 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         refresh();
     };
 
+    // ---- the speaking mics
+    priorityLink = std::make_unique<Link>();
+    addAndMakeVisible (*priorityLink);
+    priorityLink->setTooltip ("While somebody is speaking, the band (drums, bass, music) steps back a few dB and comes back when they stop. "
+                              "The voices, the room and your own listen never move.");
+    priorityLink->onClick = [this] { controller.setSpeechPriority (! controller.getSpeechPriority()); refresh(); };
+    shareLink = std::make_unique<Link>();
+    addAndMakeVisible (*shareLink);
+    shareLink->setTooltip ("For a podcast table, a panel or an interview: the speaking mic in use is open and the others step back, "
+                           "so the stream hears one mic's worth of room noise and bleed. Your pre-fade listen is never changed.");
+    shareLink->onClick = [this] { controller.setAutoMix (! controller.getAutoMix()); refresh(); };
+
     // ---- the engineer's own listen
     const char* labels[4] = { "MONITOR SOLO", "SOLO IN PLACE", "AFL", "PFL" };
     const char* tips[4] = {
@@ -592,6 +605,11 @@ void LivePage::refresh()
     {
         const auto& ap = controller.getAutopilot();
         next.autopilotOn = ap.on;
+        next.priorityOn = controller.getSpeechPriority();
+        next.shareOn = controller.getAutoMix();
+        int speaking = 0;
+        for (const auto& s : controller.getGraph().strips) if (s.bus == MixBus::Speech) ++speaking;
+        next.speakingMics = speaking;
         next.autopilotMoved = ap.groupsCorrected > 0;
         if (ap.on && autopilotSince.isEmpty()) autopilotSince = clockTime (juce::Time::currentTimeMillis());
         if (! ap.on) autopilotSince = {};
@@ -630,10 +648,16 @@ void LivePage::refresh()
                                          : juce::String (juce::CharPointer_UTF8 ("Turn on \xe2\x80\xba")),
                         next.autopilotOn ? Dine::ink3 : Dine::ink2);
     autopilotLink->setMouseCursor (next.autopilotOn ? juce::MouseCursor::NormalCursor : juce::MouseCursor::PointingHandCursor);
+    {
+        const juce::String on (juce::CharPointer_UTF8 ("Turn on \xe2\x80\xba"));
+        priorityLink->set (next.priorityOn ? juce::String ("Turn off") : on, next.priorityOn ? Dine::monitor : Dine::ink2);
+        shareLink->set (next.shareOn ? juce::String ("Turn off") : on, next.shareOn ? Dine::monitor : Dine::ink2);
+    }
 
     if (next != look)
     {
         const bool reflow = next.safe != look.safe || next.autopilotOn != look.autopilotOn
+                         || next.priorityOn != look.priorityOn || next.shareOn != look.shareOn || next.speakingMics != look.speakingMics
                          || next.autopilotLog != look.autopilotLog || next.monitorNote != look.monitorNote;
         look = next;
         if (reflow) resized();
@@ -646,6 +670,21 @@ juce::String LivePage::safeText() const
     return look.safe ? "Routing, device and re-tuning are locked. Faders, mutes, solos and recording still work."
                      : "Nothing is locked. Turn it on before the doors open: routing, device and re-tuning lock, "
                        "and faders, mutes, solos and recording keep working.";
+}
+
+juce::String LivePage::priorityText() const
+{
+    const auto depth = juce::String (MixProfile::speechPriority (controller.getSession().profile).depthDb, 0);
+    return look.priorityOn ? "On: the band steps back " + depth + " dB while somebody speaks."
+                           : "The band steps back " + depth + " dB while somebody speaks.";
+}
+
+juce::String LivePage::shareText() const
+{
+    const auto depth = juce::String (MixProfile::autoMix (controller.getSession().profile).depthDb, 0);
+    if (look.shareOn && look.speakingMics < 2) return "On, waiting for a second speaking mic.";
+    return look.shareOn ? "On: the mic in use is open, the others " + depth + " dB back."
+                        : "The mic in use opens, the others step back " + depth + " dB.";
 }
 
 juce::String LivePage::autopilotText() const
@@ -795,6 +834,27 @@ void LivePage::paint (juce::Graphics& g)
         }
     }
 
+    // SPEAKING MICS: two rows, each a name, a line saying what it does, and its switch.
+    if (! l.speaking.isEmpty())
+    {
+        const bool any = look.priorityOn || look.shareOn;
+        Dine::fillRounded (g, l.speaking.toFloat(), any ? Dine::editGround : Dine::card, 8.0f);
+        if (any) Dine::hairlineRounded (g, l.speaking.toFloat().reduced (0.5f), Dine::monitor, 8.0f);
+        header (l.speaking, any ? Dine::monitor : Dine::ink4, "Speaking mics");
+        auto row = [&g] (juce::Rectangle<int> r, const juce::String& name, const juce::String& what, bool on)
+        {
+            g.setColour (on ? Dine::ink : Dine::ink2);
+            g.setFont (Dine::text (13.0f, 600));
+            Dine::drawText (g, name, r.removeFromTop (18), juce::Justification::centredLeft, true);
+            if (r.getHeight() < 14) return;                 // compact: the name and its switch only
+            g.setColour (Dine::ink3);
+            g.setFont (noteFont());
+            Dine::drawFittedText (g, what, r, juce::Justification::topLeft, juce::jmax (1, r.getHeight() / 14), 1.0f);
+        };
+        row (l.priorityRow, "Speech priority", priorityText(), look.priorityOn);
+        row (l.shareRow, "Share the mics", shareText(), look.shareOn);
+    }
+
     // WHAT I HEAR: the engineer's own listen, on a card of its own because none of it reaches the room.
     {
         Dine::fillRounded (g, l.monitor.toFloat(), Dine::card, 8.0f);
@@ -876,7 +936,6 @@ void LivePage::resized()
         }
         else apBody = 16 * wrapLines (calloutFont(), autopilotText(), textW);
         l.autopilot = rail.removeFromTop (kCardPadY + kHeadH + kCardGap + apBody + kCardPadY);
-
         const int clearW = juce::jmax (84, clearSolo.idealWidth());
         const int noteLines = wrapLines (noteFont(), look.monitorNote.isEmpty() ? juce::String ("Press S on a group. Only you hear it.") : look.monitorNote,
                                          textW - clearW - 8);
@@ -887,6 +946,29 @@ void LivePage::resized()
         const int modesH = stacked ? 2 * (kSegmentH + 4) + 8 : kSegmentH + 4;
         const int monitorH = kCardPadY + titleH + kCardGap + modesH + kCardGap + 24 + kCardPadY;
         l.monitor = rail.removeFromBottom (monitorH);
+
+        // SPEAKING MICS, under Autopilot, in what is left above WHAT I HEAR: two rows of a name
+        // and one line each, or the names and their switches alone when the rail is short.
+        {
+            rail.removeFromTop (12);
+            rail.removeFromBottom (12);
+            const int rowTextW = textW - 90;
+            const int pFull = 18 + 2 + 14 * wrapLines (noteFont(), priorityText(), rowTextW);
+            const int sFull = 18 + 2 + 14 * wrapLines (noteFont(), shareText(), rowTextW);
+            const int full = kCardPadY + kHeadH + kCardGap + pFull + 10 + sFull + kCardPadY;
+            const bool compact = full > rail.getHeight();
+            const int p = compact ? 18 : pFull, s = compact ? 18 : sFull;
+            const int wanted = kCardPadY + kHeadH + kCardGap + p + (compact ? 6 : 10) + s + kCardPadY;
+            // No room even for the names: the card steps out (the Mix menu still has both).
+            const bool fits = wanted <= rail.getHeight();
+            priorityLink->setVisible (fits);
+            shareLink->setVisible (fits);
+            l.speaking = fits ? rail.removeFromTop (wanted) : juce::Rectangle<int>();
+            auto inner = l.speaking.reduced (kCardPadX, kCardPadY).withTrimmedTop (kHeadH + kCardGap);
+            l.priorityRow = inner.removeFromTop (p).withTrimmedRight (90);
+            inner.removeFromTop (compact ? 6 : 10);
+            l.shareRow = inner.removeFromTop (s).withTrimmedRight (90);
+        }
 
         auto inner = l.monitor.reduced (kCardPadX, kCardPadY);
         auto titleRow = inner.removeFromTop (titleH);
@@ -926,6 +1008,12 @@ void LivePage::resized()
     auto linkArea = [] (juce::Rectangle<int> card, int w) { return card.reduced (kCardPadX, kCardPadY).removeFromTop (kHeadH).removeFromRight (w); };
     safeLink->setBounds (linkArea (l.safe, juce::jmin (180, safeLink->idealWidth())));
     autopilotLink->setBounds (linkArea (l.autopilot, juce::jmin (200, autopilotLink->idealWidth())));
+    auto rowLink = [&l] (juce::Rectangle<int> row, int w)
+    {
+        return juce::Rectangle<int> (l.speaking.getRight() - kCardPadX - w, row.getY(), w, 18);
+    };
+    priorityLink->setBounds (rowLink (l.priorityRow, juce::jmin (84, priorityLink->idealWidth())));
+    shareLink->setBounds (rowLink (l.shareRow, juce::jmin (84, shareLink->idealWidth())));
 }
 
 } // namespace livemix

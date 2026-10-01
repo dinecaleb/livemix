@@ -43,7 +43,7 @@ private:
     struct Layout
     {
         juce::Rectangle<int> health, groupsHeader, sceneCaption, sceneTrack, strips, safe, autopilot, monitor,
-                             modesA, modesB, output;
+                             modesA, modesB, output, speaking, priorityRow, shareRow;
     };
     Layout lay;                        // measured in resized(), and again when a card changes height
     int sceneFlash = 0;                // frames left of the mark the sidebar's SCENES row leaves
@@ -61,6 +61,11 @@ private:
     void refreshScenes();
 
     std::unique_ptr<Link> safeLink, autopilotLink;
+    // SPEAKING MICS: speech priority and share the mics, the two things that move a level for
+    // the spoken word, on LIVE where a service or a show is run - not only in the Mix menu.
+    std::unique_ptr<Link> priorityLink, shareLink;
+    juce::String priorityText() const;
+    juce::String shareText() const;
 
     // The engineer's listen: MONITOR SOLO / SOLO IN PLACE, AFL / PFL, CLEAR SOLO, DIM, where
     // solo goes and how loud it is there.
@@ -76,7 +81,8 @@ private:
                      monitorNote, autopilotSince;
         juce::StringArray autopilotLog;
         bool isRecording = false, safe = false, running = false, anyClip = false, inPlace = false, routed = false,
-             autopilotOn = false, autopilotMoved = false;
+             autopilotOn = false, autopilotMoved = false, priorityOn = false, shareOn = false;
+        int speakingMics = 0;
         int soloCount = -1;
         float headroomDb = 0.0f;
         bool operator== (const Look& o) const
@@ -87,6 +93,7 @@ private:
                 && isRecording == o.isRecording && safe == o.safe && running == o.running && anyClip == o.anyClip
                 && inPlace == o.inPlace && routed == o.routed && autopilotOn == o.autopilotOn
                 && autopilotMoved == o.autopilotMoved && soloCount == o.soloCount
+                && priorityOn == o.priorityOn && shareOn == o.shareOn && speakingMics == o.speakingMics
                 && std::abs (headroomDb - o.headroomDb) < 0.05f;
         }
         bool operator!= (const Look& o) const { return ! (*this == o); }
