@@ -833,3 +833,31 @@ TEST_CASE ("MixEngine: share the mics never changes what a pre-fade listen hears
     REQUIRE (off.first > 0.001f);
     CHECK_NEAR (gainToDb (on.first / off.first), 0.0f, 0.5f);   // the engineer hears the mic as it is
 }
+
+TEST_CASE ("MixEngine: one return muted on its own leaves the others in the mix")
+{
+    // The delay out for a spoken word, the plate left on. The lead sends to both; its tail
+    // after the singing stops is the effects and nothing else.
+    auto tail = [] (bool plateMuted, bool delayMuted)
+    {
+        MixEngine e;
+        e.prepare (kSr, 64, smallSession());
+        MixParameters p = e.getAppliedParameters();
+        p.fx[size_t (FxSlot::VocalPlate)].mute = plateMuted;
+        p.fx[size_t (FxSlot::VocalDelay)].mute = delayMuted;
+        e.setParameters (p);
+        e.reset();
+        Device d (8, 2, 72000);
+        sineOnInput (d, 5, 440.0f, 0.3f);
+        std::fill (d.in.data[5].begin() + 48000, d.in.data[5].end(), 0.0f);
+        d.run (e, 64);
+        return d.rms (0, 48000 + 2400);
+    };
+    const float both = tail (false, false);
+    const float plateOff = tail (true, false);
+    const float neither = tail (true, true);
+    CHECK (gainToDb (both) > -60.0f);
+    CHECK (plateOff < both);                       // the plate went...
+    CHECK (plateOff > neither * 4.0f);             // ... and the delay is still there
+    CHECK (neither < both * 0.1f);                 // both muted: the dry tail, nothing ringing
+}

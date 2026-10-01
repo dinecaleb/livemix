@@ -381,7 +381,7 @@ void MixEngine::applyParameters (const MixParameters& p) noexcept
         slot.chain.setTempo (double (p.tempoBpm));   // a synced delay is only in time if the tempo is
         // The FX group's fader and mute ride every used return together, at the one place the
         // return's gain is already decided, so BYPASS and an unused slot still win.
-        slot.returnGain.setTarget (fp.enabled && ! p.fxMute && ! p.bypassProcessing && graph.fxUsed[size_t (f)]
+        slot.returnGain.setTarget (fp.enabled && ! fp.mute && ! p.fxMute && ! p.bypassProcessing && graph.fxUsed[size_t (f)]
                                        ? dbToGain (fp.returnDb + p.fxReturnDb) : 0.0f);
         slot.monitorGain.setTarget (fp.solo && graph.fxUsed[size_t (f)] ? 1.0f : 0.0f);
         if (! haveApplied) { slot.returnGain.snapToTarget(); slot.monitorGain.snapToTarget(); }

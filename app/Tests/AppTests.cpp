@@ -2709,3 +2709,37 @@ TEST_CASE ("MixController: a tune says what it was about in fixed words, and nev
         for (const auto& [k, v] : e.words)
             for (const auto& input : band().inputs) CHECK (v != input.name);
 }
+
+TEST_CASE ("MixController: one effect return has its own fader and mute, under LIVE SAFE and through BYPASS")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    REQUIRE (c.getGraph().fxUsed[size_t (FxSlot::VocalPlate)]);
+    REQUIRE (c.getGraph().fxUsed[size_t (FxSlot::VocalDelay)]);
+
+    // Its own fader moves it and nothing else: not the other returns, not the FX group fader.
+    const float delayWas = c.getKept().fx[size_t (FxSlot::VocalDelay)].returnDb;
+    c.setFxSlotReturn (FxSlot::VocalPlate, -5.0f);
+    CHECK (std::fabs (c.getKept().fx[size_t (FxSlot::VocalPlate)].returnDb + 5.0f) < 0.001f);
+    CHECK (std::fabs (c.getKept().fx[size_t (FxSlot::VocalDelay)].returnDb - delayWas) < 0.001f);
+    CHECK (std::fabs (c.getKept().fxReturnDb) < 0.001f);
+    CHECK (std::fabs (c.getRunning().fx[size_t (FxSlot::VocalPlate)].returnDb + 5.0f) < 0.001f);
+
+    // Under LIVE SAFE it is a fader like any other: one slip cannot throw it across the console.
+    c.setLiveSafe (true);
+    c.setFxSlotReturn (FxSlot::VocalPlate, -60.0f);
+    CHECK (c.getKept().fx[size_t (FxSlot::VocalPlate)].returnDb >= -5.0f - LiveSafePolicy().maxFaderStepDb - 0.01f);
+    c.setLiveSafe (false);
+
+    // Its mute is the engineer's, so BYPASS keeps it - comparing must not put the delay back on.
+    c.setFxSlotMute (FxSlot::VocalDelay, true);
+    CHECK (c.getKept().fx[size_t (FxSlot::VocalDelay)].mute);
+    CHECK (! c.getKept().fx[size_t (FxSlot::VocalPlate)].mute);
+    c.setBypass (true);
+    CHECK (c.getRunning().fx[size_t (FxSlot::VocalDelay)].mute);
+    c.setBypass (false);
+    CHECK (c.getRunning().fx[size_t (FxSlot::VocalDelay)].mute);
+    c.setFxSlotMute (FxSlot::VocalDelay, false);
+    CHECK (! c.getRunning().fx[size_t (FxSlot::VocalDelay)].mute);
+}

@@ -704,6 +704,7 @@ TEST_CASE ("SessionStore: the FX group's fader and mute survive, and an older se
     d.mix.numStrips = 4;
     d.mix.fxReturnDb = -4.5f;
     d.mix.fxMute = true;
+    d.mix.fx[size_t (FxSlot::VocalDelay)].mute = true;          // one return muted on its own
 
     const auto file = folder.getChildFile ("fx.dlive.json");
     CHECK (SessionStore::save (d, file));
@@ -712,6 +713,8 @@ TEST_CASE ("SessionStore: the FX group's fader and mute survive, and an older se
     CHECK (SessionStore::load (file, back));
     CHECK (std::fabs (back.mix.fxReturnDb + 4.5f) < 0.001f);
     CHECK (back.mix.fxMute);
+    CHECK (back.mix.fx[size_t (FxSlot::VocalDelay)].mute);
+    CHECK (! back.mix.fx[size_t (FxSlot::VocalPlate)].mute);
 
     // Before the effects had a group fader the document said nothing about one, and "nothing
     // said" has to mean "exactly as TUNE MIX left it": 0 dB, not muted.
@@ -721,6 +724,9 @@ TEST_CASE ("SessionStore: the FX group's fader and mute survive, and an older se
         {
             mix->removeProperty ("fxReturnDb");
             mix->removeProperty ("fxMute");
+            if (auto* fx = mix->getProperty ("fx").getArray())
+                for (auto& f : *fx)
+                    if (auto* fo = f.getDynamicObject()) fo->removeProperty ("mute");
         }
     const auto olderFile = folder.getChildFile ("older.dlive.json");
     olderFile.replaceWithText (juce::JSON::toString (older));
@@ -729,6 +735,7 @@ TEST_CASE ("SessionStore: the FX group's fader and mute survive, and an older se
     CHECK (SessionStore::load (olderFile, legacy));
     CHECK (std::fabs (legacy.mix.fxReturnDb) < 0.001f);
     CHECK (! legacy.mix.fxMute);
+    for (const auto& f : legacy.mix.fx) CHECK (! f.mute);
 
     folder.deleteRecursively();
 }
@@ -2832,6 +2839,8 @@ TEST_CASE ("SessionState: every change to the session moves its revision, and no
         { "an input gain",      [&] { live.controller.setStripInputGain (1, 5.0f); } },
         { "a bus fader",        [&] { live.controller.setBusFader (MixBus::Drums, -2.0f); } },
         { "the returns",        [&] { live.controller.setFxReturn (-3.0f); } },
+        { "one return",         [&] { live.controller.setFxSlotReturn (FxSlot::VocalDelay, -4.0f); } },
+        { "one return's mute",  [&] { live.controller.setFxSlotMute (FxSlot::VocalPlate, true); } },
         { "a macro",            [&] { live.controller.setMacro (MixMacro::Space, 61.0f); } },
         { "the voicing",        [&] { live.controller.setVoicing (MasterVoicing::Earbuds); } },
         { "the delivery",       [&] { live.controller.setDelivery (DeliveryLoudness::Podcast); } },

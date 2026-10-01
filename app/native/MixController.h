@@ -642,6 +642,10 @@ public:
     // group has a fader and a mute and no more: "take the reverb out for the sermon" is one
     // press, and the level TUNE MIX chose for each return is left where it is.
     void setFxReturn (float db);
+    // One return on its own - the plate, the delay, the hall - on top of TUNE MIX's level for it.
+    // A fader under LIVE SAFE's step like any other; the FX group fader still rides them all.
+    void setFxSlotReturn (FxSlot, float db);
+    void setFxSlotMute (FxSlot, bool mute);
     void setFxMute (bool mute);
     // The chain itself (the Inspector's stage controls): the whole ChannelParameters at
     // once, the way the engine takes it. A hand edit lives on the kept mix beside the

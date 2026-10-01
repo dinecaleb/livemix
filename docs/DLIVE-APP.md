@@ -310,6 +310,13 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   returns solo as one group (`MixController::setFxSoloAll` / `anyFxSolo`, 2026-09-18): S on that tile solos every
   return the session uses, so the engineer hears just the reverbs and delays - in the normal (monitor) solo the
   sources keep feeding the sends and only the returns reach the headphones.
+  **Each return on its own (2026-10-01).** MIXER has a Return strip per effect the session uses (Vocal Plate, Vocal
+  Delay, BGV Hall, Snare Plate, Drum Room), after the last group and before the master; GROUPS shows them too. Its
+  fader is `FxSlotParameters::returnDb` - the level TUNE MIX set for that return - through
+  `MixController::setFxSlotReturn` (LIVE SAFE's fader step applies); M is `FxSlotParameters::mute` through
+  `setFxSlotMute`, kept through BYPASS and reset like any engineer's mute, saved with the session ("mute" in each fx
+  entry; absent = not muted); S is the existing per-return solo. The FX group fader and mute still ride every return
+  on top.
   BYPASS (toolbar, Mix menu, `B`) is `MixController::setBypass`: `compose()` returns `startingPoint()` with
   `bypassProcessing`, carrying only mute and solo across, so you hear the console feed. It never touches the kept
   mix - switch it off and the mix is exactly as it was - and faders are disabled while it is on.

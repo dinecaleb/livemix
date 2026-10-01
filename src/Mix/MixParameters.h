@@ -53,6 +53,9 @@ struct FxSlotParameters
     FxParameters fx;          // mix is forced to 1 (wet only): a return, not an insert
     float returnDb = 0.0f;
     bool enabled = false;
+    // The engineer's own mute on this one return: the delay out for a spoken word, the plate
+    // left on. `enabled` is the routing's (is anything sending here); this is the mix's.
+    bool mute = false;
     // A return can be soloed like anything else - "what is that reverb actually doing" is a
     // question an engineer asks mid-service. It only ever reaches the monitor bus.
     bool solo = false;

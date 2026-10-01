@@ -509,7 +509,11 @@ MixParameters MixController::compose() const
             raw.buses[size_t (b)].mute = base.buses[size_t (b)].mute;
             raw.buses[size_t (b)].solo = base.buses[size_t (b)].solo;
         }
-        for (int f = 0; f < int (FxSlot::Count); ++f) raw.fx[size_t (f)].solo = base.fx[size_t (f)].solo;
+        for (int f = 0; f < int (FxSlot::Count); ++f)
+        {
+            raw.fx[size_t (f)].mute = base.fx[size_t (f)].mute;
+            raw.fx[size_t (f)].solo = base.fx[size_t (f)].solo;
+        }
         raw.monitor = base.monitor;      // the engineer's listen is not part of the mix being bypassed
         // The emergency keys are not part of the mix either. MUTE pressed during a howl and then
         // BYPASS pressed to compare must not put the howl back on the air.
@@ -1216,7 +1220,11 @@ bool MixController::resetMixToRaw()
         next.buses[size_t (b)].mute = kept.buses[size_t (b)].mute;
         next.buses[size_t (b)].solo = kept.buses[size_t (b)].solo;
     }
-    for (int f = 0; f < int (FxSlot::Count); ++f) next.fx[size_t (f)].solo = kept.fx[size_t (f)].solo;
+    for (int f = 0; f < int (FxSlot::Count); ++f)
+    {
+        next.fx[size_t (f)].mute = kept.fx[size_t (f)].mute;
+        next.fx[size_t (f)].solo = kept.fx[size_t (f)].solo;
+    }
     next.monitor = kept.monitor;
 
     kept = next;
@@ -2808,6 +2816,31 @@ void MixController::setFxReturn (float db)
     kept.fxReturnDb = clamp (db, -60.0f, 12.0f);
     bothSides ([&] (MixParameters& m) { m.fxReturnDb = kept.fxReturnDb; });
     autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
+    publish();
+    touch();
+}
+
+void MixController::setFxSlotReturn (FxSlot slot, float db)
+{
+    if (int (slot) < 0 || int (slot) >= int (FxSlot::Count)) return;
+    auto& fp = kept.fx[size_t (slot)];
+    float want = clamp (db, -60.0f, 12.0f);
+    liveSafe::Verdict v;
+    want = liveSafe::limitStepDb (safety, LiveAction::Fader, std::max (fp.returnDb, -60.0f), want, v);
+    if (v.limited && onMessage) onMessage (v.reason);
+    fp.returnDb = want;
+    bothSides ([&] (MixParameters& m) { m.fx[size_t (slot)].returnDb = want; });
+    autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
+    publish();
+    touch();
+}
+
+void MixController::setFxSlotMute (FxSlot slot, bool mute)
+{
+    if (int (slot) < 0 || int (slot) >= int (FxSlot::Count)) return;
+    kept.fx[size_t (slot)].mute = mute;
+    bothSides ([&] (MixParameters& m) { m.fx[size_t (slot)].mute = mute; });
+    autopilotRelearn();
     publish();
     touch();
 }

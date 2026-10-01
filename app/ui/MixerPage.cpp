@@ -173,7 +173,9 @@ class MixerPage::Strip : public juce::Component,
                          public juce::SettableTooltipClient
 {
 public:
-    enum class Kind { Channel, Bus, Master };
+    // A Return is one effect return - the plate, the delay, the hall - on its own fader, after
+    // the groups and before the master, where a console puts its returns.
+    enum class Kind { Channel, Bus, Master, Return };
     enum class Layout { Column, Row };
 
     Strip (MixController& c, AppServices& s, Kind k, MixBus busFamily, ChannelRole r, int stripIndex,
@@ -189,6 +191,7 @@ public:
           monitorButton ("A", Dine::keyMon),
           fxButton ("FX", Dine::keyFx)
     {
+        if (kind == Kind::Return) { slot = strip; strip = -1; }
         fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         Dine::dragOnly (fader);
@@ -203,6 +206,7 @@ public:
             const float db = float (fader.getValue());
             // A linked fader takes its partners with it; Cmd-drag moves this one alone.
             if (kind == Kind::Channel) controller.setStripFader (strip, db, ! juce::ModifierKeys::getCurrentModifiers().isCommandDown());
+            else if (kind == Kind::Return) controller.setFxSlotReturn (FxSlot (slot), db);
             else controller.setBusFader (bus, db);
             levelText = db1 (db);
             repaint (layout == Layout::Column ? col.level : valueRect);
@@ -221,8 +225,15 @@ public:
         soloButton.setVisible (kind != Kind::Master);
         armButton.setVisible (kind == Kind::Channel);
         monitorButton.setVisible (kind == Kind::Channel);
-        muteButton.setTooltip (kind == Kind::Bus ? "Muted: the whole group is not heard" : "Muted: signal arrives, it is not heard");
-        soloButton.setTooltip (kind == Kind::Bus ? "Soloed: this group and nothing else" : "Soloed: this and nothing else");
+        muteButton.setTooltip (kind == Kind::Bus ? "Muted: the whole group is not heard"
+                               : kind == Kind::Return ? "Muted: this effect is not heard. The others, and what is sent to it, stay as they are"
+                                                      : "Muted: signal arrives, it is not heard");
+        soloButton.setTooltip (kind == Kind::Bus ? "Soloed: this group and nothing else"
+                               : kind == Kind::Return ? "Soloed: this effect on its own, in your listen only"
+                                                      : "Soloed: this and nothing else");
+        if (kind == Kind::Return)
+            fader.setTooltip ("This effect's own level, on top of what TUNE MIX set for it. The FX fader on TUNE and LIVE "
+                              "still moves every effect together. Double-click for 0.0 dB.");
         armButton.setTooltip ("Set to record (the engineer's word is arm)");
         // EFFECTS ON THIS MICROPHONE. One press for the pastor who has started singing, and one
         // press back when he goes back to preaching. Only on a voice channel, and only where the
@@ -255,11 +266,13 @@ public:
         {
             if (kind == Kind::Channel) controller.setStripMute (strip, ! controller.getBase().strips[size_t (strip)].mute);
             else if (kind == Kind::Bus) controller.setBusMute (bus, ! controller.getBase().buses[size_t (bus)].mute);
+            else if (kind == Kind::Return) controller.setFxSlotMute (FxSlot (slot), ! controller.getBase().fx[size_t (slot)].mute);
         };
         soloButton.onClick = [this]
         {
             if (kind == Kind::Channel) controller.setStripSolo (strip, ! controller.getBase().strips[size_t (strip)].solo);
             else if (kind == Kind::Bus) controller.setBusSolo (bus, ! controller.getBase().buses[size_t (bus)].solo);
+            else if (kind == Kind::Return) controller.setFxSolo (FxSlot (slot), ! controller.getBase().fx[size_t (slot)].solo);
         };
         fxButton.onClick = [this]
         {
@@ -268,8 +281,10 @@ public:
 
         setTooltip (name + "  " + Glyph::dot() + "  " + source);
 
-        numberText = kind == Kind::Channel ? juce::String (stripIndex + 1).paddedLeft ('0', 2) : kind == Kind::Bus ? "BUS" : juce::String();
-        outText = kind == Kind::Channel ? juce::String (mixBusName (bus)).toUpperCase() : kind == Kind::Bus ? "MASTER" : juce::String();
+        numberText = kind == Kind::Channel ? juce::String (stripIndex + 1).paddedLeft ('0', 2)
+                   : kind == Kind::Bus ? "BUS" : kind == Kind::Return ? "FX" : juce::String();
+        outText = kind == Kind::Channel ? juce::String (mixBusName (bus)).toUpperCase()
+                : kind == Kind::Bus || kind == Kind::Return ? "MASTER" : juce::String();
         stereo = true;
         if (kind == Kind::Channel && stripIndex >= 0 && stripIndex < controller.getGraph().numStrips())
             stereo = controller.getGraph().strips[size_t (stripIndex)].inputB >= 0;
@@ -349,6 +364,17 @@ public:
             channel = &st.channel;
             linkNow = st.linkGroup;
             const auto& m = controller.getEngine().getStrip (strip).getOutputMeter();
+            peak = m.consumeMaxPeakDb();
+            hold = m.getMaxRmsDb();
+            clipped = m.hasClipped();
+        }
+        else if (kind == Kind::Return)
+        {
+            const auto& fp = state.fx[size_t (slot)];
+            faderDb = juce::jmax (fp.returnDb, -60.0f);
+            muted = fp.mute;
+            soloed = fp.solo;
+            const auto& m = controller.getEngine().getFx (FxSlot (slot)).getOutputMeter();
             peak = m.consumeMaxPeakDb();
             hold = m.getMaxRmsDb();
             clipped = m.hasClipped();
@@ -504,7 +530,7 @@ public:
         else                          paintRow (g);
     }
 
-    juce::Colour tint() const noexcept { return kind == Kind::Master ? Dine::ink2 : Dine::busTint (bus); }
+    juce::Colour tint() const noexcept { return kind == Kind::Master ? Dine::ink2 : kind == Kind::Return ? Dine::keyFx : Dine::busTint (bus); }
 
     // ONE SLOT, ONE BOX. The gain chip, each insert and each send is a thing of its own,
     // and on a 70 pt column six lines of small type separated by nothing but space read as
@@ -547,6 +573,7 @@ public:
             const auto nameRow = col.name.withTrimmedTop (kCaptionH);
             const juce::String captionText = kind == Kind::Channel ? numberText
                                            : kind == Kind::Bus     ? juce::String ("Group")
+                                           : kind == Kind::Return  ? juce::String ("Return")
                                                                    : juce::String ("Output");
             g.setColour (Dine::ink4);
             g.setFont (kind == Kind::Channel ? Dine::mono (10.0f, 500) : Dine::text (10.0f, 500));
@@ -1003,6 +1030,7 @@ public:
 
     void showMenu()
     {
+        if (kind == Kind::Return) return;          // a return is its fader and its two keys
         juce::PopupMenu m;
         m.addSectionHeader ((kind == Kind::Channel ? "CHANNEL " : "BUS ") + juce::String (Glyph::dot()) + " " + name);
         if (kind == Kind::Channel)
@@ -1119,6 +1147,7 @@ public:
     MixBus bus;
     ChannelRole role;
     int strip = -1;
+    int slot = -1;                 // the FxSlot, on a Return
     juce::String name, source, levelText { "+0.0" }, peakText { Glyph::dash() }, numberText, outText;
     juce::String integratedText { Glyph::dash() }, shortTermText { Glyph::dash() }, truePeakText { Glyph::dash() },
                  grText { Glyph::dash() }, targetText { "-23 LUFS" }, loudnessNote { "not measured yet" };
@@ -1394,6 +1423,15 @@ void MixerPage::rebuild()
         }
     }
 
+    // The returns, one strip each, after the last group: a console's returns are their own faders.
+    if (controller.isPrepared())
+        for (int f = 0; f < int (FxSlot::Count); ++f)
+            if (controller.getEngine().isFxUsed (FxSlot (f)))
+                add (std::make_unique<Strip> (controller, services, Strip::Kind::Return, MixBus::Master, ChannelRole::KickIn, f,
+                                              // "Backing Hall" is wider than a column; BGV is what the group is called here
+                                              FxSlot (f) == FxSlot::BgvHall ? juce::String ("BGV Hall") : juce::String (fxSlotName (FxSlot (f))),
+                                              "Effect return"));
+
     if (controller.isPrepared() && controller.getEngine().isBusUsed (MixBus::Master))
     {
         const auto& main = controller.getOutputFeeds().feeds[0];
@@ -1457,7 +1495,7 @@ void MixerPage::updateChainStrip()
     for (auto& s : strips)
         s->setSelected (selected >= 0 ? s->getStripIndex() == selected
                                       : selectedBusValue != MixBus::Count && s->getKind() != Strip::Kind::Channel
-                                        && s->getBus() == selectedBusValue);
+                                        && s->getKind() != Strip::Kind::Return && s->getBus() == selectedBusValue);
 }
 
 void MixerPage::updateControls()

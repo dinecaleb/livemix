@@ -1307,6 +1307,11 @@ int main (int argc, char** argv)
     view.getMixerPage().setShow (MixerPage::Show::Groups);
     rig.feed (0.3);
     rig.snap (dir, "15e-mixer-groups");
+    // The groups as columns: the returns stand after the last group, before the master.
+    view.getMixerPage().setView (MixerPage::View::Strips);
+    rig.feed (0.3);
+    rig.snap (dir, "15e2-mixer-groups-strips");
+    view.getMixerPage().setView (MixerPage::View::List);
     view.getMixerPage().setShow (MixerPage::Show::All);
     view.getMixerPage().setView (MixerPage::View::Strips);
     view.getMixerPage().selectStrip (10);            // the lead vocal: the chain strip along the foot

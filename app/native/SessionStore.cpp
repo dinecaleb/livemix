@@ -330,6 +330,7 @@ namespace
             fo->setProperty ("returnDb", f.returnDb);
             fo->setProperty ("enabled", f.enabled);
             fo->setProperty ("solo", f.solo);
+            fo->setProperty ("mute", f.mute);
             fx.add (juce::var (fo));
         }
         obj->setProperty ("fx", fx);
@@ -414,6 +415,7 @@ namespace
                 m.fx[size_t (f)].returnDb = storedDb (fo->getProperty ("returnDb"), kSilenceDb, 12.0f);
                 m.fx[size_t (f)].enabled = bool (fo->getProperty ("enabled"));
                 m.fx[size_t (f)].solo = bool (fo->getProperty ("solo"));
+                m.fx[size_t (f)].mute = bool (fo->getProperty ("mute"));     // absent before 2026-10-01: not muted
             }
         // Absent before the monitor bus existed. The defaults are the safe ones - solo goes to
         // the monitor and the live output never changes - so an older session opens safer than
