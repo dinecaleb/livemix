@@ -99,6 +99,14 @@ public:
     void togglePanel (bool left);
 
     void openMixerWindow();
+    // LIVE and the INSPECTOR in windows of their own, the way the console is: the service desk
+    // on a second screen, or one channel's settings beside the console. A second copy of the
+    // page on the same mix, so both stay true; closing the window loses nothing.
+    void openLiveWindow();
+    void openInspectorWindow();
+    // A channel or group to look at: the Inspector's window when it is open, else the page.
+    void inspectStrip (int strip);
+    void inspectBus (MixBus bus);
     void showTutorial();
     void closeTutorial();
     // The one-card guide a workspace shows the first time it is opened. `maybeShowGuide` is
@@ -201,6 +209,7 @@ private:
     static constexpr int kToolbarLeft   = 224;
     class SidebarButton;
     class MixerWindow;
+    class PageWindow;
     class StatusBar;
     class Sidebar;
     class TextButtonV2;
@@ -274,6 +283,12 @@ private:
     std::unique_ptr<ToolbarToggle> tuneLiveButton;   // TUNE LIVE MIX from any workspace, in the title row
     std::unique_ptr<SidebarButton> sidebarButton;
     std::unique_ptr<MixerWindow> mixerWindow;
+    std::unique_ptr<PageWindow> liveWindow, inspectorWindow;
+    LivePage* liveInWindow = nullptr;          // the pages those windows hold, while they are open
+    AdvancedPage* inspectorInWindow = nullptr;
+    void closePageWindow (std::unique_ptr<PageWindow>& w);
+    // Every page that lives in a window of its own, rebuilt when the session underneath them changes.
+    void rebuildWindows();
     std::unique_ptr<Sidebar> sidebar;
     std::unique_ptr<StatusBar> statusBar;
     // Beside the clock whenever anything is soloed, on every workspace, and nowhere at all

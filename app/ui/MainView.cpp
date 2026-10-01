@@ -504,7 +504,8 @@ public:
         return defs;
     }
 
-    Sidebar (AppServices& s, std::function<void (Page)> go, std::function<void (Action)> act) : services (s)
+    Sidebar (AppServices& s, std::function<void (Page)> go, std::function<void (Action)> act,
+             std::function<void (Page)> openWindow = {}) : services (s)
     {
         const auto* defs = rowDefs();
         for (int i = 0; i < kRows; ++i)
@@ -512,6 +513,21 @@ public:
             const auto& d = defs[i];
             items[size_t (i)] = std::make_unique<DineNavItem> (d.label, d.icon);
             items[size_t (i)]->onClick = [go, act, d] { if (d.action != Action::None) act (d.action); else go (d.page); };
+            // The workspaces that work in a window of their own say so on a right-click.
+            if (openWindow && d.action == Action::None
+                && (d.page == Page::Mixer || d.page == Page::Live || d.page == Page::Inspector))
+            {
+                auto* item = items[size_t (i)].get();
+                const Page page = d.page;
+                item->onSecondaryClick = [item, page, go, openWindow]
+                {
+                    juce::PopupMenu m;
+                    m.addItem (1, "Open in a New Window");
+                    m.addItem (2, "Show here");
+                    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (item),
+                                     [page, go, openWindow] (int r) { if (r == 1) openWindow (page); else if (r == 2) go (page); });
+                };
+            }
             addAndMakeVisible (*items[size_t (i)]);
 
             // A folded sidebar is a rail of icons, and a section of a workspace has none: the
@@ -716,8 +732,8 @@ public:
     {
         page = std::make_unique<MixerPage> (c, s);
         page->setWindowButtonVisible (false);
-        page->onOpenStrip = [&owner] (int strip) { owner.showPage (Page::Inspector); owner.getAdvancedPage().select (strip); };
-        page->onOpenBus = [&owner] (MixBus bus) { owner.showPage (Page::Inspector); owner.getAdvancedPage().selectBus (bus); };
+        page->onOpenStrip = [&owner] (int strip) { owner.inspectStrip (strip); };
+        page->onOpenBus = [&owner] (MixBus bus) { owner.inspectBus (bus); };
         page->onTuneStrip = [&owner] (int strip) { owner.toFront (true); owner.tuneChannel (strip); };
         page->onToast = [&owner] (const juce::String& t) { owner.showToast (t); };
         setUsingNativeTitleBar (true);
@@ -739,6 +755,40 @@ private:
 
     MainView& view;
     std::unique_ptr<MixerPage> page;
+};
+
+// A page in a window of its own (LIVE, the Inspector): the page, the 30 Hz refresh the main
+// window would give it, and what to do when the session under it changes.
+class MainView::PageWindow : public juce::DocumentWindow, private juce::Timer
+{
+public:
+    PageWindow (const juce::String& title, std::unique_ptr<juce::Component> content,
+                std::function<void()> refreshFn, std::function<void()> rebuildFn, std::function<void()> closeFn,
+                int minW, int minH, int w, int h)
+        : juce::DocumentWindow (title + " " + juce::String (Glyph::dash()) + " DLIVE", Dine::window,
+                                juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton
+                                    | juce::DocumentWindow::maximiseButton),
+          page (std::move (content)), refreshPage (std::move (refreshFn)), rebuildPage (std::move (rebuildFn)), onClose (std::move (closeFn))
+    {
+        setUsingNativeTitleBar (true);
+        setContentNonOwned (page.get(), false);
+        setResizable (true, false);
+        setResizeLimits (minW, minH, 6000, 3000);
+        centreWithSize (w, h);
+        setVisible (true);
+        startTimerHz (30);
+    }
+    ~PageWindow() override { stopTimer(); clearContentComponent(); }
+
+    void rebuild() { if (rebuildPage) rebuildPage(); }
+    juce::Component& getPage() { return *page; }
+    void closeButtonPressed() override { if (onClose) onClose(); }
+
+private:
+    void timerCallback() override { if (refreshPage) refreshPage(); }
+
+    std::unique_ptr<juce::Component> page;
+    std::function<void()> refreshPage, rebuildPage, onClose;
 };
 
 // ---------------------------------------------------------------- menu bar
@@ -885,6 +935,8 @@ public:
                 m.addItem (616, "Saved Input Patches");
                 m.addSeparator();
                 m.addItem (608, "Open Mixer in a New Window");
+                m.addItem (617, "Open Live in a New Window");
+                m.addItem (618, "Open Inspector in a New Window");
                 m.addItem (609, "Outputs" + juce::String (Glyph::ellip()));
                 m.addItem (630, "Check Inputs" + juce::String (Glyph::ellip()));
                 m.addSeparator();
@@ -1017,6 +1069,12 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
             // (the design's own note says so); SCENES is the sheet beside it.
             if (a == Sidebar::Action::MixHistory) showHistory();
             else if (a == Sidebar::Action::Scenes) { showPage (Page::Live); livePage->focusScenes(); }
+        },
+        [this] (Page p)
+        {
+            if (p == Page::Mixer) openMixerWindow();
+            else if (p == Page::Live) openLiveWindow();
+            else if (p == Page::Inspector) openInspectorWindow();
         });
     sidebar->item (Page::Sessions).setTooltip ("The library: every saved session, and what each one was for.");
     sidebar->item (Page::Favourites).setTooltip ("The mixes that worked, with what they measured. A later tune can be aimed at one.");
@@ -1100,7 +1158,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
         if (err.isNotEmpty()) { showToast (err); return; }
         advancedPage->rebuild();
         mixerPage->rebuild();
-        if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+        rebuildWindows();
         tracksPage->rebuild();
         showPage (controller.getSession().inputs.empty() ? Page::Assign : Page::Tracks);
         const auto recovered = services.takeRecoveryNote();
@@ -1163,14 +1221,14 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
         services.touchSession();
     };
     tracksPage->onTimelineChanged = [this] { updateChrome(); };
-    tracksPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
+    tracksPage->onOpenStrip = [this] (int strip) { inspectStrip (strip); };
     tracksPage->onOpenAssign = [this] { assignPage->refresh(); showPage (Page::Assign); };
     tracksPage->onTuneStrip = [this] (int strip) { tuneChannel (strip); };
     tracksPage->onSessionChanged = [this]
     {
         advancedPage->rebuild();
         mixerPage->rebuild();
-        if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+        rebuildWindows();
         updateChrome();
     };
     mixPage->onOpenAdvanced = [this] { showPage (Page::Inspector); };
@@ -1182,8 +1240,8 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     mixPage->onOpenFavourites = [this] { showPage (Page::Favourites); };
     mixPage->onSelectStrip = [this] (int strip) { lastChannel = strip; updateChainFoot(); };
     mixPage->onGraphChanged = [this] { services.reconfigure(); };
-    mixerPage->onOpenStrip = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
-    mixerPage->onOpenBus = [this] (MixBus bus) { showPage (Page::Inspector); advancedPage->selectBus (bus); };
+    mixerPage->onOpenStrip = [this] (int strip) { inspectStrip (strip); };
+    mixerPage->onOpenBus = [this] (MixBus bus) { inspectBus (bus); };
     mixerPage->onTuneStrip = [this] (int strip) { tuneChannel (strip); };
     mixerPage->onOpenWindow = [this] { openMixerWindow(); };
     mixerPage->onToast = [this] (const juce::String& t) { showToast (t); };
@@ -1231,6 +1289,8 @@ MainView::~MainView()
 {
     stopTimer();
     mixerWindow.reset();
+    liveWindow.reset();
+    inspectorWindow.reset();
     checkSheet.reset();
     historySheet.reset();
     themeSheet.reset();
@@ -1249,7 +1309,7 @@ void MainView::enterSession()
     services.touchSession();
     advancedPage->rebuild();
     mixerPage->rebuild();
-    if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+    rebuildWindows();
     tracksPage->rebuild();
     showPage (Page::Tracks);
 }
@@ -1637,6 +1697,8 @@ void MainView::setBypass (bool on)
                   : "Bypass off. You are hearing the kept mix again.");
     mixerPage->repaint();
     if (mixerWindow != nullptr) mixerWindow->getPage().repaint();
+    if (liveWindow != nullptr) liveWindow->getPage().repaint();
+    if (inspectorWindow != nullptr) inspectorWindow->getPage().repaint();
     livePage->repaint();
     mixPage->repaint();
     updateChainFoot();
@@ -1699,6 +1761,8 @@ void MainView::applyTextSize (float scale, const juce::String& name)
     Dine::refreshAllWindows();
     Dine::relayoutTree (*this);
     if (mixerWindow != nullptr) Dine::relayoutTree (*mixerWindow);
+    if (liveWindow != nullptr) Dine::relayoutTree (*liveWindow);
+    if (inspectorWindow != nullptr) Dine::relayoutTree (*inspectorWindow);
     updateChrome();
     if (menu != nullptr) menu->menuItemsChanged();
     showToast ("Text size: " + name);
@@ -1727,7 +1791,7 @@ void MainView::resetMixToRaw()
     {
         if (! controller.resetMixToRaw()) return;
         mixerPage->rebuild();
-        if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+        rebuildWindows();
         advancedPage->rebuild();
         livePage->rebuild();
         updateChrome();
@@ -2175,6 +2239,75 @@ void MainView::openMixerWindow()
     showToast ("The console is open in its own window. Close it and it comes back here.");
 }
 
+void MainView::rebuildWindows()
+{
+    if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+    if (liveWindow != nullptr) liveWindow->rebuild();
+    if (inspectorWindow != nullptr) inspectorWindow->rebuild();
+}
+
+void MainView::openLiveWindow()
+{
+    if (liveWindow != nullptr) { liveWindow->toFront (true); return; }
+    auto page = std::make_unique<LivePage> (controller, services);
+    auto* p = page.get();
+    p->onToast = [this] (const juce::String& t) { showToast (t); };
+    p->onOpenHistory = [this] { toFront (true); showHistory(); };
+    p->onLiveSafeChanged = [this] { updateChrome(); repaint(); };
+    p->onToggleRecord = [this] { handleCommand (501); };
+    p->rebuild();
+    liveInWindow = p;
+    liveWindow = std::make_unique<PageWindow> ("Live", std::move (page),
+                                               [p] { p->refresh(); }, [p] { p->rebuild(); },
+                                               [this] { closePageWindow (liveWindow); }, 900, 560, 1280, 760);
+    showToast ("LIVE is open in its own window. Close it and it is still here in the sidebar.");
+}
+
+void MainView::openInspectorWindow()
+{
+    if (! controller.isPrepared() || controller.getSession().inputs.empty())
+    {
+        showToast ("Assign your inputs first: there is no channel to look at yet.");
+        return;
+    }
+    if (inspectorWindow != nullptr) { inspectorWindow->toFront (true); return; }
+    auto page = std::make_unique<AdvancedPage> (controller);
+    auto* p = page.get();
+    p->onRetune = [this] { toFront (true); handleCommand (400); };
+    p->onTuneChannel = [this] (int strip) { toFront (true); tuneChannel (strip); };
+    p->onImportSample = [this] (RoleFamily family) { if (advancedPage->onImportSample) advancedPage->onImportSample (family); };
+    p->onBack = [this] { closePageWindow (inspectorWindow); };
+    p->rebuild();
+    inspectorInWindow = p;
+    inspectorWindow = std::make_unique<PageWindow> ("Inspector", std::move (page),
+                                                    [p] { p->refresh(); }, [p] { p->rebuild(); },
+                                                    [this] { closePageWindow (inspectorWindow); }, 900, 620, 1240, 820);
+    showToast ("The Inspector is open in its own window. Double-click a channel on the console and it opens there.");
+}
+
+void MainView::closePageWindow (std::unique_ptr<PageWindow>& w)
+{
+    if (&w == &liveWindow) liveInWindow = nullptr;
+    if (&w == &inspectorWindow) inspectorInWindow = nullptr;
+    auto* which = &w;
+    juce::Component::SafePointer<MainView> safe (this);
+    juce::MessageManager::callAsync ([safe, which] { if (safe != nullptr) which->reset(); });
+}
+
+void MainView::inspectStrip (int strip)
+{
+    if (inspectorInWindow != nullptr) { inspectorInWindow->select (strip); inspectorWindow->toFront (true); return; }
+    showPage (Page::Inspector);
+    advancedPage->select (strip);
+}
+
+void MainView::inspectBus (MixBus bus)
+{
+    if (inspectorInWindow != nullptr) { inspectorInWindow->selectBus (bus); inspectorWindow->toFront (true); return; }
+    showPage (Page::Inspector);
+    advancedPage->selectBus (bus);
+}
+
 void MainView::closeMixerWindow()
 {
     juce::Component::SafePointer<MainView> safe (this);
@@ -2360,6 +2493,8 @@ void MainView::handleCommand (int id)
         case 606: tracksPage->zoom (0.8); break;
         case 607: tracksPage->zoomToFit(); break;
         case 608: openMixerWindow(); break;
+        case 617: openLiveWindow(); break;
+        case 618: openInspectorWindow(); break;
         case 609: showOutputs(); break;
         case 630: showCheck(); break;
         case 631: controller.setBroadcastDim (! controller.isBroadcastDimmed()); updateChrome(); break;
@@ -2519,7 +2654,7 @@ void MainView::newSession()
     assignPage->refresh();
     tracksPage->rebuild();
     mixerPage->rebuild();
-    if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+    rebuildWindows();
     advancedPage->rebuild();
     showPage (Page::Device);
     showToast ("New session.");
@@ -2562,7 +2697,7 @@ void MainView::importMultitrackFolder (const juce::File& folder)
     assignPage->refresh();
     tracksPage->rebuild();
     mixerPage->rebuild();
-    if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+    rebuildWindows();
     advancedPage->rebuild();
     showToast ("Imported " + folder.getFileName() + ". Check the inputs, then build the mix.");
     showPage (Page::Assign);
@@ -2668,7 +2803,7 @@ void MainView::sessionReplaced()
     seenMilestone = services.sessionMilestone();
     advancedPage->rebuild();
     mixerPage->rebuild();
-    if (mixerWindow != nullptr) mixerWindow->getPage().rebuild();
+    rebuildWindows();
     tracksPage->rebuild();
     livePage->rebuild();
     showPage (controller.getSession().inputs.empty() ? Page::Assign : Page::Tracks);

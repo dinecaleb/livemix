@@ -181,7 +181,7 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
         // ROUTING workspace, and Outputs left its sheet for a section of it. Both commands are
         // still here and still ask for the same thing; 616 is the saved patches, which were a
         // submenu inside a submenu and are now a section of their own.
-        { 613, "Routing" }, { 608, "Mixer in a New Window" }, { 609, "Outputs" }, { 630, "Check Inputs" },
+        { 613, "Routing" }, { 608, "Mixer in a New Window" }, { 617, "Live in a New Window" }, { 618, "Inspector in a New Window" }, { 609, "Outputs" }, { 630, "Check Inputs" },
         { 616, "Saved Input Patches" },
         { 631, "Dim the Broadcast" }, { 632, "Mute the Broadcast" },
         { 610, "Sidebar" }, { 615, "side panels" },
@@ -686,4 +686,23 @@ TEST_CASE ("Inspector: a session the engine has not caught up with yet is shown,
     inspector.refresh();
     window.pump (40);
     CHECK (true);   // reaching here is the test
+}
+
+// ---------------------------------------------------------------- pages in windows of their own
+TEST_CASE ("Windows: LIVE and the Inspector open in windows of their own, and a channel opens in the Inspector's")
+{
+    Window window;
+    auto& view = *window.view;
+    view.openLiveWindow();
+    view.openInspectorWindow();
+    view.openLiveWindow();                   // a second ask brings the open one forward
+    view.openInspectorWindow();
+    window.pump (80);                        // both refresh at 30 Hz against the same mix
+
+    // A channel picked on the console opens in the Inspector's window, not the main page.
+    const auto before = view.getPage();
+    view.inspectStrip (0);
+    view.inspectBus (MixBus::Drums);
+    CHECK (view.getPage() == before);
+    window.pump (40);
 }

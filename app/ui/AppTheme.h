@@ -432,6 +432,18 @@ public:
     void setSelected (bool s)             { if (s != selected) { selected = s; repaint(); } }
     bool isSelected() const noexcept      { return selected; }
     void paintButton (juce::Graphics&, bool over, bool down) override;
+    // A right-click (or Ctrl-click) on the row: its own menu, instead of a click.
+    std::function<void()> onSecondaryClick;
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu() && onSecondaryClick) { onSecondaryClick(); return; }
+        juce::Button::mouseDown (e);
+    }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu() && onSecondaryClick) return;
+        juce::Button::mouseUp (e);
+    }
 
 private:
     juce::String label, meta;
