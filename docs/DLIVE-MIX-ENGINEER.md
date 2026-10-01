@@ -278,6 +278,17 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   left above 6 kHz in the bright windows is the voices' own air and the spill-limited microphones' level, not the
   cymbal mics. Levels are still unweighted RMS; a K-weighted balance would read the cymbals ~4 dB louder, but it
   retunes every level number and is a separate piece of work.
+- **MANY MICROPHONES, ONE INSTRUMENT (2026-09-30, from the engineer's hand mix of the Praise stems).** Diffing the
+  last TUNE MIX checkpoint against the mix the engineer finished by hand showed one systematic fault: every
+  microphone was fitted to a whole instrument's level. Net of the group faders they raised, they put Snare Bottom
+  12 dB under TUNE, the hi-hat 11, the overheads 20, the playback 14, Kick In and Snare Top 8.5 *over*, and spread
+  every L/R pair by hand. `MixPlanner` now: treats a linked group of one kind as one source (strongest member's
+  chain and gain, one fader for the sum); blends Kick Out / Snare Bottom under the main mic
+  (`MixProfile::blendBelowPrimaryDb`); lets several sources of one kind playing at once share its level
+  (`familyShareMaxDb` 6); and the kit's colour targets moved down (hi-hat -33, overheads -31, toms -26). Linking two
+  mono channels of one kind in the console pans them as a pair (`stereoPairWidth`). The engineer's taste beyond
+  this (which keyboard leads, the lead's 1 kHz cut) is arrangement, not a rule. Evaluate with a 30-mono-channel cut
+  of 13:00-15:00 (the only stretch with band and lead together).
 - **LIVE SAFE is a policy, not a tooltip** (`src/Mix/LiveSafe.h`), enforced in `MixController` rather than in a menu
   handler - a guard in `MainView` only covers the menu, and the AI, the chat, a macro and a keyboard shortcut all
   reach the mix without passing one. It never locks the emergency controls (mute, solo, the monitor, the transport,
