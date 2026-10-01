@@ -1296,6 +1296,9 @@ namespace
         d.targets[int (RoleFamily::Kick)].bandTargetDb[size_t (Band::Sub)] -= 1.5f;
         d.targets[int (RoleFamily::Overhead)].bandTargetDb[size_t (Band::Brilliance)] -= 1.0f;
         d.targets[int (RoleFamily::Room)].kitBalanceRelDb = -8.0f;
+        // The engineer's own mix of the Praise stems (2026-09-30) put the snare sample 10 dB over
+        // the microphone's peak, and the snare 12 dB louder against the lead than TUNE had it.
+        d.targets[int (RoleFamily::Snare)].sampleLevelDb = 8.0f;
         d.targets[int (RoleFamily::Room)].mixPeakTargetDb = -18.0f;
 
         for (auto& p : d.baselines)

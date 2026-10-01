@@ -187,8 +187,13 @@ bool willSample (ChannelRole role, const AnalysisResult& a, const SourceTargets&
     // One trigger per drum: the inside / top microphone, never the outside or the bottom.
     if (role == ChannelRole::KickOut || role == ChannelRole::SnareBottom) return false;
     const RoleFamily f = roleFamily (role);
-    // The hat keeps its stage and keeps it off: a hat sample is a taste, not a repair.
-    if (! (f == RoleFamily::Kick || f == RoleFamily::Snare || f == RoleFamily::Tom)) return false;
+    // The hat keeps its stage and keeps it off: a hat sample is a taste, not a repair. So do the
+    // toms (2026-09-30): a tom microphone hears the whole kit, and a trigger fitted on a listen
+    // with a few fills in it fires on the snare - QUEENSVIEW's rack tom fired 114 times a minute
+    // for two real hits, and on the Praise stems the engineer switched off both tom samples TUNE
+    // had switched on (the floor tom was 18 dB too loud with it). The stage is still fitted, so
+    // switching it on by hand plays a trigger that has been set.
+    if (! (f == RoleFamily::Kick || f == RoleFamily::Snare)) return false;
     // Only where the listen could actually tell the hits from the rest of the kit, and found
     // enough of them to be sure what a hit is worth. Anything less and the trigger is a guess.
     return a.bleedLevelDb > -119.0f && a.eventLevelDb > -119.0f && a.eventCount >= 8;
@@ -751,7 +756,7 @@ void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneD
     const bool tom = roleFamily (ctx.role) == RoleFamily::Tom;
     threshold = std::max (threshold, peakDb - (tom ? 12.0f : 18.0f));
     threshold = roundDb (clamp (threshold, -70.0f, peakDb - 3.0f));
-    const float level = roundDb (clamp (peakDb, -40.0f, 0.0f));
+    const float level = roundDb (clamp (peakDb + t.sampleLevelDb, -40.0f, 0.0f));
     // The band: the profile's, with the low edge kept under the drum's own fundamental.
     const float detHpf = std::round (clamp (fundamentalHz > 0.0f ? std::min (t.sampleDetHpfHz, 0.7f * fundamentalHz) : t.sampleDetHpfHz, 20.0f, 2000.0f));
     const float detLpf = std::round (clamp (t.sampleDetLpfHz, detHpf * 2.0f, 20000.0f));
@@ -791,7 +796,11 @@ void setSampleReplacement (const TuneContext& ctx, const SourceTargets& t, TuneD
           + "; the trigger sits between the two, and only an onset that jumps " + num ("%.0f dB", double (rise)) + " counts."
         : "The listen found no separable bleed on this microphone; the trigger sits halfway between the floor ("
           + num ("%.0f dBFS", double (L.floorDb)) + ") and the " + plural (eventNoun (ctx)) + " (" + num ("%.0f dBFS", double (hitDb)) + ").";
-    why += " The sample's own peak is placed at the microphone's own peak (" + num ("%.0f dBFS", double (peakDb)) + "), so blending it in changes the drum's level by nothing.";
+    if (std::fabs (t.sampleLevelDb) < 0.5f)
+        why += " The sample's own peak is placed at the microphone's own peak (" + num ("%.0f dBFS", double (peakDb)) + "), so blending it in changes the drum's level by nothing.";
+    else
+        why += " The sample's own peak is placed " + fmtDb (t.sampleLevelDb, 0) + " from the microphone's own peak (" + num ("%.0f dBFS", double (peakDb))
+             + "): in " + std::string (styleProfileName (ctx.profile)) + " the sample carries the drum.";
     if (fundamentalHz > 0.0f && cur.replaceFollowDrum) why += " The drum rings at " + fmtHz (fundamentalHz) + ", and a sample that follows the drum plays at that pitch.";
     if (turnOn)
     {

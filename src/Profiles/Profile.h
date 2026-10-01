@@ -73,6 +73,9 @@ struct SourceTargets
     float sampleMaskMs = 40.0f;
     float sampleRiseDb = 6.0f;
     float sampleBlend = 0.4f;
+    // Where the sample's peak sits against the microphone's own (0 = level with it, so a blend
+    // moves the drum's level by nothing). Above 0 the sample carries the drum.
+    float sampleLevelDb = 0.0f;
     const char* sampleSound = "";      // the profile's pick from the family's bank list, by name ("" = the first)
     bool sampleFollowDrum = false;     // toms: the sample plays at the drum's measured pitch
 

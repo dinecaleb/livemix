@@ -1139,8 +1139,8 @@ TEST_CASE ("MixPlanner: several microphones on one instrument are one level - a 
     s.purpose = MixPurpose::ChurchBroadcast;
     s.inputs = {
         { "Kick",     ChannelRole::KickIn,    0, -1 },
-        { "Kick Out", ChannelRole::KickOut,   0, -1 },
         { "Snare",    ChannelRole::SnareTop,  1, -1 },
+        { "Snare Bottom", ChannelRole::SnareBottom, 1, -1 },
         { "Bass",     ChannelRole::BassDI,    7, -1 },
         { "Keys L",   ChannelRole::Piano,     8, -1 },
         { "Keys R",   ChannelRole::Piano,     9, -1 },
@@ -1151,6 +1151,8 @@ TEST_CASE ("MixPlanner: several microphones on one instrument are one level - a 
     // A kick playing the whole bar, so both of its microphones are placed rather than skipped.
     std::fill (in.data[0].begin(), in.data[0].end(), 0.0f);
     bursts (in.data[0], 100.0f, 0.7f, 0.2f, 0.15f, 0.0f, false, 1);
+    std::fill (in.data[1].begin(), in.data[1].end(), 0.0f);
+    bursts (in.data[1], 0.0f, 0.5f, 0.2f, 0.12f, 0.1f, true, 2);
     const auto cap = rig.listen (in);
     REQUIRE (cap.valid);
     auto ctx = rig.context (cap);
@@ -1168,9 +1170,9 @@ TEST_CASE ("MixPlanner: several microphones on one instrument are one level - a 
     CHECK (l.channel.hpfHz == r.channel.hpfHz);
     CHECK (stripNamed (plan, "Keys L").faderDb == stripNamed (plan, "Keys R").faderDb);
 
-    // The kick's second microphone is blended under the first.
+    // The snare's second microphone is blended under the first.
     bool blended = false;
-    for (const auto& item : stripNamed (plan, "Kick Out").mixItems)
+    for (const auto& item : stripNamed (plan, "Snare Bottom").mixItems)
         if (item.what.find ("blended") != std::string::npos) blended = true;
     CHECK (blended);
 

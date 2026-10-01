@@ -166,15 +166,15 @@ float stereoPairWidth (RoleFamily family)
 }
 
 // Measured on the Praise stems (2026-09-30): the engineer's own mix put the snare's bottom
-// microphone 12 dB and the kick's outside microphone 7 dB under where TUNE had left them at the
-// full kick and snare level. The top of the snare and the inside of the kick are the drum; the
+// microphone 12 dB under where TUNE had left it at the full snare level, and 19 under the top. The top of the snare and the inside of the kick are the drum; the
 // other microphone is the wire and the air, and it is blended in.
 float blendBelowPrimaryDb (ChannelRole role)
 {
     switch (role)
     {
         case ChannelRole::SnareBottom: return 12.0f;
-        case ChannelRole::KickOut:     return 6.0f;
+        // Not the outside of the kick: on the Praise stems the engineer's finished mix leaned
+        // on it 5 dB over the inside one. Which kick microphone carries the drum is the kit's.
         default:                       return 0.0f;
     }
 }
@@ -237,6 +237,9 @@ float mixLevelTargetDb (StyleProfileId profile, RoleFamily family)
             if (family == RoleFamily::Choir) db -= 1.0f;
             // Worship wants more of the room: it is what stops a stream sounding like a rehearsal.
             if (family == RoleFamily::Ambience) db += 2.0f;
+            // The toms are fills, not the kit: the engineer's own mix of the Praise stems put the
+            // rack toms 5-9 dB and the floor tom 18 under where TUNE had them, in three windows.
+            if (family == RoleFamily::Tom) db -= 6.0f;
             break;
         case StyleProfileId::RockBand:
             // Rock: the guitars carry the song and the kit hits; keys and the room step back.
@@ -338,9 +341,18 @@ const Relationships& relationships (StyleProfileId profile)
     static const Relationships worship = []
     {
         Relationships r = gospel;
-        r.busBelowVocalsDb[size_t (MixBus::Music)] = -3.5f;   // the band sits closer to the voices
         r.busBelowVocalsDb[size_t (MixBus::Ambience)] = -10.0f;
         r.backingBelowLeadDb = 4.0f;
+        // FITTED TO AN ENGINEER'S OWN MIX (2026-09-30). The Praise stems, mixed by hand to a
+        // finish the engineer called decent, against a fresh TUNE MIX of the same 40 seconds
+        // (`dlive_mix_compare`, 13:10): the lead on top with the drums driving it - DRUMS 7.6 dB
+        // up, MUSIC 8 down, BGV 11 down against the lead. The numbers move most of the way, not
+        // all of it: one song and one engineer, and the group faders that carry them are bounded.
+        r.busBelowVocalsDb[size_t (MixBus::Drums)]  = 3.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Music)]  = -9.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Vocals)] = -13.0f;
+        r.busBelowVocalsDb[size_t (MixBus::Bass)]   = -7.0f;   // bass 5-6 dB under where TUNE had it, in all three
+        r.maxBusFaderMoveDb = 10.0f;
         return r;
     }();
     static const Relationships rock = []
