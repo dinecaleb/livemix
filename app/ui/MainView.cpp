@@ -1430,6 +1430,17 @@ void MainView::maybeShowGuide()
     guide->toFront (false);
 }
 
+// THE SOLO PILL: what is soloed, beside the clock, on every workspace. It follows the mix on
+// the tick as well as on the chrome's own events, because an S pressed on a MIXER strip, a TUNE
+// or LIVE tile or a channel sheet goes straight to the controller - and a pill that only heard
+// about some of them went on saying "SOLO MUSIC" over a console where nothing was soloed.
+void MainView::refreshSoloPill()
+{
+    const bool wasShown = soloPill->isVisible();
+    soloPill->setItems (controller.getSoloed());
+    if (soloPill->hasAny() != wasShown) { soloPill->setVisible (soloPill->hasAny()); resized(); }
+}
+
 void MainView::updateChrome()
 {
     const auto& session = controller.getSession();
@@ -1454,13 +1465,7 @@ void MainView::updateChrome()
     sidebar->item (Page::Routing).setDone (mixable && ! isRoutingPage (page));
     routingPage->refresh();
 
-    // ---- the solo pill: what is soloed, beside the clock, on every workspace
-    {
-        auto soloed = controller.getSoloed();
-        const bool wasShown = soloPill->isVisible();
-        soloPill->setItems (soloed);
-        if (soloPill->hasAny() != wasShown) { soloPill->setVisible (soloPill->hasAny()); resized(); }
-    }
+    refreshSoloPill();
 
     // What is on the title row and the toolbar decides where everything else on them goes, so a
     // button appearing or disappearing lays both rows out again (resized() skips a hidden one).
@@ -2907,6 +2912,7 @@ void MainView::timerCallback()
     }
     if (slow || slowTicks % 10 == 0) sidebar->refresh (services.daw().isRecording());
     if (chainFoot->isVisible() && slowTicks % 3 == 0) updateChainFoot();
+    if (slowTicks % 3 == 0) refreshSoloPill();
 
     if (toastTicks > 0 && --toastTicks == 0) toast->setVisible (false);
 

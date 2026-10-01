@@ -497,6 +497,16 @@ TEST_CASE ("Reachability: anything soloed says so from every workspace, and one 
     window.pump (10);
     CHECK (! view.isSoloBarShown());
     CHECK (controller.getSoloed().empty());
+
+    // An S pressed on a strip or a tile goes straight to the controller, with no page change to
+    // refresh the chrome: the band follows it on its own, on and off. It used to keep saying
+    // "SOLO MUSIC" over a console where nothing was soloed.
+    controller.setBusSolo (MixBus::Music, true);
+    window.pump (250);
+    CHECK_MESSAGE (view.isSoloBarShown(), "a solo from a strip did not reach the band");
+    controller.setBusSolo (MixBus::Music, false);
+    window.pump (250);
+    CHECK_MESSAGE (! view.isSoloBarShown(), "the band still says SOLO with nothing soloed");
 }
 
 // ------------------------------------------------------------------- the group buses

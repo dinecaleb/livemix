@@ -231,6 +231,7 @@ private:
     void chooseOutput();
     void importMultitrack();
     void importMultitrackFolder (const juce::File&);   // both import buttons land here
+    void refreshSoloPill();
     void exportMix (AppServices::ExportFormat format, AppServices::ExportWhat what = AppServices::ExportWhat::StereoMix);
     bool exporting = false;
     void timelineChanged();
