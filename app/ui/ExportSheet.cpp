@@ -125,6 +125,14 @@ ExportSheet::~ExportSheet() = default;
 
 void ExportSheet::refresh() { updateControls(); }
 
+void ExportSheet::choose (AppServices::ExportWhat w, AppServices::ExportFormat f)
+{
+    what = w == AppServices::ExportWhat::RawMultitrack ? 2 : w == AppServices::ExportWhat::GroupStems ? 1 : 0;
+    format = f == AppServices::ExportFormat::Mp3 ? 2 : f == AppServices::ExportFormat::Aiff ? 1 : 0;
+    updateControls();
+    repaint();
+}
+
 bool ExportSheet::keyPressed (const juce::KeyPress& key)
 {
     if (key == juce::KeyPress::escapeKey) { if (onClose) onClose(); return true; }

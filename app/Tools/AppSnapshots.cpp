@@ -268,9 +268,9 @@ namespace
                 case 8:  return 0.15f * std::sin (2.0f * float (M_PI) * 262.0f * t) + 0.1f * std::sin (2.0f * float (M_PI) * 2600.0f * t); // keys L
                 case 9:  return 0.15f * std::sin (2.0f * float (M_PI) * 330.0f * t) + 0.1f * std::sin (2.0f * float (M_PI) * 2800.0f * t); // keys R
                 case 10: return 0.3f * std::sin (2.0f * float (M_PI) * 220.0f * t) * (0.6f + 0.4f * std::sin (2.0f * float (M_PI) * 0.7f * t)); // lead
-                case 11: return 0.2f * std::sin (2.0f * float (M_PI) * 330.0f * t);
-                case 12: return 0.2f * std::sin (2.0f * float (M_PI) * 392.0f * t);
-                case 13: return 0.2f * std::sin (2.0f * float (M_PI) * 494.0f * t);
+                case 11: return (std::fmod (t, 0.5f) < 0.38f ? 0.2f * std::sin (2.0f * float (M_PI) * 330.0f * t) : 0.0f) + 0.004f * dist (rng);   // backing voices: phrases, the stage between them
+                case 12: return (std::fmod (t, 0.5f) < 0.38f ? 0.2f * std::sin (2.0f * float (M_PI) * 392.0f * t) : 0.0f) + 0.004f * dist (rng);
+                case 13: return (std::fmod (t, 0.5f) < 0.38f ? 0.2f * std::sin (2.0f * float (M_PI) * 494.0f * t) : 0.0f) + 0.004f * dist (rng);
                 default: return 0.0f;   // pastor and spare stay silent
             }
         }
@@ -1473,6 +1473,12 @@ int main (int argc, char** argv)
     view.exportMixForSnapshot();
     rig.feed (0.2);
     rig.snap (dir, "27-export");
+    view.closeSheetsForSnapshot();
+    rig.feed (0.2);
+    // File > Export Multitrack opens the same sheet on the multitrack, not on a stereo mix.
+    view.exportMultitrackForSnapshot();
+    rig.feed (0.2);
+    rig.snap (dir, "27b-export-multitrack");
     view.closeSheetsForSnapshot();
     rig.feed (0.2);
 

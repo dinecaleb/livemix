@@ -33,6 +33,10 @@ public:
     ExportSheet (MixController&, AppServices&);
     ~ExportSheet() override;
 
+    // Opens on what the menu item said: File > Export Multitrack is the multitrack, not a
+    // stereo mix with the multitrack one tab away.
+    void choose (AppServices::ExportWhat, AppServices::ExportFormat);
+
     std::function<void()> onClose;
     std::function<void (const juce::String&)> onToast;
     // The window owns the render: it outlives this sheet, and it is the thing that knows

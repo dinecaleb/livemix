@@ -1783,8 +1783,10 @@ MixPlan channelOnly (const MixPlan& full, int strip, StyleProfileId profile)
         }
     }
     if (sp.bleedOnly)
-        out.notes.push_back (NAME + " heard only spill during the listen, so its level was left alone. "
-                             "Tune it again when it is the source that is playing.");
+    {
+        out.notes.push_back (NAME + " heard only spill, so its level was left alone.");
+        out.notes.push_back ("Tune it again while it is the one playing.");
+    }
     if (out.parametersChanged > 0)
         out.notes.push_back (std::to_string (out.parametersChanged) + (out.parametersChanged == 1 ? " setting shaped from what it played." : " settings shaped from what it played."));
     // The gain and the level are only mentioned here when the decision does not already

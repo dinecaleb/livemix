@@ -825,6 +825,7 @@ public:
                 m.addSeparator();
                 m.addItem (105, "Export Stereo Mix (WAV)...");
                 m.addItem (106, "Export Stereo Mix (MP3)...");
+                m.addItem (110, "Export Multitrack (one file per input)...");
                 break;
             case 1:
                 m.addItem (200, "Undo", view.tracksPage != nullptr && view.tracksPage->canUndo());
@@ -1566,6 +1567,7 @@ void MainView::setupPopover()
     m.addItem (13, "Add a reference mix" + juce::String (Glyph::ellip()));
     m.addItem (14, "Save input mapping" + juce::String (Glyph::ellip()), hasInputs);
     m.addItem (15, "Export stereo mix (WAV)" + juce::String (Glyph::ellip()));
+    m.addItem (16, "Export multitrack" + juce::String (Glyph::ellip()));
     m.addSeparator();
     m.addItem (5, "Open setup");
     m.addItem (9, "Rename or fix the inputs" + juce::String (Glyph::ellip()));
@@ -1592,6 +1594,7 @@ void MainView::setupPopover()
                              case 13: handleCommand (107); break;
                              case 14: saveInputMapping(); break;
                              case 15: exportMix (AppServices::ExportFormat::Wav); break;
+                             case 16: exportMix (AppServices::ExportFormat::Wav, AppServices::ExportWhat::RawMultitrack); break;
                              default: break;
                          }
                      });
@@ -2339,6 +2342,7 @@ void MainView::handleCommand (int id)
             break;
         case 105: exportMix (AppServices::ExportFormat::Wav); break;
         case 106: exportMix (AppServices::ExportFormat::Mp3); break;
+        case 110: exportMix (AppServices::ExportFormat::Wav, AppServices::ExportWhat::RawMultitrack); break;
 
         case 200: if (! liveSafeBlocks ("editing the timeline")) tracksPage->undo(); break;
         case 201: if (! liveSafeBlocks ("editing the timeline")) tracksPage->splitAtPlayhead(); break;
@@ -2704,9 +2708,9 @@ void MainView::importMultitrackFolder (const juce::File& folder)
 }
 
 // EXPORT: the sheet asks what, how much and where, then the render happens on a worker while
-// the console keeps playing. The menu's two items open the same sheet with their format already
-// picked, so File > Export Stereo Mix (MP3) still means what it says.
-void MainView::exportMix (AppServices::ExportFormat format)
+// the console keeps playing. Every menu item opens the same sheet with its own choice already
+// picked, so File > Export Stereo Mix (MP3) and Export Multitrack each mean what they say.
+void MainView::exportMix (AppServices::ExportFormat format, AppServices::ExportWhat what)
 {
     if (! controller.isPrepared() || controller.getSession().inputs.empty())
     {
@@ -2763,8 +2767,8 @@ void MainView::exportMix (AppServices::ExportFormat format)
             });
         });
     };
+    exportSheet->choose (what, format);
     addAndMakeVisible (*exportSheet);
-    juce::ignoreUnused (format);
     resized();
     exportSheet->grabKeyboardFocus();
 }

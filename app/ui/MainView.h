@@ -122,6 +122,7 @@ public:
     void updateChromeForSnapshot() { updateChrome(); }   // the snapshot tool: the toolbar re-reads the controller now
     void closeSheetsForSnapshot() { closeSheets(); }
     void exportMixForSnapshot() { exportMix (AppServices::ExportFormat::Wav); }
+    void exportMultitrackForSnapshot() { exportMix (AppServices::ExportFormat::Wav, AppServices::ExportWhat::RawMultitrack); }
     void showChat();
     // A button in a Mix Buddy answer. Everything here is navigation, a listen in the engineer's
     // own headphones, or the start of a TUNE that ends on BEFORE / AFTER - never a change kept.
@@ -230,7 +231,7 @@ private:
     void chooseOutput();
     void importMultitrack();
     void importMultitrackFolder (const juce::File&);   // both import buttons land here
-    void exportMix (AppServices::ExportFormat format);
+    void exportMix (AppServices::ExportFormat format, AppServices::ExportWhat what = AppServices::ExportWhat::StereoMix);
     bool exporting = false;
     void timelineChanged();
     bool liveSafeBlocks (const juce::String& what);
