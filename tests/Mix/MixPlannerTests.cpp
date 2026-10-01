@@ -68,6 +68,19 @@ namespace
         std::uniform_real_distribution<float> dist (-1.0f, 1.0f);
         for (auto& x : c) x += amp * dist (rng);
     }
+    // A voice sings in phrases: a held note for onS, a breath of offS, with 20 ms ramps.
+    void phrases (std::vector<float>& c, float hz, float amp, float onS, float offS, float phaseS)
+    {
+        const float period = onS + offS, ramp = 0.02f;
+        for (size_t i = 0; i < c.size(); ++i)
+        {
+            const float t = float (i) / float (kSr);
+            const float inPeriod = std::fmod (t + period - phaseS, period);
+            if (inPeriod >= onS) continue;
+            const float env = std::min ({ 1.0f, inPeriod / ramp, (onS - inPeriod) / ramp });
+            c[i] += amp * env * std::sin (2.0f * float (M_PI) * hz * t);
+        }
+    }
 
     // Eight seconds of "band". The pastor stays silent.
     testsig::Buffer bandAudio()
@@ -84,7 +97,10 @@ namespace
         sine (in.data[8], 262.0f, 0.15f); sine (in.data[8], 2600.0f, 0.2f); // keys: bright upper mids
         sine (in.data[9], 330.0f, 0.15f); sine (in.data[9], 2800.0f, 0.2f);
         sine (in.data[10], 220.0f, 0.3f); sine (in.data[10], 440.0f, 0.1f); // lead: warm voice-like tone
-        sine (in.data[11], 330.0f, 0.2f); sine (in.data[12], 392.0f, 0.2f); sine (in.data[13], 494.0f, 0.2f);
+        // backing voices: sung in phrases, with the stage heard in their breaths
+        phrases (in.data[11], 330.0f, 0.2f, 1.6f, 0.4f, 0.0f); phrases (in.data[12], 392.0f, 0.2f, 1.6f, 0.4f, 0.1f);
+        phrases (in.data[13], 494.0f, 0.2f, 1.6f, 0.4f, 0.2f);
+        noise (in.data[11], 0.004f, 11); noise (in.data[12], 0.004f, 12); noise (in.data[13], 0.004f, 13);
         noise (in.data[14], 0.02f, 10);                                    // pastor mic: only band spill during the song
         return in;
     }
@@ -1190,4 +1206,69 @@ TEST_CASE ("MixPlanner: several microphones on one instrument are one level - a 
     const auto second = MixPlanner::plan (again);
     if (! second.noChangeRequired) dumpDifferences (plan, second);
     CHECK (second.noChangeRequired);
+}
+
+TEST_CASE ("MixPlanner: a backing microphone nobody sang into is left alone, not lifted with the stage")
+{
+    // The Praise service, 870 s: the backing singers had stopped, their three microphones heard the stage
+    // at -45 dBFS with its loudest moments 12 dB above its floor, and TUNE MIX lifted all three 15 dB and
+    // the group another 4.5 dB to reach the backing-vocal level - the stage, through three idle mics, on
+    // top of the lead. A voice has gaps between its phrases; a stage does not.
+    auto stageOnly = [] (std::vector<float>& c, unsigned seed)
+    {
+        std::fill (c.begin(), c.end(), 0.0f);
+        noise (c, 0.01f, seed);                                            // the wash of the stage
+        bursts (c, 0.0f, 0.03f, 0.5f, 0.05f, 0.25f, true, seed + 100);     // the snare arriving late and quiet
+    };
+
+    // One voice singing, two microphones with nobody at them.
+    {
+        Rig rig (band());
+        auto in = bandAudio();
+        stageOnly (in.data[12], 21);
+        stageOnly (in.data[13], 22);
+        const auto cap = rig.listen (in);
+        REQUIRE (cap.valid);
+        const auto ctx = rig.context (cap);
+        const auto& R = MixProfile::relationships (StyleProfileId::ModernGospel);
+        CHECK (cap.strips[size_t (stripIndex (MixPlanner::plan (ctx), "Vox 2"))].dynamicRangeDb < R.minSungRangeDb);
+        CHECK (cap.strips[size_t (stripIndex (MixPlanner::plan (ctx), "Vox 1"))].dynamicRangeDb >= R.minSungRangeDb);
+
+        const auto plan = MixPlanner::plan (ctx);
+        REQUIRE (plan.valid);
+        CHECK (! stripNamed (plan, "Vox 1").bleedOnly);                    // the singer is mixed
+        CHECK (stripNamed (plan, "Vox 1").balanced);
+        for (const char* idle : { "Vox 2", "Vox 3" })
+        {
+            const auto& sp = stripNamed (plan, idle);
+            CHECK (sp.heard);
+            CHECK (sp.bleedOnly);                                          // ... the idle microphones are not
+            CHECK (sp.faderDb == 0.0f);
+            CHECK (sp.inputGainDb == 0.0f);
+            REQUIRE (! sp.mixItems.empty());
+            CHECK (sp.mixItems.front().what.find ("nobody sang into it") != std::string::npos);
+        }
+
+        // The same listen planned again is the same answer.
+        MixPlanContext again = ctx;
+        again.current = plan.proposed;
+        const auto second = MixPlanner::plan (again);
+        CHECK (second.noChangeRequired);
+    }
+
+    // Nobody on the group singing: the backing group is not set against the lead either.
+    {
+        Rig rig (band());
+        auto in = bandAudio();
+        stageOnly (in.data[11], 31);
+        stageOnly (in.data[12], 32);
+        stageOnly (in.data[13], 33);
+        const auto cap = rig.listen (in);
+        REQUIRE (cap.valid);
+        const auto plan = MixPlanner::plan (rig.context (cap));
+        REQUIRE (plan.valid);
+        for (const char* idle : { "Vox 1", "Vox 2", "Vox 3" }) CHECK (stripNamed (plan, idle).bleedOnly);
+        CHECK (plan.proposed.buses[size_t (MixBus::Vocals)].faderDb == plan.before.buses[size_t (MixBus::Vocals)].faderDb);
+        CHECK (plan.proposed.buses[size_t (MixBus::Lead)].faderDb == plan.before.buses[size_t (MixBus::Lead)].faderDb);
+    }
 }

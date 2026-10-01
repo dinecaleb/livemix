@@ -494,6 +494,37 @@ MixPlan plan (const MixPlanContext& ctx)
             }
     }
 
+    // A backing-vocal microphone nobody sang into is the same case from the other side: what it heard
+    // is the stage, and lifting it to the backing-vocal level lifts the stage. A voice has gaps that a
+    // stage does not, so the test is how far its loudest moments stood above its floor - read from the
+    // raw capture, middle third of three, so it is the same answer however often the listen is planned.
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            auto& sp = plan.strips[size_t (i)];
+            const auto& a = ctx.capture.strips[size_t (i)];
+            if (! sp.heard || sp.bleedOnly || roleFamily (sp.role) != RoleFamily::BackingVocal) continue;
+            if (a.noiseFloorDb <= -119.0f || a.dynamicRangeDb >= R.minSungRangeDb) continue;
+            sp.bleedOnly = true;
+            plan.proposed.strips[size_t (i)].inputGainDb = ctx.current.strips[size_t (i)].inputGainDb;
+            sp.inputGainDb = sp.inputGainBeforeDb;
+            {
+                TuneContext tc;
+                tc.analysis = a;
+                shiftLevels (tc.analysis, ctx.current.strips[size_t (i)].inputGainDb - ctx.atCapture.strips[size_t (i)].inputGainDb);
+                tc.role = sp.role; tc.profile = profile; tc.current = ctx.current.strips[size_t (i)].channel; tc.hasOutput = false;
+                sp.tune = TuneEngine::tune (tc);
+                if (sp.tune.valid) plan.proposed.strips[size_t (i)].channel = sp.tune.proposed;
+            }
+            sp.mixItems.clear();
+            sp.mixItems.push_back (info (Recommendation::Kind::Info, upper (sp.name) + ": nobody sang into it",
+                                         "Its loudest moments stood only " + num ("%.0f dB", double (a.dynamicRangeDb))
+                                         + " above what it heard the rest of the time - that is the stage, not a voice, which has gaps "
+                                         "between its phrases. Lifting it would bring the stage up through it, so its level and gain were "
+                                         "left alone. Tune Mix again while somebody sings into it.", Confidence::High));
+        }
+    }
+
     // ... and the other half of the same question. A listen where the only source playing is
     // the spoken word is a sermon, and the microphones that are left open across a stage
     // during one - the drum room, the overheads - are not the band playing. They are the PA
@@ -1752,7 +1783,7 @@ MixPlan channelOnly (const MixPlan& full, int strip, StyleProfileId profile)
         }
     }
     if (sp.bleedOnly)
-        out.notes.push_back (NAME + " was heard as spill while the lead sang, so its level was left alone. "
+        out.notes.push_back (NAME + " heard only spill during the listen, so its level was left alone. "
                              "Tune it again when it is the source that is playing.");
     if (out.parametersChanged > 0)
         out.notes.push_back (std::to_string (out.parametersChanged) + (out.parametersChanged == 1 ? " setting shaped from what it played." : " settings shaped from what it played."));

@@ -60,7 +60,9 @@ namespace
                     in[2][size_t (i)] = 0.2f * std::sin (2.0f * float (M_PI) * 262.0f * t) + 0.1f * std::sin (2.0f * float (M_PI) * 2600.0f * t);
                     in[3][size_t (i)] = 0.2f * std::sin (2.0f * float (M_PI) * 330.0f * t) + 0.1f * std::sin (2.0f * float (M_PI) * 2800.0f * t);
                     in[4][size_t (i)] = leadGain * 0.3f * std::sin (2.0f * float (M_PI) * 220.0f * t);
-                    in[5][size_t (i)] = 0.2f * std::sin (2.0f * float (M_PI) * 330.0f * t);
+                    // the backing voice sings in phrases, and its microphone hears the stage between them
+                    in[5][size_t (i)] = (std::fmod (t, 0.5f) < 0.38f ? 0.2f * std::sin (2.0f * float (M_PI) * 330.0f * t) : 0.0f)
+                                      + 0.004f * std::sin (2.0f * float (M_PI) * 1234.0f * t);
                 }
                 for (size_t ch = 0; ch < ip.size(); ++ch) ip[ch] = in[ch].data();
                 float* op[2] = { l.data(), r.data() };

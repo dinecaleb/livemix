@@ -181,6 +181,14 @@ namespace MixProfile
         // level and the pastor sat under the mix. 6 dB is where the room stops being room and starts being
         // the thing a listener notices between words.
         float speechSpillBelowTargetDb = 6.0f;
+        // A backing-vocal microphone nobody sang into during the listen. A voice has phrases and gaps,
+        // so its loudest moments stand well above what it hears between them; a microphone hearing only
+        // the stage hears a stage that never stops, and its loudest moments sit barely above its floor.
+        // Measured on the Praise and QUEENSVIEW services: every lead and every backing voice that sang,
+        // 21.5 to 40 dB; a backing microphone with nobody at it, 10 to 13 dB. Under this the microphone
+        // is left alone rather than lifted to the backing-vocal level - which brought the stage up 15 dB
+        // through three idle microphones and put it on top of the lead.
+        float minSungRangeDb = 17.0f;
         float faintInputDb = -38.0f;       // a raw peak (at the device) that never got above this during the listen is a faint input: the
                                            // source did not really play, or the microphone / cable / preamp is the problem. It is not tuned,
                                            // raised or balanced; the mix says to check it.

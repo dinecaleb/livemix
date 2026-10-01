@@ -296,6 +296,13 @@ TUNE LIVE MIX, REFERENCE MIX, what a microphone hears between the sounds, LIVE S
   level and toms were moved toward the hand mix (channel RMS difference 8.6 -> 6.1 dB at 790 s), toms no longer
   switch their sample on by themselves, and Kick Out is not blended under Kick In. Fit only what is consistent across
   windows: a gated-shut tom or which kick microphone carries the drum is the recording's, not a rule.
+- **A BACKING MICROPHONE NOBODY SANG INTO (2026-10-01).** A voice has gaps between its phrases and a stage does not,
+  so a Backing Vocal strip whose loudest moments stand less than `minSungRangeDb` (17 dB) above its floor - raw
+  capture, middle of three thirds - is `bleedOnly`: gain and level left alone, "nobody sang into it" said, and a group
+  of nothing but such microphones is not set against the lead. Measured: every voice that sang on Praise and
+  QUEENSVIEW 21.5-40 dB, an idle backing microphone 10-13 dB. On Praise at 870 s TUNE had lifted three idle mics
+  15 dB and the group 4.5 dB; the scoreboard's group distance there went 7.9 -> 2.5 dB. Test fixtures sing in
+  phrases now - a steady tone measures exactly like a stage.
 - **SHARE THE MICS (2026-09-30): the speaking microphones as an automatic mixer.** Mix > Share the Mics, off by
   default, saved with the session (`MixSession::autoMix`), set on every publish like speech priority
   (`MixParameters::AutoMix`, numbers in `MixProfile::autoMix`: depth 15 dB, 20 for Talk/Podcast; threshold
