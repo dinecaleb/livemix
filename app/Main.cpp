@@ -219,31 +219,60 @@ namespace
         juce::String currentSessionName() override { return juce::String (controller.getSession().name); }
         juce::File sessionFolder() override { return dawEngine.getProject().folder; }
 
-        juce::String importMultitrack (const juce::File& folder) override
+        ImportOutcome importAudio (const juce::Array<juce::File>& filesOrFolders,
+                                   MultitrackImport::Destination where, int firstTrack, juce::int64 at) override
         {
-            auto result = MultitrackImport::fromFolder (folder, controller.getSession());
-            if (result.error.isNotEmpty()) return result.error;
+            ImportOutcome out;
+            const auto plan = MultitrackImport::plan (filesOrFolders);
+            if (plan.tracks.empty())
+            {
+                out.error = plan.skipped.isEmpty() ? juce::String ("There is no audio in that.")
+                                                   : "Nothing there could be played: " + plan.skipped.joinIntoString (", ") + ".";
+                return out;
+            }
 
-            controller.setSession (result.session);
-            dawEngine.setSession (result.session);
-            result.project.folder = dawEngine.getProject().folder;   // keep the session's own folder, if it has one
-            dawEngine.setProject (result.project);
+            auto session = controller.getSession();
+            auto project = dawEngine.getProject();
+            // A session nothing has been recorded or imported into, and never saved, is named
+            // after what came in - the folder, or the folder the files are in.
+            const bool fresh = ! project.hasAudio() && project.folder == juce::File();
+            const auto applied = MultitrackImport::apply (plan, session, project, where, firstTrack, at);
+            if (applied.added + applied.onExisting == 0)
+            {
+                out.error = applied.summary;
+                return out;
+            }
+            if (fresh && where == MultitrackImport::Destination::Match && ! filesOrFolders.isEmpty())
+            {
+                const auto& first = filesOrFolders.getReference (0);
+                session.name = (first.isDirectory() ? first : first.getParentDirectory()).getFileName().toStdString();
+            }
+
+            if (applied.added > 0 || session.name != controller.getSession().name)
+                controller.setSession (session);
+            dawEngine.setSession (session);
+            dawEngine.setProject (project);
 
             // Imported audio plays through the same graph as a console, so an output is all that is needed.
-            if (! host.isOpen())
+            if (applied.added > 0)
             {
-                juce::String output = host.getOutputDeviceName();
-                if (output.isEmpty()) { const auto outs = host.listOutputDevices(); if (! outs.isEmpty()) output = outs[0].name; }
-                if (output.isNotEmpty()) host.openOutputOnly (output, result.sampleRate > 0.0 ? result.sampleRate : 48000.0);
+                if (! host.isOpen())
+                {
+                    juce::String output = host.getOutputDeviceName();
+                    if (output.isEmpty()) { const auto outs = host.listOutputDevices(); if (! outs.isEmpty()) output = outs[0].name; }
+                    if (output.isNotEmpty()) host.openOutputOnly (output, project.sampleRate > 0.0 ? project.sampleRate : 48000.0);
+                }
+                else
+                {
+                    host.reconfigure();
+                }
+                dawEngine.setSession (session);
+                dawEngine.setProject (project);
             }
-            else
-            {
-                host.reconfigure();
-            }
-            dawEngine.setSession (result.session);
-            dawEngine.setProject (result.project);
             touchSession();
-            return {};
+            out.summary = applied.summary;
+            out.added = applied.added;
+            return out;
         }
 
         std::shared_ptr<const ExportJob> snapshotExport() override

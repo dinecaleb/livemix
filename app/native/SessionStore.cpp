@@ -466,6 +466,8 @@ namespace
                 co->setProperty ("name", c.name);
                 co->setProperty ("file", c.file);
                 if (c.fileRight.isNotEmpty()) co->setProperty ("fileRight", c.fileRight);
+                if (c.fileChannel > 0) co->setProperty ("fileChannel", c.fileChannel);
+                if (c.fileRightChannel > 0) co->setProperty ("fileRightChannel", c.fileRightChannel);
                 co->setProperty ("start", double (c.start));
                 co->setProperty ("offset", double (c.offset));
                 co->setProperty ("length", double (c.length));
@@ -517,6 +519,8 @@ namespace
                                 c.name = co->getProperty ("name").toString();
                                 c.file = co->getProperty ("file").toString();
                                 c.fileRight = co->getProperty ("fileRight").toString();
+                                c.fileChannel = juce::jmax (0, int (co->getProperty ("fileChannel")));
+                                c.fileRightChannel = juce::jmax (0, int (co->getProperty ("fileRightChannel")));
                                 c.start = juce::int64 (double (co->getProperty ("start")));
                                 c.offset = juce::int64 (double (co->getProperty ("offset")));
                                 c.length = juce::int64 (double (co->getProperty ("length")));

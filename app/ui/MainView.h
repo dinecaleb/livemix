@@ -229,8 +229,9 @@ private:
     void openSession();
     void sessionMenu();
     void chooseOutput();
-    void importMultitrack();
-    void importMultitrackFolder (const juce::File&);   // both import buttons land here
+    void importMultitrack (bool newSessionFirst = false);   // the chooser: files, folders, several
+    void importMultitrackFolder (const juce::File&);
+    void importAudio (const juce::Array<juce::File>&, bool newSessionFirst);   // every import lands here
     void refreshSoloPill();
     void exportMix (AppServices::ExportFormat format, AppServices::ExportWhat what = AppServices::ExportWhat::StereoMix);
     bool exporting = false;

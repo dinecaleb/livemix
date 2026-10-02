@@ -88,6 +88,11 @@ public:
     int panelWidth() const noexcept { return headerWidth; }
     std::function<void()> onPanelWidthChanged;        // worth saving
 
+    // A new, empty track of this source (Track > New Track, a right-click below the last track).
+    bool addTrack (ChannelRole role);
+    static bool defaultsToStereo (ChannelRole) noexcept;
+    static void fillNewTrackMenu (juce::PopupMenu&, int firstId, std::vector<ChannelRole>& roles);
+
     // The chain along the foot belongs to the window now; the page keeps its own for a detached use.
     void setFootShown (bool);
     void setSnap (bool on);
@@ -163,6 +168,7 @@ private:
     // the last one", -2 when nothing is being dragged over the page.
     int dropTargetAt (int x, int y) const;
     void addAudioFiles (const juce::StringArray& files, int track, juce::int64 at);
+    void newTrackMenu (juce::Rectangle<int> near);
 
     void paintHeader (juce::Graphics&, int track, juce::Rectangle<int>);
     void paintLane (juce::Graphics&, int track, juce::Rectangle<int>);

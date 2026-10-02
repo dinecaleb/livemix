@@ -28,8 +28,21 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   `MixController::process` receives, so TUNE MIX works the same on live inputs and on recorded material.
   Monitoring has exactly one rule, `monitorUsesLiveInput` in `Project.h` - do not add a second. A session is a
   folder (`~/Music/DINE/<name>/` with `Audio Files/` inside); `SessionStore` is version 3 and still opens
-  versions 1 and 2. Import a folder of stems with `MultitrackImport` (it becomes tracks and clips - there is no
-  separate "play a recording" audio path any more). Export is `MixBounce::renderProject`, streamed to disk.
+  versions 1 and 2. Import audio with `MultitrackImport` (files and folders become tracks and clips - there is no
+  separate "play a recording" audio path any more). **Every import - File > Import Audio Files, the
+  launcher, the device page, a drop on TRACKS - goes through `MultitrackImport::plan` / `apply`**, and
+  its rules are in the header: every file is a channel (one the name says nothing about plays in Music
+  until it is set); folders are searched, hidden "._" files and bounce folders are not; numbers are
+  counted (2 before 10), a leading number is the channel and a take number or a desk's time stamp is
+  not part of the name; files that ran at the same time (broadcast-WAV stamp, else the file's birth
+  time) are one pass and later passes follow on the same tracks, so DINE's own `LEAD_001..006` is
+  three tracks, not six; a desk's multichannel card file is one track per channel
+  (`AudioClip::fileChannel`) with its chunks chained; split stereo of one length is joined
+  (`fileRight`), two toms never are; an import *adds* to the session, and an empty track already set
+  up takes the file with its name (or the only file of its source, or - for a card file - its console
+  channel). From the launcher an import is a new session. `dine_device_check --import <paths>` prints
+  what an import would make of them without opening a device. **Track > New Track** (and a right-click
+  below the last track) makes an empty track of a chosen source on the next free device channel. Export is `MixBounce::renderProject`, streamed to disk.
   App tests for all of this: `build/app/dine_app_tests` (`app/Tests/DawTests.cpp`).
 - **Before the service (2026-09-24).** Three things an engineer reaches for during a service, each one press:
   - The emergency keys, DIM and MUTE, on the toolbar beside BYPASS (and under View): the broadcast and the room
@@ -177,8 +190,9 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   **Audio files from the Finder** (`FileDragAndDropTarget`, `addAudioFiles`): dropped on a track they become
   clips on it at the drop moment (snapped; on the channel panel means the start), the files after the first
   going down the tracks below; dropped below the last track each file is a new track - a new *input* on device
-  channels past every assigned one, named and source-guessed from the file name like a multitrack import, an
-  unrecognised source left disabled for the header's menu to say - and the session is rebuilt the way the
+  channels past every assigned one, named and source-guessed from the file name by the same `MultitrackImport`
+  as File > Import (a folder can be dropped too), an unrecognised source playing in Music for the header's
+  menu to put right - and the session is rebuilt the way the
   ASSIGN page rebuilds it. Clips-only drops are undoable; a drop that made tracks is not (the undo stack holds
   projects, not sessions).
   A track and its input are two lists joined by index (`Project::tracks` / `MixSession::inputs`),
@@ -350,7 +364,7 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   the audio thread with relaxed atomics before anything in the mix touches the signal - so "the console is
   plugged in but channel 9 is dead", and "this unnamed input is carrying signal", are visible before a
   single input has been named.
-  In the app, Import a multitrack... on the device page (or File > Import Multitrack Folder...) turns a stems
+  In the app, Import a multitrack... on the device page (or File > Import Audio Files...) turns a stems
   folder into tracks and clips, with names and sources guessed from the file names.
   **"Arm" is not a word the app says.** A volunteer does not know it, and the message they meet when they press
   Record is the worst place to teach it. The field stays `Track::armed`, the key stays the red **R** (a console

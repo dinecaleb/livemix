@@ -1018,6 +1018,210 @@ TEST_CASE ("MultitrackImport: a folder of stems becomes tracks, clips and guesse
     folder.deleteRecursively();
 }
 
+namespace
+{
+    // A take the way DINE's recorder (and most desks) write one: a broadcast-WAV time stamp.
+    juce::File writeStamped (const juce::File& folder, const juce::String& name, double seconds, double startSeconds,
+                             int channels = 1, double rate = kSr)
+    {
+        folder.createDirectory();
+        const auto file = folder.getChildFile (name);
+        file.deleteFile();
+        const int frames = int (seconds * rate);
+        juce::AudioBuffer<float> buffer (channels, frames);
+        for (int ch = 0; ch < channels; ++ch)
+            for (int i = 0; i < frames; ++i)
+                buffer.setSample (ch, i, 0.1f * float (ch + 1) * std::sin (2.0f * float (M_PI) * 220.0f * float (i) / float (rate)));
+        const auto bext = juce::WavAudioFormat::createBWAVMetadata (name, "DINE", {}, juce::Time (2026, 8, 18, 21, 0, 0),
+                                                                    juce::int64 (startSeconds * rate), {});
+        juce::WavAudioFormat wav;
+        if (auto* stream = file.createOutputStream().release())
+        {
+            std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (stream, rate, (unsigned) channels, 24, bext, 0));
+            if (writer != nullptr) writer->writeFromAudioSampleBuffer (buffer, 0, frames);
+            else delete stream;
+        }
+        return file;
+    }
+
+    const MultitrackImport::PlannedTrack* planned (const MultitrackImport::Plan& plan, const juce::String& name)
+    {
+        for (const auto& t : plan.tracks) if (t.name == name) return &t;
+        return nullptr;
+    }
+}
+
+TEST_CASE ("MultitrackImport: names - channel numbers, take numbers and desk time stamps")
+{
+    auto parse = [] (const char* raw) { return MultitrackImport::parseName (raw); };
+    CHECK (parse ("01-KICK _-240927_2117").display == "KICK");
+    CHECK (parse ("01-KICK _-240927_2117").number == 1);
+    CHECK (parse ("04-SNR BM-240927_2117").display == "SNR BM");
+    CHECK (parse ("Kick_002").display == "Kick");
+    CHECK (parse ("Tom 3 _002").display == "Tom 3");
+    CHECK (parse ("OH _001").display == "OH");
+    CHECK (parse ("Kick#09").display == "Kick");
+    CHECK (parse ("Ch 05 - Pastor").display == "Pastor");
+    CHECK (parse ("Ch 05 - Pastor").number == 5);
+    CHECK (parse ("bgv1").display == "bgv1");          // a singer's number is the name's own
+    CHECK (parse ("bgv1").number == -1);
+    CHECK (parse ("Tom 1").display == "Tom 1");
+
+    juce::String base;
+    CHECK (MultitrackImport::sideOf ("ohL", base) == -1);  CHECK (base == "oh");
+    CHECK (MultitrackImport::sideOf ("keys1r", base) == 1); CHECK (base == "keys1");
+    CHECK (MultitrackImport::sideOf ("Piano.L", base) == -1); CHECK (base == "Piano");
+    CHECK (MultitrackImport::sideOf ("OH Right", base) == 1); CHECK (base == "OH");
+    CHECK (MultitrackImport::sideOf ("Keys (R)", base) == 1); CHECK (base == "Keys");
+}
+
+TEST_CASE ("MultitrackImport: every file is heard, in counted order, and split stereo is joined")
+{
+    const auto folder = scratchFolder().getChildFile ("praise");
+    folder.deleteRecursively();
+    writeTone (folder, "10-Keys.wav", 0.5, 0.2f);
+    writeTone (folder, "2-Snare.wav", 0.5, 0.2f);
+    writeTone (folder, "angelica.wav", 0.5, 0.2f);          // a singer's own name: nothing to guess from
+    writeTone (folder, "ohL.wav", 0.5, 0.2f);
+    writeTone (folder, "ohR.wav", 0.5, 0.2f);
+    writeTone (folder, "Tom L.wav", 0.5, 0.2f);             // two toms, not a pair
+    writeTone (folder, "Tom R.wav", 0.5, 0.2f);
+    writeTone (folder.getChildFile ("more"), "Bass.wav", 0.5, 0.2f);   // a sub-folder is looked inside
+    writeTone (folder, "._Bass.wav", 0.5, 0.2f);            // an SD card's shadow copy is not
+    folder.getChildFile ("notes.txt").replaceWithText ("hello");
+
+    const auto result = MultitrackImport::fromFolder (folder, MixSession {});
+    REQUIRE (result.error.isEmpty());
+    const auto& inputs = result.session.inputs;
+    REQUIRE (inputs.size() == 7);
+    // Numbered files by their number: 2 before 10.
+    CHECK (inputs[0].name == "Snare");
+    CHECK (inputs[1].name == "Keys");
+    // Every one of them is a strip on the console, the unrecognised one included.
+    for (const auto& in : inputs) CHECK (inputHasStrip (in));
+    const auto find = [&] (const char* name) -> const InputAssignment*
+    {
+        for (const auto& in : inputs) if (in.name == name) return &in;
+        return nullptr;
+    };
+    REQUIRE (find ("angelica") != nullptr);
+    CHECK (roleFamily (find ("angelica")->role) == RoleFamily::Synth);
+    CHECK (result.summary.contains ("angelica"));
+    // ohL + ohR: one stereo overhead, both files on its clip.
+    REQUIRE (find ("oh") != nullptr);
+    CHECK (find ("oh")->isStereo());
+    CHECK (find ("oh")->role == ChannelRole::Overhead);
+    CHECK (find ("Tom L") != nullptr);
+    CHECK (find ("Tom R") != nullptr);
+    CHECK (find ("Bass") != nullptr);
+    CHECK (result.project.tracks.size() == inputs.size());
+    for (size_t i = 0; i < inputs.size(); ++i)
+        if (inputs[i].name == "oh")
+        {
+            REQUIRE (result.project.tracks[i].clips.size() == 1);
+            CHECK (result.project.tracks[i].clips[0].file.endsWith ("ohL.wav"));
+            CHECK (result.project.tracks[i].clips[0].fileRight.endsWith ("ohR.wav"));
+        }
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("MultitrackImport: DINE's own takes - three LEAD mics, two passes, land on three tracks")
+{
+    // QUEENSVIEW (2026-09-18): three inputs all called LEAD, a soundcheck pass then the service.
+    // The recorder numbers takes per name, so LEAD_001..003 are the three mics in the first pass
+    // and LEAD_004..006 the same three in the second. It used to be six tracks.
+    const auto folder = scratchFolder().getChildFile ("queensview");
+    folder.deleteRecursively();
+    for (int i = 1; i <= 3; ++i) writeStamped (folder, "LEAD_00" + juce::String (i) + ".wav", 1.0, 100.0);
+    for (int i = 4; i <= 6; ++i) writeStamped (folder, "LEAD_00" + juce::String (i) + ".wav", 3.0, 102.0);
+    writeStamped (folder, "Kick_001.wav", 1.0, 100.0);
+    writeStamped (folder, "Kick_002.wav", 3.0, 102.0);
+
+    const auto plan = MultitrackImport::plan ({ folder });
+    CHECK (plan.files == 8);
+    CHECK (plan.passes == 2);
+    REQUIRE (plan.tracks.size() == 4);
+    for (const char* name : { "LEAD 1", "LEAD 2", "LEAD 3", "Kick" })
+    {
+        const auto* t = planned (plan, name);
+        REQUIRE (t != nullptr);
+        REQUIRE (t->clips.size() == 2);
+        CHECK_NEAR (t->clips[0].startSeconds, 0.0, 0.001);
+        CHECK_NEAR (t->clips[1].startSeconds, 2.0, 0.001);   // the real gap between the passes is kept
+    }
+    CHECK (planned (plan, "LEAD 2")->clips[0].clip.file.endsWith ("LEAD_002.wav"));
+    CHECK (planned (plan, "LEAD 2")->clips[1].clip.file.endsWith ("LEAD_005.wav"));
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("MultitrackImport: a desk's 32-channel card file is 32 tracks, and its chunks follow each other")
+{
+    const auto folder = scratchFolder().getChildFile ("xlive");
+    folder.deleteRecursively();
+    writeStamped (folder, "00000001.WAV", 0.5, 0.0, 8);
+    writeStamped (folder, "00000002.WAV", 0.25, 0.0, 8);
+
+    const auto result = MultitrackImport::fromFolder (folder, MixSession {});
+    REQUIRE (result.error.isEmpty());
+    REQUIRE (result.session.inputs.size() == 8);
+    CHECK (result.session.inputs[0].name == "Ch 1");
+    CHECK (result.session.inputs[7].name == "Ch 8");
+    CHECK (result.session.inputs[7].inputA == 7);       // card channel 8 is input 8
+    const auto& clips = result.project.tracks[5].clips;
+    REQUIRE (clips.size() == 2);
+    CHECK (clips[0].fileChannel == 5);
+    CHECK (clips[1].start == clips[0].length);          // the second chunk starts where the first ends
+
+    // ...and plays its own channel: the writer put 0.1 x (channel + 1) on each.
+    ClipSource::Track track;
+    track.channels = 1;
+    track.clips = { clips[0] };
+    ClipSource source;
+    source.prepare (kSr, 512, { track });
+    source.read (100, 64);
+    float peak = 0.0f;
+    for (int i = 0; i < 64; ++i) peak = juce::jmax (peak, std::abs (source.channel (0, 0)[i]));
+    CHECK (peak > 0.45f);
+    CHECK (peak < 0.65f);                               // channel 6 (0.6), not channel 1 (0.2)
+
+    // The session keeps which channel each clip is.
+    SessionStore::Document doc;
+    doc.session = result.session;
+    doc.project = result.project;
+    SessionStore::Document back;
+    REQUIRE (SessionStore::fromVar (SessionStore::toVar (doc), back));
+    CHECK (back.project.tracks[5].clips[0].fileChannel == 5);
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("MultitrackImport: into a session, files land on the empty tracks they are named for")
+{
+    const auto folder = scratchFolder().getChildFile ("sunday");
+    folder.deleteRecursively();
+    writeTone (folder, "Kick.wav", 0.5, 0.2f);
+    writeTone (folder, "Pastor.wav", 0.5, 0.2f);
+    writeTone (folder, "Shaker.wav", 0.5, 0.2f);
+
+    // This Sunday's console: a Kick on channel 5 and a lectern mic called "Vox Pastor" on 9.
+    MixSession session;
+    session.inputs.push_back ({ "Kick", ChannelRole::KickIn, 4, -1 });
+    session.inputs.push_back ({ "Vox Pastor", ChannelRole::Speech, 8, -1 });
+    Project project;
+    project.syncTracks (session);
+
+    const auto plan = MultitrackImport::plan ({ folder });
+    const auto applied = MultitrackImport::apply (plan, session, project);
+    CHECK (applied.onExisting == 2);
+    CHECK (applied.added == 1);
+    REQUIRE (session.inputs.size() == 3);
+    CHECK (project.tracks.size() == 3);
+    CHECK (project.tracks[0].clips.size() == 1);        // Kick, by name
+    CHECK (project.tracks[1].clips.size() == 1);        // the only speech file onto the only speech track
+    CHECK (session.inputs[2].name == "Shaker");
+    CHECK (session.inputs[2].inputA == 9);              // past every channel the console uses
+    folder.deleteRecursively();
+}
+
 TEST_CASE ("StemNames: the labels a live desk actually writes, and no accidents inside longer words")
 {
     auto guess = [] (const char* name)
@@ -1052,7 +1256,7 @@ TEST_CASE ("StemNames: the labels a live desk actually writes, and no accidents 
     CHECK (guess ("LOOP 1") == ChannelRole::SynthPad);
 
     // A channel named after the person singing on it cannot be guessed, and must not be guessed at:
-    // the import lists it for the user to assign.
+    // the import still makes it a channel (in the Music group) and names it for the user to assign.
     CHECK (guess ("angelica") == ChannelRole::Count);
 
     // The Praise stems (2026-09-30): backing tracks were read as rack toms ("tracks" has "rack" in

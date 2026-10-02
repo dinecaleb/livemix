@@ -1,6 +1,7 @@
 // Real-device soak check for the DINE audio host: opens a device through AudioHost with a
 // small session, runs the callback for a few seconds and reports what the engine saw.
 //   dine_device_check [seconds=5] [input device name] [output device name] [buffer=64]
+//   dine_device_check --import <files or folders...>   what an import would make of them; opens no device
 // Without names the device with the most inputs is used for input and the default output for output.
 #include <juce_events/juce_events.h>
 #include "native/AudioHost.h"
@@ -16,6 +17,26 @@ using namespace livemix;
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+    if (argc > 2 && juce::String (argv[1]) == "--import")
+    {
+        juce::Array<juce::File> chosen;
+        for (int i = 2; i < argc; ++i) chosen.add (juce::File (juce::String (argv[i])));
+        MixSession session;
+        Project project;
+        const auto plan = MultitrackImport::plan (chosen);
+        const auto applied = MultitrackImport::apply (plan, session, project);
+        for (size_t i = 0; i < session.inputs.size(); ++i)
+        {
+            const auto& in = session.inputs[i];
+            std::printf ("  in %2d%s %-16s %-20s", in.inputA + 1, in.inputB >= 0 ? "/" : " ", in.name.c_str(), channelRoleName (in.role));
+            for (const auto& c : project.tracks[i].clips)
+                std::printf ("  [%.1fs %s%s]", double (c.start) / project.sampleRate, juce::File (c.file).getFileName().toRawUTF8(),
+                             c.fileRight.isNotEmpty() ? (" + " + juce::File (c.fileRight).getFileName()).toRawUTF8() : "");
+            std::printf ("\n");
+        }
+        std::printf ("%s\n", applied.summary.toRawUTF8());
+        return 0;
+    }
     const double seconds = argc > 1 ? juce::String (argv[1]).getDoubleValue() : 5.0;
     juce::String inputName = argc > 2 ? juce::String (argv[2]) : juce::String();
     juce::String outputName = argc > 3 ? juce::String (argv[3]) : juce::String();

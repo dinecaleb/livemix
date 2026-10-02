@@ -199,7 +199,12 @@ namespace
         juce::String currentOutputDevice() override { return output; }
         juce::String currentSessionName() override { return sessionName; }
         juce::File sessionFolder() override { return dawEngine.getProject().folder; }
-        juce::String importMultitrack (const juce::File&) override { return "Import is not available in the snapshot tool."; }
+        ImportOutcome importAudio (const juce::Array<juce::File>&, MultitrackImport::Destination, int, juce::int64) override
+        {
+            ImportOutcome out;
+            out.error = "Import is not available in the snapshot tool.";
+            return out;
+        }
         std::shared_ptr<const ExportJob> snapshotExport() override { return {}; }
         juce::String exportMix (std::shared_ptr<const ExportJob>, const juce::File&, ExportFormat,
                                 std::function<bool (float)>) override

@@ -1,5 +1,6 @@
 #include "ClipSource.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace livemix
@@ -86,22 +87,32 @@ void ClipSource::read (juce::int64 from, int count)
             const int needed = sameRate ? n : int (std::ceil (double (n) * ratio)) + 2;
             if (needed <= 0 || needed > scratch.getNumSamples()) continue;
 
-            const int sourceChannels = juce::jmin (2, int (reader->numChannels));
+            const int first = juce::jlimit (0, int (reader->numChannels) - 1, clip.fileChannel);
+            const int sourceChannels = juce::jmin (2, int (reader->numChannels) - first);
             scratch.clear (0, needed);
             float* src[2] = { scratch.getWritePointer (0), scratch.getWritePointer (1) };
             const juce::int64 at = clip.offset + juce::int64 (double (clipOffset) * ratio);
+
+            // One channel (or two) out of a file that may carry many: JUCE skips a null destination,
+            // so a desk's 32-channel file is read into the two buffers this track needs and no more.
+            auto readChannels = [&] (juce::AudioFormatReader& from, int channel, float* const* into, int howMany)
+            {
+                std::array<float*, kMaxInputs + 2> dest {};
+                const int top = juce::jmin (int (dest.size()), channel + howMany);
+                for (int c = 0; c < howMany && channel + c < top; ++c) dest[size_t (channel + c)] = into[c];
+                from.read (dest.data(), top, at, needed);
+            };
+
             auto* right = clip.fileRight.isNotEmpty() && track.channels > 1 ? readerFor (clip.fileRight) : nullptr;
             if (right != nullptr && right->numChannels > 0)
             {
                 // Two mono stems joined as a pair: the left file is the left, the right file the right.
-                float* one[1] = { src[0] };
-                reader->read (one, 1, at, needed);
-                one[0] = src[1];
-                right->read (one, 1, at, needed);
+                readChannels (*reader, first, src, 1);
+                readChannels (*right, juce::jlimit (0, int (right->numChannels) - 1, clip.fileRightChannel), src + 1, 1);
             }
             else
             {
-                reader->read (src, sourceChannels, at, needed);
+                readChannels (*reader, first, src, sourceChannels);
                 if (sourceChannels == 1)
                     juce::FloatVectorOperations::copy (src[1], src[0], needed);   // a mono file feeds both sides of a stereo track
             }

@@ -4,6 +4,7 @@
 #include "native/DeviceState.h"
 #include "native/DawEngine.h"
 #include "native/MixController.h"
+#include "native/MultitrackImport.h"
 #include "native/SessionStore.h"
 
 namespace livemix
@@ -126,8 +127,14 @@ public:
     virtual void setTrackPanelWidth (int) {}
     virtual juce::File sessionFolder() = 0;   // empty until the session has been saved
 
-    // A folder of stems becomes tracks and clips: assign, TUNE MIX, mix and export without a console.
-    virtual juce::String importMultitrack (const juce::File& folder) = 0;
+    // Audio files and folders become tracks and clips: assign, TUNE MIX, mix and export without
+    // a console. MultitrackImport decides what a folder means; this puts the result into the
+    // open session (adding to it - nothing already there is thrown away) and the device graph.
+    // `error` when nothing came in, else `summary` is the sentence to show.
+    struct ImportOutcome { juce::String error, summary; int added = 0; };
+    virtual ImportOutcome importAudio (const juce::Array<juce::File>& filesOrFolders,
+                                       MultitrackImport::Destination where = MultitrackImport::Destination::Match,
+                                       int firstTrack = -1, juce::int64 at = 0) = 0;
 
     // Bounce the recorded timeline through the current mix: the stereo mix as one file, or a
     // folder of group stems or of the raw multitrack. "" on success.

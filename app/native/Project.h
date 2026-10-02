@@ -28,6 +28,11 @@ struct AudioClip
     // Last, so the positional initialisers stay as they were. Two mono stems joined as one stereo input ("OH L" + "OH R"): `file` is the left, this is
     // the right, and they run sample for sample. Empty = `file` carries both sides.
     juce::String fileRight;
+    // A desk's multichannel recording (a 32-channel card file) is one file and many tracks: the
+    // channel of `file` this clip starts at (a stereo track takes it and the next), and the
+    // channel of `fileRight` its right side is. 0 for every ordinary file.
+    int fileChannel = 0;
+    int fileRightChannel = 0;
 
     juce::int64 end() const noexcept { return start + length; }
     bool covers (juce::int64 pos) const noexcept { return pos >= start && pos < end(); }
@@ -145,7 +150,7 @@ struct Project
             for (auto& clip : moved[n].clips)
                 for (const auto& r : tracks[size_t (right)].clips)
                     if (r.start == clip.start && r.length == clip.length && clip.fileRight.isEmpty())
-                        { clip.fileRight = r.file; break; }
+                        { clip.fileRight = r.file; clip.fileRightChannel = r.fileChannel; break; }
             used[size_t (right)] = true;
         }
         // ... and taken apart again: the right-hand files go back to a track of their own on
@@ -157,7 +162,7 @@ struct Project
             if (match[n] >= 0)
             {
                 if (previous.inputs[size_t (match[n])].isStereo())
-                    for (auto& clip : moved[n].clips) clip.fileRight = {};
+                    for (auto& clip : moved[n].clips) { clip.fileRight = {}; clip.fileRightChannel = 0; }
                 continue;
             }
             for (size_t p = 0; p < previous.inputs.size() && p < tracks.size(); ++p)
@@ -168,7 +173,14 @@ struct Project
                 split.armed = false;
                 split.clips.clear();
                 for (auto clip : tracks[p].clips)
-                    if (clip.fileRight.isNotEmpty()) { clip.file = clip.fileRight; clip.fileRight = {}; split.clips.push_back (clip); }
+                    if (clip.fileRight.isNotEmpty())
+                    {
+                        clip.file = clip.fileRight;
+                        clip.fileChannel = clip.fileRightChannel;
+                        clip.fileRight = {};
+                        clip.fileRightChannel = 0;
+                        split.clips.push_back (clip);
+                    }
                 moved[n] = split;
                 break;
             }

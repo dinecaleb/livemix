@@ -816,7 +816,7 @@ public:
                 m.addItem (102, "Save", true, false, nullptr);
                 m.addItem (103, "Save As...");
                 m.addSeparator();
-                m.addItem (104, "Import Multitrack Folder...");
+                m.addItem (104, "Import Audio Files...");
                 m.addItem (107, "Add a Reference Mix...");
                 m.addSeparator();
                 m.addItem (108, "Save Input Mapping" + juce::String (Glyph::ellip()),
@@ -836,6 +836,14 @@ public:
                 m.addItem (203, "Add Marker at Playhead   M");
                 break;
             case 2:
+            {
+                // A track with nothing on it yet, of the source picked here (ids from 3000).
+                juce::PopupMenu fresh;
+                std::vector<ChannelRole> roles;
+                TracksPage::fillNewTrackMenu (fresh, 3000, roles);
+                m.addSubMenu ("New Track", fresh, ! view.controller.isLiveSafe());
+                m.addSeparator();
+            }
                 m.addItem (300, "Set Every Track to Record");
                 m.addItem (301, "Set No Tracks to Record");
                 m.addSeparator();
@@ -1152,7 +1160,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     favouritesPage->onToast = [this] (const juce::String& t) { showToast (t); };
     sessionsPage->onNew = [this] { newSession(); };
     sessionsPage->onOpenFile = [this] { openSession(); };
-    sessionsPage->onImportFolder = [this] { importMultitrack(); };
+    sessionsPage->onImportFolder = [this] { importMultitrack (true); };
     sessionsPage->onOpen = [this] (const juce::File& file)
     {
         const auto err = services.loadSession (file);
@@ -1175,7 +1183,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     };
     devicePage->onContinueToAssign = [this] { showPage (Page::Assign); };
     devicePage->onSetUpOutputs = [this] { showOutputs(); };
-    // The same import as File > Import Multitrack Folder, not a copy of it: the copy here
+    // The same import as File > Import Audio Files, not a copy of it: the copy here
     // rebuilt the setup and TRACKS but never the console, so the MIXER, its window and the
     // Inspector kept the strips of whatever was open before and the import looked partial.
     devicePage->onImportRecording = [this] (const juce::File& folder) { importMultitrackFolder (folder); };
@@ -2333,6 +2341,18 @@ void MainView::showToast (const juce::String& text)
 void MainView::handleCommand (int id)
 {
     if (id >= 640 && id < 640 + themeMenuNames.size()) { applyThemeNamed (themeMenuNames[id - 640]); return; }
+    if (id >= 3000 && id < 3200)
+    {
+        juce::PopupMenu unused;
+        std::vector<ChannelRole> roles;
+        TracksPage::fillNewTrackMenu (unused, 3000, roles);
+        if (tracksPage != nullptr && id - 3000 < int (roles.size()))
+        {
+            showPage (Page::Tracks);
+            tracksPage->addTrack (roles[size_t (id - 3000)]);
+        }
+        return;
+    }
     switch (id)
     {
         case 100: newSession(); break;
@@ -2674,42 +2694,68 @@ void MainView::sessionMenu()
     setupPopover();
 }
 
-void MainView::importMultitrack()
+void MainView::importMultitrack (bool newSessionFirst)
 {
     if (liveSafeBlocks ("importing")) return;
     if (services.daw().isRecording())
     {
-        showToast ("Recording is running. Stop recording first - importing replaces the tracks it is recording onto.");
+        showToast ("Recording is running. Stop recording first.");
         return;
     }
-    chooser = std::make_unique<juce::FileChooser> ("Choose a folder of recorded stems",
-                                                   juce::File::getSpecialLocation (juce::File::userMusicDirectory));
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-                          [this] (const juce::FileChooser& fc)
+    // Files, a folder, or several of either - the way a DAW's import takes them.
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    chooser = std::make_unique<juce::FileChooser> ("Choose audio files, or a folder of recorded stems",
+                                                   juce::File::getSpecialLocation (juce::File::userMusicDirectory),
+                                                   formats.getWildcardForAllFormats());
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::canSelectDirectories | juce::FileBrowserComponent::canSelectMultipleItems,
+                          [this, newSessionFirst] (const juce::FileChooser& fc)
                           {
-                              const auto folder = fc.getResult();
-                              if (folder == juce::File()) return;
-                              importMultitrackFolder (folder);
+                              const auto chosen = fc.getResults();
+                              if (chosen.isEmpty()) return;
+                              importAudio (chosen, newSessionFirst);
                           });
 }
 
 void MainView::importMultitrackFolder (const juce::File& folder)
 {
+    importAudio ({ folder }, false);
+}
+
+// Everything that imports lands here. It ADDS to the open session: a track already set up but
+// still empty takes the file with its name, the rest become new tracks, and nothing that was
+// recorded is thrown away. From the launcher it means "a new session from these", so the one
+// that was open is saved and put away first - if it had anything in it.
+void MainView::importAudio (const juce::Array<juce::File>& chosen, bool newSessionFirst)
+{
     if (liveSafeBlocks ("importing")) return;
     if (services.daw().isRecording())
     {
-        showToast ("Recording is running. Stop recording first - importing replaces the tracks it is recording onto.");
+        showToast ("Recording is running. Stop recording first.");
         return;
     }
-    const auto err = services.importMultitrack (folder);
-    if (err.isNotEmpty()) { showToast (err); return; }
+    if (newSessionFirst && services.daw().getProject().hasAudio())
+    {
+        if (! services.saveSession())
+        {
+            showToast ("\"" + services.currentSessionName() + "\" could not be saved, so it is still open. Check the disk, then try again.");
+            return;
+        }
+        services.newSession();
+    }
+    const bool inSetup = page == Page::Device || page == Page::Sessions || page == Page::Assign;
+    const auto outcome = services.importAudio (chosen);
+    if (outcome.error.isNotEmpty()) { showToast (outcome.error); return; }
     assignPage->refresh();
     tracksPage->rebuild();
     mixerPage->rebuild();
     rebuildWindows();
     advancedPage->rebuild();
-    showToast ("Imported " + folder.getFileName() + ". Check the inputs, then build the mix.");
-    showPage (Page::Assign);
+    updateChrome();
+    showToast (outcome.summary);
+    // In the setup the inputs are the next thing to look at; anywhere else, the tracks that came in.
+    showPage (inSetup ? Page::Assign : Page::Tracks);
 }
 
 // EXPORT: the sheet asks what, how much and where, then the render happens on a worker while

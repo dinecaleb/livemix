@@ -1749,7 +1749,11 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
             juce::Graphics::ScopedSaveState save (g);
             g.reduceClipRegion (wave);
             g.setColour (juce::Colours::black.withAlpha (dim ? 0.25f : 0.42f));
-            thumb->drawChannels (g, wave, from, to, 0.95f);
+            // A desk's multichannel file is many tracks: each one draws its own channel of it.
+            if (thumb->getNumChannels() > 2)
+                thumb->drawChannel (g, wave, from, to, juce::jlimit (0, thumb->getNumChannels() - 1, clip.fileChannel), 0.95f);
+            else
+                thumb->drawChannels (g, wave, from, to, 0.95f);
         }
         if (named)
         {
@@ -1927,7 +1931,12 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
     if (p.x < headerWidth)
     {
         const int track = trackAtY (p.y);
-        if (track < 0) return;
+        // Below the last track: the place a new one goes.
+        if (track < 0)
+        {
+            if (e.mods.isPopupMenu() && p.y >= lanesTop()) newTrackMenu ({ p.x, p.y, 1, 1 });
+            return;
+        }
         // Right-click is the header's own menu: the name, the source and the assignments.
         if (e.mods.isPopupMenu()) { headerMenu (track); return; }
 
@@ -2420,8 +2429,12 @@ void TracksPage::toggleLoop()
 // ---------------------------------------------------------------- files from the Finder
 bool TracksPage::isInterestedInFileDrag (const juce::StringArray& files)
 {
+    // A folder too: a folder of stems is the commonest thing anybody drags in.
     for (const auto& f : files)
-        if (formats.findFormatForFileExtension (juce::File (f).getFileExtension()) != nullptr) return true;
+    {
+        const juce::File file (f);
+        if (file.isDirectory() || formats.findFormatForFileExtension (file.getFileExtension()) != nullptr) return true;
+    }
     return false;
 }
 
@@ -2468,104 +2481,136 @@ void TracksPage::filesDropped (const juce::StringArray& files, int x, int y)
 
 // The files become clips - and, when there are more files than tracks under the drop, new
 // tracks. A new track is a new *input* (a track and its input are one thing seen twice), so
-// the session is rebuilt the way the ASSIGN page rebuilds it; the file's own name names it and
-// guesses its source the way a multitrack import does, and an unrecognised source is left for
-// the user to say, the header's menu being the place.
+// the session is rebuilt the way the ASSIGN page rebuilds it. What a drop *means* - a folder
+// looked inside, takes on one track, left and right joined, a desk's 32-channel file opened
+// into its channels - is MultitrackImport's, the same as File > Import Audio Files, so a drop
+// and an import can never disagree about the same files.
 void TracksPage::addAudioFiles (const juce::StringArray& files, int track, juce::int64 at)
 {
     if (locked()) return;
     if (services.daw().isRecording()) { if (onToast) onToast ("Stop recording before adding files."); return; }
 
-    juce::StringArray sorted (files);
-    sorted.sort (true);
-    struct Loaded { AudioClip clip; int channels = 1; juce::String stem; };
-    std::vector<Loaded> loaded;
-    auto& project = services.daw().getProject();
-    for (const auto& path : sorted)
+    juce::Array<juce::File> list;
+    for (const auto& path : files) list.add (juce::File (path));
+    const auto before = services.daw().getProject();
+    const auto where = track >= 0 ? MultitrackImport::Destination::OntoTracks : MultitrackImport::Destination::NewTracks;
+    const auto outcome = services.importAudio (list, where, track, at);
+    if (outcome.error.isNotEmpty())
     {
-        const juce::File file (path);
-        if (formats.findFormatForFileExtension (file.getFileExtension()) == nullptr) continue;
-        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
-        if (reader == nullptr || reader->lengthInSamples <= 0) continue;
-        Loaded item;
-        item.stem = file.getFileNameWithoutExtension();
-        item.channels = juce::jlimit (1, 2, int (reader->numChannels));
-        item.clip.name = StemNames::cleanName (item.stem);
-        item.clip.file = file.getFullPathName();
-        item.clip.start = at;
-        item.clip.offset = 0;
-        item.clip.fileSampleRate = reader->sampleRate;
-        item.clip.length = reader->sampleRate > 0.0 && project.sampleRate > 0.0
-                             ? juce::int64 (double (reader->lengthInSamples) * project.sampleRate / reader->sampleRate)
-                             : reader->lengthInSamples;
-        loaded.push_back (std::move (item));
-    }
-    if (loaded.empty())
-    {
-        if (onToast) onToast ("None of those files could be read as audio.");
+        if (onToast) onToast (outcome.error);
         return;
     }
-
-    const int first = track >= 0 ? track : numTracks();
-    const int room = juce::jmax (0, numTracks() - first);
-    const int wanted = int (loaded.size()) - room;
-    int added = 0, unrecognised = 0;
-    if (wanted > 0)
+    // Clips on tracks that were already here can be undone; a drop that made tracks cannot (the
+    // undo stack holds projects, not sessions).
+    if (outcome.added == 0)
     {
-        // New inputs, on device channels past every channel already assigned: a file track has
-        // no live input, and one it could never collide with keeps the console's own tracks safe.
-        auto session = controller.getSession();
-        int nextChannel = 0;
-        for (const auto& in : session.inputs) nextChannel = juce::jmax (nextChannel, juce::jmax (in.inputA, in.inputB) + 1);
-        for (int i = room; i < int (loaded.size()); ++i)
-        {
-            if (int (session.inputs.size()) >= kMaxStrips) break;
-            const auto& item = loaded[size_t (i)];
-            InputAssignment in;
-            in.name = item.clip.name.toStdString();
-            in.inputA = nextChannel;
-            in.inputB = item.channels > 1 ? nextChannel + 1 : -1;
-            nextChannel += item.channels;
-            ChannelRole role = ChannelRole::LeadVocal;
-            in.enabled = StemNames::guessRole (item.stem, role);
-            in.role = role;
-            if (! in.enabled) ++unrecognised;
-            session.inputs.push_back (in);
-            ++added;
-        }
-        controller.setSession (session);
-        services.daw().setSession (session);          // syncTracks: every existing track keeps its clips
-        services.reconfigure();
+        undoStack.push_back (before);
+        if (int (undoStack.size()) > kMaxUndo) undoStack.erase (undoStack.begin());
     }
-    else
-    {
-        pushUndo();                                   // clips only: the session did not change shape
-    }
-
-    int placed = 0;
-    ClipRef firstClip;
-    for (int i = 0; i < int (loaded.size()); ++i)
-    {
-        const int t = first + i;
-        if (t >= numTracks()) break;
-        auto& clips = project.tracks[size_t (t)].clips;
-        clips.push_back (loaded[size_t (i)].clip);
-        if (placed == 0) firstClip = { t, int (clips.size()) - 1 };
-        ++placed;
-    }
-    selection = firstClip;
-    commit();
+    selection = {};
     rebuild();
     updateChainStrip();
-    if (added > 0 && onSessionChanged) onSessionChanged();
+    if (outcome.added > 0 && onSessionChanged) onSessionChanged();
+    if (onToast) onToast (outcome.summary);
+}
 
-    juce::String said = placed == 1 ? "Added 1 clip" : "Added " + juce::String (placed) + " clips";
-    if (added > 0) said += added == 1 ? " on 1 new track" : " on " + juce::String (added) + " new tracks";
-    if (placed < int (loaded.size())) said += " (" + juce::String (int (loaded.size()) - placed) + " left out: the session is full)";
-    said += ".";
-    if (unrecognised > 0) said += " DINE could not tell what " + juce::String (unrecognised == 1 ? "one of them is" : "some of them are")
-                                + ": right-click the header to say the source.";
-    if (onToast) onToast (said);
+// A NEW TRACK WITH NOTHING ON IT. A track is an input, so this is a new input: on the device
+// channel past every one already assigned (it can never collide with the console's own), named
+// after the source, and stereo where that source almost always is. Files can be dropped on it,
+// or it can be set to record.
+bool TracksPage::addTrack (ChannelRole role)
+{
+    if (locked()) return false;
+    if (services.daw().isRecording()) { if (onToast) onToast ("Stop recording before adding a track."); return false; }
+    auto session = controller.getSession();
+    if (int (session.inputs.size()) >= kMaxStrips)
+    {
+        if (onToast) onToast ("The session is full: it takes " + juce::String (kMaxStrips) + " tracks.");
+        return false;
+    }
+    int nextChannel = 0;
+    for (const auto& in : session.inputs) nextChannel = juce::jmax (nextChannel, juce::jmax (in.inputA, in.inputB) + 1);
+    const bool stereo = defaultsToStereo (role);
+    if (nextChannel + (stereo ? 2 : 1) > kMaxInputs)
+    {
+        if (onToast) onToast ("There is no device channel left for another track: a session takes " + juce::String (kMaxInputs) + ".");
+        return false;
+    }
+
+    const juce::String base = Dine::friendlyRoleName (role);
+    juce::String name = base;
+    for (int n = 2;; ++n)
+    {
+        bool used = false;
+        for (const auto& in : session.inputs) used = used || juce::String (in.name).equalsIgnoreCase (name);
+        if (! used) break;
+        name = base + " " + juce::String (n);
+    }
+
+    InputAssignment in;
+    in.name = name.toStdString();
+    in.role = role;
+    in.inputA = nextChannel;
+    in.inputB = stereo ? nextChannel + 1 : -1;
+    in.enabled = true;
+    session.inputs.push_back (in);
+    controller.setSession (session);
+    services.daw().setSession (session);          // syncTracks: every existing track keeps its clips
+    services.reconfigure();
+    services.touchSession();
+
+    selection = { numTracks() - 1, -1 };
+    rebuild();
+    updateChainStrip();
+    if (onSessionChanged) onSessionChanged();
+    if (onToast) onToast ("New track: " + name + (stereo ? " (stereo)." : ".") + " Drop audio on it, or press its R to record onto it.");
+    return true;
+}
+
+bool TracksPage::defaultsToStereo (ChannelRole role) noexcept
+{
+    switch (role)
+    {
+        case ChannelRole::Overhead: case ChannelRole::Room: case ChannelRole::DrumPad:
+        case ChannelRole::Piano: case ChannelRole::ElectricPiano: case ChannelRole::Organ:
+        case ChannelRole::SynthPad: case ChannelRole::SynthLead:
+        case ChannelRole::CrowdMic: case ChannelRole::AmbienceMic:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// The sources, grouped the way the header's Source menu groups them. `roles` gets one entry per
+// id from `firstId` on.
+void TracksPage::fillNewTrackMenu (juce::PopupMenu& menu, int firstId, std::vector<ChannelRole>& roles)
+{
+    int id = firstId;
+    for (const auto& group : Dine::roleGroups())
+    {
+        juce::PopupMenu sub;
+        for (auto r : group.roles)
+        {
+            sub.addItem (id++, Dine::friendlyRoleName (r) + (defaultsToStereo (r) ? "  (stereo)" : ""));
+            roles.push_back (r);
+        }
+        menu.addSubMenu (group.name, sub);
+    }
+}
+
+void TracksPage::newTrackMenu (juce::Rectangle<int> near)
+{
+    juce::PopupMenu m;
+    m.addSectionHeader ("New track");
+    std::vector<ChannelRole> roles;
+    fillNewTrackMenu (m, 1, roles);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this)
+                         .withTargetScreenArea (localAreaToGlobal (near))
+                         .withMinimumWidth (200),
+                     [this, roles] (int chosen)
+                     {
+                         if (chosen >= 1 && chosen <= int (roles.size())) addTrack (roles[size_t (chosen - 1)]);
+                     });
 }
 
 // Pinch on the trackpad: zoom the timeline, about the fingers.
