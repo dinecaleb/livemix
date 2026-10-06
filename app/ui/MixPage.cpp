@@ -367,7 +367,9 @@ public:
 class MixPage::SidePanel : public juce::Component
 {
 public:
-    explicit SidePanel (MixPage& p) : page (p) {}
+    // Buffered: the panel's cards are wrapped text, and they change a few times a minute, not
+    // every time something beside them repaints.
+    explicit SidePanel (MixPage& p) : page (p) { setBufferedToImage (true); }
 
     static constexpr int kPad = 18;
 
@@ -638,6 +640,9 @@ public:
                     "FOCUS makes it the source the whole mix is built around: every level is set against it, and the music "
                     "makes room for it rather than the other way round.");
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        // A row changes when it is picked, hovered or its verdict moves: a repaint of the rail
+        // is a blit of each row's image, not twenty rows of measured type and hairlines.
+        setBufferedToImage (true);
     }
 
     std::function<void()> onTune, onSelect, onFocus;

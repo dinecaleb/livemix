@@ -3,6 +3,9 @@
 #include "native/MultitrackImport.h"
 #include "native/OpenAiMixProvider.h"
 #include "native/Telemetry.h"
+#if JUCE_MAC
+ #include <mach/mach.h>
+#endif
 
 namespace livemix
 {
@@ -891,6 +894,89 @@ private:
     juce::String footState, footName, footSpec;
     int footXruns = 0;
     bool footRecording = false;
+};
+
+// ---------------------------------------------------------------- the performance overlay
+// Cmd-Option-P (v4's "prove it"): how long the display's frames are apart, how long MainView's
+// tick takes and how much of the message thread it uses, and how much memory the process holds.
+// A Debug build has it; a Release build only with DINE_PERF_HUD=1 set, so it is never found by
+// accident at a service. It costs nothing while it is hidden - its clock is detached.
+class MainView::PerfOverlay : public juce::Component
+{
+public:
+    PerfOverlay() { setInterceptsMouseClicks (false, false); setOpaque (false); }
+
+    static bool available()
+    {
+       #if JUCE_DEBUG
+        return true;
+       #else
+        return juce::SystemStats::getEnvironmentVariable ("DINE_PERF_HUD", {}) == "1";
+       #endif
+    }
+
+    void setShown (bool on)
+    {
+        setVisible (on);
+        if (on) clock = std::make_unique<juce::VBlankAttachment> (this, [this] { frame(); });
+        else    clock.reset();
+        intervals.clear();
+        lastFrame = 0.0;
+    }
+
+    // MainView's tick reports how long it took.
+    void tickTook (double ms) { tickMs += ms; ++ticks; }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        Dine::fillRounded (g, r, juce::Colours::black.withAlpha (0.78f), 8.0f);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::mono (11.0f));
+        auto lines = getLocalBounds().reduced (10, 6);
+        for (const auto& l : text)
+            Dine::drawText (g, l, lines.removeFromTop (15), juce::Justification::centredLeft, true);
+    }
+
+private:
+    void frame()
+    {
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        if (lastFrame > 0.0) intervals.push_back (now - lastFrame);
+        lastFrame = now;
+        if (intervals.size() > 240) intervals.erase (intervals.begin(), intervals.begin() + long (intervals.size() - 240));
+        if (now - lastReport < 500.0) return;
+        const double wall = lastReport > 0.0 ? now - lastReport : 500.0;
+        lastReport = now;
+
+        auto sorted = intervals;
+        std::sort (sorted.begin(), sorted.end());
+        const auto at = [&sorted] (double q) { return sorted.empty() ? 0.0 : sorted[size_t (q * double (sorted.size() - 1))]; };
+        juce::StringArray next;
+        next.add ("frame  " + juce::String (at (0.5), 1) + " ms   p99 " + juce::String (at (0.99), 1) + " ms");
+        next.add ("tick   " + juce::String (ticks > 0 ? tickMs / double (ticks) : 0.0, 2) + " ms   msg thread "
+                  + juce::String (100.0 * tickMs / wall, 1) + " %");
+        next.add ("rss    " + juce::String (residentMegabytes(), 0) + " MB");
+        tickMs = 0.0; ticks = 0;
+        if (next != text) { text = next; repaint(); }
+    }
+
+    static double residentMegabytes()
+    {
+       #if JUCE_MAC
+        mach_task_basic_info info {};
+        mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+        if (task_info (mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t) &info, &count) == KERN_SUCCESS)
+            return double (info.resident_size) / (1024.0 * 1024.0);
+       #endif
+        return 0.0;
+    }
+
+    std::unique_ptr<juce::VBlankAttachment> clock;
+    std::vector<double> intervals;
+    double lastFrame = 0.0, lastReport = 0.0, tickMs = 0.0;
+    int ticks = 0;
+    juce::StringArray text { "measuring..." };
 };
 
 // ---------------------------------------------------------------- mixer window
@@ -3069,6 +3155,17 @@ juce::String MainView::openSheetName() const
 
 bool MainView::keyPressed (const juce::KeyPress& key)
 {
+    // Cmd-Option-P: the performance overlay, where the build allows it (PerfOverlay::available).
+    if (key == juce::KeyPress ('p', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier, 0)
+        && PerfOverlay::available())
+    {
+        if (perfOverlay == nullptr) { perfOverlay = std::make_unique<PerfOverlay>(); addChildComponent (*perfOverlay); }
+        perfOverlay->setShown (! perfOverlay->isVisible());
+        perfOverlay->toFront (false);
+        resized();
+        return true;
+    }
+
     // Escape belongs to whatever is open over the workspace, so it is not in the table.
     if (key.getKeyCode() == juce::KeyPress::escapeKey)
     {
@@ -3538,6 +3635,11 @@ void MainView::readyPillClicked()
 // ---------------------------------------------------------------- ticking
 void MainView::timerCallback()
 {
+    const double tickStart = perfOverlay != nullptr && perfOverlay->isVisible() ? juce::Time::getMillisecondCounterHiRes() : 0.0;
+    const juce::ScopeGuard reportTick { [this, tickStart]
+    {
+        if (tickStart > 0.0 && perfOverlay != nullptr) perfOverlay->tickTook (juce::Time::getMillisecondCounterHiRes() - tickStart);
+    } };
     controller.poll();
     transportBar->refresh();
 
@@ -3919,6 +4021,11 @@ void MainView::resized()
         }
     }
     if (tutorial != nullptr) { tutorial->setBounds (getLocalBounds()); tutorial->toFront (false); }
+    if (perfOverlay != nullptr && perfOverlay->isVisible())
+    {
+        perfOverlay->setBounds (workspaceCard().removeFromBottom (68).removeFromRight (300).translated (-12, -12));
+        perfOverlay->toFront (false);
+    }
 
     if (toast->isVisible())
     {

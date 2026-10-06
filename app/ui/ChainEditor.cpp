@@ -2189,16 +2189,27 @@ int SignalPath::chipWidth (int index) const
 // (v4), so no stage is ever off the end of a scrolled row.
 juce::Rectangle<int> SignalPath::chipBounds (int index) const
 {
+    // Every chip laid out in one pass and kept until the width or the stages change: laying
+    // chip i out by walking the chips before it made a paint quadratic in measured strings.
     const int width = juce::jmax (1, getWidth());
-    int x = 0, y = 0;
-    for (int i = 0; i <= index; ++i)
+    const int n = chain.numStages();
+    juce::String labels;
+    for (const auto& v : chain.stageViews()) labels << v.label << "|";
+    if (width != laidWidth || n != int (laid.size()) || labels != laidLabels)
     {
-        const int w = chipWidth (i);
-        if (x > 0 && x + w > width) { x = 0; y += chipH + gap; }
-        if (i == index) return { x, y, w, chipH };
-        x += w + gap;
+        laid.clear();
+        int x = 0, y = 0;
+        for (int i = 0; i < n; ++i)
+        {
+            const int w = chipWidth (i);
+            if (x > 0 && x + w > width) { x = 0; y += chipH + gap; }
+            laid.push_back ({ x, y, w, chipH });
+            x += w + gap;
+        }
+        laidWidth = width;
+        laidLabels = labels;
     }
-    return {};
+    return index >= 0 && index < int (laid.size()) ? laid[size_t (index)] : juce::Rectangle<int>();
 }
 
 int SignalPath::wantedHeight (int width) const

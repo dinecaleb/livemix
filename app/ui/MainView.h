@@ -241,6 +241,8 @@ private:
     class StatusBar;
     class Sidebar;
     class TextButtonV2;
+    class PerfOverlay;
+    std::unique_ptr<PerfOverlay> perfOverlay;   // Cmd-Option-P, Debug or DINE_PERF_HUD=1
 
     void timerCallback() override;
     void closeMixerWindow();

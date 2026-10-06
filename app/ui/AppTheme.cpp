@@ -1,6 +1,8 @@
 #include "AppTheme.h"
 #include <algorithm>
 #include <map>
+#include <unordered_map>
+#include <cstring>
 #include <tuple>
 #include <cmath>
 
@@ -119,9 +121,68 @@ juce::Font Dine::caps (float px, float tracking, int weight)
     return memoisedFont (0, px * gTextScale, weight, tracking);
 }
 
+// MEASURING A STRING IS SHAPING IT, and the chrome measures the same strings every paint: the
+// status line's sentences, the toolbar's pills, a chip row laying itself out, a column fitting a
+// name. Uncached, that was most of a whole-window repaint in v4 (the status line alone cost
+// 1.8 ms). So widths are remembered the way layouts are: two generations, the live one checked
+// first, the old one dropped when the live one fills - bounded, and nothing to bookkeep. The
+// fonts DINE draws with are memoised, so a typeface pointer and a size identify one exactly.
+namespace
+{
+    struct WidthKey
+    {
+        const void* face = nullptr;
+        juce::uint32 height = 0, kerning = 0, scale = 0;
+        juce::String text;
+        bool operator== (const WidthKey& o) const
+        {
+            return face == o.face && height == o.height && kerning == o.kerning && scale == o.scale && text == o.text;
+        }
+    };
+    struct WidthKeyHash
+    {
+        size_t operator() (const WidthKey& k) const noexcept
+        {
+            size_t h = size_t (k.text.hashCode64());
+            const auto mix = [&h] (size_t v) { h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2); };
+            mix (size_t (reinterpret_cast<juce::pointer_sized_uint> (k.face)));
+            mix (k.height); mix (k.kerning); mix (k.scale);
+            return h;
+        }
+    };
+    struct WidthCache final : public juce::DeletedAtShutdown
+    {
+        ~WidthCache() override { clearSingletonInstance(); }
+        static constexpr size_t kLimit = 6000;
+        std::unordered_map<WidthKey, int, WidthKeyHash> live, old;
+        juce::CriticalSection lock;
+        void clear() { live.clear(); old.clear(); }
+        JUCE_DECLARE_SINGLETON_INLINE (WidthCache, false)
+    };
+
+    juce::uint32 bitsOf (float v) noexcept { juce::uint32 b; std::memcpy (&b, &v, sizeof b); return b; }
+}
+
 int Dine::textWidth (const juce::Font& f, const juce::String& t)
 {
-    return int (std::ceil (juce::GlyphArrangement::getStringWidth (f, t))) + 2;
+    const auto measure = [&] { return int (std::ceil (juce::GlyphArrangement::getStringWidth (f, t))) + 2; };
+    auto* cache = WidthCache::getInstance();
+    if (cache == nullptr || t.isEmpty()) return measure();
+
+    WidthKey key { f.getTypefacePtr().get(), bitsOf (f.getHeight()), bitsOf (f.getExtraKerningFactor()),
+                   bitsOf (f.getHorizontalScale()), t };
+    const juce::ScopedLock sl (cache->lock);
+    if (const auto it = cache->live.find (key); it != cache->live.end()) return it->second;
+    if (const auto it = cache->old.find (key); it != cache->old.end())
+    {
+        const int w = it->second;
+        cache->live.emplace (std::move (key), w);
+        return w;
+    }
+    if (cache->live.size() >= WidthCache::kLimit) { cache->old = std::move (cache->live); cache->live.clear(); }
+    const int w = measure();
+    cache->live.emplace (std::move (key), w);
+    return w;
 }
 
 // ============================================================================ drawing text
@@ -386,8 +447,11 @@ void Dine::resetTextCacheStats()
 
 void Dine::clearTextCache()
 {
-    const juce::ScopedLock lock (textLayoutLock());
-    if (auto* cache = TextLayoutCache::getInstance()) cache->clear();
+    {
+        const juce::ScopedLock lock (textLayoutLock());
+        if (auto* cache = TextLayoutCache::getInstance()) cache->clear();
+    }
+    if (auto* widths = WidthCache::getInstance()) { const juce::ScopedLock sl (widths->lock); widths->clear(); }
 }
 
 void Dine::beginTextClipAudit()

@@ -168,6 +168,9 @@ private:
     ChainEditor& chain;
     int hover = -1;
     int scrollX = 0;
+    mutable std::vector<juce::Rectangle<int>> laid;   // the chips' places at `laidWidth`
+    mutable int laidWidth = -1;
+    mutable juce::String laidLabels;
 };
 
 } // namespace livemix
