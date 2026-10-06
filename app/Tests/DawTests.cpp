@@ -4052,6 +4052,69 @@ TEST_CASE ("Speaking microphones: four kinds, one family, and a chain apiece")
 }
 
 
+// THE VOICE ROUND TRIP. A backing singer handed the announcements and then singing again is a
+// backing singer again - on the BGV group, not the lead's - and a lapel that led a song and
+// then preaches is a lapel again. Found 2026-10-06: TUNE's Singing turned every speaker into
+// the lead, so the round trip moved a backing voice to the LEAD bus.
+TEST_CASE ("MixController: singing and speaking give back what the microphone was, and it is saved")
+{
+    MixController controller;
+    MixSession session;
+    const ChannelRole roles[] = { ChannelRole::BackingVocal, ChannelRole::SpeechLapel, ChannelRole::Choir, ChannelRole::LeadVocal };
+    for (int i = 0; i < 4; ++i)
+    {
+        InputAssignment a;
+        a.role = roles[i];
+        a.name = "Voice " + std::to_string (i + 1);
+        a.inputA = i;
+        session.inputs.push_back (a);
+    }
+    controller.setSession (session);
+    const auto role = [&] (int i) { return controller.getSession().inputs[size_t (i)].role; };
+    const auto busOf = [&] (int i) { return controller.getGraph().strips[size_t (i)].bus; };
+    const auto bgvBus = busOf (0);
+
+    // BGV -> Speaking (TUNE's button) -> Singing (TUNE's button): a backing voice, on its group.
+    REQUIRE (controller.setInputRole (0, controller.roleForJob (0, ChannelRole::Speech)));
+    CHECK (role (0) == ChannelRole::Speech);
+    CHECK (busOf (0) == MixBus::Speech);
+    REQUIRE (controller.setInputRole (0, controller.roleForSinging (0)));
+    CHECK (role (0) == ChannelRole::BackingVocal);
+    CHECK (busOf (0) == bgvBus);
+
+    // Lapel -> Singing lead (the Mixer's "This microphone is") -> Speaking: a lapel again.
+    REQUIRE (controller.setInputRole (1, controller.roleForJob (1, ChannelRole::LeadVocal)));
+    CHECK (role (1) == ChannelRole::LeadVocal);
+    REQUIRE (controller.setInputRole (1, controller.roleForJob (1, ChannelRole::Speech)));
+    CHECK (role (1) == ChannelRole::SpeechLapel);
+
+    // Choir -> Speaking -> Singing: a choir; asked for a backing voice instead, it is one.
+    REQUIRE (controller.setInputRole (2, controller.roleForJob (2, ChannelRole::Speech)));
+    CHECK (controller.roleForSinging (2) == ChannelRole::Choir);
+    CHECK (controller.roleForJob (2, ChannelRole::Choir) == ChannelRole::Choir);
+    CHECK (controller.roleForJob (2, ChannelRole::BackingVocal) == ChannelRole::BackingVocal);
+
+    // A lead that never spoke stays the lead; one that has no history becomes the lead.
+    CHECK (controller.roleForSinging (3) == ChannelRole::LeadVocal);
+
+    // ...and the memory is part of the document: saved, reopened, still a choir.
+    SessionStore::Document d;
+    d.session = controller.getSession();
+    const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dine-voice-roundtrip.dine.json");
+    file.deleteFile();
+    REQUIRE (SessionStore::save (d, file));
+    SessionStore::Document back;
+    REQUIRE (SessionStore::load (file, back));
+    file.deleteFile();
+    REQUIRE (back.session.inputs.size() == 4);
+    CHECK (back.session.inputs[2].role == ChannelRole::Speech);
+    CHECK (back.session.inputs[2].otherVoiceRole == int (ChannelRole::Choir));
+    CHECK (back.session.inputs[3].otherVoiceRole == -1);
+    MixController reopened;
+    reopened.setSession (back.session);
+    CHECK (reopened.roleForSinging (2) == ChannelRole::Choir);
+}
+
 TEST_CASE ("SessionStore: a session saved before LEAD existed opens with its master on the master")
 {
     // A version 5 document: seven bus slots - DRUMS BASS MUSIC VOCALS SPEECH AMBIENCE MASTER -

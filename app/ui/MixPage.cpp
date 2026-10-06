@@ -2315,11 +2315,9 @@ void MixPage::rebuildVoices()
         };
         row->singing.onClick = [this, in]
         {
-            // Singing, and which kind of singing it already was: a backing voice stays a
-            // backing voice, a choir stays a choir, and anything else becomes the lead.
-            const auto now = controller.getSession().inputs[size_t (in)].role;
-            const auto wanted = now == ChannelRole::BackingVocal || now == ChannelRole::Choir ? now : ChannelRole::LeadVocal;
-            if (controller.setInputRole (in, wanted) && onGraphChanged) onGraphChanged();
+            // Singing, and which kind of singing it was: a backing voice that spoke for a
+            // minute is a backing voice again (MixController::roleForSinging), never the lead.
+            if (controller.setInputRole (in, controller.roleForSinging (in)) && onGraphChanged) onGraphChanged();
             rebuildVoices();
             layoutSide();
         };

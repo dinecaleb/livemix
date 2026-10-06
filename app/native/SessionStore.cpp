@@ -715,6 +715,7 @@ juce::var toVar (const Document& d)
         io->setProperty ("inputB", in.inputB);
         io->setProperty ("enabled", in.enabled);
         if (in.focus) io->setProperty ("focus", true);      // absent = not the focal source
+        if (in.otherVoiceRole >= 0) io->setProperty ("otherVoice", in.otherVoiceRole);   // absent = never switched
         inputs.add (juce::var (io));
     }
     obj->setProperty ("inputs", inputs);
@@ -841,6 +842,8 @@ bool fromVar (const juce::var& v, Document& d)
             in.inputB = io->hasProperty ("inputB") ? int (io->getProperty ("inputB")) : -1;
             in.enabled = io->hasProperty ("enabled") ? bool (io->getProperty ("enabled")) : true;
             in.focus = io->hasProperty ("focus") && bool (io->getProperty ("focus"));
+            in.otherVoiceRole = io->hasProperty ("otherVoice")
+                                    ? int (channelRoleFromIndex (int (io->getProperty ("otherVoice")))) : -1;
             d.session.inputs.push_back (in);
         }
     d.session.speechPriority = obj->hasProperty ("speechPriority") && bool (obj->getProperty ("speechPriority"));

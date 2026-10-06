@@ -114,6 +114,12 @@ struct InputAssignment
     // and it is never the one held back to make room for another. At most one input carries
     // it (MixSession::setFocus). Last again, so brace-initialised sessions keep working.
     bool focus = false;
+    // WHAT IT WAS ON THE OTHER SIDE OF SINGING / SPEAKING. A backing singer who is handed the
+    // announcements and then sings again is a backing singer again, and a lapel that led a
+    // song and then preaches is a lapel again: the role it last had in the other job, stored
+    // as a ChannelRole index, -1 when it has never had one. Set by MixController::setInputRole,
+    // read by roleForJob / roleForSinging. A label for the switch, never routing.
+    int otherVoiceRole = -1;
 
     bool isStereo() const noexcept { return inputB >= 0; }
     int numChannels() const noexcept { return isStereo() ? 2 : 1; }

@@ -948,11 +948,35 @@ const std::vector<MixController::VoiceJob>& MixController::voiceJobs()
     return jobs;
 }
 
+namespace
+{
+    bool isSingingFamily (RoleFamily f) noexcept
+    {
+        return f == RoleFamily::LeadVocal || f == RoleFamily::BackingVocal || f == RoleFamily::Choir;
+    }
+    bool isVoiceFamily (RoleFamily f) noexcept { return isSingingFamily (f) || f == RoleFamily::Speech; }
+}
+
 ChannelRole MixController::roleForJob (int strip, ChannelRole job) const
 {
     if (strip < 0 || strip >= int (session.inputs.size())) return job;
-    const auto current = session.inputs[size_t (strip)].role;
-    return roleFamily (current) == roleFamily (job) ? current : job;
+    const auto& in = session.inputs[size_t (strip)];
+    if (roleFamily (in.role) == roleFamily (job)) return in.role;
+    if (in.otherVoiceRole >= 0)
+        if (const auto before = channelRoleFromIndex (in.otherVoiceRole); roleFamily (before) == roleFamily (job))
+            return before;
+    return job;
+}
+
+ChannelRole MixController::roleForSinging (int strip) const
+{
+    if (strip < 0 || strip >= int (session.inputs.size())) return ChannelRole::LeadVocal;
+    const auto& in = session.inputs[size_t (strip)];
+    if (isSingingFamily (roleFamily (in.role))) return in.role;
+    if (in.otherVoiceRole >= 0)
+        if (const auto before = channelRoleFromIndex (in.otherVoiceRole); isSingingFamily (roleFamily (before)))
+            return before;
+    return ChannelRole::LeadVocal;
 }
 
 bool MixController::isVoiceChannel (int strip) const
@@ -980,6 +1004,11 @@ bool MixController::setInputRole (int strip, ChannelRole role)
     checkpoint ("Before " + name + " became " + channelRoleName (role), false);
 
     auto next = session;
+    // Crossing between singing and speaking: remember what it was on the side it is leaving.
+    const auto was = session.inputs[size_t (strip)].role;
+    if (isVoiceFamily (roleFamily (was)) && isVoiceFamily (roleFamily (role))
+        && isSingingFamily (roleFamily (was)) != isSingingFamily (roleFamily (role)))
+        next.inputs[size_t (strip)].otherVoiceRole = int (was);
     next.inputs[size_t (strip)].role = role;
     setSession (next);            // rebuilds the graph and carries every other strip's mix across
 

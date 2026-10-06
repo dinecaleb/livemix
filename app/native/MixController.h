@@ -486,7 +486,11 @@ public:
     // are both SPEAKING, and choosing SPEAKING on one of them must not turn it into the
     // other. Returns the role to store for `job` on `strip`: the one it already has when it
     // is already doing that job, and the job's own role when it is not.
+    // Switching between singing and speaking gives back what the microphone was the last time it
+    // did the other job (InputAssignment::otherVoiceRole), so the round trip loses nothing.
     ChannelRole roleForJob (int strip, ChannelRole job) const;
+    // SINGING without saying which kind: the singing role it has, else the one it had, else lead.
+    ChannelRole roleForSinging (int strip) const;
 
     // ---- AUTOPILOT: the operator's own mix, held where they left it ----
     //
