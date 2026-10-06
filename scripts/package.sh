@@ -19,6 +19,11 @@
 #                   (the microphone). Then, if NOTARY_PROFILE is also set, it is submitted to Apple
 #                   with notarytool, the ticket is stapled to the bundle, and the zip is made from
 #                   the stapled app - that build opens on any Mac with no warning at all.
+#   SIGN_ID         set, DEVELOPER_ID unset: any other code-signing identity of yours (an "Apple
+#                   Development" certificate). Not one Apple vouches for to other Macs, so the tester
+#                   still opens it once by right-click > Open - but unlike ad-hoc it is the SAME app
+#                   to macOS from one zip to the next, so a microphone answer given once is kept
+#                   across updates. Ad-hoc is a new app every build, and macOS asks again.
 #   TEAM_ID         the ten-character team id (optional when DEVELOPER_ID names it in brackets).
 #   NOTARY_PROFILE  the notarytool keychain profile made once with
 #                       xcrun notarytool store-credentials "<profile>" --apple-id <id> --team-id <TEAM_ID>
@@ -68,6 +73,7 @@ ARCHS=$(lipo -archs "$APP/Contents/MacOS/DINE")
 ENTITLEMENTS="$(pwd)/scripts/DINE.entitlements"
 
 DEVELOPER_ID="${DEVELOPER_ID:-}"
+SIGN_ID="${SIGN_ID:-}"
 TEAM_ID="${TEAM_ID:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 MODE=adhoc
@@ -78,8 +84,14 @@ if [ -n "$DEVELOPER_ID" ]; then
     # if it ever does, sign it inside-out here. --force because the linker already put a signature there.
     codesign --force --sign "$DEVELOPER_ID" --options runtime --timestamp \
              --entitlements "$ENTITLEMENTS" --identifier com.dine.app "$APP"
+elif [ -n "$SIGN_ID" ]; then
+    MODE=stable
+    codesign --force --sign "$SIGN_ID" --identifier com.dine.app "$APP"
 else
     # A complete ad-hoc signature over the whole bundle, replacing the partial one the linker leaves behind.
+    # Its identity is this build's hash: macOS treats every new zip as a new app and asks about the
+    # microphone again. SIGN_ID or DEVELOPER_ID keep the answer (see the top of this file).
+    echo "note: ad-hoc signature - each new build is a new app to macOS, which asks about the microphone again" >&2
     codesign --force --deep --sign - --identifier com.dine.app "$APP"
 fi
 codesign --verify --deep --strict --verbose=2 "$APP"

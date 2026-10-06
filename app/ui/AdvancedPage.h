@@ -32,6 +32,8 @@ public:
     std::function<void (int strip)> onTuneChannel;   // TUNE CHANNEL: this one source, listened to on its own
     // ADD A SOUND, from the sample stage: the window owns the chooser and the copying.
     std::function<void (RoleFamily)> onImportSample;
+    std::function<juce::String()> drumKitName;                    // DRUM KIT, from the window
+    std::function<void (juce::Component& anchor)> onDrumKit;
 
     void refresh();                           // 30 Hz
     void rebuild();                           // after the session / graph changed

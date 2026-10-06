@@ -651,11 +651,39 @@ bool TracksPage::locked()
     return true;
 }
 
-void TracksPage::pushUndo()
+TracksPage::TimelineEdit TracksPage::captureEdit (const Project& project, const juce::String& what) const
 {
-    undoStack.push_back (services.daw().getProject());
-    if (int (undoStack.size()) > kMaxUndo) undoStack.erase (undoStack.begin());
+    TimelineEdit e;
+    e.clips.reserve (project.tracks.size());
+    for (const auto& t : project.tracks) e.clips.push_back (t.clips);
+    e.markers = project.markers;
+    e.what = what;
+    e.epoch = services.daw().getTimelineEpoch();
+    e.atMs = controller.nowMs();          // the mix history's clock, so the two can be compared
+    return e;
 }
+
+void TracksPage::dropStaleEdits() const
+{
+    const auto epoch = services.daw().getTimelineEpoch();
+    const auto stale = [epoch] (const TimelineEdit& e) { return e.epoch != epoch; };
+    undoStack.erase (std::remove_if (undoStack.begin(), undoStack.end(), stale), undoStack.end());
+    redoStack.erase (std::remove_if (redoStack.begin(), redoStack.end(), stale), redoStack.end());
+}
+
+void TracksPage::pushUndo (const juce::String& what)
+{
+    dropStaleEdits();
+    undoStack.push_back (captureEdit (services.daw().getProject(), what));
+    if (int (undoStack.size()) > kMaxUndo) undoStack.erase (undoStack.begin());
+    redoStack.clear();
+}
+
+bool TracksPage::canUndo() const { dropStaleEdits(); return ! undoStack.empty(); }
+bool TracksPage::canRedo() const { dropStaleEdits(); return ! redoStack.empty(); }
+juce::String TracksPage::undoLabel() const { return canUndo() ? undoStack.back().what : juce::String(); }
+juce::String TracksPage::redoLabel() const { return canRedo() ? redoStack.back().what : juce::String(); }
+double TracksPage::lastEditMs() const { return canUndo() ? undoStack.back().atMs : 0.0; }
 
 void TracksPage::commit()
 {
@@ -666,12 +694,35 @@ void TracksPage::commit()
 
 void TracksPage::undo()
 {
-    if (locked() || undoStack.empty()) return;
-    services.daw().setProject (undoStack.back());
+    if (locked()) return;
+    if (! canUndo()) { if (onToast) onToast ("There is no timeline edit to undo."); return; }
+    // A take being written is not interrupted, and the clips under it are not moved.
+    if (services.daw().isRecording()) { if (onToast) onToast ("Stop recording before undoing a timeline edit."); return; }
+    auto entry = undoStack.back();
+    auto now = captureEdit (services.daw().getProject(), entry.what);
+    if (! services.daw().restoreEdits (entry.clips, entry.markers)) { undoStack.clear(); redoStack.clear(); return; }
     undoStack.pop_back();
+    redoStack.push_back (std::move (now));
     selection = {};
     commit();
-    if (onToast) onToast ("Undone.");
+    if (onTimelineChanged) onTimelineChanged();
+    if (onToast) onToast ("Undone: " + entry.what + ".");
+}
+
+void TracksPage::redo()
+{
+    if (locked()) return;
+    if (! canRedo()) { if (onToast) onToast ("There is no timeline edit to redo."); return; }
+    if (services.daw().isRecording()) { if (onToast) onToast ("Stop recording before redoing a timeline edit."); return; }
+    auto entry = redoStack.back();
+    auto now = captureEdit (services.daw().getProject(), entry.what);
+    if (! services.daw().restoreEdits (entry.clips, entry.markers)) { undoStack.clear(); redoStack.clear(); return; }
+    redoStack.pop_back();
+    undoStack.push_back (std::move (now));
+    selection = {};
+    commit();
+    if (onTimelineChanged) onTimelineChanged();
+    if (onToast) onToast ("Redone: " + entry.what + ".");
 }
 
 // ---------------------------------------------------------------- editing
@@ -688,7 +739,7 @@ void TracksPage::splitAtPlayhead()
         {
             auto& clip = clips[size_t (i)];
             if (! clip.covers (at) || at == clip.start) continue;
-            if (split == 0) pushUndo();
+            if (split == 0) pushUndo ("splitting clips");
             AudioClip right = clip;
             const juce::int64 cut = at - clip.start;
             right.start = at;
@@ -713,7 +764,7 @@ void TracksPage::deleteSelection()
     if (selection.track >= int (project.tracks.size())) return;
     auto& clips = project.tracks[size_t (selection.track)].clips;
     if (selection.index >= int (clips.size())) return;
-    pushUndo();
+    pushUndo ("deleting a clip");
     clips.erase (clips.begin() + selection.index);
     selection = {};
     commit();
@@ -796,7 +847,7 @@ void TracksPage::addMarkerAtPlayhead()
             if (onToast) onToast ("There is already a marker here.");
             return;
         }
-    pushUndo();
+    pushUndo ("adding a marker");
     project.markers.push_back ({ "Marker " + juce::String (int (project.markers.size()) + 1), at });
     std::stable_sort (project.markers.begin(), project.markers.end(),
                       [] (const Marker& a, const Marker& b) { return a.position < b.position; });
@@ -826,7 +877,7 @@ void TracksPage::markerMenu (int index)
                          if (locked()) return;
                          if (result == 3)
                          {
-                             pushUndo();
+                             pushUndo ("deleting a marker");
                              p.markers.erase (p.markers.begin() + index);
                              services.touchSession();
                              if (onTimelineChanged) onTimelineChanged();
@@ -847,7 +898,7 @@ void TracksPage::markerMenu (int index)
                                  if (r != 1 || index >= int (proj.markers.size())) return;
                                  const auto text = alert->getTextEditorContents ("name").trim();
                                  if (text.isEmpty()) return;
-                                 pushUndo();
+                                 pushUndo ("renaming a marker");
                                  proj.markers[size_t (index)].name = text;
                                  services.touchSession();
                                  if (onTimelineChanged) onTimelineChanged();
@@ -2123,7 +2174,7 @@ void TracksPage::mouseDrag (const juce::MouseEvent& e)
         {
             if (dragMarker < 0 || dragMarker >= int (project.markers.size())) break;
             if (project.liveSafe) { drag = Drag::None; break; }
-            if (! undoPushed) { pushUndo(); undoPushed = true; }
+            if (! undoPushed) { pushUndo ("moving a marker"); undoPushed = true; }
             project.markers[size_t (dragMarker)].position = snapSample (xToSample (p.x), -1, -1);
             repaint();
             break;
@@ -2171,7 +2222,7 @@ void TracksPage::mouseDrag (const juce::MouseEvent& e)
             if (! dragClip.valid() || dragClip.track >= int (project.tracks.size())) break;
             auto& clips = project.tracks[size_t (dragClip.track)].clips;
             if (dragClip.index >= int (clips.size())) break;
-            if (! undoPushed) { pushUndo(); undoPushed = true; }
+            if (! undoPushed) { pushUndo (drag == Drag::ClipMove ? "moving a clip" : "trimming a clip"); undoPushed = true; }
             auto& clip = clips[size_t (dragClip.index)];
             const juce::int64 raw = xToSample (p.x) - dragAnchorSample;
 
@@ -2314,7 +2365,7 @@ void TracksPage::mouseDoubleClick (const juce::MouseEvent& e)
     if (locked()) return;
 
     auto& project = services.daw().getProject();
-    pushUndo();
+    pushUndo ("adding a marker");
     project.markers.push_back ({ "Marker " + juce::String (int (project.markers.size()) + 1),
                                 snapSample (xToSample (p.x), -1, -1) });
     std::stable_sort (project.markers.begin(), project.markers.end(),
@@ -2501,11 +2552,14 @@ void TracksPage::addAudioFiles (const juce::StringArray& files, int track, juce:
         return;
     }
     // Clips on tracks that were already here can be undone; a drop that made tracks cannot (the
-    // undo stack holds projects, not sessions).
-    if (outcome.added == 0)
+    // undo holds clips, not sessions). The import replaced the project, so the entry is taken
+    // in the epoch it left behind - the clips from before, on the same tracks.
+    if (outcome.added == 0 && before.tracks.size() == services.daw().getProject().tracks.size())
     {
-        undoStack.push_back (before);
+        dropStaleEdits();
+        undoStack.push_back (captureEdit (before, "adding audio"));
         if (int (undoStack.size()) > kMaxUndo) undoStack.erase (undoStack.begin());
+        redoStack.clear();
     }
     selection = {};
     rebuild();

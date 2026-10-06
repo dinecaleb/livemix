@@ -88,6 +88,9 @@ public:
     struct Recovered
     {
         int trackIndex = -1;
+        // The device channels it was recording (L, R; R < 0 = mono). -2 on a sidecar written
+        // before 2026-10-05, which only knew the track's index.
+        int inputA = -2, inputB = -2;
         juce::String name, fileName;
         juce::int64 length = 0;             // frames the file holds now
         juce::int64 timelineStart = 0;
@@ -144,6 +147,7 @@ private:
         juce::File file;
         int trackIndex = 0, channels = 1;
         juce::String name;
+        int inputA = -1, inputB = -1;
     };
     struct SidecarWriter : public juce::TimeSliceClient
     {

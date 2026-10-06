@@ -125,7 +125,10 @@ void SampleReplacer::detect (const AudioBlockView& preGate, long long blockStart
         // On time: the sample starts as far into itself as the hit was recognised late, so its
         // attack lands on the microphone's (a partial blend combed at 3-5 ms of lag). ALIGN
         // then moves it later from there, for taste - it is no longer making up for lateness.
-        player.trigger (hit.offset + offsetSamples, hit.velocity, gain, rate, hit.lateBy);
+        // With the microphone (almost) gone there is nothing to comb against, so the whole hit
+        // plays - a millisecond or two late, which nobody hears, rather than without its attack.
+        const int skip = params.blend >= 0.9f ? 0 : hit.lateBy;
+        player.trigger (hit.offset + offsetSamples, hit.velocity, gain, rate, skip);
         if (hitOffsetCount < SampleTrigger::kMaxHits) hitOffsetsBlock[hitOffsetCount++] = hit.offset;
     }
 }

@@ -49,7 +49,8 @@ set(DINE_APP_SOURCES
     native/TimelinePlayer.cpp
     native/MultitrackImport.cpp
     native/ReferenceAudio.cpp
-    native/SampleLibrary.cpp)
+    native/SampleLibrary.cpp
+    native/DrumKits.cpp)
 
 # dine_mix_compare: a session finished by hand against a fresh TUNE MIX of the same audio -
 # where every channel and group lands against the lead in each, and the masters' tone.
@@ -141,6 +142,22 @@ add_custom_command(TARGET DineApp POST_BUILD
 # The app reads its own bundle's copy and nothing else: the source folder's path is not
 # compiled into what ships (the tools and the tests, which run from the tree, keep it).
 
+# A STABLE IDENTITY FOR THE MICROPHONE GRANT (2026-10-05). Ninja ignores JUCE's Xcode-only
+# signing attributes, so a plain build carries the linker's ad-hoc signature, whose designated
+# requirement is the build's own cdhash: every rebuild is a new app to macOS, and the
+# microphone question comes back (docs/SESSION-STATE.md section 4). Signed with a certificate,
+# the requirement names the bundle id and the certificate instead, so a grant given once holds
+# across rebuilds. scripts/dine.sh finds an "Apple Development" identity on its own; set it by
+# hand with -DDINE_SIGN_IDENTITY=<name or SHA-1>. Empty = the linker's ad-hoc signature, as before.
+# No hardened runtime here: that is the Developer ID path in scripts/package.sh.
+set(DINE_SIGN_IDENTITY "" CACHE STRING "codesign identity for the DINE.app a build makes (empty = ad-hoc)")
+if (APPLE AND DINE_SIGN_IDENTITY)
+    add_custom_command(TARGET DineApp POST_BUILD
+        COMMAND codesign --force --sign "${DINE_SIGN_IDENTITY}" --identifier com.dine.app "$<TARGET_BUNDLE_DIR:DineApp>"
+        COMMENT "Signing DINE.app with a stable identity, so macOS keeps its microphone answer across builds"
+        VERBATIM)
+endif()
+
 if (LIVEMIX_BUILD_TESTS)
     add_executable(dine_ui_snapshots Tools/AppSnapshots.cpp ${DINE_UI_SOURCES})
     target_include_directories(dine_ui_snapshots PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
@@ -156,6 +173,7 @@ if (LIVEMIX_BUILD_TESTS)
         Tests/RecordingTests.cpp
         Tests/ThemeTests.cpp
         Tests/TelemetryTests.cpp
+        Tests/ReliabilityPassTests.cpp
         Tests/BroadcastReadinessTests.cpp
         ${DINE_APP_SOURCES}
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp)

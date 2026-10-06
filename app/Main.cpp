@@ -71,6 +71,8 @@ namespace
             controller.setSampleBanks (samples->table());
         }
 
+        const SampleLibrary* sampleLibrary() override { return samples; }
+
         juce::String importSample (RoleFamily family, const juce::File& file) override
         {
             if (samples == nullptr) return "Sounds are not available here.";
@@ -205,6 +207,36 @@ namespace
         bool deviceStopped() override { return host.deviceStoppedUnexpectedly(); }
         DeviceState deviceState() override { return host.state(); }
         void askForInputPermission (std::function<void (bool)> done) override { MicPermission::request (std::move (done)); }
+        InputAccess inputHeldBack() override { return host.inputHeldBack(); }
+        // Reopening the device drops the broadcast for a moment, so LIVE SAFE holds both of these
+        // back exactly as it holds back a device picked by hand (deviceChangeLocked).
+        bool retryHeldInput() override
+        {
+            return deviceChangeLocked().isEmpty() && host.retryHeldInput (dawEngine.isRecording());
+        }
+        juce::String openWantedConsoleIfBack() override
+        {
+            // Only the console this session was set up on, only while it is standing in for it,
+            // and never mid-take: the same rule as a device that comes back (deviceReturned).
+            if (! standingIn || wantedDevices.consoleInput.isEmpty() || dawEngine.isRecording()) return {};
+            if (deviceChangeLocked().isNotEmpty()) return {};
+            if (host.isOpen() && host.getInputDeviceName() == wantedDevices.consoleInput) return {};
+            bool here = false;
+            for (const auto& d : host.listInputDevices()) if (d.name == wantedDevices.consoleInput) here = true;
+            if (! here) return {};
+            SessionState doc;
+            doc.devices = wantedDevices;
+            doc.project = dawEngine.getProject();
+            const auto before = recoveryNote;
+            recoveryNote.clear();
+            const auto err = openDevicesFor (doc);
+            restoreSolo (doc, err);
+            recoveryNote = before;
+            if (err.isNotEmpty()) return {};
+            const auto st = host.state();
+            return wantedDevices.consoleInput + " is here now, and DINE has opened it."
+                 + (st.stage == DeviceStage::InputRefused ? " " + st.why : juce::String());
+        }
         void reconfigure() override
         {
             // The assignments are what changed, so the timeline hears about them first: every
@@ -285,7 +317,7 @@ namespace
         }
 
         juce::String exportMix (std::shared_ptr<const ExportJob> job, const juce::File& dest,
-                                ExportFormat format, std::function<bool (float)> progress) override
+                                ExportFormat format, ExportProgress& progress) override
         {
             if (job == nullptr) return "There is nothing to export.";
             MixBounce::Options options;
@@ -297,7 +329,8 @@ namespace
             options.loudness = job->loudness == ExportLoudness::Stream14 ? MixBounce::Loudness::Stream14
                              : job->loudness == ExportLoudness::Podcast16 ? MixBounce::Loudness::Podcast16
                                                                           : MixBounce::Loudness::AsMixed;
-            options.onProgress = std::move (progress);
+            options.onProgress = [&progress] (float f) { return progress.report (f); };
+            options.onStage = [&progress] (MixBounce::Stage s, bool measurable) { progress.beginStage (s, measurable); };
             const auto bounceFormat = format == ExportFormat::Mp3 ? MixBounce::Format::Mp3
                                     : format == ExportFormat::Aiff ? MixBounce::Format::Aiff
                                                                    : MixBounce::Format::Wav;
@@ -525,14 +558,13 @@ namespace
             switch (plan.action)
             {
                 case DevicePlan::Action::OpenBoth:
-                    // Not now: the one call that would put macOS's prompt up is the one that is
-                    // not made. Everything else about opening this session is unchanged.
-                    if (! allowInputs && plan.output.isNotEmpty())
-                    {
-                        err = host.openOutputOnly (plan.output);
-                        note = inputsNotAskedSentence (plan.input, plan.output);
-                    }
-                    else err = host.open (plan.input, plan.output);
+                    // The input opens only when macOS has already said yes (AudioHost::open);
+                    // "Not now" asks for nothing at all. Either way the input is remembered, so
+                    // it opens the moment macOS agrees (retryHeldInput).
+                    err = host.open (plan.input, plan.output, 48000.0, 64, {}, allowInputs);
+                    if (err.isEmpty())
+                        if (const auto st = host.state(); st.stage == DeviceStage::InputRefused && st.why.isNotEmpty())
+                            note += juce::String (note.isEmpty() ? "" : " ") + st.why;
                     break;
                 case DevicePlan::Action::OpenOutputOnly: err = host.openOutputOnly (plan.output); break;
                 case DevicePlan::Action::KeepOpen:       host.reconfigure(); break;
@@ -1032,6 +1064,9 @@ public:
         {
             if (services != nullptr) services->forgetDeviceUids();
             if (window == nullptr) return;
+            if (services != nullptr)
+                if (const auto said = services->openWantedConsoleIfBack(); said.isNotEmpty())
+                    window->view().showToast (said);
             auto& page = window->view().getDevicePage();
             if (page.isVisible()) page.refresh();
         };
@@ -1299,6 +1334,9 @@ public:
 
     void shutdown() override
     {
+        // An export's worker renders through `services`; it is stopped, and waited for, before
+        // anything it reads is destroyed. Its half-written files are deleted by MixBounce.
+        if (window != nullptr) window->view().stopExportAndWait (15000);
         if (dawEngine != nullptr) dawEngine->stop();
         // A clean goodbye: the document is written, and the marker and the autosave go with
         // it. One that is still there on the next launch is how DINE knows it was killed.
@@ -1324,6 +1362,23 @@ public:
     // decision, not an accident - so the question says exactly what happens either way.
     void systemRequestedQuit() override
     {
+        // An export quits the same way a take does: by a decision. Stopping it deletes what it
+        // had written; nothing half-made is left looking like a finished file.
+        if (window != nullptr && window->view().isExporting() && (dawEngine == nullptr || ! dawEngine->isRecording()))
+        {
+            auto* alert = new juce::AlertWindow ("DINE is exporting",
+                                                 "Quitting stops the export, and the files it had started are deleted. "
+                                                 "The session and its recordings are not touched.",
+                                                 juce::MessageBoxIconType::NoIcon);
+            alert->addButton ("Keep Exporting", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+            alert->addButton ("Stop and Quit", 1, juce::KeyPress (juce::KeyPress::returnKey));
+            alert->enterModalState (true, juce::ModalCallbackFunction::create ([this, alert] (int r)
+            {
+                std::unique_ptr<juce::AlertWindow> closer (alert);
+                if (r == 1) quit();
+            }), true);
+            return;
+        }
         if (dawEngine == nullptr || ! dawEngine->isRecording()) { quit(); return; }
 
         auto* alert = new juce::AlertWindow ("DINE is recording",

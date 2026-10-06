@@ -112,7 +112,7 @@ juce::String Recorder::start (const juce::File& audioFolder,
     writers = std::move (made);
     sidecars.clear();
     for (const auto& w : writers)
-        sidecars.push_back ({ sidecarFor (w.file), w.trackIndex, w.channels, w.name });
+        sidecars.push_back ({ sidecarFor (w.file), w.trackIndex, w.channels, w.name, w.inputA, w.inputB });
     writeSidecars();                                 // "in progress" from the first block, not the first interval
     thread.addTimeSliceClient (&sidecarWriter, sidecarMs);
     if (! thread.isThreadRunning()) thread.startThread (juce::Thread::Priority::high);
@@ -182,6 +182,10 @@ void Recorder::writeSidecars()
         o->setProperty ("name", s.name);
         o->setProperty ("sampleRate", rate);
         o->setProperty ("channels", s.channels);
+        // Which input this is, by the device channels it reads - the index alone can name
+        // somebody else after the inputs are rearranged (DawEngine::recoverUnfinishedTakes).
+        o->setProperty ("inputA", s.inputA);
+        o->setProperty ("inputB", s.inputB);
         o->setProperty ("bitDepth", kBitDepth);
         o->setProperty ("timelineStart", startSample);
         o->setProperty ("framesWritten", written);
@@ -329,6 +333,8 @@ std::vector<Recorder::Recovered> Recorder::recoverUnfinishedTakes (const juce::F
             r.timelineStart = (juce::int64) o->getProperty ("timelineStart");
             r.sampleRate    = (double) o->getProperty ("sampleRate");
             r.channels      = (int) o->getProperty ("channels");
+            if (o->hasProperty ("inputA")) r.inputA = (int) o->getProperty ("inputA");
+            if (o->hasProperty ("inputB")) r.inputB = (int) o->getProperty ("inputB");
         }
         const auto wav = sidecar.getSiblingFile (sidecar.getFileName().dropLastCharacters (int (juce::String (".recording.json").length())));
         r.fileName = wav.getFileName();

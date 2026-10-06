@@ -207,10 +207,14 @@ namespace
         }
         std::shared_ptr<const ExportJob> snapshotExport() override { return {}; }
         juce::String exportMix (std::shared_ptr<const ExportJob>, const juce::File&, ExportFormat,
-                                std::function<bool (float)>) override
+                                ExportProgress&) override
         {
             return "Export is not available in the snapshot tool.";
         }
+    private:
+        const SampleLibrary* sampleLibrary() override { return library; }
+    public:
+        const SampleLibrary* library = nullptr;
     private:
         MixController& controller;
         DawEngine& dawEngine;
@@ -243,6 +247,7 @@ namespace
             MainView::setGuidesUsed (false);        // ... and not through whatever has been dismissed on it
             samples.load();
             controller.setSampleBanks (samples.table());
+            services.library = &samples;
             view = std::make_unique<MainView> (controller, services);
             view->setSize (1520, 960);
             view->setVisible (true);
@@ -1533,6 +1538,19 @@ int main (int argc, char** argv)
     rig.snap (dir, "27b-export-multitrack");
     view.closeSheetsForSnapshot();
     rig.feed (0.2);
+    // EXPORT, WHILE IT RUNS: the sheet has gone and the status foot carries it - the bar along
+    // the seam and "Export mixing 42%" in its second cell - on whatever workspace is showing.
+    view.showExportProgressForSnapshot (ExportProgress::State::Running, MixBounce::Stage::Mixing, 0.42f);
+    rig.feed (0.1);
+    rig.snap (dir, "27-export-running");
+    view.showExportProgressForSnapshot (ExportProgress::State::Running, MixBounce::Stage::Encoding, -1.0f);
+    rig.feed (0.1);
+    rig.snap (dir, "27-export-mp3");
+    view.showExportProgressForSnapshot (ExportProgress::State::Failed, MixBounce::Stage::Mixing, 0.6f);
+    rig.feed (0.1);
+    rig.snap (dir, "27-export-failed");
+    view.showExportProgressForSnapshot (ExportProgress::State::Idle, MixBounce::Stage::Mixing, -1.0f);
+    rig.feed (0.1);
 
     // RESET THE MIX TO RAW: what it resets and what it keeps, side by side.
     view.resetMixToRaw();

@@ -90,9 +90,12 @@ public:
     // `onMain` is the one exception, and it is solo in place's: a device with one pair has no
     // private listen, so with solo set to be heard by everyone the sound goes into the main
     // mix, ahead of the master's chain so its ceiling still holds. MixController decides it.
-    void auditionSample (const SampleBank* bank, float gainDb, bool onMain = false) noexcept
+    // `rate` is the strip's own (PITCH, and the drum's pitch when TUNING follows it), so the
+    // sound heard here is the sound the strip plays.
+    void auditionSample (const SampleBank* bank, float gainDb, bool onMain = false, double rate = 1.0) noexcept
     {
         auditionGainDb.store (gainDb, std::memory_order_relaxed);
+        auditionRate.store (rate, std::memory_order_relaxed);
         auditionOnMain.store (onMain, std::memory_order_relaxed);
         auditionRequest.store (bank, std::memory_order_release);
     }
@@ -297,6 +300,7 @@ private:
     SamplePlayer auditionPlayer;                                 // HEAR IT: one voice into the monitor bus
     std::atomic<const SampleBank*> auditionRequest { nullptr };
     std::atomic<float> auditionGainDb { -12.0f };
+    std::atomic<double> auditionRate { 1.0 };
     std::atomic<bool> auditionOnMain { false };
     bool auditionPlayingOnMain = false;                          // audio thread: where the sound now playing was sent
     long long samplePosition = 0;                                // running, from prepare()

@@ -319,6 +319,13 @@ public:
     StatusBar (MixController& c, AppServices& s) : controller (c), services (s) { setOpaque (true); }
 
     bool takeStopped = false;           // the last take was stopped by DINE, not by a person (TransportBar)
+    // EXPORT, from MainView's tick: the words, their colour, how far (< 0 = no number for this
+    // stage), and whether it is still working. Empty words = no export to speak of.
+    juce::String exportText;
+    juce::Colour exportTint;
+    float exportFraction = -1.0f;
+    bool exportWorking = false;
+    std::function<void()> onExportClicked;
 
     void update (bool slow)
     {
@@ -388,6 +395,14 @@ public:
         next.monitorTint = controller.hasMonitorOutput() ? Dine::ink : Dine::ink3;
         next.safe = project.liveSafe;
 
+        next.exportText = exportText;
+        next.exportTint = exportTint;
+        next.exportWorking = exportWorking;
+        // The line along the seam: a bar for a stage with a number, a short sweep for one
+        // without. Only the sweep moves on its own, and only while an export is working.
+        next.exportPermille = exportWorking && exportFraction >= 0.0f ? juce::roundToInt (exportFraction * 1000.0f) : -1;
+        if (exportWorking && exportFraction < 0.0f) next.sweep = (look.sweep + 1) % 90;
+
         if (next != look) { look = next; repaint(); }
     }
 
@@ -396,6 +411,21 @@ public:
         Dine::drawStatusBand (g, getLocalBounds());
         g.setColour (Dine::hair);
         g.fillRect (getLocalBounds().removeFromTop (1));   // the seam over the status foot
+        if (look.exportWorking)
+        {
+            // AN EXPORT IS WORKING: the seam itself carries it, in the accent, across the whole
+            // window - visible from every workspace and under every sheet's edge.
+            const auto seam = getLocalBounds().removeFromTop (2).toFloat();
+            g.setColour (Dine::accent);
+            if (look.exportPermille >= 0)
+                g.fillRect (seam.withWidth (seam.getWidth() * float (look.exportPermille) / 1000.0f));
+            else
+            {
+                const float w = seam.getWidth() * 0.18f;
+                const float x = (seam.getWidth() + w) * float (look.sweep) / 90.0f - w;
+                g.fillRect (seam.withX (x).withWidth (w).getIntersection (seam));
+            }
+        }
 
         // The counts the title row used to carry, at the right end where they stay put.
         auto r = getLocalBounds().withTrimmedTop (1).reduced (16, 0);
@@ -410,6 +440,14 @@ public:
         }
 
         cell (g, r, look.engineLabel, look.engine, look.engineTint);
+        // Second, so a narrow window keeps it: it is the one long thing DINE does by itself.
+        exportBox = {};
+        if (look.exportText.isNotEmpty())
+        {
+            const int before = r.getX();
+            cell (g, r, "Export", look.exportText, look.exportTint);
+            if (r.getX() != before) exportBox = { before, 0, r.getX() - before, getHeight() };
+        }
         cell (g, r, "CPU", look.cpu, look.cpuTint);
         cell (g, r, "Disk", look.disk, look.diskTint);
         cell (g, r, "Recording", look.rec, look.recTint);
@@ -419,7 +457,19 @@ public:
         cell (g, r, "Live safe", look.safe ? "on" : "off", look.safe ? Dine::warn : Dine::ink3);
     }
 
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (exportBox.contains (e.getPosition()) && onExportClicked) onExportClicked();
+    }
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        setMouseCursor (exportBox.contains (e.getPosition()) ? juce::MouseCursor::PointingHandCursor
+                                                             : juce::MouseCursor::NormalCursor);
+    }
+
 private:
+    juce::Rectangle<int> exportBox;
+
     // Sentence case, the label quiet and the value beside it: "Engine running", "Disk 2.1 GB/h".
     // Nothing on this row is a heading, so nothing on it is in capitals.
     static void cell (juce::Graphics& g, juce::Rectangle<int>& r, const juce::String& label,
@@ -444,13 +494,15 @@ private:
 
     struct Look
     {
-        juce::String engineLabel, engine, cpu, disk, rec, loudness, monitor, counts;
-        juce::Colour engineTint, cpuTint, diskTint, recTint, loudTint, monitorTint;
-        int drops = 0;
-        bool recording = false, safe = false;
+        juce::String engineLabel, engine, cpu, disk, rec, loudness, monitor, counts, exportText;
+        juce::Colour engineTint, cpuTint, diskTint, recTint, loudTint, monitorTint, exportTint;
+        int drops = 0, exportPermille = -1, sweep = 0;
+        bool recording = false, safe = false, exportWorking = false;
         bool operator== (const Look& o) const
         {
-            return engineLabel == o.engineLabel && engine == o.engine && cpu == o.cpu && disk == o.disk && rec == o.rec && loudness == o.loudness
+            return exportText == o.exportText && exportTint == o.exportTint && exportPermille == o.exportPermille
+                && sweep == o.sweep && exportWorking == o.exportWorking
+                && engineLabel == o.engineLabel && engine == o.engine && cpu == o.cpu && disk == o.disk && rec == o.rec && loudness == o.loudness
                 && monitor == o.monitor && counts == o.counts && engineTint == o.engineTint && cpuTint == o.cpuTint && diskTint == o.diskTint
                 && recTint == o.recTint && loudTint == o.loudTint && monitorTint == o.monitorTint
                 && drops == o.drops && recording == o.recording && safe == o.safe;
@@ -859,7 +911,14 @@ public:
                 m.addItem (110, "Export Multitrack (one file per input)...");
                 break;
             case 1:
-                m.addItem (200, "Undo", view.tracksPage != nullptr && view.tracksPage->canUndo());
+                {
+                    const auto undoing = view.undoTarget();
+                    const auto redoing = view.redoTarget();
+                    m.addItem (200, undoing.label.isNotEmpty() ? "Undo " + undoing.label : juce::String ("Undo"),
+                               undoing.domain != UndoDomain::None);
+                    m.addItem (204, redoing.label.isNotEmpty() ? "Redo " + redoing.label : juce::String ("Redo"),
+                               redoing.domain != UndoDomain::None);
+                }
                 m.addSeparator();
                 m.addItem (201, "Split at Playhead");
                 m.addItem (202, "Delete Clip");
@@ -1122,6 +1181,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     addAndMakeVisible (*sidebar);
 
     statusBar = std::make_unique<StatusBar> (controller, services);
+    statusBar->onExportClicked = [this] { exportCellClicked(); };
     addAndMakeVisible (*statusBar);
 
     soloPill = std::make_unique<SoloPill>();
@@ -1309,6 +1369,8 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
                               });
     };
     advancedPage->onTuneChannel = [this] (int strip) { tuneChannel (strip); };
+    advancedPage->drumKitName = [this] { return drumKitName(); };
+    advancedPage->onDrumKit = [this] (juce::Component& anchor) { drumKitMenu (anchor); };
     transportBar->onToast = [this] (const juce::String& t) { showToast (t); };
     transportBar->onTimelineChanged = [this] { timelineChanged(); };
 
@@ -1402,6 +1464,17 @@ void MainView::showPage (Page p)
     if (p == Page::Routing) p = pageForSection (routingPage->getSection());
     // Leaving the routing workspace locks it again: a confirmation is for one visit.
     if (isRoutingPage (page) && ! isRoutingPage (p)) routingPage->resetConfirmation();
+    // ...and takes what was changed there to the audio. CONTINUE did this; the sidebar did
+    // not, so an input linked as a stereo pair showed as one strip on the mixer while the
+    // engine still ran the graph from before (2026-10-05).
+    if (isRoutingPage (page) && ! isRoutingPage (p) && controller.needsReconfigure())
+    {
+        services.reconfigure();
+        advancedPage->rebuild();
+        mixerPage->rebuild();
+        rebuildWindows();
+        tracksPage->rebuild();
+    }
 
     if (p == Page::Live && page != Page::Live) trackEvent ("live_view_opened", { { "audio_running", services.isAudioRunning() } });
     page = p;
@@ -1889,6 +1962,7 @@ void MainView::offerRecovery (RecoveryOffer offer)
 // that matters, and the note says so rather than leaving it to be found out.
 void MainView::explainMicrophone (MicrophoneAsk ask)
 {
+    micExplained = true;
     closeSheets();
     const auto what = ask.device.isNotEmpty() ? ask.device : juce::String ("your audio device");
     choiceSheet = std::make_unique<ChoiceSheet> (
@@ -1931,6 +2005,37 @@ void MainView::explainMicrophone (MicrophoneAsk ask)
     addAndMakeVisible (*choiceSheet);
     resized();
     choiceSheet->grabKeyboardFocus();
+}
+
+void MainView::followMicrophone()
+{
+    const auto held = services.inputHeldBack();
+    if (held == InputAccess::Listen) return;
+    // macOS said yes - the prompt was answered, or the switch was turned on in System Settings
+    // while DINE was open. Nobody has to quit and open it again.
+    if (services.retryHeldInput())
+    {
+        const auto st = services.deviceState();
+        showToast ("macOS now lets DINE hear " + (st.input.isNotEmpty() ? st.input : juce::String ("the inputs"))
+                   + ". The inputs are open.");
+        updateChrome();
+        return;
+    }
+    // Never asked, and nobody has been told yet this run: the same sheet launch shows, then
+    // the prompt. Not while another sheet is up - a recovery question comes first.
+    // (AskFirst with macOS already saying yes cannot reach here: the retry above opened it.)
+    if (held == InputAccess::AskFirst && ! micExplained && openSheetName().isEmpty() && choiceSheet == nullptr)
+    {
+        MicrophoneAsk ask;
+        ask.device = services.deviceState().input;
+        juce::Component::SafePointer<MainView> safe (this);
+        ask.onContinue = [safe]
+        {
+            if (safe == nullptr) return;
+            safe->services.askForInputPermission ([safe] (bool) { if (safe != nullptr) safe->followMicrophone(); });
+        };
+        explainMicrophone (std::move (ask));
+    }
 }
 
 void MainView::showCheck()
@@ -2372,6 +2477,8 @@ void MainView::openInspectorWindow()
     p->onRetune = [this] { toFront (true); handleCommand (400); };
     p->onTuneChannel = [this] (int strip) { toFront (true); tuneChannel (strip); };
     p->onImportSample = [this] (RoleFamily family) { if (advancedPage->onImportSample) advancedPage->onImportSample (family); };
+    p->drumKitName = [this] { return drumKitName(); };
+    p->onDrumKit = [this] (juce::Component& anchor) { drumKitMenu (anchor); };
     p->onBack = [this] { closePageWindow (inspectorWindow); };
     p->rebuild();
     inspectorInWindow = p;
@@ -2449,7 +2556,10 @@ void MainView::handleCommand (int id)
         case 106: exportMix (AppServices::ExportFormat::Mp3); break;
         case 110: exportMix (AppServices::ExportFormat::Wav, AppServices::ExportWhat::RawMultitrack); break;
 
-        case 200: if (! liveSafeBlocks ("editing the timeline")) tracksPage->undo(); break;
+        // Cmd+Z: the undo of whatever this workspace edits (undoTarget). Never a reset, never
+        // a session reload, never the devices: each domain only puts back its own edits.
+        case 200: undoHere(); break;
+        case 204: redoHere(); break;
         case 201: if (! liveSafeBlocks ("editing the timeline")) tracksPage->splitAtPlayhead(); break;
         case 202: if (! liveSafeBlocks ("editing the timeline")) tracksPage->deleteSelection(); break;
         case 203:
@@ -2491,13 +2601,12 @@ void MainView::handleCommand (int id)
             break;
         case 411:
             if (! controller.canUndoMix()) { showToast ("There is no earlier mix to step back to in this session."); break; }
-            controller.undoMix(); updateChrome();
-            showToast ("Stepped back a whole mix. Every value it set went with it.");
+            controller.undoMix(); updateChrome();   // its own toast names what was undone
+            lastUndone = UndoDomain::Mix;
             break;
         case 412:
             if (! controller.canRedoMix()) { showToast ("This is the newest mix in this session."); break; }
             controller.redoMix(); updateChrome();
-            showToast ("Stepped forward a whole mix.");
             break;
         case 108: saveInputMapping(); break;
         case 109: showPage (Page::Maps); break;
@@ -2682,7 +2791,8 @@ int MainView::commandForKey (const juce::KeyPress& key, Page page)
         if (code == 'S' && mods.isCtrlDown()) return 610;
         if (code == 'S' && ! mods.isShiftDown()) return 102;
         if (code == 'S') return 103;
-        if (code == 'Z') return 200;
+        // UNDO and REDO, the way every Mac app has them. Cmd+Shift+Z used to be undo as well.
+        if (code == 'Z') return mods.isShiftDown() ? 204 : 200;
         if (code == 'E') return 201;
         if (code == 'O') return 101;
         if (code == 'N') return 100;
@@ -2854,7 +2964,7 @@ void MainView::exportMix (AppServices::ExportFormat format, AppServices::ExportW
         showToast ("There is nothing recorded yet. Record a take, or import a multitrack folder.");
         return;
     }
-    if (exporting) { showToast ("An export is already running. It will say when it is done."); return; }
+    if (isExporting()) { showToast ("An export is already running - the status bar says how far it is."); return; }
 
     closeSheets();
     exportSheet = std::make_unique<ExportSheet> (controller, services);
@@ -2862,7 +2972,9 @@ void MainView::exportMix (AppServices::ExportFormat format, AppServices::ExportW
     exportSheet->onToast = [this] (const juce::String& t) { showToast (t); };
     exportSheet->onExport = [this] (const ExportSheet::Request& req)
     {
-        if (exporting) { showToast ("An export is already running. It will say when it is done."); return; }
+        // One at a time: two renders would read the disk against each other and the status foot
+        // has one place to say how far an export is.
+        if (isExporting()) { showToast ("An export is already running - the status bar says how far it is."); return; }
         const auto dest = req.dest;
         dest.getParentDirectory().createDirectory();
         auto job = services.snapshotExport();
@@ -2881,21 +2993,42 @@ void MainView::exportMix (AppServices::ExportFormat format, AppServices::ExportW
         const juce::String what = folder ? (req.what == AppServices::ExportWhat::GroupStems ? "the group stems"
                                                                                            : "the raw multitrack")
                                          : dest.getFileName();
-        exporting = true;
-        showToast ("Exporting " + what + Glyph::ellip());
+        exportWhat = req.what == AppServices::ExportWhat::GroupStems ? MixBounce::What::GroupStems
+                   : req.what == AppServices::ExportWhat::RawMultitrack ? MixBounce::What::RawMultitrack
+                                                                        : MixBounce::What::StereoMix;
+        // Where the result will be, for "Show in Finder": the folder of parts, or the file.
+        exportShown = folder ? dest.getParentDirectory().getChildFile (dest.getFileNameWithoutExtension()
+                                    + (req.what == AppServices::ExportWhat::GroupStems ? " stems" : " multitrack"))
+                             : req.format == AppServices::ExportFormat::Mp3 ? dest.withFileExtension ("mp3")
+                                                                            : dest;
+        exportError = {};
+        exportDoneTicks = 0;
+        auto run = std::make_shared<ExportProgress>();
+        run->state.store (int (ExportProgress::State::Running));
+        run->workerBusy.store (true);
+        exportRun = run;
+        showToast ("Exporting " + what + Glyph::ellip() + " The status bar shows how far it is.");
         juce::Component::SafePointer<MainView> safe (this);
         auto& srv = services;
         const auto fmt = req.format;
-        juce::Thread::launch ([safe, &srv, job, dest, fmt, what, folder]
+        juce::Thread::launch ([safe, &srv, job, dest, fmt, what, folder, run]
         {
-            const auto err = srv.exportMix (job, dest, fmt, {});
-            juce::MessageManager::callAsync ([safe, err, what, folder]
+            const auto err = srv.exportMix (job, dest, fmt, *run);
+            // Only now - every writer closed, the encoder finished, the file moved into place -
+            // is it done. The state says so before the worker lets go of `srv`.
+            run->state.store (int (err.isEmpty() ? ExportProgress::State::Done
+                                 : run->cancel.load() ? ExportProgress::State::Cancelled
+                                                      : ExportProgress::State::Failed));
+            run->workerBusy.store (false);
+            juce::MessageManager::callAsync ([safe, err, what, folder, run]
             {
-                if (safe == nullptr) return;
-                safe->exporting = false;
-                safe->showToast (err.isNotEmpty() ? err
-                                                  : folder ? "Exported " + what + " into a folder beside the session."
-                                                           : "Exported " + what + ".");
+                if (safe == nullptr || safe->exportRun != run) return;
+                safe->exportError = run->getState() == ExportProgress::State::Failed ? err : juce::String();
+                safe->exportDoneTicks = 30 * 12;
+                safe->showToast (run->getState() == ExportProgress::State::Cancelled ? juce::String ("The export was stopped. Nothing half-written was kept.")
+                               : err.isNotEmpty() ? err + " Click Export failed in the status bar to read this again."
+                               : folder ? "Exported " + what + " into a folder beside the session."
+                                        : "Exported " + what + ".");
             });
         });
     };
@@ -2903,6 +3036,137 @@ void MainView::exportMix (AppServices::ExportFormat format, AppServices::ExportW
     addAndMakeVisible (*exportSheet);
     resized();
     exportSheet->grabKeyboardFocus();
+}
+
+// ---------------------------------------------------------------- drum kit
+// Read off the strips every time it is asked: the kit is never stored, so a hand-picked snare,
+// an undo or an old session can never disagree with what the picker says (DrumKits.h).
+juce::String MainView::drumKitName() const
+{
+    const auto* library = services.sampleLibrary();
+    if (library == nullptr) return {};
+    std::array<SampleChoice, kMaxStrips> now {};
+    readSampleChoices (controller, *library, now);
+    return juce::String (currentDrumKit (now, controller));
+}
+
+void MainView::drumKitMenu (juce::Component& anchor)
+{
+    const auto* library = services.sampleLibrary();
+    if (library == nullptr) return;
+    const auto current = drumKitName();
+    juce::PopupMenu m;
+    m.addSectionHeader ("Drum kit: the kick, the snare and the toms together");
+    const auto& kits = builtInDrumKits();
+    for (size_t i = 0; i < kits.size(); ++i)
+        m.addItem (int (i) + 1, juce::String (kits[i].name) + "   " + Glyph::dash() + "   " + juce::String (kits[i].sentence),
+                   true, current == juce::String (kits[i].name));
+    m.addSeparator();
+    m.addItem (-1, "Custom   " + juce::String (Glyph::dash()) + "   each drum has its own sound", false, current == "Custom");
+    juce::Component::SafePointer<MainView> safe (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&anchor), [safe] (int r)
+    {
+        if (safe == nullptr || r <= 0) return;
+        const auto& all = builtInDrumKits();
+        if (r > int (all.size())) return;
+        // Every drum's sound at once is a change to what the room hears, so LIVE SAFE holds it.
+        if (safe->liveSafeBlocks ("changing the drum kit")) return;
+        const auto* lib = safe->services.sampleLibrary();
+        if (lib == nullptr) return;
+        safe->showToast (juce::String (applyDrumKit (all[size_t (r - 1)], *lib, safe->controller)));
+        safe->updateChrome();
+    });
+}
+
+// ---------------------------------------------------------------- undo
+// TWO DOMAINS, NEVER ONE SNAPSHOT (2026-10-05). The mix history (MixController: faders, chains,
+// sends, TUNE, scenes, RESET TO RAW - each one entry) and the timeline's edits (TracksPage:
+// clips and markers, in the timeline epoch they were made in). Cmd+Z on TRACKS takes back
+// whichever of the two was touched last; everywhere else it is the mix, because the mix is
+// what those workspaces edit and a timeline change there would be invisible. Devices,
+// permissions, recording, autosave and DIM / MUTE are in neither, so no undo can touch them.
+MainView::UndoStep MainView::undoTarget() const
+{
+    const bool mixUndo = controller.canUndoMix();
+    const bool timelineUndo = page == Page::Tracks && tracksPage != nullptr && ! controller.isLiveSafe() && tracksPage->canUndo();
+    if (timelineUndo && (! mixUndo || tracksPage->lastEditMs() >= controller.undoMixAtMs()))
+        return { UndoDomain::Timeline, tracksPage->undoLabel() };
+    if (mixUndo) return { UndoDomain::Mix, juce::String (controller.undoMixLabel()) };
+    return {};
+}
+
+MainView::UndoStep MainView::redoTarget() const
+{
+    const bool timelineRedo = page == Page::Tracks && tracksPage != nullptr && ! controller.isLiveSafe() && tracksPage->canRedo();
+    const bool mixRedo = controller.canRedoMix();
+    // Redo follows the undo it reverses.
+    if (timelineRedo && (lastUndone == UndoDomain::Timeline || ! mixRedo)) return { UndoDomain::Timeline, tracksPage->redoLabel() };
+    if (mixRedo) return { UndoDomain::Mix, juce::String (controller.redoMixLabel()) };
+    return {};
+}
+
+void MainView::undoHere()
+{
+    const auto step = undoTarget();
+    if (step.domain == UndoDomain::Timeline) { tracksPage->undo(); lastUndone = UndoDomain::Timeline; return; }
+    if (step.domain == UndoDomain::Mix) { controller.undoMix(); updateChrome(); lastUndone = UndoDomain::Mix; return; }
+    showToast (page == Page::Tracks && controller.isLiveSafe() && tracksPage->canUndo()
+                   ? "LIVE SAFE is on: the timeline is locked, and there is no mix change to undo."
+                   : "There is nothing to undo here yet.");
+}
+
+void MainView::redoHere()
+{
+    const auto step = redoTarget();
+    if (step.domain == UndoDomain::Timeline) { tracksPage->redo(); return; }
+    if (step.domain == UndoDomain::Mix) { controller.redoMix(); updateChrome(); return; }
+    showToast ("There is nothing to redo.");
+}
+
+// The status foot's Export cell. Working: stop it. Done: show it. Failed: say why again.
+void MainView::exportCellClicked()
+{
+    if (exportRun == nullptr) return;
+    const auto st = exportRun->getState();
+    if (st == ExportProgress::State::Running)
+    {
+        juce::PopupMenu m;
+        m.addItem (1, "Stop the export");
+        auto run = exportRun;
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (statusBar.get()),
+                         [run] (int r) { if (r == 1) run->cancel.store (true); });
+    }
+    else if (st == ExportProgress::State::Done)
+    {
+        if (exportShown.exists()) exportShown.revealToUser();
+    }
+    else if (st == ExportProgress::State::Failed)
+    {
+        showToast (exportError.isNotEmpty() ? exportError : juce::String ("The export did not finish."));
+        exportRun.reset();
+    }
+    else exportRun.reset();
+}
+
+bool MainView::stopExportAndWait (int timeoutMs)
+{
+    if (! isExporting()) return true;
+    exportRun->cancel.store (true);
+    // The worker checks once a block, and the encoder every tenth of a second.
+    for (int waited = 0; waited < timeoutMs && exportRun->workerBusy.load(); waited += 20)
+        juce::Thread::sleep (20);
+    return ! exportRun->workerBusy.load();
+}
+
+void MainView::showExportProgressForSnapshot (ExportProgress::State st, MixBounce::Stage stage, float fraction)
+{
+    if (st == ExportProgress::State::Idle) { exportRun.reset(); timerCallback(); return; }
+    exportRun = std::make_shared<ExportProgress>();
+    exportRun->state.store (int (st));
+    exportRun->stage.store (int (stage));
+    exportRun->fraction.store (fraction);
+    exportDoneTicks = 0;
+    timerCallback();
 }
 
 void MainView::saveNow()
@@ -3036,6 +3300,20 @@ void MainView::timerCallback()
                        "Never audio, names, files or anything you type. Help > Share anonymous usage data turns it off.");
             t->markNoticeShown();
         }
+    if (exportRun != nullptr)
+    {
+        const auto st = exportRun->getState();
+        statusBar->exportText = exportStatusText (*exportRun, exportWhat);
+        statusBar->exportTint = st == ExportProgress::State::Failed ? Dine::crit
+                              : st == ExportProgress::State::Done ? Dine::accent
+                              : st == ExportProgress::State::Running ? Dine::ink : Dine::ink3;
+        statusBar->exportFraction = exportRun->fraction.load();
+        statusBar->exportWorking = st == ExportProgress::State::Running;
+        // Done and stopped go by themselves; a failure stays until somebody has read it.
+        if (st == ExportProgress::State::Done || st == ExportProgress::State::Cancelled)
+            if (exportDoneTicks > 0 && --exportDoneTicks == 0) exportRun.reset();
+    }
+    if (exportRun == nullptr) { statusBar->exportText = {}; statusBar->exportWorking = false; }
     statusBar->update (slow);
     {
         const bool failing = services.autosaveFailing();
@@ -3044,6 +3322,7 @@ void MainView::timerCallback()
         saidAutosaveFailing = failing;
     }
     if (slow || slowTicks % 10 == 0) sidebar->refresh (services.daw().isRecording());
+    if (slow) followMicrophone();
     if (chainFoot->isVisible() && slowTicks % 3 == 0) updateChainFoot();
     if (slowTicks % 3 == 0) refreshSoloPill();
 

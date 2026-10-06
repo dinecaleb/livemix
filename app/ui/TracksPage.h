@@ -57,8 +57,17 @@ public:
     // Editing, also reachable from the menu and the keyboard.
     void splitAtPlayhead();
     void deleteSelection();
+    // TIMELINE UNDO: clip and marker edits made on this page, and nothing else. An entry holds
+    // the clips and the markers, never the project - not its folder, rate, arming, monitoring
+    // or LIVE SAFE - and only applies in the timeline epoch it was taken in (DawEngine), so a
+    // take, a re-layout or another session in between makes it unusable rather than wrong.
     void undo();
-    bool canUndo() const noexcept { return ! undoStack.empty(); }
+    void redo();
+    bool canUndo() const;
+    bool canRedo() const;
+    juce::String undoLabel() const;
+    juce::String redoLabel() const;
+    double lastEditMs() const;   // when the newest undoable timeline edit was made (0 = none)
     void zoom (double factor);
     void zoomAround (int x, double factor);   // keeps the moment under the pointer still
     void zoomToFit();
@@ -178,7 +187,7 @@ private:
 
     juce::AudioThumbnail* thumbnailFor (const AudioClip&);
     bool locked();                     // LIVE SAFE: say so once, then change nothing
-    void pushUndo();
+    void pushUndo (const juce::String& what = "a timeline edit");
     void commit();                     // the project changed: republish and save
     void clampScroll();
     void cycleMonitor (int track);
@@ -216,7 +225,17 @@ private:
     juce::AudioThumbnailCache thumbnailCache { 128 };
     std::map<juce::String, std::unique_ptr<juce::AudioThumbnail>> thumbnails;
 
-    std::vector<Project> undoStack;
+    struct TimelineEdit
+    {
+        std::vector<std::vector<AudioClip>> clips;   // per track, parallel to the project's tracks
+        std::vector<Marker> markers;
+        juce::String what;
+        std::uint64_t epoch = 0;
+        double atMs = 0.0;
+    };
+    TimelineEdit captureEdit (const Project&, const juce::String& what) const;
+    void dropStaleEdits() const;                     // entries from another epoch are not undoable
+    mutable std::vector<TimelineEdit> undoStack, redoStack;
     std::vector<float> peaks;          // one meter reading per track, taken once per refresh
     // What the last listen said about each input's level, built once per TUNE MIX rather
     // than per frame: gain staging only changes when the mix is planned again.

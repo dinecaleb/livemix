@@ -893,6 +893,8 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
 
     chain->onStageChanged = [this] { path->refresh(); refresh(); };
     chain->onImportSample = [this] (RoleFamily family) { if (onImportSample) onImportSample (family); };
+    chain->drumKitName = [this] { return drumKitName ? drumKitName() : juce::String(); };
+    chain->onDrumKit = [this] (juce::Component& anchor) { if (onDrumKit) onDrumKit (anchor); };
     rebuild();
 }
 

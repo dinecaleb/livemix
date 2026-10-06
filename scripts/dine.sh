@@ -35,7 +35,17 @@ case "$MODE" in
     *)     TARGETS=(DineApp) ;;
 esac
 
-cmake -S . -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE="$CONFIG" > /dev/null
+# A stable signing identity, so macOS keeps its microphone answer from one build to the next
+# (app/CMakeLists.txt, DINE_SIGN_IDENTITY). The first "Apple Development" certificate in the
+# keychain, unless DINE_SIGN_IDENTITY says otherwise; DINE_SIGN_IDENTITY=- keeps the ad-hoc one.
+SIGN_ID="${DINE_SIGN_IDENTITY:-}"
+if [ -z "$SIGN_ID" ]; then
+    SIGN_ID=$(security find-identity -v -p codesigning 2>/dev/null | awk '/"Apple Development:/ { print $2; exit }')
+fi
+[ "$SIGN_ID" = "-" ] && SIGN_ID=""
+[ -z "$SIGN_ID" ] && echo "note: no signing identity - DINE.app is ad-hoc signed, and macOS may ask about the microphone again after this build" >&2
+
+cmake -S . -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE="$CONFIG" -DDINE_SIGN_IDENTITY="$SIGN_ID" > /dev/null
 cmake --build "$BUILD_DIR" --target "${TARGETS[@]}"
 
 APP="$BUILD_DIR/app/DineApp_artefacts/$CONFIG/DINE.app"

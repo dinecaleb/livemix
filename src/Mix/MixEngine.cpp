@@ -852,7 +852,8 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             if (const SampleBank* want = auditionRequest.exchange (nullptr, std::memory_order_acq_rel))
             {
                 auditionPlayer.setBank (want);
-                auditionPlayer.trigger (0, 1.0f, dbToGain (clamp (auditionGainDb.load (std::memory_order_relaxed), -60.0f, 0.0f)), 1.0);
+                auditionPlayer.trigger (0, 1.0f, dbToGain (clamp (auditionGainDb.load (std::memory_order_relaxed), -60.0f, 12.0f)),
+                                       auditionRate.load (std::memory_order_relaxed));
                 auditionPlayingOnMain = true;
             }
         if (auditionPlayingOnMain)
@@ -892,7 +893,8 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
             if (const SampleBank* want = auditionRequest.exchange (nullptr, std::memory_order_acq_rel))
             {
                 auditionPlayer.setBank (want);
-                auditionPlayer.trigger (0, 1.0f, dbToGain (clamp (auditionGainDb.load (std::memory_order_relaxed), -60.0f, 0.0f)), 1.0);
+                auditionPlayer.trigger (0, 1.0f, dbToGain (clamp (auditionGainDb.load (std::memory_order_relaxed), -60.0f, 12.0f)),
+                                       auditionRate.load (std::memory_order_relaxed));
                 auditionPlayingOnMain = false;
             }
             if (! auditionPlayingOnMain && auditionPlayer.isPlaying())

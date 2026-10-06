@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_core/juce_core.h>
+#include "MicPermission.h"
 
 namespace livemix
 {
@@ -65,9 +66,13 @@ struct DeviceState
 inline juce::String inputRefusedSentence (const juce::String& inputDevice, const juce::String& outputDevice,
                                           bool micDenied, const juce::String& deviceError)
 {
+    // macOS said no, and the device was never asked: the switch is the whole story. When the
+    // device *was* asked and gave an error of its own, that error is said too - a busy or
+    // mis-clocked interface is not fixed in System Settings.
     if (micDenied)
-        return "DINE can play and mix, but macOS is not letting it hear the inputs. "
-               "System Settings > Privacy & Security > Microphone, switch DINE on, and open it again."
+        return "DINE can play and mix, but macOS has input access switched off for DINE. "
+               "System Settings > Privacy & Security > Microphone, switch DINE on - it starts listening as soon as it is on."
+               + (deviceError.isNotEmpty() ? " " + inputDevice + " also said: " + deviceError.trimCharactersAtEnd (".") + "." : juce::String())
                + (outputDevice.isNotEmpty() ? " The mix is going out of " + outputDevice + " in the meantime." : juce::String());
 
     juce::String s = inputDevice.isNotEmpty()
@@ -76,6 +81,39 @@ inline juce::String inputRefusedSentence (const juce::String& inputDevice, const
     if (deviceError.isNotEmpty()) s += " " + deviceError.trimCharactersAtEnd (".") + ".";
     if (outputDevice.isNotEmpty()) s += " The mix is going out of " + outputDevice + ".";
     return s;
+}
+
+// A MANAGED MAC. Restricted is not a switch the person at the desk can turn, so the sentence
+// says who can, and never sends them to a screen where the switch is greyed out.
+inline juce::String inputRestrictedSentence (const juce::String& outputDevice)
+{
+    return juce::String ("DINE can play and mix, but this Mac is managed and its settings do not let apps hear audio inputs. "
+                         "Whoever manages this Mac can allow DINE under Privacy & Security > Microphone.")
+         + (outputDevice.isNotEmpty() ? " The mix is going out of " + outputDevice + " in the meantime." : juce::String());
+}
+
+// WHETHER TO OPEN THE INPUTS AT ALL, decided before a device is touched (2026-10-05).
+//
+// Opening an input is what makes macOS put its prompt up, so the input is opened only when
+// macOS has already said yes. Never asked: the output opens, and DINE says what it is about to
+// ask before asking (MainView::explainMicrophone, then MicPermission::request). Refused or
+// managed: the output opens and the sentence names the switch - the input is not even tried,
+// because CoreAudio hands a refused app an input that opens and stays silent, which read as
+// "DINE cannot see my Dante". A device error is only ever reported when the input was tried,
+// so it can never be dressed up as a permission problem, nor a permission problem as one.
+enum class InputAccess { Listen, AskFirst, Refused, Restricted };
+
+inline InputAccess inputAccessFor (MicPermission::State s, bool listenWanted = true) noexcept
+{
+    if (! listenWanted) return InputAccess::AskFirst;    // "Not now": asked for nothing
+    switch (s)
+    {
+        case MicPermission::State::Granted:      return InputAccess::Listen;
+        case MicPermission::State::Undetermined: return InputAccess::AskFirst;
+        case MicPermission::State::Denied:       return InputAccess::Refused;
+        case MicPermission::State::Restricted:   return InputAccess::Restricted;
+    }
+    return InputAccess::AskFirst;
 }
 
 // NOTHING IS LISTENING, AND NOBODY WAS OVERRULED.

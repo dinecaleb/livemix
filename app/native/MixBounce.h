@@ -40,6 +40,11 @@ namespace MixBounce
         return l == Loudness::Stream14 ? -14.0f : l == Loudness::Podcast16 ? -16.0f : 0.0f;
     }
 
+    // WHAT AN EXPORT IS DOING, for the status foot. Mixing is the render (stems and a raw
+    // multitrack are that same walk); Loudness is the second pass that sets a delivery level;
+    // Encoding is the MP3 encoder, which gives no number; Finishing is moving the file into place.
+    enum class Stage { Mixing = 0, Loudness, Encoding, Finishing };
+
     struct Options
     {
         juce::int64 from = 0;
@@ -47,7 +52,10 @@ namespace MixBounce
         double sampleRate = 0.0;                   // 0 = the project's rate
         What what = What::StereoMix;
         Loudness loudness = Loudness::AsMixed;
-        std::function<bool (float)> onProgress;    // 0..1; return false to cancel
+        std::function<bool (float)> onProgress;    // 0..1 within the stage; return false to cancel
+        // Called as each stage starts; `measurable` says whether onProgress will follow for it.
+        // A stage that is not measurable is still cancellable: onProgress (-1) is asked instead.
+        std::function<void (Stage, bool measurable)> onStage;
     };
 
     // Renders `project`'s clips through `session` + `params` into `dest`. "" on success.

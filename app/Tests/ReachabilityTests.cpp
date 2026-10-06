@@ -81,7 +81,7 @@ namespace
         }
         std::shared_ptr<const ExportJob> snapshotExport() override { return {}; }
         juce::String exportMix (std::shared_ptr<const ExportJob>, const juce::File&, ExportFormat,
-                                std::function<bool (float)>) override { return "not here"; }
+                                ExportProgress&) override { return "not here"; }
 
     private:
         MixController& controller;
@@ -163,7 +163,7 @@ TEST_CASE ("Reachability: every menu item is still in a menu, under the same com
     static const Item expected[] = {
         // File
         { 100, "New Session" }, { 101, "Open Session" }, { 102, "Save" }, { 103, "Save As" },
-        { 104, "Import Multitrack" }, { 107, "Reference Mix" }, { 108, "Save Input Mapping" },
+        { 104, "Import Audio Files" }, { 107, "Reference Mix" }, { 108, "Save Input Mapping" },
         { 109, "Input Mappings" }, { 105, "Export Stereo Mix (WAV)" }, { 106, "Export Stereo Mix (MP3)" },
         // Edit
         { 200, "Undo" }, { 201, "Split at Playhead" }, { 202, "Delete Clip" }, { 203, "Marker" },
@@ -241,6 +241,8 @@ TEST_CASE ("Reachability: every keyboard shortcut still asks for the same comman
         { { 'S', cmd, 0 },                     Page::Mixer,  102, "save" },
         { { 'S', cmd | shift, 0 },             Page::Mixer,  103, "save as" },
         { { 'Z', cmd, 0 },                     Page::Tracks, 200, "undo" },
+        { { 'Z', cmd, 0 },                     Page::Mixer,  200, "undo, on the mixer too" },
+        { { 'Z', cmd | shift, 0 },             Page::Tracks, 204, "redo (it used to be undo as well)" },
         { { 'E', cmd, 0 },                     Page::Tracks, 201, "split at playhead" },
         { { 'O', cmd, 0 },                     Page::Mixer,  101, "open a session" },
         { { 'N', cmd, 0 },                     Page::Mixer,  100, "a new session" },
@@ -660,6 +662,72 @@ TEST_CASE ("Reachability: ROUTING gathers the set-up, and LIVE SAFE covers it un
     CHECK_MESSAGE (routing.isCovered(), "a confirmation outlived the visit it was given for");
 
     window.services.daw().setLiveSafe (false);
+}
+
+// ------------------------------------------------------------------------ undo
+// Cmd+Z by muscle memory, from every workspace (2026-10-05). It used to run the timeline's
+// undo everywhere, and that put back a whole stale project: the take just recorded, the order
+// the tracks were in, the session before this one.
+TEST_CASE ("Undo: Cmd+Z on the mixer takes back the last fader move and touches nothing else")
+{
+    Window w;
+    const int cmd = juce::ModifierKeys::commandModifier;
+    w.view->showPage (MainView::Page::Mixer);
+    w.pump (20);
+    const auto sessionBefore = w.controller.getSession();
+    const auto markersBefore = w.dawEngine.getProject().markers.size();
+    const float was = w.controller.getKept().strips[1].faderDb;
+    w.controller.setStripFader (1, was - 9.0f);
+    CHECK (w.view->undoTarget().domain == MainView::UndoDomain::Mix);
+    CHECK (w.view->undoTarget().label == "Snare fader");
+
+    w.view->keyPressed (juce::KeyPress ('Z', cmd, 0));
+    CHECK_NEAR (w.controller.getKept().strips[1].faderDb, was, 1.0e-4);
+    CHECK (w.controller.getSession().inputs.size() == sessionBefore.inputs.size());
+    for (size_t i = 0; i < sessionBefore.inputs.size(); ++i)
+    {
+        CHECK (w.controller.getSession().inputs[i].inputA == sessionBefore.inputs[i].inputA);
+        CHECK (w.controller.getSession().inputs[i].inputB == sessionBefore.inputs[i].inputB);
+    }
+    CHECK (w.dawEngine.getProject().markers.size() == markersBefore);
+    CHECK (w.services.currentInputDevice() == "Console");             // the devices were not touched
+    CHECK (w.services.isAudioRunning());
+
+    // Cmd+Shift+Z is redo, not a second undo.
+    w.view->keyPressed (juce::KeyPress ('Z', cmd | juce::ModifierKeys::shiftModifier, 0));
+    CHECK_NEAR (w.controller.getKept().strips[1].faderDb, was - 9.0f, 1.0e-4);
+}
+
+TEST_CASE ("Undo: on TRACKS Cmd+Z takes back whichever was touched last, and never across a re-layout")
+{
+    Window w;
+    const int cmd = juce::ModifierKeys::commandModifier;
+    w.view->showPage (MainView::Page::Tracks);
+    w.pump (20);
+    auto& tracks = w.view->getTracksPage();
+    const auto markers = w.dawEngine.getProject().markers.size();
+    tracks.addMarkerAtPlayhead();                                     // a timeline edit
+    REQUIRE (w.dawEngine.getProject().markers.size() == markers + 1);
+    juce::Thread::sleep (5);
+    const float was = w.controller.getKept().strips[0].faderDb;
+    w.controller.setStripFader (0, was - 6.0f);                       // then a mix move
+
+    w.view->keyPressed (juce::KeyPress ('Z', cmd, 0));                // the newer one: the fader
+    CHECK_NEAR (w.controller.getKept().strips[0].faderDb, was, 1.0e-4);
+    CHECK (w.dawEngine.getProject().markers.size() == markers + 1);
+    w.view->keyPressed (juce::KeyPress ('Z', cmd, 0));                // then the marker
+    CHECK (w.dawEngine.getProject().markers.size() == markers);
+    w.view->keyPressed (juce::KeyPress ('Z', cmd | juce::ModifierKeys::shiftModifier, 0));
+    CHECK (w.dawEngine.getProject().markers.size() == markers + 1);   // redo follows the undo it reverses
+
+    // The inputs re-laid out: the old timeline entries cannot be applied to the new layout.
+    tracks.addMarkerAtPlayhead();
+    CHECK (tracks.canUndo());
+    auto s = w.controller.getSession();
+    s.inputs.pop_back();
+    w.controller.setSession (s);
+    w.services.reconfigure();
+    CHECK (! tracks.canUndo());
 }
 
 // ------------------------------------------------------------------------ broadcast readiness

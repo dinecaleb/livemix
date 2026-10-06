@@ -6,6 +6,9 @@
 #include "native/MixController.h"
 #include "native/MultitrackImport.h"
 #include "native/SessionStore.h"
+#include "native/ExportProgress.h"
+#include "native/SampleLibrary.h"
+#include "native/DrumKits.h"
 
 namespace livemix
 {
@@ -54,6 +57,14 @@ public:
     // Put the microphone prompt up, once, at the moment the user asks for an input device.
     // The callback comes back on the message thread; true when DINE may hear the inputs.
     virtual void askForInputPermission (std::function<void (bool)> done) { if (done) done (true); }
+    // THE INPUT, HELD BACK UNTIL macOS SAYS YES (AudioHost::open, DeviceState.h inputAccessFor).
+    // Why it is held (Listen = it is not); and opening it now that macOS has said yes - the
+    // prompt answered, or the switch turned on in System Settings while DINE was running.
+    virtual InputAccess inputHeldBack() { return InputAccess::Listen; }
+    virtual bool retryHeldInput() { return false; }
+    // The session's own console has appeared after it opened on a stand-in (Dante Virtual
+    // Soundcard starting after DINE, an interface plugged in late): open it. "" = nothing done.
+    virtual juce::String openWantedConsoleIfBack() { return {}; }
     virtual void reconfigure() = 0;          // assignments changed: rebuild the graph with audio stopped
 
     // ---- the drum sounds ----
@@ -62,6 +73,8 @@ public:
     // somebody else and the kick it was mixed with is in it. Returns the sentence to show,
     // whether it worked or not.
     virtual juce::String importSample (RoleFamily, const juce::File&) { return "Sounds are not available here."; }
+    // The drum sounds as loaded, for the DRUM KIT picker (DrumKits.h). nullptr = none here.
+    virtual const SampleLibrary* sampleLibrary() { return nullptr; }
 
     // ---- Two outputs: one for the broadcast, one for the engineer ----
     //
@@ -143,7 +156,8 @@ public:
     // render - minutes, for a service - while the message thread is still free to move a
     // fader, rename an input or record another take. So the render works from a *copy* taken
     // on the message thread (snapshotExport), never from the live document: `exportMix` is
-    // the only thing the worker touches. `progress` returns false to cancel.
+    // the only thing the worker touches. It reports into `progress` (stage, fraction) and stops
+    // when `progress.cancel` is set; the window reads it on its tick (ExportProgress.h).
     enum class ExportFormat { Wav = 0, Aiff, Mp3 };
     // What to write, and where it should land. `MixBounce` holds what each one means.
     enum class ExportWhat { StereoMix = 0, GroupStems, RawMultitrack };
@@ -161,7 +175,7 @@ public:
     };
     virtual std::shared_ptr<const ExportJob> snapshotExport() = 0;   // message thread
     virtual juce::String exportMix (std::shared_ptr<const ExportJob>, const juce::File& dest,
-                                    ExportFormat, std::function<bool (float)> progress) = 0;   // worker thread
+                                    ExportFormat, ExportProgress& progress) = 0;   // worker thread
 };
 
 // Shared page look: a titled card area on the design's ground.

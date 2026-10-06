@@ -655,3 +655,67 @@ TEST_CASE ("KitTriggerTable: a soft snare hit at the moment of a hard hi-hat is 
     CHECK (snare.getHitCount() == 2);          // it heard both...
     CHECK (snare.getVetoCount() == 1);         // ... and played only its own
 }
+
+// ---------------------------------------------------------------------------
+// 2026-10-05: "the samples don't sound like they do on HEAR IT". A triggered hit started past
+// its own attack (to make up for being recognised late) and a stolen voice was cut dead.
+// ---------------------------------------------------------------------------
+namespace
+{
+    // A hit that peaks 1 ms in (a snare's crack), then rings at a steady 0.5.
+    SampleBank attackBank()
+    {
+        SampleBank b;
+        b.sampleRate = 48000.0;
+        std::vector<float> hit (48000, 0.5f);
+        for (int i = 0; i < 48; ++i) hit[size_t (i)] = float (i) / 48.0f;   // up to the peak at 1 ms
+        hit[48] = 1.0f;
+        for (int i = 49; i < 96; ++i) hit[size_t (i)] = 1.0f - 0.5f * float (i - 48) / 48.0f;
+        SampleBank::Layer layer;
+        layer.hits.push_back (hit);
+        b.layers.push_back (layer);
+        return b;
+    }
+}
+
+TEST_CASE ("SamplePlayer: a late hit never skips past its own peak, so the attack is heard")
+{
+    const auto bank = attackBank();
+    SamplePlayer player;
+    player.prepare (48000.0);
+    player.setBank (&bank);
+    // Recognised 4 ms late: the old player started 192 samples in, after the peak.
+    player.trigger (0, 1.0f, 1.0f, 1.0, 192);
+    std::vector<float> out (512, 0.0f);
+    float* ch[1] = { out.data() };
+    AudioBlockView view { ch, 1, 512 };
+    player.render (view, 1.0f);
+    float peak = 0.0f;
+    for (float x : out) peak = std::max (peak, x);
+    CHECK (peak > 0.95f);           // the crack is there
+}
+
+TEST_CASE ("SamplePlayer: a stolen voice fades out over 2 ms instead of stopping dead")
+{
+    const auto bank = attackBank();
+    SamplePlayer player;
+    player.prepare (48000.0);
+    player.setBank (&bank);
+    std::vector<float> out (4096, 0.0f);
+    float* ch[1] = { out.data() };
+    AudioBlockView view { ch, 1, 4096 };
+    for (int v = 0; v < SamplePlayer::kVoices; ++v) player.trigger (0, 1.0f, 1.0f, 1.0);
+    player.render (view, 1.0f);
+    const float settled = out[4095];                     // every voice on its steady 0.5
+    CHECK (std::abs (settled - 0.5f * float (SamplePlayer::kVoices)) < 0.01f);
+
+    // One more hit: a voice is taken. Its 0.5 must leave gradually, not in one sample.
+    std::fill (out.begin(), out.end(), 0.0f);
+    player.trigger (0, 1.0f, 1.0f, 1.0);
+    player.render (view, 1.0f);
+    float worstStep = 0.0f;
+    for (int i = 1; i < 200; ++i) worstStep = std::max (worstStep, std::abs (out[size_t (i)] - out[size_t (i - 1)]) - 0.03f);
+    CHECK (std::abs (out[0] - settled) < 0.05f);          // nothing vanished at the steal
+    CHECK (worstStep < 0.03f);                            // and nothing jumps while it goes
+    CHECK (std::abs (out[400] - (settled - 0.5f + 0.5f)) < 0.05f);   // the tail gone, the new hit ringing
+}

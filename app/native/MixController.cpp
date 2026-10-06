@@ -2219,12 +2219,37 @@ MixController::MixSnapshot MixController::snapshotNow (const std::string& what) 
     s.macros = macros;
     s.what = what;
     s.mixedThen = mixed;
+    s.atMs = nowMs();
     return s;
+}
+
+double MixController::nowMs() const
+{
+    if (clockMs) return clockMs();
+    return std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+std::string MixController::stripLabel (int strip) const
+{
+    if (strip >= 0 && strip < int (session.inputs.size()) && ! session.inputs[size_t (strip)].name.empty())
+        return session.inputs[size_t (strip)].name;
+    return "channel " + std::to_string (strip + 1);
+}
+
+void MixController::markHandEdit (const std::string& key, const std::string& what)
+{
+    if (! built) return;
+    const double now = nowMs();
+    if (key == handKey && now - handAtMs < kHandEditMs) { handAtMs = now; return; }
+    markMixChange (what);
+    handKey = key;
+    handAtMs = now;
 }
 
 void MixController::markMixChange (const std::string& what)
 {
     if (! built) return;
+    handKey.clear();                     // whatever else this is, it ends a hand gesture
     history.push_back (snapshotNow (what));
     if (history.size() > kMaxHistory) history.erase (history.begin());
     // A new change ends the redo line: there is no going forward to a future that has been
@@ -2234,6 +2259,7 @@ void MixController::markMixChange (const std::string& what)
 
 void MixController::applySnapshot (const MixSnapshot& s)
 {
+    handKey.clear();                     // the next move after an undo is a new entry
     autopilotRelearn();
     autopilot.movedDb.fill (0.0f);          // a different mix: its bound starts from here
     kept = s.mix;
@@ -2575,6 +2601,7 @@ namespace
 void MixController::setStripFader (int strip, float db, bool withLink)
 {
     if (! validStrip (kept, strip)) return;
+    markHandEdit ("fader:" + std::to_string (strip), stripLabel (strip) + " fader");
     if (autopilot.on) autopilotRelearn();        // the engineer is setting a new balance: learn it
     float want = clamp (db, -60.0f, 12.0f);
     liveSafe::Verdict v;
@@ -2748,6 +2775,7 @@ void MixController::unlinkStrip (int strip)
 void MixController::setStripPan (int strip, float pan)
 {
     if (! validStrip (kept, strip)) return;
+    markHandEdit ("pan:" + std::to_string (strip), stripLabel (strip) + " pan");
     float want = clamp (pan, -1.0f, 1.0f);
     liveSafe::Verdict v;
     want = liveSafe::limitStep (safety, LiveAction::Pan, kept.strips[size_t (strip)].pan, want, v);
@@ -2761,6 +2789,7 @@ void MixController::setStripPan (int strip, float pan)
 void MixController::setStripInputGain (int strip, float db)
 {
     if (! validStrip (kept, strip)) return;
+    markHandEdit ("trim:" + std::to_string (strip), stripLabel (strip) + " input gain");
     float want = clamp (db, -24.0f, 24.0f);
     liveSafe::Verdict v;
     want = liveSafe::limitStepDb (safety, LiveAction::InputGain, kept.strips[size_t (strip)].inputGainDb, want, v);
@@ -2775,6 +2804,8 @@ void MixController::setStripInputGain (int strip, float db)
 void MixController::setStripMute (int strip, bool mute)
 {
     if (! validStrip (kept, strip)) return;
+    if (kept.strips[size_t (strip)].mute == mute) return;
+    markHandEdit ("mute:" + std::to_string (strip), std::string (mute ? "muting " : "unmuting ") + stripLabel (strip));
     kept.strips[size_t (strip)].mute = mute;
     bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].mute = mute; });
     autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
@@ -2804,6 +2835,7 @@ void MixController::setStripSolo (int strip, bool solo)
 void MixController::setStripSend (int strip, FxSlot slot, float db)
 {
     if (! validStrip (kept, strip)) return;
+    markHandEdit ("send:" + std::to_string (strip) + ":" + std::to_string (int (slot)), stripLabel (strip) + " effect send");
     float want = db <= -60.0f ? kSilenceDb : clamp (db, -60.0f, 6.0f);
     if (safety.on && want > kSilenceDb)
     {
@@ -2842,6 +2874,7 @@ void MixController::setStripEffects (int strip, bool on)
 {
     if (! validStrip (kept, strip) || ! stripCanHaveEffects (strip)) return;
     if (stripEffectsOn (strip) == on) return;
+    markHandEdit ("effects:" + std::to_string (strip), stripLabel (strip) + (on ? " effects on" : " effects off"));
     auto& s = kept.strips[size_t (strip)];
     s.effectsOff = ! on;
 
@@ -2882,6 +2915,8 @@ void MixController::setBusFader (MixBus bus, float db)
     // Any move by the engineer is the new mix: learn it, rather than pull the other groups back
     // towards a balance the person at the desk has just changed.
     if (autopilot.on && ! autopilotMoving) autopilotRelearn();
+    // Autopilot's own moves are recorded as Autopilot's (checkpoints), never as a hand edit.
+    if (! autopilotMoving) markHandEdit ("bus:" + std::to_string (int (bus)), std::string (mixBusName (bus)) + " fader");
     float want = clamp (db, -60.0f, 12.0f);
     liveSafe::Verdict v;
     want = liveSafe::limitStepDb (safety, bus == MixBus::Master ? LiveAction::MasterFader : LiveAction::Fader,
@@ -2896,6 +2931,8 @@ void MixController::setBusFader (MixBus bus, float db)
 void MixController::setBusMute (MixBus bus, bool mute)
 {
     if (bus == MixBus::Count) return;
+    if (kept.buses[size_t (bus)].mute == mute) return;
+    markHandEdit ("busmute:" + std::to_string (int (bus)), std::string (mute ? "muting " : "unmuting ") + mixBusName (bus));
     kept.buses[size_t (bus)].mute = mute;
     bothSides ([&] (MixParameters& m) { m.buses[size_t (bus)].mute = mute; });
     publish();
@@ -2904,6 +2941,7 @@ void MixController::setBusMute (MixBus bus, bool mute)
 
 void MixController::setFxReturn (float db)
 {
+    markHandEdit ("fxreturn", "effects return");
     kept.fxReturnDb = clamp (db, -60.0f, 12.0f);
     bothSides ([&] (MixParameters& m) { m.fxReturnDb = kept.fxReturnDb; });
     autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
@@ -2914,6 +2952,7 @@ void MixController::setFxReturn (float db)
 void MixController::setFxSlotReturn (FxSlot slot, float db)
 {
     if (int (slot) < 0 || int (slot) >= int (FxSlot::Count)) return;
+    markHandEdit ("fxslot:" + std::to_string (int (slot)), "effects return");
     auto& fp = kept.fx[size_t (slot)];
     float want = clamp (db, -60.0f, 12.0f);
     liveSafe::Verdict v;
@@ -2929,6 +2968,8 @@ void MixController::setFxSlotReturn (FxSlot slot, float db)
 void MixController::setFxSlotMute (FxSlot slot, bool mute)
 {
     if (int (slot) < 0 || int (slot) >= int (FxSlot::Count)) return;
+    if (kept.fx[size_t (slot)].mute == mute) return;
+    markHandEdit ("fxmute:" + std::to_string (int (slot)), mute ? "muting an effect" : "unmuting an effect");
     kept.fx[size_t (slot)].mute = mute;
     bothSides ([&] (MixParameters& m) { m.fx[size_t (slot)].mute = mute; });
     autopilotRelearn();
@@ -2938,6 +2979,8 @@ void MixController::setFxSlotMute (FxSlot slot, bool mute)
 
 void MixController::setFxMute (bool mute)
 {
+    if (kept.fxMute == mute) return;
+    markHandEdit ("fxmuteall", mute ? "muting the effects" : "unmuting the effects");
     kept.fxMute = mute;
     bothSides ([&] (MixParameters& m) { m.fxMute = mute; });
     autopilotRelearn();                 // the engineer changed the mix: hold the new one, never fight it
@@ -2959,7 +3002,8 @@ void MixController::setBusSolo (MixBus bus, bool solo)
 void MixController::setStripChannel (int strip, const ChannelParameters& c)
 {
     if (! validStrip (kept, strip)) return;
-    markMixChange ("a processing change");
+    // A knob in a chain is turned the way a fader is moved: one entry per gesture, not per value.
+    markHandEdit ("chain:" + std::to_string (strip), stripLabel (strip) + " processing");
     const StripParameters was = kept.strips[size_t (strip)];
     if (! was.channel.replaceEnabled && c.replaceEnabled && strip < int (session.inputs.size()))
         usage ({ "sample_replacement_on", { { "instrument", roleFamilyId (roleFamily (session.inputs[size_t (strip)].role)) },
@@ -3000,6 +3044,28 @@ void MixController::repointSamples (const std::vector<std::pair<int, ChannelPara
     if (! changes.empty()) touch();
 }
 
+void MixController::chooseSampleSounds (const std::vector<std::pair<int, int>>& stripSlots, const std::string& what)
+{
+    bool any = false;
+    for (const auto& [strip, slot] : stripSlots)
+        if (validStrip (kept, strip) && kept.strips[size_t (strip)].channel.replaceSound != slot) any = true;
+    if (! any) return;
+    markMixChange (what);
+    for (const auto& [strip, slot] : stripSlots)
+    {
+        if (! validStrip (kept, strip)) continue;
+        const StripParameters was = kept.strips[size_t (strip)];
+        auto c = was.channel;
+        c.replaceSound = slot;
+        sanitizeChannelParameters (c);
+        kept.strips[size_t (strip)].channel = c;
+        if (plan && stage == Stage::Preview) plan->proposed.strips[size_t (strip)].channel.replaceSound = c.replaceSound;
+        recordStripTune (strip, what, was, kept.strips[size_t (strip)]);
+    }
+    publish();
+    touch();
+}
+
 bool MixController::auditionSample (int strip)
 {
     if (! prepared || ! validStrip (kept, strip) || strip >= graph.numStrips()) return false;
@@ -3035,7 +3101,16 @@ bool MixController::auditionSample (int strip)
         }
         return false;
     }
-    engine.auditionSample (bank, kept.strips[size_t (strip)].channel.replaceGainDb, onMain);
+    // The strip's own rate, worked out exactly as SampleReplacer::currentRate does: PITCH, then
+    // the drum's pitch when TUNING follows it (five semitones at most).
+    const auto& ch = kept.strips[size_t (strip)].channel;
+    double rate = std::pow (2.0, double (clamp (ch.replaceRateSemitones, -12.0f, 12.0f)) / 12.0);
+    if (ch.replaceFollowDrum && ch.replaceDrumHz > 0.0f && bank->fundamentalHz > 0.0f)
+    {
+        const double limit = std::pow (2.0, 5.0 / 12.0);
+        rate *= std::clamp (double (ch.replaceDrumHz) / double (bank->fundamentalHz), 1.0 / limit, limit);
+    }
+    engine.auditionSample (bank, ch.replaceGainDb, onMain, rate);
     return true;
 }
 
@@ -3141,7 +3216,7 @@ void MixController::setBusChannel (MixBus bus, const ChannelParameters& c)
             return;
         }
     }
-    markMixChange (std::string (mixBusName (bus)) + " processing");
+    markHandEdit ("buschain:" + std::to_string (int (bus)), std::string (mixBusName (bus)) + " processing");
     auto safe = c;
     sanitizeChannelParameters (safe);
     kept.buses[size_t (bus)].channel = safe;

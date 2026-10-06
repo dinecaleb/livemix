@@ -1597,6 +1597,9 @@ void AssignPage::commit()
     std::stable_sort (s.inputs.begin(), s.inputs.end(),
                       [&] (const InputAssignment& x, const InputAssignment& y) { return placeOf (x) < placeOf (y); });
     controller.setSession (s);
+    // The timeline follows at once: a pair linked here is one stereo track from this moment,
+    // so a take started before the graph is rebuilt still records both of its channels.
+    services.daw().setSession (s);
     continueButton.setEnabled (assignedCount() > 0);
     repaint();
 }

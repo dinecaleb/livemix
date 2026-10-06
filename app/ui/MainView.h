@@ -124,6 +124,12 @@ public:
     void updateChromeForSnapshot() { updateChrome(); }   // the snapshot tool: the toolbar re-reads the controller now
     void closeSheetsForSnapshot() { closeSheets(); }
     void exportMixForSnapshot() { exportMix (AppServices::ExportFormat::Wav); }
+    // The snapshot tool and the tests: an export shown in the status foot as if one were under way.
+    void showExportProgressForSnapshot (ExportProgress::State st, MixBounce::Stage stage, float fraction);
+    // EXPORT, while it runs. Quitting asks first, then stops it and waits for the worker so
+    // nothing it uses is destroyed under it (Main.cpp systemRequestedQuit / shutdown).
+    bool isExporting() const noexcept { return exportRun != nullptr && exportRun->workerBusy.load(); }
+    bool stopExportAndWait (int timeoutMs);
     void exportMultitrackForSnapshot() { exportMix (AppServices::ExportFormat::Wav, AppServices::ExportWhat::RawMultitrack); }
     void showChat();
     // A button in a Mix Buddy answer. Everything here is navigation, a listen in the engineer's
@@ -154,6 +160,10 @@ public:
         std::function<void()> onContinue, onNotNow;
     };
     void explainMicrophone (MicrophoneAsk);
+    // The input is waiting for macOS (AudioHost::inputHeldBack): open it the moment macOS says
+    // yes, and - once per run, when a session opened without asking (a recovery, the library,
+    // a late console) - say what is about to be asked before asking it. MainView's slow tick.
+    void followMicrophone();
 
     // Appearance: View > Appearance lists the themes and opens the sheet. The chosen theme is
     // applied before the pages are built and remembered on this Mac (ThemeStore); the headless
@@ -236,7 +246,27 @@ private:
     void importAudio (const juce::Array<juce::File>&, bool newSessionFirst);   // every import lands here
     void refreshSoloPill();
     void exportMix (AppServices::ExportFormat format, AppServices::ExportWhat what = AppServices::ExportWhat::StereoMix);
-    bool exporting = false;
+    // The export under way, or the last one, until its result has been read off the status foot.
+    // Shared with the worker, which writes it and holds it until it has finished.
+    std::shared_ptr<ExportProgress> exportRun;
+    MixBounce::What exportWhat = MixBounce::What::StereoMix;
+    juce::File exportShown;                 // what "Show in Finder" opens once it is done
+    juce::String exportError;               // what went wrong, said again when the cell is clicked
+    int exportDoneTicks = 0;                // "Export done" stays this long, then the cell goes
+    void exportCellClicked();
+public:
+    // UNDO: which history Cmd+Z reaches from here, and what it would take back (MainView.cpp).
+    enum class UndoDomain { None, Mix, Timeline };
+    struct UndoStep { UndoDomain domain = UndoDomain::None; juce::String label; };
+    UndoStep undoTarget() const;
+    UndoStep redoTarget() const;
+    void undoHere();
+    void redoHere();
+private:
+    UndoDomain lastUndone = UndoDomain::None;
+    juce::String drumKitName() const;
+    void drumKitMenu (juce::Component& anchor);
+    bool micExplained = false;              // the microphone sheet has been shown this run
     void timelineChanged();
     bool liveSafeBlocks (const juce::String& what);
     juce::Rectangle<int> contentBounds() const;      // the workspace, under the toolbar and beside the sidebar

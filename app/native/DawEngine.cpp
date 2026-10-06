@@ -16,8 +16,30 @@ DawEngine::~DawEngine()
     release();
 }
 
+void DawEngine::setSession (const MixSession& s)
+{
+    bool sameLayout = s.inputs.size() == session.inputs.size();
+    for (size_t i = 0; sameLayout && i < s.inputs.size(); ++i)
+        sameLayout = s.inputs[i].inputA == session.inputs[i].inputA && s.inputs[i].inputB == session.inputs[i].inputB;
+    if (! sameLayout) ++timelineEpoch;
+    project.syncTracks (session, s);
+    session = s;
+    refresh();
+}
+
+bool DawEngine::restoreEdits (const std::vector<std::vector<AudioClip>>& clipsPerTrack, const std::vector<Marker>& markers)
+{
+    if (clipsPerTrack.size() != project.tracks.size()) return false;
+    for (size_t t = 0; t < clipsPerTrack.size(); ++t) project.tracks[t].clips = clipsPerTrack[t];
+    project.markers = markers;
+    clipsDirty = true;
+    refresh();
+    return true;
+}
+
 void DawEngine::setProject (const Project& p)
 {
+    ++timelineEpoch;
     project = p;
     project.syncTracks (session);
     // Loading a session that was saved locked has to *be* locked, mix side included.
@@ -172,6 +194,18 @@ juce::String DawEngine::startRecording()
     if (recorder.isRecording()) return {};
     if (project.folder == juce::File()) return "Save this session before recording, so DINE knows where the audio goes.";
 
+    // RECORD WHAT THE MIXER SHOWS. The assignments are edited on the controller (the Inputs
+    // page, a map, a new track) and reach this copy when a host reconfigures; a stereo pair
+    // linked a moment ago and recorded before that happened was written as a mono take of its
+    // left side. So the take always starts from the controller's own assignments.
+    {
+        const auto& live = controller.getSession().inputs;
+        bool same = live.size() == session.inputs.size();
+        for (size_t i = 0; same && i < live.size(); ++i)
+            same = live[i].inputA == session.inputs[i].inputA && live[i].inputB == session.inputs[i].inputB;
+        if (! same) setSession (controller.getSession());
+    }
+
     std::vector<Recorder::Spec> specs;
     const int n = juce::jmin (int (session.inputs.size()), int (project.tracks.size()));
     for (int i = 0; i < n; ++i)
@@ -270,6 +304,7 @@ int DawEngine::stopRecording()
         clips.push_back (clip);
         std::sort (clips.begin(), clips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.start < b.start; });
     }
+    if (! takes.empty()) ++timelineEpoch;     // a take is not an edit: no undo crosses it
     clipsDirty = true;
     refresh();
     return int (takes.size());
@@ -288,7 +323,23 @@ std::vector<Recorder::Recovered> DawEngine::recoverUnfinishedTakes()
         for (const auto& t : project.tracks)
             for (const auto& c : t.clips)
                 if (c.file == take.fileName) referenced = true;
-        if (referenced || take.trackIndex < 0 || take.trackIndex >= int (project.tracks.size())) continue;
+        if (referenced) continue;
+        // The track that listens to the channels it recorded - the same rule stopRecording()
+        // uses - so a take is never put back under another input after a rearrangement. A
+        // sidecar from before the channels were written down only has the index.
+        int track = take.trackIndex;
+        if (take.inputA != -2)
+        {
+            track = -1;
+            for (int t = 0; t < int (session.inputs.size()) && t < int (project.tracks.size()); ++t)
+                if (session.inputs[size_t (t)].inputA == take.inputA && session.inputs[size_t (t)].inputB == take.inputB)
+                {
+                    track = t;
+                    if (t == take.trackIndex) break;
+                }
+            if (track < 0 && session.inputs.empty()) track = take.trackIndex;   // a bare timeline
+        }
+        if (track < 0 || track >= int (project.tracks.size())) continue;
 
         AudioClip clip;
         clip.name = take.name;
@@ -297,12 +348,12 @@ std::vector<Recorder::Recovered> DawEngine::recoverUnfinishedTakes()
         clip.offset = 0;
         clip.length = take.length;
         clip.fileSampleRate = take.sampleRate > 0.0 ? take.sampleRate : sampleRate;
-        auto& clips = project.tracks[size_t (take.trackIndex)].clips;
+        auto& clips = project.tracks[size_t (track)].clips;
         clips.push_back (clip);
         std::sort (clips.begin(), clips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.start < b.start; });
         changed = true;
     }
-    if (changed) { clipsDirty = true; refresh(); }
+    if (changed) { ++timelineEpoch; clipsDirty = true; refresh(); }
     return takes;
 }
 

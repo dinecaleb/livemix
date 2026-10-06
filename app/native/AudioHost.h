@@ -35,9 +35,20 @@ public:
     // still plays, still mixes and still saves. The returned string is empty in that case too;
     // `state()` says what happened and carries the sentence. A hard failure (no output either)
     // returns the device's own error.
+    //
+    // The input is only opened when macOS has already said yes (inputAccessFor, DeviceState.h):
+    // so no call here ever puts the system prompt up by itself, and a refused input is never
+    // opened silent. `listen` false is "Not now": the input is remembered, not opened.
     juce::String open (const juce::String& inputDevice, const juce::String& outputDevice,
                        double preferredSampleRate = 48000.0, int preferredBufferSize = 64,
-                       const juce::BigInteger& outputChannels = {});
+                       const juce::BigInteger& outputChannels = {}, bool listen = true);
+
+    // Why the input is held back, when it is (Listen = it is not, or there is none).
+    InputAccess inputHeldBack() const noexcept { return inputHeld; }
+    // macOS has said yes since the input was held back (the prompt was answered, or the switch
+    // turned on in System Settings): open it, exactly as the session asked. True if it did.
+    // Message thread; never during a take, which a device reopen would interrupt.
+    bool retryHeldInput (bool recording);
 
     // ---- HOT-PLUG: a console unplugged mid-service, and put back ----
     //
@@ -156,6 +167,7 @@ private:
     // does not have to guess from a channel count of zero (a legitimate output-only session
     // has that too).
     bool inputRefused = false;
+    InputAccess inputHeld = InputAccess::Listen;
     juce::String inputRefusedWhy;
     juce::String wantedInput;                    // what was asked for, for the sentence
 };

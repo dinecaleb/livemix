@@ -58,7 +58,19 @@ public:
     void release();
 
     // The session decides which device channels a track owns; call after assignments change.
-    void setSession (const MixSession& s) { project.syncTracks (session, s); session = s; refresh(); }
+    void setSession (const MixSession& s);
+
+    // THE TIMELINE'S EPOCH (2026-10-05). Moves whenever the timeline is replaced or grows by
+    // something that is not an edit: a session opened, new or imported (setProject), the
+    // tracks re-laid out (setSession with different channels or order), a take landing, a
+    // crashed take put back. An edit made in one epoch can only be undone in the same one -
+    // so Cmd+Z can never put back a timeline from before a take, from another session, or
+    // with its clips under different inputs. TracksPage's undo is built on it.
+    std::uint64_t getTimelineEpoch() const noexcept { return timelineEpoch; }
+    // Undo of a timeline edit: the clips and the markers only, onto the tracks as they are.
+    // Never the folder, the rate, arming, monitoring, heights, the loop or LIVE SAFE. False
+    // (and nothing changed) when the shape no longer matches.
+    bool restoreEdits (const std::vector<std::vector<AudioClip>>& clipsPerTrack, const std::vector<Marker>& markers);
     const MixSession& getSession() const noexcept { return session; }
 
     // Clips, arming, monitoring or the loop changed: republish what the audio thread reads.
@@ -144,6 +156,7 @@ private:
     int blockSize = 512;
     bool prepared = false;
     bool clipsDirty = true;
+    std::uint64_t timelineEpoch = 1;
 };
 
 } // namespace livemix

@@ -1487,6 +1487,7 @@ void ChainEditor::toggleStage (int index)
 
 void ChainEditor::buildControls()
 {
+    kitPopup = nullptr;
     controls.clear();
     controlsHolder.removeAllChildren();
     controlsHolder.addAndMakeVisible (*graph);
@@ -1595,11 +1596,28 @@ void ChainEditor::buildControls()
         }
         if (s.id == StageId::Sample)
         {
+            // DRUM KIT: the kick, the snare and the toms chosen together, above this drum's own
+            // Sound. Picking one is the only thing that changes them; choosing a different
+            // Sound here afterwards makes the kit "Custom".
+            if (drumKitName && onDrumKit && drumKitName().isNotEmpty())
+            {
+                auto kit = std::make_unique<DinePopup>();
+                kit->setTooltip ("A drum kit picks the kick, the snare and the toms together. Each drum keeps its blend, "
+                                 "sensitivity and alignment; only the sound changes. Cmd+Z puts every drum back.");
+                kit->onClick = [this, k = kit.get()] { if (onDrumKit) onDrumKit (*k); };
+                kitPopup = kit.get();
+                controlsHolder.addAndMakeVisible (*kit);
+                controls.push_back (std::move (kit));
+                updateKitPopup();
+            }
+
             // HEAR IT: the chosen sound, once, where solo goes. Nothing about the mix changes.
             auto hear = std::make_unique<DineButton> ("Hear it", DineButton::Style::Standard);
             hear->setCaps (true);
             hear->setFontPx (11.5f);
-            hear->setTooltip ("Plays this sound once in your own listen (where solo goes). The broadcast never hears it.");
+            hear->setTooltip ("Plays this sound once, on its own, in your own listen (where solo goes) - at its LEVEL and PITCH. "
+                              "On the channel it is blended with the microphone and goes through this drum's processing. "
+                              "The broadcast never hears it.");
             hear->onClick = [this] { controller.auditionSample (strip); };
             controlsHolder.addAndMakeVisible (*hear);
             controls.push_back (std::move (hear));
@@ -1796,9 +1814,17 @@ void ChainEditor::updateViews()
     }
 }
 
+void ChainEditor::updateKitPopup()
+{
+    if (kitPopup == nullptr || ! drumKitName) return;
+    const auto name = drumKitName();
+    kitPopup->setValue ("Drum kit: " + name);   // a fixed word and a name: the cell is sized to fit both
+}
+
 void ChainEditor::refresh()
 {
     if (stages.empty()) return;
+    updateKitPopup();
     bypassed = controller.isBypassed();
     updateViews();
 
@@ -2025,6 +2051,7 @@ void ChainEditor::resized()
             int w = 120;
             if (auto* group = dynamic_cast<ChoiceGroup*> (c))      w = group->idealWidth();
             else if (auto* button = dynamic_cast<DineButton*> (c)) w = juce::jmax (84, button->idealWidth());
+            else if (auto* pick = dynamic_cast<DinePopup*> (c))    w = juce::jlimit (120, 260, pick->idealWidth());   // "Drum kit: Church", not a cut name
             w = juce::jmin (juce::jmax (48, line.getWidth()), w);
             c->setBounds (line.removeFromLeft (w).withHeight (Dine::Metric::control));
             line.removeFromLeft (12);

@@ -216,7 +216,8 @@ The per-strip tune history (`std::vector<StripTuneRecord>`, `MixHistory.h:21`) a
   files on disk. `mixFromVar` is robust in a way the header undersells: it remaps from `buses->size()` (the
   count actually in the file) rather than from the document version, so it survives a document whose
   version header is wrong.
-- **Ad-hoc signing makes microphone permission unstable across rebuilds.** See §4.
+- **Ad-hoc signing makes microphone permission unstable across rebuilds.** See §4, and the fix of
+  2026-10-05 (`DINE_SIGN_IDENTITY`, the input opened only once macOS says yes): `docs/QA-2026-10-05.md` §1.
 
 ---
 

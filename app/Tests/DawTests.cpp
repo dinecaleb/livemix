@@ -1969,7 +1969,7 @@ TEST_CASE ("Mix history: a change can be undone by name, and redone")
     CHECK_NEAR (c.getKept().strips[0].channel.hpfHz, was + 30.0f, 0.01);
 
     REQUIRE (c.canUndoMix());
-    CHECK (c.undoMixLabel() == "a processing change");
+    CHECK (c.undoMixLabel() == c.getSession().inputs[0].name + " processing");   // which channel, by name
     c.undoMix();
     CHECK_NEAR (c.getKept().strips[0].channel.hpfHz, was, 0.01);
 

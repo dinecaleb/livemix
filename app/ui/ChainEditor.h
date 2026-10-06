@@ -60,6 +60,7 @@ public:
     void toggleStage (int index);                // the lamp: switch the stage in or out
 
     void refresh();                              // values, meters and the graph, at the page's rate
+    void updateKitPopup();                       // the kit's name follows a Sound chosen by hand
     void resized() override;
     void paint (juce::Graphics&) override;
 
@@ -68,6 +69,10 @@ public:
     // session so it travels with it. The window owns the chooser and the copying; the panel
     // only knows which family is being asked about.
     std::function<void (RoleFamily)> onImportSample;
+    // DRUM KIT (DrumKits.h): the kit the drums are on - "Church", "Custom", "" for none - and the
+    // menu that picks one for every kick, snare and tom at once. The window owns both.
+    std::function<juce::String()> drumKitName;
+    std::function<void (juce::Component& anchor)> onDrumKit;
 
     // The card's own head: the title row at y = 20 (22 tall) and the provenance line under
     // it, so the well starts at 84 exactly as the design draws it.
@@ -111,6 +116,7 @@ private:
     juce::Viewport controlsView;
     juce::Component controlsHolder;
     std::vector<std::unique_ptr<juce::Component>> controls;   // knobs, then popups/buttons, then choice groups
+    DinePopup* kitPopup = nullptr;                            // the Sample stage's kit picker, while it is shown
     // Off / On: the design's two-segment track at the right of the title row. A switch that
     // reads "Off | On" says which of the two it is in; a lamp only says that it is lit.
     DineSegmentRow onOffTrack;

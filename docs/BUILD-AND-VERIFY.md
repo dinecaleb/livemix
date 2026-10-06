@@ -9,6 +9,10 @@ Every build, test, snapshot and stems command, and where the real recordings are
   A build to hand someone else: `scripts/package.sh` (`--universal` for Intel too, `--no-build`, `--out <dir>`) writes
   `dist/DINE-<version>-<date>.zip` + `dist/NOTES.txt` — send both; the signature is ad-hoc, so the tester opens it
   once by right-click > Open. Every build/run/share command, and what to tell the tester: `BUILD-RUN-SHARE.md`.
+  **Signing and the microphone:** `dine.sh` signs `DINE.app` with the first "Apple Development" identity in
+  the keychain (`-DDINE_SIGN_IDENTITY`, `DINE_SIGN_IDENTITY=-` for ad-hoc), so macOS keeps its microphone
+  answer from one build to the next; `package.sh` takes `SIGN_ID` (stable) or `DEVELOPER_ID` (+ notarization).
+  An ad-hoc build is a new app to macOS every time and it asks again (`docs/QA-2026-10-05.md` §1).
   Engine-only iteration (fast, no JUCE): `cmake -S . -B build-engine -G Ninja -DLIVEMIX_BUILD_PLUGIN=OFF && cmake --build build-engine && build-engine/tests/livemix_tests`.
 - Sample replacement on real drums: `build/app/dine_trigger_check "<folder of takes>" [seconds] [offset] [name filter]`
   (`app/Tools/TriggerCheck.cpp`) fits the stage as TUNE does and runs the detector over every kick, snare and tom take,

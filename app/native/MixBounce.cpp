@@ -37,29 +37,43 @@ namespace
         return {};
     }
 
-    juce::String encodeMp3 (const juce::File& wavFile, const juce::File& mp3File)
+    // Waits for an encoder, asking `stop` every tenth of a second, so an export that is being
+    // cancelled - or a window that is quitting - is not held for the length of an MP3 encode.
+    juce::String finishEncoder (juce::ChildProcess& p, const char* tool, const std::function<bool()>& stop)
+    {
+        for (int waited = 0; waited < 600000; waited += 100)
+        {
+            if (p.waitForProcessToFinish (100))
+                return p.getExitCode() == 0 ? juce::String() : juce::String (tool) + " could not make an MP3. Try exporting as WAV.";
+            if (stop && stop()) { p.kill(); return "Export cancelled."; }
+        }
+        p.kill();
+        return juce::String (tool) + " could not make an MP3. Try exporting as WAV.";
+    }
+
+    juce::String encodeMp3 (const juce::File& wavFile, const juce::File& mp3File, const std::function<bool()>& stop)
     {
         if (mp3File.existsAsFile()) mp3File.deleteFile();
+        juce::String err;
         if (const auto ffmpeg = findTool ({ "ffmpeg" }); ffmpeg != juce::File())
         {
             juce::ChildProcess p;
             juce::StringArray args { ffmpeg.getFullPathName(), "-y", "-i", wavFile.getFullPathName(),
                                      "-codec:a", "libmp3lame", "-q:a", "2", mp3File.getFullPathName() };
             if (! p.start (args)) return "Could not start ffmpeg.";
-            if (! p.waitForProcessToFinish (600000) || p.getExitCode() != 0)
-                return "ffmpeg could not make an MP3. Try exporting as WAV.";
-            return {};
+            err = finishEncoder (p, "ffmpeg", stop);
         }
-        if (const auto lame = findTool ({ "lame" }); lame != juce::File())
+        else if (const auto lame = findTool ({ "lame" }); lame != juce::File())
         {
             juce::ChildProcess p;
             juce::StringArray args { lame.getFullPathName(), "-V2", wavFile.getFullPathName(), mp3File.getFullPathName() };
             if (! p.start (args)) return "Could not start lame.";
-            if (! p.waitForProcessToFinish (600000) || p.getExitCode() != 0)
-                return "lame could not make an MP3. Try exporting as WAV.";
-            return {};
+            err = finishEncoder (p, "lame", stop);
         }
-        return "MP3 needs ffmpeg or lame on this Mac. Export as WAV, or install ffmpeg (brew install ffmpeg).";
+        else
+            return "MP3 needs ffmpeg or lame on this Mac. Export as WAV, or install ffmpeg (brew install ffmpeg).";
+        if (err.isNotEmpty()) mp3File.deleteFile();   // a half-written MP3 is not an export
+        return err;
     }
 
     // The extension a format lands on. MP3 is encoded from a WAV, so its render is a WAV.
@@ -327,7 +341,8 @@ namespace
     // One gain over the whole render, from what the render actually measured. Streaming, so a
     // three-hour service is normalised without three hours of RAM, and the ceiling is held so
     // a quiet mix asked up to -14 cannot be turned into a clipped one.
-    juce::String applyGain (const juce::File& src, const juce::File& dest, Format format, float gain)
+    juce::String applyGain (const juce::File& src, const juce::File& dest, Format format, float gain,
+                            const std::function<bool (float)>& onProgress)
     {
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
@@ -349,6 +364,12 @@ namespace
                 sink.writer.reset();
                 dest.deleteFile();
                 return "The export could not be written. Check the disk.";
+            }
+            if (onProgress && ! onProgress (float (double (pos + n) / double (juce::jmax ((juce::int64) 1, reader->lengthInSamples)))))
+            {
+                sink.writer.reset();
+                dest.deleteFile();
+                return "Export cancelled.";
             }
         }
         sink.writer->flush();
@@ -374,6 +395,11 @@ juce::String renderProject (const MixSession& session,
     const juce::int64 from = juce::jmax ((juce::int64) 0, options.from);
     const juce::int64 to = options.to > 0 ? options.to : project.lengthSamples();
     if (to <= from) return "That range is empty.";
+
+    const auto stage = [&options] (Stage st, bool measurable) { if (options.onStage) options.onStage (st, measurable); };
+    // A stage with no number of its own is still asked whether to stop.
+    const std::function<bool()> stopRequested = [&options] { return options.onProgress && ! options.onProgress (-1.0f); };
+    stage (Stage::Mixing, true);
 
     // Stems and a raw multitrack are a folder of files, named after what the single file
     // would have been called, beside where it would have gone.
@@ -427,7 +453,8 @@ juce::String renderProject (const MixSession& session,
             {
                 const auto adjusted = renderFile.getSiblingFile (renderFile.getFileNameWithoutExtension() + "-lufs"
                                                                  + extensionFor (renderFormat));
-                if (auto err = applyGain (renderFile, adjusted, renderFormat, std::pow (10.0f, lift / 20.0f));
+                stage (Stage::Loudness, true);
+                if (auto err = applyGain (renderFile, adjusted, renderFormat, std::pow (10.0f, lift / 20.0f), options.onProgress);
                     err.isNotEmpty())
                 {
                     renderFile.deleteFile();
@@ -441,7 +468,8 @@ juce::String renderProject (const MixSession& session,
 
     if (format == Format::Mp3)
     {
-        const auto encoded = encodeMp3 (gained, finalFile);
+        stage (Stage::Encoding, false);
+        const auto encoded = encodeMp3 (gained, finalFile, stopRequested);
         gained.deleteFile();
         if (encoded.isNotEmpty()) return encoded;
         if (written != nullptr) written->add (finalFile.getFileName());
@@ -450,6 +478,7 @@ juce::String renderProject (const MixSession& session,
 
     if (gained != finalFile)
     {
+        stage (Stage::Finishing, false);
         finalFile.deleteFile();
         if (! gained.moveFileTo (finalFile)) return "Could not put the export where it was asked for.";
     }

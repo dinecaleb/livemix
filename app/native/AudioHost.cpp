@@ -79,10 +79,11 @@ bool AudioHost::waitForOutputDevice (const juce::String& name, int timeoutMs)
 }
 
 juce::String AudioHost::open (const juce::String& inputDevice, const juce::String& outputDevice, double preferredSampleRate, int preferredBufferSize,
-                              const juce::BigInteger& outputChannels)
+                              const juce::BigInteger& outputChannels, bool listen)
 {
     stopDevice();
     inputRefused = false;
+    inputHeld = InputAccess::Listen;
     inputRefusedWhy.clear();
     wantedInput = inputDevice;
     lostAnnounced = false;
@@ -92,6 +93,26 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
     lastRequest = { true, false, inputDevice, outputDevice, preferredSampleRate, preferredBufferSize, outputChannels,
                     MonitorDevice::findDevice (inputDevice).uid, MonitorDevice::findDevice (outputDevice).uid };
     impostorAnnounced = false;
+
+    // MACOS FIRST. The input is only opened once macOS has said yes; otherwise the output opens
+    // alone and the reason is the true one (DeviceState.h, inputAccessFor).
+    if (inputDevice.isNotEmpty())
+    {
+        const auto access = inputAccessFor (MicPermission::check(), listen);
+        if (access != InputAccess::Listen)
+        {
+            const auto why = access == InputAccess::AskFirst   ? inputsNotAskedSentence (inputDevice, outputDevice)
+                           : access == InputAccess::Restricted ? inputRestrictedSentence (outputDevice)
+                                                               : inputRefusedSentence (inputDevice, outputDevice, true, {});
+            if (outputDevice.isEmpty()) { lastError = why; return lastError; }
+            const auto fallback = openOutputOnly (outputDevice, preferredSampleRate, preferredBufferSize);
+            if (fallback.isNotEmpty()) { lastError = fallback; return lastError; }
+            inputRefused = true;
+            inputHeld = access;
+            inputRefusedWhy = why;
+            return {};
+        }
+    }
 
     juce::AudioDeviceManager::AudioDeviceSetup setup;
     setup.inputDeviceName = inputDevice;
@@ -119,8 +140,10 @@ juce::String AudioHost::open (const juce::String& inputDevice, const juce::Strin
         const auto fallback = openOutputOnly (outputDevice, preferredSampleRate, preferredBufferSize);
         if (fallback.isEmpty())
         {
+            // macOS said yes (or the input would not have been tried), so this is the device's
+            // own refusal - busy, a rate it will not share, Dante not running - and its own words.
             inputRefused = true;
-            inputRefusedWhy = inputRefusedSentence (inputDevice, outputDevice, MicPermission::denied(), inputError);
+            inputRefusedWhy = inputRefusedSentence (inputDevice, outputDevice, false, inputError);
             lastError.clear();
             return {};
         }
@@ -181,6 +204,7 @@ juce::String AudioHost::openOutputOnly (const juce::String& outputDevice, double
     const bool fromOpen = lastRequest.valid && ! lastRequest.outputOnly && lastRequest.output == outputDevice;
     stopDevice();
     inputRefused = false;
+    inputHeld = InputAccess::Listen;
     inputRefusedWhy.clear();
     if (! fromOpen)
     {
@@ -397,6 +421,16 @@ void AudioHost::handleAsyncUpdate()
     }
 
     checkForReturnedDevice();
+}
+
+bool AudioHost::retryHeldInput (bool recording)
+{
+    if (recording || ! inputRefused || inputHeld == InputAccess::Listen) return false;
+    if (! lastRequest.valid || lastRequest.outputOnly || lastRequest.input.isEmpty()) return false;
+    if (MicPermission::check() != MicPermission::State::Granted) return false;
+    const auto want = lastRequest;
+    return open (want.input, want.output, want.sampleRate, want.bufferSize, want.outputChannels).isEmpty()
+        && ! inputRefused;
 }
 
 bool AudioHost::checkForReturnedDevice()

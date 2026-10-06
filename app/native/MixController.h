@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <functional>
 #include <optional>
@@ -146,6 +147,10 @@ public:
     // history, no UNDO step, no Autopilot re-learn - and published once with the table, so no
     // block ever plays a slot from the old table against the new one.
     void repointSamples (const std::vector<std::pair<int, ChannelParameters>>& changes);
+    // A DRUM KIT (DrumKits.h): the sound on several drum strips at once, as ONE edit - one
+    // history entry named `what`, so one Cmd+Z puts every drum back. Only `replaceSound`
+    // changes: whether the stage is on, the blend and the trigger fit are the strip's own.
+    void chooseSampleSounds (const std::vector<std::pair<int, int>>& stripSlots, const std::string& what);
     const SampleBankTable* getSampleBanks() const noexcept { return engine.getSampleBanks(); }
     // HEAR IT: play the strip's chosen sound once, where solo goes, at the level the stage would
     // play it. Monitoring, never mix: the broadcast does not hear it and nothing is kept. False,
@@ -320,7 +325,19 @@ public:
     std::string redoMixLabel() const { return future.empty() ? std::string() : future.back().what; }
     void undoMix();
     void redoMix();
-    void clearMixHistory() { history.clear(); future.clear(); }
+    void clearMixHistory() { history.clear(); future.clear(); handKey.clear(); }
+    // When the change UNDO would take back was made (steady clock, ms; 0 = none), so the TRACKS
+    // page can undo whichever of the timeline and the mix was touched last.
+    double undoMixAtMs() const noexcept { return history.empty() ? 0.0 : history.back().atMs; }
+    double nowMs() const;
+
+    // HAND EDITS (2026-10-05): a fader, a pan, a mute, a send, a trim, a knob in a chain. Each
+    // gesture is one entry, so Cmd+Z after a fader move takes back that move and nothing else.
+    // A drag is hundreds of calls; they are one entry while the same control keeps moving -
+    // the same `key` again within kHandEditMs of the last call - and a new one after a pause
+    // or on another control. Anything else that marks the mix ends the gesture.
+    static constexpr double kHandEditMs = 1500.0;
+    void setClockForTests (std::function<double()> c) { clockMs = std::move (c); }
 
     // ---- The emergency keys: DIM and MUTE on the broadcast ----
     // One press pulls every feed but the engineer's listen down 20 dB, or silences it. Not a
@@ -898,9 +915,16 @@ private:
     // it (a verify listen has to hear what was applied, not what it replaced).
     // The mix as it was before each change worth undoing, newest last, with what the change
     // was. `future` is what UNDO took away, so REDO can put it back.
-    struct MixSnapshot { MixParameters mix; MixMacroValues macros; std::string what; bool mixedThen = false; };
+    struct MixSnapshot { MixParameters mix; MixMacroValues macros; std::string what; bool mixedThen = false; double atMs = 0.0; };
     std::vector<MixSnapshot> history, future;
-    static constexpr size_t kMaxHistory = 64;
+    // Hand edits are entries too now, one per gesture, so there is room for a morning of them
+    // without the last TUNE falling off the end.
+    static constexpr size_t kMaxHistory = 128;
+    std::string handKey;                 // the control the current gesture is on ("" = none)
+    double handAtMs = 0.0;
+    std::function<double()> clockMs;     // tests; otherwise Time::getMillisecondCounterHiRes
+    void markHandEdit (const std::string& key, const std::string& what);
+    std::string stripLabel (int strip) const;
     void applySnapshot (const MixSnapshot&);
     MixSnapshot snapshotNow (const std::string& what) const;
     // Per channel, oldest first. Cleared with the graph in prepare(); the host carries the
