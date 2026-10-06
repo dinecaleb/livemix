@@ -46,6 +46,7 @@ The mockup is `docs/design/v4/DINE v4.html`; open it in a browser and compare it
 | **The quick inspector's plain words** | "Clarity", "Steady" | "Clarity" / "Steady" when the EQ / compressor is on, "Off" when not | The rail reads the chain; it does not yet carry the macro words per stage. |
 | **The LIST view** | A dense table | The v3 rows, restyled by the shared tokens and keys | The table's columns and behaviour are unchanged inventory; a denser v4 table is a later pass. |
 | **Buttons, segments, keys, pan bars** | Pills, white lifts, coloured keys | The shared widgets were restyled (`DineButton`, `Dine::drawSegmentTrack`, `DineKey`, `PanBar`), so every page has them | v4's control language is the whole product's, not the Mixer's. A filled button with its own tint (a mute) keeps that colour; the primary action is the white pill. |
+| **The quick inspector** | Always down the right | Folded until asked for: a "Channel" toggle at the right of the header (or `]`) opens it | The owner's call (2026-10-06): the console gets the width by default. Remembered per Mac once UI preferences land (C3). |
 | **The white band under the console** | - | Fixed | An opaque viewport over its own unpainted scrollbar strip showed whatever the window held there; it was in the v3 snapshots too. |
 
 ## Tune (commit "v4 Tune")

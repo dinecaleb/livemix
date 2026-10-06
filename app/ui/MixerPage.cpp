@@ -1716,6 +1716,13 @@ MixerPage::MixerPage (MixController& c, AppServices& s) : controller (c), servic
     windowButton.onClick = [this] { if (onOpenWindow) onOpenWindow(); };
     addAndMakeVisible (windowButton);
 
+    railButton.setFontPx (12.0f);
+    railButton.setPadX (10);
+    railButton.setIcon (Dine::Icon::Sidebar);
+    railButton.setTooltip ("Show or hide the selected channel's details down the right (])");
+    railButton.onClick = [this] { setRailShown (! railWanted); };
+    addAndMakeVisible (railButton);
+
     tuneChannelButton.setCaps (true);
     tuneChannelButton.setFontPx (11.0f);
     tuneChannelButton.setTooltip ("Tune the channel you picked: DINE listens to it alone and sets its chain (T).");
@@ -1752,6 +1759,7 @@ void MixerPage::setRailShown (bool v)
 {
     if (railWanted == v) return;
     railWanted = v;
+    railButton.setToggleState (v, juce::dontSendNotification);
     resized();
 }
 
@@ -2059,6 +2067,8 @@ void MixerPage::resized()
         b.setBounds (right.removeFromRight (w).reduced (0, dy));
         right.removeFromRight (8);
     };
+    railButton.setToggleState (railWanted, juce::dontSendNotification);
+    placeRight (railButton, juce::jmax (84, railButton.idealWidth()), 1);
     placeRight (tuneChannelButton, juce::jmax (110, tuneChannelButton.idealWidth()), -2);
     if (windowButton.isVisible()) placeRight (windowButton, juce::jmax (96, windowButton.idealWidth()), -2);
     placeRight (clearSolos, juce::jmax (84, clearSolos.idealWidth()), 1);

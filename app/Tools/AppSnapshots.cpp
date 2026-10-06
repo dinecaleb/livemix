@@ -1309,6 +1309,11 @@ int main (int argc, char** argv)
     view.setSidebarShown (true);
     rig.feed (0.3);
     rig.snap (dir, "15-mixer");
+    // The channel panel down the right: folded by default, opened by its header button.
+    view.getMixerPage().setRailShown (true);
+    rig.feed (0.3);
+    rig.snap (dir, "15l-mixer-channel-panel");
+    view.getMixerPage().setRailShown (false);
 
 
     view.getMixerPage().setStripSize (MixerPage::Size::Narrow);

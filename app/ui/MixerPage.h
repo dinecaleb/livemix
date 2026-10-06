@@ -66,8 +66,9 @@ public:
     int returnStripCount() const;            // the effect returns showing, likewise
 
     void setWindowButtonVisible (bool);
-    // The quick inspector down the right (v4). `]` folds it; it also gives way by itself on a
-    // window too narrow for it and a console.
+    // The quick inspector down the right (v4). Folded until asked for (the owner, 2026-10-06):
+    // the "Channel" button in the header or `]` opens and folds it; it also gives way by itself
+    // on a window too narrow for it and a console.
     void setRailShown (bool);
     bool isRailShown() const noexcept { return railWanted; }
     // The chain along the foot belongs to the window now; the detached mixer keeps its own.
@@ -83,7 +84,7 @@ private:
     class Bank;
     class QuickInspector;
     std::unique_ptr<QuickInspector> rail;
-    bool railWanted = true;
+    bool railWanted = false;
     bool railFits() const noexcept;
 
     Strip* masterStrip() const;
@@ -118,6 +119,7 @@ private:
     DineButton sendsButton { "Sends", DineButton::Style::Toggle };
     DineButton clearSolos { "Clear solo", DineButton::Style::Segment };
     DineButton windowButton { "New Window", DineButton::Style::Standard };
+    DineButton railButton { "Channel", DineButton::Style::Toggle };
     DineButton tuneChannelButton { "TUNE CHANNEL", DineButton::Style::Standard };
     bool windowButtonWanted = true;
     int titleW = 0;                         // "Mixer", measured once per layout
