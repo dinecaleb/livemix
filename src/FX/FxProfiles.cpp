@@ -67,8 +67,11 @@ namespace
             case FxType::WorshipHall:
             {
                 auto p = reverbBase();
-                p.reverbDecayS = 3.4f; p.reverbPreDelayMs = 55.0f; p.reverbSize = 85.0f; p.reverbDamping = 55.0f; p.reverbDiffusion = 65.0f;
-                p.reverbLowCutHz = 140.0f; p.reverbHighCutHz = 7000.0f; p.reverbModRateHz = 0.5f; p.reverbModDepth = 35.0f; p.reverbEarly = 45.0f;
+                // 2026-10-06: also DINE's Band Hall (keys, pads, guitars). Darker input and more
+                // damping so a guitar's pick and a piano's hammer do not ring in it; low cut
+                // 180 Hz so the left hand of the keys does not thicken the room.
+                p.reverbDecayS = 3.4f; p.reverbPreDelayMs = 55.0f; p.reverbSize = 85.0f; p.reverbDamping = 60.0f; p.reverbDiffusion = 75.0f;
+                p.reverbLowCutHz = 180.0f; p.reverbHighCutHz = 6000.0f; p.reverbModRateHz = 0.5f; p.reverbModDepth = 35.0f; p.reverbEarly = 45.0f;
                 return p;
             }
             case FxType::Room:

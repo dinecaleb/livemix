@@ -18,6 +18,9 @@
 #include "native/InputMapStore.h"
 #include "native/AppFolders.h"
 #include "native/MonitorDevice.h"
+#include "FX/FxProfiles.h"
+#include "Profiles/MixProfileData.h"
+#include "Mix/RoutingGraph.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <algorithm>
 #include <array>
@@ -2895,6 +2898,35 @@ namespace
                     if (int (fo->getProperty ("source")) >= busCount - 1)
                         fo->setProperty ("source", busCount - 1);
 
+        // Before version 8 there were five returns: every strip's sends and every mix's returns
+        // stop at the Drum Room.
+        if (toVersion < 8)
+        {
+            constexpr int kOldSlots = int (FxSlot::BandHall);
+            auto trimFx = [] (juce::DynamicObject* mix)
+            {
+                if (mix == nullptr) return;
+                if (auto* strips = mix->getProperty ("strips").getArray())
+                    for (auto& sv : *strips)
+                        if (auto* so = sv.getDynamicObject())
+                            if (auto* sends = so->getProperty ("sendDb").getArray())
+                            {
+                                juce::Array<juce::var> older;
+                                for (int f = 0; f < kOldSlots && f < sends->size(); ++f) older.add (sends->getReference (f));
+                                so->setProperty ("sendDb", older);
+                            }
+                if (auto* fx = mix->getProperty ("fx").getArray())
+                {
+                    juce::Array<juce::var> older;
+                    for (int f = 0; f < kOldSlots && f < fx->size(); ++f) older.add (fx->getReference (f));
+                    mix->setProperty ("fx", older);
+                }
+            };
+            trimFx (out->getProperty ("mix").getDynamicObject());
+            if (auto* scenes = out->getProperty ("scenes").getArray())
+                for (auto& sv : *scenes)
+                    if (auto* so = sv.getDynamicObject()) trimFx (so->getProperty ("mix").getDynamicObject());
+        }
         if (toVersion < 5) { out->removeProperty ("liveSafeLimits"); out->removeProperty ("samples"); }
         if (toVersion < 4)
         {
@@ -2904,6 +2936,47 @@ namespace
         if (toVersion < 2) out->removeProperty ("project");
         return juce::var (out);
     }
+}
+
+// A HALL FOR THE MUSICIANS (2026-10-06). Keys, pads and guitars had no reverb at all: the
+// five returns were the voices' and the kit's. BAND HALL is theirs, fed by role from the
+// profile data - and a voice, a drum or the bass never sends to it.
+TEST_CASE ("RoutingGraph: keys, pads and guitars send to the Band Hall, and nothing else does")
+{
+    MixSession session;
+    const ChannelRole roles[] = { ChannelRole::Piano, ChannelRole::SynthPad, ChannelRole::AcousticGuitar,
+                                  ChannelRole::ElectricGuitarClean, ChannelRole::Organ, ChannelRole::LeadVocal,
+                                  ChannelRole::BackingVocal, ChannelRole::SnareTop, ChannelRole::BassDI };
+    int n = 0;
+    for (auto r : roles)
+    {
+        InputAssignment a;
+        a.role = r;
+        a.name = channelRoleName (r);
+        a.inputA = n++;
+        session.inputs.push_back (a);
+    }
+    const auto graph = RoutingGraph::build (session);
+    const auto band = size_t (FxSlot::BandHall);
+    REQUIRE (graph.fxUsed[band]);
+    CHECK (graph.fxType[band] == FxType::WorshipHall);
+    for (const auto& st : graph.strips)
+    {
+        const auto f = roleFamily (st.role);
+        const bool musician = f == RoleFamily::Piano || f == RoleFamily::Synth || f == RoleFamily::AcousticGuitar
+                           || f == RoleFamily::ElectricGuitar || f == RoleFamily::Organ;
+        CHECK_MESSAGE ((st.sendDb[band] > kSilenceDb) == musician, st.name + " and the Band Hall");
+        if (musician) CHECK (st.sendDb[band] == MixProfile::defaultSendDb (session.profile, f, FxSlot::BandHall));
+    }
+    // A pad fills the hall more than a driven guitar does.
+    CHECK (MixProfile::defaultSendDb (session.profile, RoleFamily::Synth, FxSlot::BandHall)
+           > MixProfile::defaultSendDb (session.profile, RoleFamily::ElectricGuitar, FxSlot::BandHall));
+    // Talk keeps the band nearly dry; a session with no instruments builds no hall.
+    MixSession voices;
+    InputAssignment lead;
+    lead.role = ChannelRole::LeadVocal; lead.name = "Lead"; lead.inputA = 0;
+    voices.inputs.push_back (lead);
+    CHECK (! RoutingGraph::build (voices).fxUsed[band]);
 }
 
 TEST_CASE ("SessionStore: a document from every version DINE has ever written still opens")
@@ -2959,6 +3032,19 @@ TEST_CASE ("SessionStore: a document from every version DINE has ever written st
         }
         if (version >= 2) CHECK (back.project.markers.size() == 1);
         else              CHECK (back.project.tracks.size() == state.session.inputs.size());   // syncTracks builds them
+
+        // BAND HALL (version 8): a file without it sends nothing there and the return carries
+        // the profile's own character - never a 0 dB send out of an empty slot.
+        const auto band = size_t (FxSlot::BandHall);
+        if (version < 8)
+        {
+            for (int i = 0; i < back.mix.numStrips; ++i)
+                CHECK (back.mix.strips[size_t (i)].sendDb[band] <= kSilenceDb);
+            CHECK_NEAR (back.mix.fx[band].fx.reverbHighCutHz,
+                        FxProfiles::baseline (back.session.profile, MixProfile::fxTypeForSlot (FxSlot::BandHall)).reverbHighCutHz, 1e-3f);
+        }
+        else
+            CHECK_NEAR (back.mix.strips[0].sendDb[band], state.mix.strips[0].sendDb[band], 1e-3f);
 
         // And it applies: the mix a version-1 document describes still reaches the engine.
         MixController fresh;

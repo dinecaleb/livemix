@@ -32,7 +32,10 @@ namespace SessionStore
     // assignments rather than stored.
     // 7 added Broadcast readiness: the optional livestream checklist (active record + history).
     // Absent in older files: the checklist starts empty, which is the correct default.
-    inline constexpr int kVersion = 7;
+    // 8 appended the BAND HALL return (FxSlot::BandHall). A version 7 file has five sends per
+    // strip and five returns: the sixth send loads silent and the sixth return takes the
+    // profile's character, so it sounds as saved until the next TUNE MIX feeds the hall.
+    inline constexpr int kVersion = 8;
 
     // The old name for SessionState, kept because it reads well at the call sites that mean
     // "the thing on disk".

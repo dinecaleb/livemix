@@ -132,6 +132,7 @@ namespace
             case FxSlot::BgvHall:     return "Hall";
             case FxSlot::SnarePlate:  return "Snare";
             case FxSlot::DrumRoom:    return "Room";
+            case FxSlot::BandHall:    return "Band";
             case FxSlot::Count:       break;
         }
         return "FX";

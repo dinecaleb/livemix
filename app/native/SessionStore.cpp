@@ -6,6 +6,8 @@
 #include "State/ParameterSpecs.h"
 #include "DSP/ChannelParameters.h"
 #include "FX/FxParameters.h"
+#include "FX/FxProfiles.h"
+#include "Profiles/MixProfileData.h"
 #include <algorithm>
 
 namespace livemix
@@ -100,7 +102,12 @@ namespace
         s.solo = bool (so->getProperty ("solo"));
         s.linkGroup = so->hasProperty ("linkGroup") ? juce::jmax (0, int (so->getProperty ("linkGroup"))) : 0;
         if (auto* sends = so->getProperty ("sendDb").getArray())
+        {
             for (int f = 0; f < std::min (int (FxSlot::Count), sends->size()); ++f) s.sendDb[size_t (f)] = storedDb (sends->getReference (f), kSilenceDb, 6.0f);
+            // A return saved before it existed (BAND HALL, version 8) is sent nothing: the
+            // session sounds as it was saved, and the next TUNE MIX decides the sends.
+            for (int f = sends->size(); f < int (FxSlot::Count); ++f) s.sendDb[size_t (f)] = kSilenceDb;
+        }
         s.effectsOff = bool (so->getProperty ("effectsOff"));
     }
 
@@ -144,7 +151,7 @@ namespace
     }
 
     juce::var mixToVar (const MixParameters& m);
-    void mixFromVar (const juce::var& v, MixParameters& m);
+    void mixFromVar (const juce::var& v, MixParameters& m, StyleProfileId profile);
 
     // The mix history: the whole mix at each moment worth coming back to. Bounded before it is
     // written (pruneCheckpoints), so this is a few hundred kilobytes of a session, not a log.
@@ -170,7 +177,7 @@ namespace
         return out;
     }
 
-    void checkpointsFromVar (const juce::var& v, std::vector<MixCheckpoint>& list)
+    void checkpointsFromVar (const juce::var& v, std::vector<MixCheckpoint>& list, StyleProfileId profile)
     {
         list.clear();
         auto* arr = v.getArray();
@@ -184,7 +191,7 @@ namespace
             c.what = co->getProperty ("what").toString().toStdString();
             c.fromTune = co->hasProperty ("fromTune") && bool (co->getProperty ("fromTune"));
             c.tuneCount = int (co->getProperty ("tune"));
-            mixFromVar (co->getProperty ("mix"), c.mix);
+            mixFromVar (co->getProperty ("mix"), c.mix, profile);
             if (auto* macros = co->getProperty ("macros").getArray())
                 for (int i = 0; i < std::min (int (MixMacro::Count), macros->size()); ++i)
                     c.macros.set (MixMacro (i), float (double (macros->getReference (i))));
@@ -342,7 +349,7 @@ namespace
         return out;
     }
 
-    void scenesFromVar (const juce::var& v, std::vector<MixScene>& scenes)
+    void scenesFromVar (const juce::var& v, std::vector<MixScene>& scenes, StyleProfileId profile)
     {
         scenes.clear();
         auto* arr = v.getArray();
@@ -356,7 +363,7 @@ namespace
             s.kept = bool (so->getProperty ("kept"));
             if (s.kept)
             {
-                mixFromVar (so->getProperty ("mix"), s.mix);
+                mixFromVar (so->getProperty ("mix"), s.mix, profile);
                 if (auto* macros = so->getProperty ("macros").getArray())
                     for (int i = 0; i < std::min (int (MixMacro::Count), macros->size()); ++i) s.macros.set (MixMacro (i), float (double (macros->getReference (i))));
                 if (auto* inputs = so->getProperty ("inputs").getArray())
@@ -467,7 +474,7 @@ namespace
         return MixBus (stored);
     }
 
-    void mixFromVar (const juce::var& v, MixParameters& m)
+    void mixFromVar (const juce::var& v, MixParameters& m, StyleProfileId profile)
     {
         auto* obj = v.getDynamicObject();
         if (obj == nullptr) return;
@@ -498,6 +505,16 @@ namespace
         if (obj->hasProperty ("fxReturnDb")) m.fxReturnDb = storedDb (obj->getProperty ("fxReturnDb"), -60.0f, 12.0f);
         m.fxMute = bool (obj->getProperty ("fxMute"));
         if (auto* fx = obj->getProperty ("fx").getArray())
+        {
+            // A return the file never had takes the profile's own character, off until the
+            // graph says something feeds it (BAND HALL in a version 7 session).
+            for (int f = fx->size(); f < int (FxSlot::Count); ++f)
+            {
+                m.fx[size_t (f)] = {};
+                m.fx[size_t (f)].fx = FxProfiles::baseline (profile, MixProfile::fxTypeForSlot (FxSlot (f)));
+                m.fx[size_t (f)].fx.mix = 1.0f;
+                m.fx[size_t (f)].returnDb = MixProfile::defaultReturnDb (profile, FxSlot (f));
+            }
             for (int f = 0; f < std::min (int (FxSlot::Count), fx->size()); ++f)
             {
                 auto* fo = fx->getReference (f).getDynamicObject();
@@ -508,6 +525,7 @@ namespace
                 m.fx[size_t (f)].solo = bool (fo->getProperty ("solo"));
                 m.fx[size_t (f)].mute = bool (fo->getProperty ("mute"));     // absent before 2026-10-01: not muted
             }
+        }
         // Absent before the monitor bus existed. The defaults are the safe ones - solo goes to
         // the monitor and the live output never changes - so an older session opens safer than
         // it was saved, which is the right direction for this particular default to move.
@@ -852,10 +870,10 @@ bool fromVar (const juce::var& v, Document& d)
         for (int i = 0; i < std::min (int (MixMacro::Count), macros->size()); ++i) d.macros.set (MixMacro (i), float (double (macros->getReference (i))));
     d.tuneCount = int (obj->getProperty ("tuneCount"));
     d.hasMix = bool (obj->getProperty ("hasMix"));
-    if (d.hasMix) mixFromVar (obj->getProperty ("mix"), d.mix);
+    if (d.hasMix) mixFromVar (obj->getProperty ("mix"), d.mix, d.session.profile);
     historyFromVar (obj->getProperty ("history"), d.history);       // absent before the track history existed
-    scenesFromVar (obj->getProperty ("scenes"), d.scenes);          // absent before scenes existed
-    checkpointsFromVar (obj->getProperty ("checkpoints"), d.checkpoints);   // absent before the mix history existed
+    scenesFromVar (obj->getProperty ("scenes"), d.scenes, d.session.profile);          // absent before scenes existed
+    checkpointsFromVar (obj->getProperty ("checkpoints"), d.checkpoints, d.session.profile);   // absent before the mix history existed
     readinessFromVar (obj->getProperty ("readiness"), d.readiness);         // absent before version 7
     projectFromVar (obj->getProperty ("project"), d.project);      // absent in version 1: no timeline yet
     d.tuneLive = obj->getProperty ("tuneLive");                     // absent until a live run has been made

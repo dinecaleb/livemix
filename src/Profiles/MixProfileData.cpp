@@ -19,6 +19,7 @@ FxType fxTypeForSlot (FxSlot slot)
         case FxSlot::VocalDelay: return FxType::EighthDelay;
         case FxSlot::BgvHall:    return FxType::VocalHall;
         case FxSlot::SnarePlate: return FxType::SnarePlate;
+        case FxSlot::BandHall:   return FxType::WorshipHall;
         case FxSlot::DrumRoom:
         default:                 return FxType::DrumRoom;
     }
@@ -28,7 +29,9 @@ float defaultSendDb (StyleProfileId profile, RoleFamily family, FxSlot slot)
 {
     // Modern Gospel: the lead sits in a plate with a short tempo delay tucked behind it,
     // the backing vocals and choir share a hall, the snare gets its plate, the toms a
-    // room. Speech, bass, keys and guitars stay dry (the band already has space).
+    // room, and the keys, pads and guitars a hall of their own (BAND HALL) - a pad most,
+    // a piano less, a driven guitar least, because a dense sound fills a hall faster.
+    // Speech, bass and the kit's close mics on the hall stay dry.
     float db = kSilenceDb;
     switch (family)
     {
@@ -48,6 +51,22 @@ float defaultSendDb (StyleProfileId profile, RoleFamily family, FxSlot slot)
         case RoleFamily::Tom:
             if (slot == FxSlot::DrumRoom) db = -12.0f;
             break;
+        case RoleFamily::Synth:
+            if (slot == FxSlot::BandHall) db = -14.0f;
+            break;
+        case RoleFamily::Piano:
+        case RoleFamily::ElectricPiano:
+            if (slot == FxSlot::BandHall) db = -17.0f;
+            break;
+        case RoleFamily::Organ:
+            if (slot == FxSlot::BandHall) db = -18.0f;       // a Leslie already moves; a little room only
+            break;
+        case RoleFamily::AcousticGuitar:
+            if (slot == FxSlot::BandHall) db = -17.0f;
+            break;
+        case RoleFamily::ElectricGuitar:
+            if (slot == FxSlot::BandHall) db = -19.0f;       // most amps carry their own space
+            break;
         default: break;
     }
     if (db <= kSilenceDb) return db;
@@ -57,18 +76,21 @@ float defaultSendDb (StyleProfileId profile, RoleFamily family, FxSlot slot)
             // Worship: a little more hall on the backing vocals, a touch less delay on the lead.
             if (slot == FxSlot::BgvHall) db += 1.5f;
             if (slot == FxSlot::VocalDelay) db -= 2.0f;
+            if (slot == FxSlot::BandHall) db += 2.0f;      // pads and guitars are the worship room
             break;
         case StyleProfileId::RockBand:
             // Rock: the plate is shorter and further back, the drum room bigger, the delay tucked.
             if (slot == FxSlot::VocalPlate) db -= 2.0f;
             if (slot == FxSlot::VocalDelay) db -= 3.0f;
             if (slot == FxSlot::DrumRoom) db += 2.0f;
+            if (slot == FxSlot::BandHall) db -= 3.0f;      // a rock band's space is the drums'
             break;
         case StyleProfileId::RnbHipHop:
             // R&B: the delay is part of the arrangement and the snare plate is the snare's tail.
             if (slot == FxSlot::VocalDelay) db += 3.0f;
             if (slot == FxSlot::SnarePlate) db += 2.0f;
             if (slot == FxSlot::DrumRoom) db = kSilenceDb;      // a tight kit, no artificial room
+            if (slot == FxSlot::BandHall) db -= 2.0f;
             break;
         case StyleProfileId::JazzAcoustic:
             // Jazz: no delay on a voice, a lighter plate, no plate on the snare: the real room does it.
@@ -83,6 +105,7 @@ float defaultSendDb (StyleProfileId profile, RoleFamily family, FxSlot slot)
             if (slot == FxSlot::VocalDelay) db = kSilenceDb;
             if (slot == FxSlot::VocalPlate) db -= 6.0f;
             if (slot == FxSlot::BgvHall) db -= 6.0f;
+            if (slot == FxSlot::BandHall) db -= 6.0f;
             break;
         case StyleProfileId::ModernGospel:
         case StyleProfileId::Count:
@@ -107,6 +130,7 @@ float reverbBeats (StyleProfileId profile, FxSlot slot)
         case FxSlot::BgvHall:    beats = 4.0f; break;
         case FxSlot::SnarePlate: beats = 2.0f; break;
         case FxSlot::DrumRoom:   beats = 1.5f; break;
+        case FxSlot::BandHall:   beats = 4.0f; break;   // the band's room: a bar at most, gone before the next one
         default:                 beats = 0.0f; break;   // delays have no tail to fit
     }
     if (beats > 0.0f)

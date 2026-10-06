@@ -57,10 +57,13 @@ inline constexpr MixBus mixBusInDisplayOrder (int i) noexcept
 }
 
 // The effect returns DINE builds on its own. Each is one FxChain fed by sends.
-enum class FxSlot : int { VocalPlate = 0, VocalDelay, BgvHall, SnarePlate, DrumRoom, Count };
+// Stored by index (sends, returns): appended to, never reordered. BAND HALL (2026-10-06) is
+// the musicians' own space - keys, pads and guitars - kept apart from the voices' hall so the
+// band's room and the singers' can be ridden separately.
+enum class FxSlot : int { VocalPlate = 0, VocalDelay, BgvHall, SnarePlate, DrumRoom, BandHall, Count };
 
 inline constexpr std::array<const char*, int (FxSlot::Count)> kFxSlotNames {
-    "Vocal Plate", "Vocal Delay", "Backing Hall", "Snare Plate", "Drum Room"
+    "Vocal Plate", "Vocal Delay", "Backing Hall", "Snare Plate", "Drum Room", "Band Hall"
 };
 inline constexpr const char* fxSlotName (FxSlot s) noexcept
 {
