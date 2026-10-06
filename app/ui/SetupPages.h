@@ -163,6 +163,7 @@ public:
     ~AssignPage() override;
     std::function<void()> onContinue, onBack;
     std::function<void()> onSaveMapping, onApplyMapping;   // the patch: saved, or a saved one applied
+    std::function<void (const juce::String&)> onToast;     // "14 names -> inputs 05-18"
     void refresh();                       // rebuild rows from the controller's session and the device's channel count
     // The meters and the gain-staging verdict, at the window's rate. Nothing is rebuilt here;
     // a page of live numbers that only moves when somebody types is worse than no numbers.
@@ -176,6 +177,12 @@ public:
     // Programmatic equivalents of the user's edits (also used by the snapshot tool).
     void assign (int input, ChannelRole role, const juce::String& name, bool linkWithNext = false);
     void selectInputs (const std::vector<int>&);   // pick these out; the toolbar becomes the bulk one
+    // Fast entry (v4), also reached from the keyboard in the table: a pasted list filling the
+    // name column down from an input, Cmd-D's "same as the input above", and the typeahead's
+    // match for what was typed ("bv" -> Backing Vocal).
+    void fillDown (int input, const juce::String& text);
+    void sameAsAbove (int input);
+    static bool roleFor (const juce::String& typed, ChannelRole& role);
     void clearAll();
 
 private:
@@ -210,6 +217,38 @@ private:
     void showBulkMenu (juce::Component& anchor);
     void showKitMenu (juce::Component& anchor);
     void setRole (int input, ChannelRole role, bool assigned);
+    void chooseRole (int input, ChannelRole role);   // setRole, and a pair's other side linked
+    // ---- fast entry (v4): the keyboard through the table, the typeahead, paste, Cmd-D
+    int rowIndexOf (int input) const;
+    void focusName (int input);
+    void moveFrom (int input, int delta, bool toRole);
+    void openRoleEditor (int input);
+    void closeRoleEditor (bool accept);
+    juce::TextEditor roleEditor;
+    juce::Label roleHint;
+    int roleInput = -1;
+    // The typeahead's own keys: Return and down accept and go to the next row's "what it is",
+    // up to the row before, Tab accepts and goes on to the next row's name.
+    struct RoleKeys : juce::KeyListener
+    {
+        AssignPage* owner = nullptr;
+        bool keyPressed (const juce::KeyPress& key, juce::Component*) override
+        {
+            if (owner == nullptr) return false;
+            const int input = owner->roleInput;
+            if (key == juce::KeyPress::returnKey || key == juce::KeyPress::downKey)
+            { owner->closeRoleEditor (true); owner->moveFrom (input, 1, true); return true; }
+            if (key == juce::KeyPress::upKey) { owner->closeRoleEditor (true); owner->moveFrom (input, -1, true); return true; }
+            if (key.getKeyCode() == juce::KeyPress::tabKey)
+            {
+                owner->closeRoleEditor (true);
+                if (key.getModifiers().isShiftDown()) owner->focusName (input);
+                else owner->moveFrom (input, 1, false);
+                return true;
+            }
+            return false;
+        }
+    } roleKeys;
     void toggleSelection (int input, bool extend);
     void selectGroup (const Group&);
     void clearSelection();

@@ -833,3 +833,31 @@ TEST_CASE ("Windows: LIVE and the Inspector open in windows of their own, and a 
     CHECK (view.getPage() == before);
     window.pump (40);
 }
+
+TEST_CASE ("Inputs fast entry: the typeahead knows the desk's shorthand, a list fills down, Cmd-D numbers the next")
+{
+    Window window;
+    auto& assign = window.view->getAssignPage();
+
+    ChannelRole role {};
+    CHECK (AssignPage::roleFor ("bv", role));   CHECK (role == ChannelRole::BackingVocal);
+    CHECK (AssignPage::roleFor ("oh", role));   CHECK (role == ChannelRole::Overhead);
+    CHECK (AssignPage::roleFor ("hh", role));   CHECK (role == ChannelRole::HiHat);
+    CHECK (AssignPage::roleFor ("lead", role)); CHECK (role == ChannelRole::LeadVocal);
+    CHECK (! AssignPage::roleFor ("   ", role));
+
+    // A pasted list from input 13 down: names, and what each is in a second column.
+    assign.fillDown (12, "BV 1\tbv\nBV 2\tbv\n");
+    auto named = [&] (const char* n)
+    {
+        for (const auto& in : window.controller.getSession().inputs)
+            if (juce::String (in.name) == n) return in.role;
+        return ChannelRole::Count;
+    };
+    CHECK (named ("BV 1") == ChannelRole::BackingVocal);
+    CHECK (named ("BV 2") == ChannelRole::BackingVocal);
+
+    // Cmd-D on the next input: the same thing as the one above, with the next number.
+    assign.sameAsAbove (14);
+    CHECK (named ("BV 3") == ChannelRole::BackingVocal);
+}

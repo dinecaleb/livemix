@@ -2,6 +2,7 @@
 #include "AppTheme.h"
 #include "Core/ProductDefinition.h"
 #include "Profiles/Profile.h"
+#include "native/StemNames.h"
 #include <algorithm>
 
 namespace livemix
@@ -16,11 +17,12 @@ namespace
 
     juce::Colour busColour (MixBus b) noexcept { return Dine::busTint (b); }
 
-    // A bus name as it is written in a sentence rather than shouted on a fader: DRUMS -> Drums.
+    // A bus name as it is written in a sentence rather than shouted on a fader: DRUMS -> Drums,
+    // and BGV, an initialism, as it is.
     juce::String busLabel (MixBus b)
     {
         const juce::String n (mixBusName (b));
-        return n.substring (0, 1) + n.substring (1).toLowerCase();
+        return n.length() <= 3 ? n.toUpperCase() : n.substring (0, 1) + n.substring (1).toLowerCase();
     }
 
     // A short desk name for a source, the name a volunteer would write on tape.
@@ -1023,10 +1025,40 @@ void DevicePage::resized()
 
 // ============================================================================ AssignPage
 
-class AssignPage::Row : public juce::Component
+class AssignPage::Row : public juce::Component, private juce::KeyListener
 {
 public:
     void lookAndFeelChanged() override { Dine::styleTextEditor (name, Dine::control); }
+
+    // The name cell's keys (v4 fast entry). Return and down go to the next input's name, up to
+    // the one before, Tab to what this one is (Shift-Tab to the name before), Esc puts the name
+    // back as it was, Cmd-D makes it the same as the input above.
+    bool keyPressed (const juce::KeyPress& key, juce::Component*) override
+    {
+        if (key == juce::KeyPress::escapeKey)
+        {
+            page.entries[size_t (input)].name = nameBefore;
+            name.setText (nameBefore, false);
+            name.giveAwayKeyboardFocus();
+            return true;
+        }
+        if (key == juce::KeyPress::downKey || key == juce::KeyPress::returnKey)
+        {
+            page.commit();
+            page.moveFrom (input, 1, false);
+            return true;
+        }
+        if (key == juce::KeyPress::upKey) { page.commit(); page.moveFrom (input, -1, false); return true; }
+        if (key.getKeyCode() == juce::KeyPress::tabKey)
+        {
+            page.commit();
+            if (key.getModifiers().isShiftDown()) page.moveFrom (input, -1, true);
+            else page.openRoleEditor (input);
+            return true;
+        }
+        if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0)) { page.sameAsAbove (input); return true; }
+        return false;
+    }
 
     Row (AssignPage& owner, int index) : page (owner), input (index)
     {
@@ -1038,9 +1070,22 @@ public:
         Dine::styleTextEditor (name, Dine::control);
         name.setTextToShowWhenEmpty ("Untitled", Dine::ink4);
         name.setSelectAllWhenFocused (true);
-        name.onTextChange = [this] { page.entries[size_t (input)].name = name.getText(); };
-        name.onReturnKey = [this] { name.giveAwayKeyboardFocus(); page.commit(); };
+        name.onTextChange = [this]
+        {
+            // A list pasted into one name fills the column down from here.
+            const auto text = name.getText();
+            if (text.containsChar ('\n') || text.containsChar ('\r'))
+            {
+                name.setText (nameBefore, false);
+                page.fillDown (input, text);
+                return;
+            }
+            page.entries[size_t (input)].name = text;
+        };
         name.onFocusLost = [this] { page.commit(); };
+        name.addKeyListener (this);
+        name.setMultiLine (false);
+        name.setTabKeyUsedAsCharacter (false);
 
         addAndMakeVisible (suggest);
         suggest.setIcon (Dine::Icon::UpDown);
@@ -1068,6 +1113,7 @@ public:
     {
         const auto& e = page.entries[size_t (input)];
         name.setText (e.name, false);
+        nameBefore = e.name;
         source.setValue (e.assigned ? friendlyRoleName (e.role) : "Not used");
         link.setToggleState (e.linkedToNext, juce::dontSendNotification);
         // Linking is offered where it can happen: this input is something, the next input
@@ -1187,6 +1233,7 @@ public:
 
     AssignPage& page;
     int input;
+    juce::String nameBefore;            // what Esc puts back
     juce::TextEditor name;
     DineButton suggest { "", DineButton::Style::Ghost };
     DinePopup source;
@@ -1258,6 +1305,30 @@ public:
 
 AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), services (s)
 {
+    // The typeahead over a row's "what it is" cell (v4 fast entry). One editor for the whole
+    // table, moved to the row being typed in.
+    listHolder.addChildComponent (roleEditor);
+    listHolder.addChildComponent (roleHint);
+    roleEditor.setFont (Dine::text (13.0f));
+    roleEditor.setIndents (10, 0);
+    roleEditor.setBorder (juce::BorderSize<int> (0));
+    roleEditor.setJustification (juce::Justification::centredLeft);
+    Dine::styleTextEditor (roleEditor, Dine::controlOn);
+    roleHint.setFont (Dine::text (12.0f));
+    roleHint.setColour (juce::Label::textColourId, Dine::accent);
+    roleHint.setJustificationType (juce::Justification::centredRight);
+    roleHint.setInterceptsMouseClicks (false, false);
+    roleEditor.onTextChange = [this]
+    {
+        ChannelRole role {};
+        roleHint.setText (roleFor (roleEditor.getText(), role) ? friendlyRoleName (role) : juce::String(), juce::dontSendNotification);
+    };
+    roleEditor.onEscapeKey = [this] { closeRoleEditor (false); };
+    roleEditor.onFocusLost = [this] { closeRoleEditor (true); };
+    roleKeys.owner = this;
+    roleEditor.addKeyListener (&roleKeys);
+    roleEditor.setTabKeyUsedAsCharacter (false);
+
     viewport.setViewedComponent (&listHolder, false);
     Dine::nativeScrolling (viewport);
     viewport.setScrollBarsShown (true, false);
@@ -1667,6 +1738,167 @@ void AssignPage::clearSelection()
     repaint();
 }
 
+// What it is, chosen from the menu or typed: the role, and - for a source that comes in a
+// pair (overheads, keys, a drum bus, a pad) - the next input linked as its other side when
+// that input is free.
+void AssignPage::chooseRole (int input, ChannelRole role)
+{
+    setRole (input, role, true);
+    auto& e = entries[size_t (input)];
+    if ((role == ChannelRole::Overhead || role == ChannelRole::DrumBus || role == ChannelRole::Piano
+         || role == ChannelRole::ElectricPiano || role == ChannelRole::SynthPad)
+        && input + 1 < numInputs && ! entries[size_t (input) + 1].assigned && ! e.linkedToNext)
+    {
+        e.linkedToNext = true;
+        entries[size_t (input) + 1].linkedFromPrevious = true;
+    }
+}
+
+// ---------------------------------------------------------------- fast entry (v4)
+// A desk of 64 inputs is named from the keyboard, not with the mouse: Return / down / up move
+// through the name column, Tab goes on to what it is (a typeahead that knows the desk's
+// shorthand - bv, oh, hh, vox, keys, amb), a list pasted into a name fills down, and Cmd-D
+// makes an input the same as the one above it.
+int AssignPage::rowIndexOf (int input) const
+{
+    for (size_t i = 0; i < rows.size(); ++i) if (rows[i]->input == input) return int (i);
+    return -1;
+}
+
+void AssignPage::focusName (int input)
+{
+    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<AssignPage> (this), input]
+    {
+        if (safe == nullptr) return;
+        const int r = safe->rowIndexOf (input);
+        if (r < 0) return;
+        auto& row = *safe->rows[size_t (r)];
+        safe->viewport.setViewPosition (0, juce::jlimit (0, juce::jmax (0, safe->listHolder.getHeight() - safe->viewport.getHeight()),
+                                                         juce::jmin (safe->viewport.getViewPositionY(), row.getY() - 8)
+                                                         + juce::jmax (0, row.getBottom() + 8 - (safe->viewport.getViewPositionY() + safe->viewport.getHeight()))));
+        row.name.grabKeyboardFocus();
+    });
+}
+
+void AssignPage::moveFrom (int input, int delta, bool toRole)
+{
+    const int r = rowIndexOf (input);
+    if (r < 0) return;
+    const int next = r + delta;
+    if (next < 0 || next >= int (rows.size())) return;
+    if (toRole) openRoleEditor (rows[size_t (next)]->input);
+    else        focusName (rows[size_t (next)]->input);
+}
+
+// The best role for what has been typed: a role whose name starts with it, then one whose name
+// contains it, then the desk shorthand StemNames knows.
+bool AssignPage::roleFor (const juce::String& typed, ChannelRole& role)
+{
+    const auto t = typed.trim().toLowerCase();
+    if (t.isEmpty()) return false;
+    const ChannelRole* contains = nullptr;
+    ChannelRole found {};
+    for (const auto& group : Dine::roleGroups())
+        for (auto r : group.roles)
+        {
+            const auto n = friendlyRoleName (r).toLowerCase();
+            if (n.startsWith (t)) { role = r; return true; }
+            if (contains == nullptr && n.contains (t)) { found = r; contains = &found; }
+        }
+    if (contains != nullptr) { role = *contains; return true; }
+    return StemNames::guessRole (typed, role);
+}
+
+void AssignPage::openRoleEditor (int input)
+{
+    const int r = rowIndexOf (input);
+    if (r < 0) return;
+    roleInput = input;
+    auto& row = *rows[size_t (r)];
+    const auto cell = row.source.getBounds().translated (row.getX(), row.getY());
+    roleEditor.setBounds (cell);
+    roleEditor.setText ({}, false);
+    roleEditor.setTextToShowWhenEmpty (entries[size_t (input)].assigned ? friendlyRoleName (entries[size_t (input)].role)
+                                                                        : juce::String ("Type what it is"), Dine::ink4);
+    roleHint.setBounds (cell.withTrimmedLeft (cell.getWidth() / 2).withTrimmedRight (36));
+    roleHint.setText ({}, juce::dontSendNotification);
+    roleEditor.setVisible (true);
+    roleHint.setVisible (true);
+    roleEditor.toFront (false);
+    roleHint.toFront (false);
+    roleEditor.grabKeyboardFocus();
+}
+
+void AssignPage::closeRoleEditor (bool accept)
+{
+    if (roleInput < 0) return;
+    const int input = roleInput;
+    roleInput = -1;
+    ChannelRole role {};
+    const bool chosen = accept && roleFor (roleEditor.getText(), role);
+    roleEditor.setVisible (false);
+    roleHint.setVisible (false);
+    if (chosen && input < numInputs)
+    {
+        chooseRole (input, role);
+        commit();
+        rebuild();
+    }
+}
+
+// A list pasted into a name: one name per line, from this input down the column in the order
+// the table shows them; a second, tab-separated column on a line is what that input is.
+void AssignPage::fillDown (int input, const juce::String& text)
+{
+    juce::StringArray lines;
+    lines.addLines (text);
+    lines.removeEmptyStrings (true);
+    if (lines.isEmpty()) return;
+    const int start = rowIndexOf (input);
+    if (start < 0) return;
+    int filled = 0, last = input;
+    for (int k = 0; k < lines.size() && start + k < int (rows.size()); ++k)
+    {
+        const int in = rows[size_t (start + k)]->input;
+        const auto nameText = lines[k].upToFirstOccurrenceOf ("\t", false, false).trim();
+        const auto roleText = lines[k].fromFirstOccurrenceOf ("\t", false, false).trim();
+        entries[size_t (in)].name = nameText;
+        ChannelRole role {};
+        if (roleText.isNotEmpty() && roleFor (roleText, role)) chooseRole (in, role);
+        else if (! entries[size_t (in)].assigned && roleFor (nameText, role)) chooseRole (in, role);
+        ++filled;
+        last = in;
+    }
+    commit();
+    rebuild();
+    if (onToast) onToast (juce::String (filled) + (filled == 1 ? " name" : " names") + " " + juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92"))
+                          + " inputs " + juce::String (input + 1).paddedLeft ('0', 2) + juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x93"))
+                          + juce::String (last + 1).paddedLeft ('0', 2) + ".");
+}
+
+// Cmd-D: this input becomes what the one above it is, with the next number on its name when
+// that one ends in a number ("BV 1" -> "BV 2").
+void AssignPage::sameAsAbove (int input)
+{
+    const int r = rowIndexOf (input);
+    if (r <= 0) return;
+    const auto& above = entries[size_t (rows[size_t (r - 1)]->input)];
+    auto& e = entries[size_t (input)];
+    if (above.assigned) chooseRole (input, above.role);
+    const auto trail = above.name.retainCharacters ("0123456789");
+    const bool numbered = above.name.isNotEmpty() && juce::CharacterFunctions::isDigit (above.name.getLastCharacter());
+    if (numbered)
+    {
+        const auto digits = above.name.substring (above.name.trimCharactersAtEnd ("0123456789").length());
+        e.name = above.name.trimCharactersAtEnd ("0123456789") + juce::String (digits.getIntValue() + 1);
+    }
+    else e.name = above.name;
+    juce::ignoreUnused (trail);
+    commit();
+    rebuild();
+    focusName (input);
+}
+
 void AssignPage::setRole (int input, ChannelRole role, bool assigned)
 {
     auto& e = entries[size_t (input)];
@@ -1786,19 +2018,7 @@ void AssignPage::showSourceMenu (int input, juce::Component& anchor)
                      {
                          if (chosen <= 0 || input >= int (entries.size())) return;
                          if (chosen == 1) { setRole (input, ChannelRole::KickIn, false); }
-                         else
-                         {
-                             const auto role = byId[size_t (chosen - 100)];
-                             setRole (input, role, true);
-                             auto& e = entries[size_t (input)];
-                             if ((role == ChannelRole::Overhead || role == ChannelRole::DrumBus || role == ChannelRole::Piano
-                                  || role == ChannelRole::ElectricPiano || role == ChannelRole::SynthPad)
-                                 && input + 1 < numInputs && ! entries[size_t (input) + 1].assigned && ! e.linkedToNext)
-                             {
-                                 e.linkedToNext = true;
-                                 entries[size_t (input) + 1].linkedFromPrevious = true;
-                             }
-                         }
+                         else chooseRole (input, byId[size_t (chosen - 100)]);
                          commit();
                          rebuild();
                      });
@@ -1884,8 +2104,10 @@ void AssignPage::paint (juce::Graphics& g)
         r.removeFromTop (2);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (13.0f));
-        Dine::drawText (g, "Every assigned input takes its short desk name. Press Continue and the meters fill in "
-                           + juce::String (Glyph::dash()) + " your console is untouched.",
+        // v4: the fast-entry keys, in one line over the table.
+        Dine::drawText (g, "Type to rename " + Glyph::dot() + " Tab next cell " + Glyph::dot() + " Return next input "
+                           + Glyph::dot() + " paste a list to fill down " + Glyph::dot() + " Cmd-D same as above "
+                           + Glyph::dot() + " Shift-click a range",
                         r.removeFromTop (18).withWidth (juce::jmin (r.getWidth(), 760)), juce::Justification::centredLeft, true);
     }
 

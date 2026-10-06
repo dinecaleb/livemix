@@ -176,24 +176,22 @@ These are wired by the UI work; no backend change is needed.
 - Per-change confidence and why: `Recommendation::confidence` (`src/Recommendations/Recommendation.h`),
   reached through each strip's `TuneResult::report` in the plan.
 - Per-change trail lines ("High-pass 80 Hz to 100 Hz"): `AdvancedPage::historyViews` builds them; the trail does not paint them.
-- What-it-is typeahead aliases: `StemNames::guesses` (`app/native/StemNames.h`) covers bv, oh, hh, vox,
-  keys and amb. "di" and "pb" are not in it; adding words to the table is a host change, not engine.
+- What-it-is typeahead: built (`AssignPage::roleFor` - role names, then `StemNames::guessRole`). "di" and
+  "pb" are not in StemNames' table; adding words to it is a host change, not engine.
 - Open Audio MIDI Setup: `MonitorDevice::openAudioMidiSetup()` (`app/native/MonitorDevice.h`); no AppServices call reaches it.
-- TUNE CHANNEL on the Mixer header: `onTuneStrip` exists; only the button is missing.
 - Dropped buffers and CPU in the sidebar foot: `services.xrunCount()`, `services.cpuLoad()`, recorder `getDroppedSeconds()`.
 - Loudness menu "Stream −16, Platforms −14": `DeliveryLoudness` Streaming / StreamingLoud. Copy only.
-- Toolbar output picker with Solo choices: the shared menu exists; `chooseOutput` does not call it yet.
-- Session menu and Input Mappings: `MainView::setupPopover` / `sessionMenu` and `openInputMappings`
-  (Rename / Duplicate / Export / Delete patch) have no callers today; v4 reuses them, Duplicate and Export included.
-- Loop button: `TransportBar::loopButton` is declared and never created; v4 puts Loop in the pill.
+- Input Mappings popup: `MainView::openInputMappings` (Rename / Duplicate / Export / Delete patch) still has no
+  caller; the session menu's "Input Mappings…" opens Routing > Patches, which has the same actions.
 - Bulk "Name from what it is" and "Pair L and R": `AssignPage::nameFromRole`, `linkSelection` have no button.
 - `DevicePage::onContinueToAssign` is wired and never fired; v4's Continue → Inputs uses it.
 - Keep snapshots the previous mix: `keepPlan` checkpoints into the mix history; confirm, do not add.
-- "SOLOED OUT" tag: derived in the UI from `numSoloed() > 0 && !solo`, with the monitor and in-place cases checked.
 - BYPASS fader-drag toast and LIVE SAFE pre-check toasts on Tune buttons: UI only; the refusal stays in
   `MixController::liveSafeRefuses`, the toast reuses `MainView::liveSafeBlocks`.
-- Inputs inline editing, keyboard selection, paste-a-list, ⌘D, "Number them", right panel, the "Not used"
-  section and the shortcut hint: UI only over `AssignPage::entries` + `commit`.
+- Inputs: built - Return / ↓ / ↑ / Tab / ⇧Tab / Esc through the name and what-it-is cells, the typeahead,
+  a pasted list filling down (with a tab-separated role column), ⌘D, the shortcut hint. Still to do, UI only
+  over `AssignPage::entries` + `commit`: keyboard selection with no cell focused (↑/↓, ⇧↑/↓, Space, ⌘A), the
+  "Paste a list of names" preview for ⌘V outside a cell, "Number them", the right-hand panel, the "Not used" section.
 - UI preferences (sidebar folded, strip size, rails, window bounds, Mixer view): none persisted today;
   per-Mac keys beside theme and text size in `preferences.json`, never `SessionStore`.
 
