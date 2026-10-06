@@ -98,6 +98,7 @@ private:
     void refreshTuneButton();
     void refreshMaster();              // the loudness readout and the two pickers, a few times a second
     void rebuildRail();
+    std::vector<int> railOrder;        // the strips in the rail's order: by family, in console order
     void syncMacros();                 // the pads and the ribbon read the controller
     void updateSide();                 // the pad card's words follow the pads
     void layoutSide();                 // the panel's content height, for its own scroll

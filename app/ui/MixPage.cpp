@@ -374,17 +374,18 @@ public:
     // Measures the stack for a width; `place` also positions the buttons. Returns the height
     // needed. The order is the design's (`05 - Tune`, 71:12025): Tune, then Voices, then what
     // the mix is aimed at, then Mix health.
+    // v4's order (docs/design/v4): what to tune, TUNE MIX, its sentence, TUNE LIVE MIX, Match
+    // to reference and Check inputs, Aim at, Mix health as a card, Voices as a card; then the
+    // verbs v3 kept on this panel (docs/DESIGN-V3.md section 5) and the pad card.
     int layoutFor (int width, bool place)
     {
         const int inner = width - kPad * 2;
         int y = kPad;
         auto put = [&] (juce::Component& c, juce::Rectangle<int> r) { if (place) c.setBounds (r); };
-        auto heading = [&] (juce::Rectangle<int>& slot, int h = 24) { slot = { kPad, y, inner, h }; y += h + 8; };
 
-        heading (tuneCap);
-        scopeCap = { kPad, y, inner, 16 };                       y += 16 + 6;
+        tuneCap = {};
+        scopeCap = {};
         {
-            // WHAT TO TUNE: three segments in one track.
             const int track = Dine::Metric::control;
             scopeTrack = { kPad, y, inner, track };
             const int each = (inner - 4) / 3;
@@ -393,40 +394,71 @@ public:
                     put (*page.scopeTabs[size_t (i)], { kPad + 2 + i * each, y + 2, each, track - 4 });
             y += track + 12;
         }
-        put (page.tuneButton, { kPad, y, inner, 36 });            y += 36 + 8;
-        scopeNote = { kPad, y, inner, textHeight (Dine::text (12.0f), scopeSentence(), inner) };
-        y += scopeNote.getHeight() + 12;
-        {
-            const int half = (inner - 8) / 2;
-            put (page.referenceButton, { kPad, y, half, Dine::Metric::button });
-            put (page.checkButton, { kPad + half + 8, y, inner - half - 8, Dine::Metric::button });
-            y += Dine::Metric::button + 8;
-            put (page.liveTuneButton, { kPad, y, half, Dine::Metric::button });
-            put (page.chatButton, { kPad + half + 8, y, inner - half - 8, Dine::Metric::button });
-            y += Dine::Metric::button + 8;
-            put (page.undoButton, { kPad, y, half, Dine::Metric::button });
-            put (page.redoButton, { kPad + half + 8, y, inner - half - 8, Dine::Metric::button });
-            y += Dine::Metric::button + 8;
-            put (page.historyButton, { kPad, y, half, Dine::Metric::button });
-            put (page.advancedButton, { kPad + half + 8, y, inner - half - 8, Dine::Metric::button });
-            y += Dine::Metric::button + 10;
-        }
-        stamp = { kPad, y, inner, 16 };                           y += 16 + kPad;
-
-        // ---- Voices
-        if (! page.voiceRows.empty())
-        {
-            heading (voicesCap);
-            voicesNote = { kPad, y, inner, textHeight (Dine::text (12.0f), kVoicesNote, inner) };
-            y += voicesNote.getHeight() + 8;
-            for (auto& v : page.voiceRows) { put (*v, { kPad, y, inner, VoiceRow::height }); y += VoiceRow::height; }
-            y += kPad;
-        }
+        put (page.tuneButton, { kPad, y, inner, 50 });            y += 50 + 8;
+        scopeNote = { kPad, y, inner, textHeight (Dine::text (11.5f), scopeSentence(), inner) };
+        y += scopeNote.getHeight() + 10;
+        put (page.liveTuneButton, { kPad, y, inner, 38 });        y += 38 + 10;
+        const int half = (inner - 8) / 2;
+        put (page.referenceButton, { kPad, y, half, 32 });
+        put (page.checkButton, { kPad + half + 8, y, inner - half - 8, 32 });
+        y += 32 + 12;
 
         // ---- Aim at
-        aimCap = { kPad, y, inner, 16 };                          y += 16 + 6;
-        put (page.aimButton, { kPad, y, inner, Dine::Metric::button });
-        y += Dine::Metric::button + kPad;
+        aimCap = { kPad, y, inner, 16 };                          y += 16 + 4;
+        put (page.aimButton, { kPad, y, inner, 34 });             y += 34 + 12;
+
+        // ---- Mix health: a card - the score out of a hundred, a bar, the notes as bullets
+        {
+            const int textW = inner - 24 - 14;
+            notes.clear();
+            int h = 14 + 22 + 10 + 4 + 12;
+            for (const auto& n : page.controller.getMixHealthNotes())
+            {
+                const juce::String text (n);
+                const auto lower = text.toLowerCase();
+                const bool bad = lower.contains ("clipping") || lower.contains ("barely") || lower.contains ("not heard");
+                const bool watch = lower.contains ("preamp") || lower.contains ("digital");
+                const int th = textHeight (Dine::text (12.0f), text, textW);
+                notes.push_back ({ text, bad ? Dine::crit : watch ? Dine::warn : Dine::ok, { kPad + 12 + 14, y + h, textW, th } });
+                h += th + 8;
+            }
+            // The status line often is the notes, joined: said once, as the bullets.
+            bool statusIsNote = false;
+            for (const auto& n : notes) if (n.text == page.status || page.status.contains (n.text)) statusIsNote = true;
+            statusBox = {};
+            if (! statusIsNote && page.status.isNotEmpty())
+            {
+                const int th = textHeight (Dine::text (12.0f), page.status, inner - 24);
+                statusBox = { kPad + 12, y + h, inner - 24, th };
+                h += th + 8;
+            }
+            healthCard = { kPad, y, inner, h + 6 };
+            y += healthCard.getHeight() + 12;
+        }
+
+        // ---- Voices: a card of rows
+        voicesCard = {};
+        if (! page.voiceRows.empty())
+        {
+            const int top = y;
+            y += 14;
+            voicesCap = { kPad + 12, y, inner - 24, 18 };          y += 18 + 8;
+            for (auto& v : page.voiceRows) { put (*v, { kPad + 12, y, inner - 24, VoiceRow::height }); y += VoiceRow::height; }
+            voicesNote = { kPad + 12, y + 4, inner - 24, textHeight (Dine::text (11.0f), kVoicesNote, inner - 24) };
+            y += voicesNote.getHeight() + 4 + 12;
+            voicesCard = { kPad, top, inner, y - top };
+            y += 12;
+        }
+
+        // ---- the verbs v3 kept here: Mix Buddy, Undo / Redo, Mix history, the Inspector
+        put (page.chatButton, { kPad, y, inner, 30 });            y += 30 + 8;
+        put (page.undoButton, { kPad, y, half, 30 });
+        put (page.redoButton, { kPad + half + 8, y, inner - half - 8, 30 });
+        y += 30 + 8;
+        put (page.historyButton, { kPad, y, half, 30 });
+        put (page.advancedButton, { kPad + half + 8, y, inner - half - 8, 30 });
+        y += 30 + 10;
+        stamp = { kPad, y, inner, 16 };                           y += 16 + kPad;
 
         // the pad card. The body is measured at exactly the width it is drawn at - the card
         // reduced by 16 either side - because a measure two pixels wider than the draw wraps
@@ -438,30 +470,8 @@ public:
             card = { kPad, y, inner, 14 + headingH + 8 + bodyH + 14 };
             y += card.getHeight() + kPad;
         }
-
-        // ---- Mix health: the score, then what is worth saying about it
-        heading (healthCap);
-        scoreBox = { kPad, y, inner, 34 };                        y += 34 + 10;
-        notes.clear();
-        for (const auto& n : page.controller.getMixHealthNotes())
-        {
-            const juce::String text (n);
-            const auto lower = text.toLowerCase();
-            const bool bad = lower.contains ("clipping") || lower.contains ("barely") || lower.contains ("not heard");
-            const bool watch = lower.contains ("preamp") || lower.contains ("digital");
-            const int h = textHeight (Dine::text (13.0f), text, inner);
-            notes.push_back ({ text, bad ? Dine::crit : watch ? Dine::warn : Dine::ink2, { kPad, y, inner, h } });
-            y += h + 10;
-        }
-        bool statusIsNote = false;
-        for (const auto& n : notes) if (n.text == page.status) statusIsNote = true;
-        statusBox = {};
-        if (! statusIsNote && page.status.isNotEmpty())
-        {
-            const int h = textHeight (Dine::text (13.0f), page.status, inner);
-            statusBox = { kPad, y, inner, h };
-            y += h + 10;
-        }
+        healthCap = {};
+        scoreBox = {};
         return y + kPad;
     }
 
@@ -473,7 +483,7 @@ public:
                             "Nothing else in the mix, and not the master, moves.";
             case 2:  return "Listens to the whole console and sets only the channels you pick. The groups and the "
                             "master stay where they are.";
-            default: return "Listens to every input at once and builds the whole mix around the lead.";
+            default: return "Listens to the band for about 30 seconds.";
         }
     }
 
@@ -483,23 +493,67 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        auto heading = [&g] (juce::Rectangle<int> r, const juce::String& text)
-        {
-            g.setColour (Dine::ink);
-            g.setFont (Dine::text (17.0f, 600));
-            Dine::drawText (g, text, r, juce::Justification::centredLeft, true);
-        };
         auto caption = [&g] (juce::Rectangle<int> r, const juce::String& text)
         {
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (11.0f, 500));
             Dine::drawText (g, text, r, juce::Justification::centredLeft, true);
         };
+        auto cardAt = [&g] (juce::Rectangle<int> r)
+        {
+            Dine::fillRounded (g, r.toFloat(), Dine::card, 12.0f);
+            Dine::hairlineRounded (g, r.toFloat().reduced (0.5f), juce::Colours::white.withAlpha (0.06f), 11.5f);
+        };
 
-        heading (tuneCap, "Tune");
-        caption (scopeCap, "What to tune");
         Dine::drawSegmentTrack (g, scopeTrack);
-        drawWrapped (g, scopeSentence(), Dine::text (12.0f), Dine::ink3, scopeNote);
+        {
+            auto note = scopeNote;
+            drawWrapped (g, scopeSentence(), Dine::text (11.5f), Dine::ink3, note, juce::Justification::centredTop);
+        }
+        caption (aimCap, "Aim at");
+
+        // ---- Mix health
+        if (! healthCard.isEmpty())
+        {
+            cardAt (healthCard);
+            auto r = healthCard.reduced (12, 14);
+            auto head = r.removeFromTop (22);
+            const auto scoreFont = Dine::text (22.0f, 700);
+            const juce::String score = page.health > 0 ? juce::String (page.health) : juce::String (Glyph::dash());
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (11.0f));
+            const int outW = Dine::textWidth (Dine::text (11.0f), "/ 100");
+            Dine::drawText (g, "/ 100", head.removeFromRight (outW), juce::Justification::bottomRight);
+            head.removeFromRight (5);
+            g.setColour (Dine::ink);
+            g.setFont (scoreFont);
+            Dine::drawText (g, score, head.removeFromRight (Dine::textWidth (scoreFont, score)), juce::Justification::centredRight);
+            g.setFont (Dine::text (13.0f, 600));
+            Dine::drawText (g, "Mix health", head, juce::Justification::centredLeft);
+            r.removeFromTop (10);
+            auto bar = r.removeFromTop (4).toFloat();
+            Dine::fillRounded (g, bar, juce::Colours::white.withAlpha (0.10f), 2.0f);
+            if (page.health > 0)
+                Dine::fillRounded (g, bar.withWidth (bar.getWidth() * float (page.health) / 100.0f),
+                                   page.health >= 80 ? Dine::accent : page.health >= 55 ? Dine::warn : Dine::crit, 2.0f);
+            for (const auto& n : notes)
+            {
+                g.setColour (n.colour);
+                g.fillEllipse (float (n.box.getX() - 13), float (n.box.getY() + 5), 6.0f, 6.0f);
+                drawWrapped (g, n.text, Dine::text (12.0f), Dine::ink.withAlpha (0.85f), n.box);
+            }
+            if (! statusBox.isEmpty()) drawWrapped (g, page.status, Dine::text (12.0f), Dine::ink3, statusBox);
+        }
+
+        // ---- Voices
+        if (! voicesCard.isEmpty())
+        {
+            cardAt (voicesCard);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::text (13.0f, 600));
+            Dine::drawText (g, "Voices", voicesCap, juce::Justification::centredLeft, true);
+            drawWrapped (g, kVoicesNote, Dine::text (11.0f), Dine::ink3, voicesNote);
+        }
 
         // the stamp under the verbs
         g.setColour (Dine::ink4);
@@ -508,14 +562,6 @@ public:
         juce::String text = tunes > 0 ? "Tuned " + juce::String (tunes) + (tunes == 1 ? " time" : " times") + " this session"
                                       : juce::String ("Not tuned yet");
         Dine::drawText (g, text, stamp, juce::Justification::centredLeft, true);
-
-        if (! page.voiceRows.empty())
-        {
-            heading (voicesCap, "Voices");
-            drawWrapped (g, kVoicesNote, Dine::text (12.0f), Dine::ink3, voicesNote);
-        }
-
-        caption (aimCap, "Aim at");
 
         // the pad card: a 2 px accent edge down its left
         {
@@ -535,25 +581,6 @@ public:
             in.removeFromTop (8);
             drawWrapped (g, body, Dine::text (12.5f), Dine::ink2, in);
         }
-
-        // ---- Mix health: a score out of a hundred, big enough to read from the booth door
-        heading (healthCap, "Mix health");
-        {
-            auto r = scoreBox;
-            const auto scoreFont = Dine::text (30.0f, 600);
-            const juce::String score = page.health > 0 ? juce::String (page.health) : juce::String (Glyph::dash());
-            const int w = Dine::textWidth (scoreFont, score);
-            g.setColour (page.health <= 0 ? Dine::ink4 : page.health >= 80 ? Dine::accent
-                                                       : page.health >= 55 ? Dine::warn : Dine::crit);
-            g.setFont (scoreFont);
-            Dine::drawText (g, score, r.removeFromLeft (w), juce::Justification::centredLeft);
-            r.removeFromLeft (8);
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::text (12.0f));
-            Dine::drawText (g, "out of 100", r, juce::Justification::centredLeft, true);
-        }
-        for (const auto& n : notes) drawWrapped (g, n.text, Dine::text (13.0f), n.colour, n.box);
-        if (! statusBox.isEmpty()) drawWrapped (g, page.status, Dine::text (13.0f), Dine::ink3, statusBox);
     }
 
 private:
@@ -564,10 +591,11 @@ private:
         juce::TextLayout tl; tl.createLayout (a, float (width));
         return int (std::ceil (tl.getHeight())) + 2;
     }
-    static void drawWrapped (juce::Graphics& g, const juce::String& s, const juce::Font& f, juce::Colour c, juce::Rectangle<int> box)
+    static void drawWrapped (juce::Graphics& g, const juce::String& s, const juce::Font& f, juce::Colour c, juce::Rectangle<int> box,
+                             juce::Justification j = juce::Justification::topLeft)
     {
         if (s.isEmpty() || box.isEmpty()) return;
-        juce::AttributedString a; a.setText (s); a.setFont (f); a.setColour (c);
+        juce::AttributedString a; a.setText (s); a.setFont (f); a.setColour (c); a.setJustification (j);
         juce::TextLayout tl; tl.createLayout (a, float (box.getWidth()));
         tl.draw (g, box.toFloat());
     }
@@ -578,7 +606,7 @@ private:
     MixPage& page;
     juce::String heading_, body;
     juce::Rectangle<int> stamp, card, healthCap, statusBox, tuneCap, scopeCap, scopeTrack, scopeNote,
-                         voicesCap, voicesNote, aimCap, scoreBox;
+                         voicesCap, voicesNote, aimCap, scoreBox, healthCard, voicesCard;
     int headingH = 14;                 // the card's heading, measured rather than assumed (Text size)
     std::vector<Note> notes;
 };
@@ -599,10 +627,12 @@ public:
     // Now a click on a row picks the input out, always. The row you have picked out grows and
     // offers its two verbs as chips of their own underneath, which is also the answer to what
     // the click was reaching for: more about this input.
-    static constexpr int rowH = 36, openH = 68;
+    // v4: a name over what it is, and the verb as a pill at the right of every row; the open
+    // row adds FOCUS under them. The first input of a family carries the family's caption.
+    static constexpr int rowH = 37, openH = 37 + 30, captionH = 26;
 
     InputRow (const juce::String& n, ChannelRole role, int number, const std::string& iconKey)
-        : name (n), icon (Dine::iconFor (iconKey, role)), num (number)
+        : name (n), roleText (Dine::friendlyRoleName (role)), icon (Dine::iconFor (iconKey, role)), num (number)
     {
         setTooltip ("Click to pick " + name + " out. TUNE CHANNEL listens to it on its own - nothing else in the mix moves. "
                     "FOCUS makes it the source the whole mix is built around: every level is set against it, and the music "
@@ -619,79 +649,117 @@ public:
     void mouseUp (const juce::MouseEvent& e) override
     {
         if (e.mouseWasDraggedSinceMouseDown() || ! getLocalBounds().contains (e.getPosition())) return;
-        // The chips exist only on the open row, and they are hit exactly where they are drawn.
-        if (selected)
-        {
-            if (verbRect.contains (e.getPosition()))  { if (onTune) onTune();  return; }
-            if (focusRect.contains (e.getPosition())) { if (onFocus) onFocus(); return; }
-        }
+        if (verbRect.contains (e.getPosition()))  { if (onTune) onTune();  return; }
+        if (selected && focusRect.contains (e.getPosition())) { if (onFocus) onFocus(); return; }
         if (onSelect) onSelect();
     }
 
-    void set (bool isMuted, bool isFaint, bool isSelected, bool isFocal)
+    void set (bool isMuted, bool isFaint, bool isSelected, bool isFocal, const juce::String& gainChip = {})
     {
-        if (muted == isMuted && faint == isFaint && selected == isSelected && focal == isFocal) return;
+        if (muted == isMuted && faint == isFaint && selected == isSelected && focal == isFocal && chip == gainChip) return;
         const bool opened = selected != isSelected;
-        muted = isMuted; faint = isFaint; selected = isSelected; focal = isFocal;
+        muted = isMuted; faint = isFaint; selected = isSelected; focal = isFocal; chip = gainChip;
         if (opened && onHeightChanged) onHeightChanged();
         repaint();
     }
 
     void paint (juce::Graphics& g) override
     {
-        auto card = getLocalBounds().reduced (8, 2);
-        if (selected)   Dine::fillRounded (g, card.toFloat(), Dine::selected, Dine::Radius::control);
-        else if (hover) Dine::fillRounded (g, card.toFloat(), Dine::item, Dine::Radius::control);
+        auto all = getLocalBounds();
+        if (caption.isNotEmpty())
+        {
+            auto cap = all.removeFromTop (captionH).reduced (16, 0).withTrimmedTop (8);
+            g.setColour (tint);
+            g.fillRoundedRectangle (cap.removeFromLeft (7).withSizeKeepingCentre (7, 7).toFloat(), 1.5f);
+            cap.removeFromLeft (7);
+            g.setFont (Dine::text (11.0f, 600));
+            Dine::drawText (g, caption, cap, juce::Justification::centredLeft, true);
+        }
+        auto card = all.reduced (8, 1);
+        if (selected)   Dine::fillRounded (g, card.toFloat(), juce::Colours::white.withAlpha (0.08f), 8.0f);
+        else if (hover) Dine::fillRounded (g, card.toFloat(), juce::Colours::white.withAlpha (0.04f), 8.0f);
 
-        auto r = getLocalBounds().withHeight (rowH).reduced (16, 0);
-        // A lamp in the group's colour, so the rail says which part of the mix each input is
-        // in without a word; amber or red when it is muted or has never risen above a whisper.
-        g.setColour (muted ? Dine::warn : faint ? Dine::crit : tint);
-        g.fillEllipse (r.removeFromLeft (7).withSizeKeepingCentre (7, 7).toFloat());
-        r.removeFromLeft (10);
-        // FOCUS is what the mix is built around, so it is said on the row whether it is open
-        // or not - it is a fact about the mix, not a control until the row is open.
+        auto r = all.withHeight (rowH).reduced (16, 0);
+        // the verb, a pill at the right of every row
+        {
+            const auto font = Dine::caps (9.0f, 0.04f, 700);
+            const int w = Dine::textWidth (font, "TUNE CHANNEL") + 18;
+            verbRect = r.removeFromRight (w).withSizeKeepingCentre (w, 22);
+            const bool over = isMouseOver (true) && verbRect.contains (getMouseXYRelative());
+            Dine::fillRounded (g, verbRect.toFloat(), juce::Colours::white.withAlpha (over ? 0.10f : 0.0f), 11.0f);
+            Dine::hairlineRounded (g, verbRect.toFloat().reduced (0.5f), juce::Colours::white.withAlpha (0.16f), 10.5f);
+            g.setColour (over ? Dine::ink : Dine::ink2);
+            g.setFont (font);
+            Dine::drawText (g, "TUNE CHANNEL", verbRect, juce::Justification::centred);
+            r.removeFromRight (8);
+        }
+        // FOCUS is a fact about the mix, said on the row whether it is open or not
         if (focal && ! selected)
         {
-            const auto focusFont = Dine::caps (9.5f, 0.06f, 600);
+            const auto focusFont = Dine::caps (9.0f, 0.04f, 700);
             auto mark = r.removeFromRight (Dine::textWidth (focusFont, "FOCUS") + 4);
             g.setColour (Dine::accent);
             g.setFont (focusFont);
             Dine::drawText (g, "FOCUS", mark, juce::Justification::centredRight);
+            r.removeFromRight (4);
         }
-        g.setColour (selected ? Dine::ink : Dine::ink2);
+        auto nameLine = r.withHeight (r.getHeight() / 2 + 2).withTrimmedTop (4);
+        auto subLine = r.withTrimmedTop (r.getHeight() / 2 + 2).withTrimmedBottom (4);
+        g.setColour (muted ? Dine::ink3 : Dine::ink);
         g.setFont (Dine::text (13.0f, selected ? 600 : 500));
-        Dine::drawText (g, name, r, juce::Justification::centredLeft, true);
-
-        verbRect = focusRect = {};
-        if (! selected) return;
-
-        // The open row's two verbs, as chips, under the name.
-        auto chips = getLocalBounds().withTrimmedTop (rowH).reduced (16, 0).withTrimmedBottom (8);
-        chips = chips.withHeight (juce::jmin (chips.getHeight(), 22));
-        const auto chipFont = Dine::caps (9.5f, 0.06f, 600);
-        auto chip = [&] (const juce::String& text, bool lit) -> juce::Rectangle<int>
+        Dine::drawText (g, name, nameLine, juce::Justification::bottomLeft, true);
+        // What the input is, under its name: squeezed a little on a narrow rail, and left off
+        // altogether rather than cut - the name is the row, and the Inspector says the rest.
         {
-            const int w = juce::jmin (chips.getWidth(), Dine::textWidth (chipFont, text) + 16);
-            auto box = chips.removeFromLeft (w);
-            chips.removeFromLeft (6);
-            const bool over = isMouseOver (true) && box.contains (getMouseXYRelative());
-            Dine::fillRounded (g, box.toFloat(), lit ? Dine::accent.withAlpha (0.20f)
-                                                     : over ? Dine::controlHot : Dine::control, Dine::Radius::chip);
-            g.setColour (lit ? Dine::accent : over ? Dine::ink : Dine::ink3);
-            g.setFont (chipFont);
-            Dine::drawText (g, text, box, juce::Justification::centred);
-            return box;
-        };
-        verbRect  = chip ("TUNE CHANNEL", false);
-        focusRect = chip ("FOCUS", focal);
+            const auto roleFont = Dine::text (10.5f);
+            const int full = Dine::textWidth (roleFont, roleText);
+            if (float (full) * 0.85f <= float (subLine.getWidth()))
+            {
+                g.setColour (Dine::ink3);
+                g.setFont (roleFont);
+                const int roleW = juce::jmin (subLine.getWidth(), full);
+                Dine::drawFittedText (g, roleText, subLine.removeFromLeft (roleW), juce::Justification::topLeft, 1, 0.85f);
+            }
+        }
+        // a gain chip when the desk has something to do, or a lamp when the input is muted / faint
+        const juce::String note = chip.isNotEmpty() ? chip : muted ? juce::String ("Muted") : faint ? juce::String ("Faint") : juce::String();
+        if (note.isNotEmpty())
+        {
+            subLine.removeFromLeft (6);
+            const auto f = Dine::text (9.5f, 600);
+            const int w = Dine::textWidth (f, note) + 8;
+            if (w <= subLine.getWidth())
+            {
+                const auto c = muted ? Dine::warn : Dine::crit;
+                auto box = subLine.removeFromLeft (w).withHeight (13);
+                Dine::fillRounded (g, box.toFloat(), c.withAlpha (0.22f), 4.0f);
+                g.setColour (c.brighter (0.25f));
+                g.setFont (f);
+                Dine::drawText (g, note, box, juce::Justification::centred);
+            }
+        }
+
+        focusRect = {};
+        if (! selected) return;
+        // the open row: FOCUS, which makes this the source the whole mix is built around
+        auto chips = all.withTrimmedTop (rowH).reduced (16, 0).withTrimmedBottom (6);
+        chips = chips.withHeight (juce::jmin (chips.getHeight(), 22));
+        const auto chipFont = Dine::caps (9.0f, 0.04f, 700);
+        const int w = Dine::textWidth (chipFont, "FOCUS") + 18;
+        focusRect = chips.removeFromLeft (w);
+        const bool over = isMouseOver (true) && focusRect.contains (getMouseXYRelative());
+        Dine::fillRounded (g, focusRect.toFloat(), focal ? Dine::accent.withAlpha (0.20f)
+                                                         : juce::Colours::white.withAlpha (over ? 0.12f : 0.06f), 11.0f);
+        g.setColour (focal ? Dine::accent : over ? Dine::ink : Dine::ink2);
+        g.setFont (chipFont);
+        Dine::drawText (g, "FOCUS", focusRect, juce::Justification::centred);
     }
 
     void mouseMove (const juce::MouseEvent&) override { if (selected) repaint(); }
 
-    int wantedHeight() const noexcept { return selected ? openH : rowH; }
+    int wantedHeight() const noexcept { return (selected ? openH : rowH) + (caption.isNotEmpty() ? captionH : 0); }
 
-    juce::String name;
+    juce::String name, roleText, caption, chip;
     Dine::Icon icon;
     juce::Colour tint { Dine::ink4 };     // the group this input feeds
     int num = 0;
@@ -1831,7 +1899,7 @@ MixPage::MixPage (MixController& c) : controller (c)
 
     // WHAT TO TUNE, as a segment rather than a question asked after the press.
     {
-        const char* names[3] = { "Whole mix", "One group", "Selected" };
+        const char* names[3] = { "Whole mix", "One group", "Channels" };
         for (int i = 0; i < 3; ++i)
         {
             scopeTabs[size_t (i)] = std::make_unique<DineButton> (names[i], DineButton::Style::Segment);
@@ -2149,9 +2217,9 @@ void MixPage::refreshTuneButton()
     const bool busy = live || stage == MixController::Stage::Listening || stage == MixController::Stage::Planning;
     const bool ready = controller.isPrepared() && controller.getEngine().getNumStrips() > 0;
 
-    tuneButton.setButtonText (busy && ! live ? "Cancel" : controller.getTuneCount() > 0 ? "Re-tune" : "Tune mix");
+    tuneButton.setButtonText (busy && ! live ? "Cancel" : controller.getTuneCount() > 0 ? "RE-TUNE" : "TUNE MIX");
     tuneButton.setEnabled (ready && ! live && stage != MixController::Stage::Planning);
-    liveTuneButton.setButtonText (live ? "Stop" : controller.getTuneCount() > 0 ? "Re-tune live" : "Tune live mix");
+    liveTuneButton.setButtonText (live ? "Stop" : controller.getTuneCount() > 0 ? "RE-TUNE LIVE" : "TUNE LIVE MIX");
     liveTuneButton.setEnabled (ready && (live || stage != MixController::Stage::Listening) && stage != MixController::Stage::Planning);
     referenceButton.setButtonText (controller.hasReference() ? "Matched " + juce::String (Glyph::check())
                                                              : juce::String ("Match to reference"));
@@ -2168,7 +2236,7 @@ void MixPage::refreshTuneButton()
             for (int i = 0; i < n; ++i)
                 if (juce::String (controller.getFavourite (i).name) == juce::String (controller.getReference().name))
                     at = juce::String (controller.getFavourite (i).name);
-        aimButton.setButtonText (at.isNotEmpty() ? at + " (favourite)"
+        aimButton.setButtonText (at.isNotEmpty() ? at
                                : n > 0 ? juce::String ("Pick a favourite mix")
                                        : juce::String ("Nothing marked yet"));
         aimButton.setEnabled (n > 0);
@@ -2182,11 +2250,28 @@ void MixPage::rebuildRail()
     railHolder.removeAllChildren();
     if (! controller.isPrepared()) { builtRailFor = -1; return; }
     const auto& graph = controller.getGraph();
+    // v4: the inputs by family, in the console's order, each family under its caption.
+    // `inputRows` stays indexed by strip; `railOrder` is the order they are laid out in.
+    railOrder.clear();
+    for (int b = 0; b < int (MixBus::Master); ++b)
+        for (int i = 0; i < graph.numStrips(); ++i)
+            if (graph.strips[size_t (i)].bus == mixBusInDisplayOrder (b)) railOrder.push_back (i);
+    for (int i = 0; i < graph.numStrips(); ++i)
+        if (std::find (railOrder.begin(), railOrder.end(), i) == railOrder.end()) railOrder.push_back (i);
     for (int i = 0; i < graph.numStrips(); ++i)
     {
         const auto& s = graph.strips[size_t (i)];
         auto row = std::make_unique<InputRow> (s.name, s.role, s.inputA + 1, s.icon);
         row->tint = Dine::busTint (s.bus);
+        {
+            const auto first = std::find_if (railOrder.begin(), railOrder.end(),
+                                              [&] (int k) { return graph.strips[size_t (k)].bus == s.bus; });
+            if (first != railOrder.end() && *first == i)
+            {
+                const juce::String raw (mixBusName (s.bus));
+                row->caption = raw.length() <= 3 ? raw.toUpperCase() : raw.substring (0, 1).toUpperCase() + raw.substring (1).toLowerCase();
+            }
+        }
         row->onTune = [this, i] { selectRow (i); if (onTuneStrip) onTuneStrip (i); };
         row->onSelect = [this, i] { selectRow (i); };
         row->onFocus = [this, in = s.input] { controller.setFocusInput (in); rebuildRail(); };
@@ -2293,8 +2378,19 @@ void MixPage::refresh()
         for (int i = 0; i < int (inputRows.size()) && i < graph.numStrips(); ++i)
         {
             const bool faint = plan != nullptr && i < int (plan->strips.size()) && plan->strips[size_t (i)].faint;
+            // The gain verdict as the Mixer's chip says it, when the desk has something to do.
+            juce::String chip;
+            const auto advice = controller.getInputAdvice (i);
+            if (advice.needsAttention())
+            {
+                using Level = MixController::InputAdvice::Level;
+                const int move = juce::roundToInt (advice.consoleMoveDb);
+                const juce::String word = advice.level == Level::Clipping ? "Clipping" : advice.level == Level::Digital ? "Digital"
+                                        : advice.level == Level::Hot ? "Hot" : advice.level == Level::NotHeard ? "Not heard" : "Low";
+                chip = move == 0 ? word : word + " " + (move > 0 ? juce::String ("+") : Glyph::minus()) + juce::String (std::abs (move));
+            }
             inputRows[size_t (i)]->set (i < kept.numStrips && kept.strips[size_t (i)].mute, faint, i == selectedRow,
-                                        graph.strips[size_t (i)].input == controller.getFocusInput());
+                                        graph.strips[size_t (i)].input == controller.getFocusInput(), chip);
         }
     }
 
@@ -2396,7 +2492,7 @@ MixPage::Layout MixPage::layout() const
     // the pads, down to a floor of 150; when even that does not fit, the pads drop their snap
     // rows first. What is spare goes to the pads (up to their 214) before the groups.
     // A heading is 20 and its gap 10; the master card is 66 under its own heading.
-    const int fixed = (20 + 10) + 24 + (20 + 10 + kMasterCardH) + 26;
+    const int fixed = (20 + 10) + 24 + (20 + 10 + kMasterCardH) + 26 + (20 + 12);
     // The groups are one row of columns now, so the block is one tile tall rather than nine.
     const int groupsFloor = 168;
     const int groupsWant = GroupTile::height;
@@ -2419,7 +2515,8 @@ MixPage::Layout MixPage::layout() const
     // The master: a heading, then one card with what it is set to, how loud it is and the lift.
     l.master = main.removeFromTop (20 + 10 + kMasterCardH);
     main.removeFromTop (26);
-    l.macrosCaption = juce::Rectangle<int>();
+    l.macrosCaption = main.removeFromTop (20);
+    main.removeFromTop (12);
     // BODY x VOICE, DRIVE x ROOM and ENERGY sit side by side, the way the design sets them:
     // three controls in a row rather than two and one underneath.
     auto padRow = main.removeFromTop (padsH);
@@ -2446,13 +2543,27 @@ void MixPage::paint (juce::Graphics& g)
     g.setColour (Dine::hair);
     g.fillRect (l.side.getX(), l.side.getY(), 1, l.side.getHeight());
 
-    auto heading = [&g] (juce::Rectangle<int> r, const juce::String& text)
+    // v4: a 15 pt heading, and beside it a quiet sentence saying what the section is.
+    auto heading = [&g] (juce::Rectangle<int> r, const juce::String& text, const juce::String& sub = {})
     {
+        const auto font = Dine::text (15.0f, 700);
+        const int w = juce::jmin (r.getWidth(), Dine::textWidth (font, text));
         g.setColour (Dine::ink);
-        g.setFont (Dine::text (17.0f, 600));
-        Dine::drawText (g, text, r, juce::Justification::centredLeft, true);
+        g.setFont (font);
+        Dine::drawText (g, text, r.removeFromLeft (w), juce::Justification::centredLeft, true);
+        r.removeFromLeft (10);
+        if (sub.isNotEmpty() && Dine::textWidth (Dine::text (12.0f), sub) <= r.getWidth())
+        {
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (12.0f));
+            Dine::drawText (g, sub, r, juce::Justification::centredLeft);
+        }
     };
-    heading (l.groupsCaption, effectsOpen ? "Effects" : "Groups");
+    heading (l.groupsCaption.withTrimmedRight (effectsOpen ? backToGroups.getWidth() + 12 : 0),
+             effectsOpen ? "Effects" : "Groups",
+             effectsOpen ? "Each effect return on its own fader" : "The group buses and the effects returns, in console order");
+    heading (l.macrosCaption.withTrimmedRight (resetMacrosButton.getWidth() + 12), "Shape the mix",
+             "The centre is the plan. Drag anywhere; double-click to go back to it.");
 
     // ---- the master: one card, the way the design draws it - what it is set to, how loud it
     // actually is against the target it was given, and what the true peak reached.
@@ -2609,8 +2720,9 @@ void MixPage::resized()
     }
 
     {
+        // "Centre both pads" sits at the right of the "Shape the mix" heading (v4).
         const int w = juce::jmax (90, resetMacrosButton.idealWidth());
-        resetMacrosButton.setBounds (juce::Rectangle<int> (l.ribbon.getRight() - w, l.ribbon.getBottom() + 14, w, 22));
+        resetMacrosButton.setBounds (l.macrosCaption.withTrimmedLeft (l.macrosCaption.getWidth() - w).withSizeKeepingCentre (w, 22));
         for (size_t i = 0; i < pads.size(); ++i)
         {
             pads[i]->setCompact (l.compact);
@@ -2633,7 +2745,14 @@ void MixPage::resized()
     for (const auto& r : inputRows) total += r->wantedHeight();
     railHolder.setSize (rail.getWidth() - (total > rail.getHeight() ? 10 : 0), juce::jmax (total, rail.getHeight()));
     int y = 0;
-    for (auto& r : inputRows) { const int h = r->wantedHeight(); r->setBounds (0, y, railHolder.getWidth(), h); y += h; }
+    for (const int k : railOrder)
+    {
+        if (k < 0 || k >= int (inputRows.size())) continue;
+        auto& r = inputRows[size_t (k)];
+        const int h = r->wantedHeight();
+        r->setBounds (0, y, railHolder.getWidth(), h);
+        y += h;
+    }
 
     scopeSheet->setBounds (getLocalBounds());
     listenSheet->setBounds (getLocalBounds());

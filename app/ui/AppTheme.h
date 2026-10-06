@@ -163,7 +163,7 @@ namespace Dine
         inline constexpr int chainFoot = 52;    // v4: the chain card (46) and the 6 pt gap over it, under every workspace
         inline constexpr int onAir     = 2;
         inline constexpr int chanRail  = 180;   // the Inspector's channel list
-        inline constexpr int tuneRail  = 198;   // TUNE's input rail
+        inline constexpr int tuneRail  = 240;   // TUNE's input rail: v4 gives every row its TUNE CHANNEL pill
         inline constexpr int trail     = 280;   // WHAT DINE DID / TUNE's right column
         inline constexpr int setupNav  = 212;
         inline constexpr int footer    = 28;

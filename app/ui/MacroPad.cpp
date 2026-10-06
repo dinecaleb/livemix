@@ -326,13 +326,24 @@ void MacroPad::paint (juce::Graphics& g)
         }
 
         // the corner words: quiet, the way the ticks on a dial are quiet
+        // A pair of corners that would run into each other on a small pad is left off: the
+        // tooltip and the axis title still say what the pad does.
         g.setColour (Dine::ink4);
-        g.setFont (Dine::caps (9.5f, 0.08f, 500));
+        const auto cornerFont = Dine::caps (9.5f, 0.08f, 500);
+        g.setFont (cornerFont);
         const auto in = pad.reduced (10, 8);
-        Dine::drawText (g, corners.tl, in, juce::Justification::topLeft);
-        Dine::drawText (g, corners.tr, in, juce::Justification::topRight);
-        Dine::drawText (g, corners.bl, in, juce::Justification::bottomLeft);
-        Dine::drawText (g, corners.br, in, juce::Justification::bottomRight);
+        const auto pairFits = [&] (const juce::String& a, const juce::String& b)
+        { return Dine::textWidth (cornerFont, a) + Dine::textWidth (cornerFont, b) + 8 <= in.getWidth(); };
+        if (pairFits (corners.tl, corners.tr))
+        {
+            Dine::drawText (g, corners.tl, in, juce::Justification::topLeft);
+            Dine::drawText (g, corners.tr, in, juce::Justification::topRight);
+        }
+        if (pairFits (corners.bl, corners.br))
+        {
+            Dine::drawText (g, corners.bl, in, juce::Justification::bottomLeft);
+            Dine::drawText (g, corners.br, in, juce::Justification::bottomRight);
+        }
 
         // the values, inside the square on the line under the top corner words, only once
         // there is something to say (at the plan the dashed ring says it all)

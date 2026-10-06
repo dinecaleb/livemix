@@ -47,3 +47,14 @@ The mockup is `docs/design/v4/DINE v4.html`; open it in a browser and compare it
 | **The LIST view** | A dense table | The v3 rows, restyled by the shared tokens and keys | The table's columns and behaviour are unchanged inventory; a denser v4 table is a later pass. |
 | **Buttons, segments, keys, pan bars** | Pills, white lifts, coloured keys | The shared widgets were restyled (`DineButton`, `Dine::drawSegmentTrack`, `DineKey`, `PanBar`), so every page has them | v4's control language is the whole product's, not the Mixer's. A filled button with its own tint (a mute) keeps that colour; the primary action is the white pill. |
 | **The white band under the console** | - | Fixed | An opaque viewport over its own unpainted scrollbar strip showed whatever the window held there; it was in the v3 snapshots too. |
+
+## Tune (commit "v4 Tune")
+
+| What | The mockup | The build | Why |
+| --- | --- | --- | --- |
+| **TUNE on each group tile** | Not drawn | Kept | Per-group TUNE (`startTuneBus`) is an inventory item; the scope sheet's "One group" reaches it too. |
+| **The verbs under Voices** | Not drawn | Mix Buddy, Undo / Redo mix, Mix history, Open the Inspector, then the pad card | v3 kept them here for a service (DESIGN-V3 section 5); none is more than one press elsewhere, and they cost one block at the foot of the panel. |
+| **The listening sheet** | A 30 s countdown ring | The step lamps and the progress line it had | The live run's eight steps (`TuneLiveCoordinator`) and the "waiting for the band" state are inventory; a ring alone loses them. The sheet takes v4's buttons and type. |
+| **The master's pickers** | "Target: Broadcast -23 LUFS" and "For: Room and stream" under the numbers | The loudness target and "Sound: as tuned" in the heading row | The voicing list is the owner's decision (`GAPS.md`): v4's four "For:" choices are not the eight master voicings DINE has. |
+| **The pads' corner words** | "Clear voices", "Big and present", "Tight and driving", "Big room" (top only) | The macros' own words (AIRY, PRESENT, ...) on all four corners; a pair that would touch on a small pad is left off | The words are `MixMacros`' and name what each corner does to the sound; renaming them is a profile-data change, not a UI one. |
+| **The rail's role line** | Always under the name | Squeezed a little, then left off on a narrow rail | A name is the row; a cut role is the one thing the clipping report forbids. |
