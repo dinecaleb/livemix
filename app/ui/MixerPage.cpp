@@ -747,7 +747,7 @@ public:
         {
             g.setColour (Dine::ink4);
             g.setFont (Dine::mono (10.0f));
-            Dine::drawText (g, "pk " + peakText, col.peak, juce::Justification::centred);
+            Dine::drawFittedText (g, "pk " + peakText, col.peak, juce::Justification::centred, 1, 0.85f);
         }
 
         // ---- where this strip goes

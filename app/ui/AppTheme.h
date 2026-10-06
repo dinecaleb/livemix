@@ -42,65 +42,65 @@ namespace Dine
 {
     // Materials. Named for what they are used for; several share a value on purpose, so a
     // page that asks for "the rail" and one that asks for "the console" read as one thing.
-    inline juce::Colour desk        { 0xff0b0b0c };   // behind the window
-    inline juce::Colour window      { 0xff161719 };   // every workspace ground
-    inline juce::Colour toolbar     { 0xff1d1e21 };   // the one toolbar and the status foot
-    inline juce::Colour title       { 0xff1d1e21 };   // kept as an alias: the title row is the toolbar now
-    inline juce::Colour menubar     { 0xff111214 };   // the transport well, a segment track, an inset display
-    inline juce::Colour sidebar     { 0xff1a1b1e };   // the source list
-    inline juce::Colour rail        { 0xff18191c };   // a panel at the edge of a workspace
-    inline juce::Colour pageBar     { 0xff161719 };   // a workspace's own tool row: the window's own plane
-    inline juce::Colour console     { 0xff18191c };   // a console column, a timeline header
-    inline juce::Colour tile        { 0xff18191c };   // a quiet tile inside a workspace
-    inline juce::Colour card        { 0xff202226 };   // a card, a sheet, a scene
-    inline juce::Colour raised      { 0xff202226 };   // a popover, a lifted row
-    inline juce::Colour item        { 0xff1c1d20 };   // a row inside a card, the timeline ground
-    inline juce::Colour selected    { 0xff2a2c30 };   // the row, segment or strip that is chosen
-    inline juce::Colour control     { 0xff2b2d31 };   // a resting button
-    inline juce::Colour controlHot  { 0xff35373c };   // ... under the pointer
-    inline juce::Colour controlOn   { 0xff44474d };   // a segment that is on
-    inline juce::Colour sheet       { 0xff202226 };   // sheet material
-    inline juce::Colour popover     { 0xff202226 };   // menus, HUD, tooltips
-    inline juce::Colour inset       { 0xff151619 };   // a well inside a card: the stage's own ground
-    inline juce::Colour deep        { 0xff111214 };   // the deepest well: a meter track, an inset display
-    inline juce::Colour refuse      { 0xff2a2218 };   // a refusal's ground, and LIVE SAFE's card (amber on it)
-    inline juce::Colour recGround   { 0xff2d1f1f };   // a card or a key that is recording / clipping
+    inline juce::Colour desk        { 0xff1c1c1e };   // behind the window
+    inline juce::Colour window      { 0xff161618 };   // every workspace ground
+    inline juce::Colour toolbar     { 0xff1c1c1e };   // the one toolbar and the status foot
+    inline juce::Colour title       { 0xff1c1c1e };   // kept as an alias: the title row is the toolbar now
+    inline juce::Colour menubar     { 0xff242426 };   // the transport well, a segment track, an inset display
+    inline juce::Colour sidebar     { 0xff2a2a2d };   // the source list
+    inline juce::Colour rail        { 0xff1a1a1c };   // a panel at the edge of a workspace
+    inline juce::Colour pageBar     { 0xff161618 };   // a workspace's own tool row: the window's own plane
+    inline juce::Colour console     { 0xff222224 };   // a console column, a timeline header
+    inline juce::Colour tile        { 0xff1f1f21 };   // a quiet tile inside a workspace
+    inline juce::Colour card        { 0xff232325 };   // a card, a sheet, a scene
+    inline juce::Colour raised      { 0xff262628 };   // a popover, a lifted row
+    inline juce::Colour item        { 0xff1f1f21 };   // a row inside a card, the timeline ground
+    inline juce::Colour selected    { 0xff2c2c2e };   // the row, segment or strip that is chosen
+    inline juce::Colour control     { 0xff2a2a2c };   // a resting button
+    inline juce::Colour controlHot  { 0xff333335 };   // ... under the pointer
+    inline juce::Colour controlOn   { 0xff464648 };   // a segment that is on
+    inline juce::Colour sheet       { 0xff262628 };   // sheet material
+    inline juce::Colour popover     { 0xff2a2a2d };   // menus, HUD, tooltips
+    inline juce::Colour inset       { 0xff141416 };   // a well inside a card: the stage's own ground
+    inline juce::Colour deep        { 0xff0b0b0c };   // the deepest well: a meter track, an inset display
+    inline juce::Colour refuse      { 0xff2e2414 };   // a refusal's ground, and LIVE SAFE's card (amber on it)
+    inline juce::Colour recGround   { 0xff3a1f1e };   // a card or a key that is recording / clipping
     // A soloed strip, a tuned chip: a lifted neutral plane. Green is not a brand colour, so a chosen
     // or tuned state is said by the teal lamp / hairline on a neutral ground, never by a green ground.
-    inline juce::Colour soloGround  { 0xff2a2c30 };
+    inline juce::Colour soloGround  { 0xff2c2c2e };
     inline juce::Colour editGround  { 0xff1f2730 };   // a hand-edited chip, Autopilot's card
 
     // Kept for the few callers that name them; the v3 surfaces are flat, so they are the
     // flat value the band used to ramp to.
-    inline juce::Colour chromeTop   { 0xff1d1e21 };
-    inline juce::Colour headerTop   { 0xff161719 };
-    inline juce::Colour footTop     { 0xff1d1e21 };
-    inline juce::Colour footBottom  { 0xff1d1e21 };
-    inline juce::Colour cardTop     { 0xff202226 };
-    inline juce::Colour cardBottom  { 0xff202226 };
-    inline juce::Colour sheetTop    { 0xff202226 };
-    inline juce::Colour sheetBottom { 0xff202226 };
-    inline juce::Colour railTop     { 0xff18191c };
+    inline juce::Colour chromeTop   { 0xff1c1c1e };
+    inline juce::Colour headerTop   { 0xff161618 };
+    inline juce::Colour footTop     { 0xff1c1c1e };
+    inline juce::Colour footBottom  { 0xff1c1c1e };
+    inline juce::Colour cardTop     { 0xff232325 };
+    inline juce::Colour cardBottom  { 0xff232325 };
+    inline juce::Colour sheetTop    { 0xff262628 };
+    inline juce::Colour sheetBottom { 0xff262628 };
+    inline juce::Colour railTop     { 0xff1a1a1c };
     inline juce::Colour accentTopLit{ 0xff6db8a8 };
     inline juce::Colour accentBotLit{ 0xff6db8a8 };
 
     // Edges and fills: translucent white, so one hairline reads the same over every material.
     inline juce::Colour hairSoft    { 0x0fffffff };   // .06
-    inline juce::Colour hair        { 0x14ffffff };   // .08
-    inline juce::Colour hairStrong  { 0x1fffffff };   // .12
+    inline juce::Colour hair        { 0x17ffffff };   // .08
+    inline juce::Colour hairStrong  { 0x24ffffff };   // .12
     inline juce::Colour edge        { 0x33ffffff };   // .20
-    inline juce::Colour fill        { 0x1effffff };   // control background on a plane
-    inline juce::Colour fillHover   { 0x2affffff };
-    inline juce::Colour fillSoft    { 0x0fffffff };
+    inline juce::Colour fill        { 0x0fffffff };   // control background on a plane
+    inline juce::Colour fillHover   { 0x1affffff };
+    inline juce::Colour fillSoft    { 0x0affffff };
     inline juce::Colour well        { 0x0fffffff };   // meter wells, slider tracks: .06 of white
 
     // Ink.
-    inline juce::Colour ink         { 0xfff2f2f4 };
-    inline juce::Colour ink2        { 0xffc2c4c9 };
-    inline juce::Colour ink3        { 0xff9a9da4 };
-    inline juce::Colour ink4        { 0xff74777d };
-    inline juce::Colour glyph       { 0xffc2c4c9 };   // a resting icon reads as body ink in v3
-    inline juce::Colour panMark     { 0xff74777d };   // the centre mark of a balance, a resting radio
+    inline juce::Colour ink         { 0xfff5f5f7 };
+    inline juce::Colour ink2        { 0x9eebebf5 };
+    inline juce::Colour ink3        { 0x57ebebf5 };
+    inline juce::Colour ink4        { 0x40ebebf5 };
+    inline juce::Colour glyph       { 0xbfebebf5 };   // a resting icon reads as body ink in v3
+    inline juce::Colour panMark     { 0x59ebebf5 };   // the centre mark of a balance, a resting radio
 
     // Roles.
     inline juce::Colour accent      { 0xff6db8a8 };
@@ -109,30 +109,30 @@ namespace Dine
     inline juce::Colour accentTop   { 0xff6db8a8 };
     inline juce::Colour accentBottom{ 0xff6db8a8 };
     inline juce::Colour onAccent    { 0xff0b0d10 };   // an accent button carries near-black type
-    inline juce::Colour ok          { 0xff57b98d };
-    inline juce::Colour hot         { 0xffd8c46a };   // the meter's middle band, DIM and BYPASS when lit
-    inline juce::Colour warn        { 0xffe0a85c };   // LIVE SAFE, and the one amber control
-    inline juce::Colour crit        { 0xfff06a61 };
+    inline juce::Colour ok          { 0xff6db8a8 };
+    inline juce::Colour hot         { 0xffffd60a };   // the meter's middle band, DIM and BYPASS when lit
+    inline juce::Colour warn        { 0xffff9f0a };   // LIVE SAFE, and the one amber control
+    inline juce::Colour crit        { 0xffff453a };
 
     // The console keys keep their own colours.
-    inline juce::Colour keyMute     { 0xffe5534b };
-    inline juce::Colour keySolo     { 0xff6db8a8 };
-    inline juce::Colour keyRec      { 0xffe5534b };
-    inline juce::Colour keyMon      { 0xff6eafff };
-    inline juce::Colour keyFx       { 0xffc98fb0 };
-    inline juce::Colour monitor     { 0xff6eafff };   // the engineer's own ears
+    inline juce::Colour keyMute     { 0xffff9f0a };
+    inline juce::Colour keySolo     { 0xffffd60a };
+    inline juce::Colour keyRec      { 0xffff453a };
+    inline juce::Colour keyMon      { 0xff5e5ce6 };
+    inline juce::Colour keyFx       { 0xffbf5af2 };
+    inline juce::Colour monitor     { 0xff64d2ff };   // the engineer's own ears
 
     // The group buses, in `MixBus` order; `busTint` reads them.
-    inline juce::Colour busDrums    { 0xffe09a4b };
-    inline juce::Colour busBass     { 0xff8e80ff };
-    inline juce::Colour busMusic    { 0xff6eafff };
-    inline juce::Colour busVocals   { 0xff57b98d };   // BGV, since LEAD became its own group
+    inline juce::Colour busDrums    { 0xffff9f0a };
+    inline juce::Colour busBass     { 0xff30d158 };
+    inline juce::Colour busMusic    { 0xffbf5af2 };
+    inline juce::Colour busVocals   { 0xff5e8bff };   // BGV, since LEAD became its own group
     // LEAD: the one voice the mix is built around, so it is the one group colour that is not
     // a member of the band's family - it is what everything else is set against.
-    inline juce::Colour busLead     { 0xfff07f8f };
-    inline juce::Colour busSpeech   { 0xffc98fb0 };
-    inline juce::Colour busAmbience { 0xff9a9da4 };
-    inline juce::Colour busMaster   { 0xffc2c4c9 };
+    inline juce::Colour busLead     { 0xff64d2ff };
+    inline juce::Colour busSpeech   { 0xffff6482 };
+    inline juce::Colour busAmbience { 0xffac8e68 };
+    inline juce::Colour busMaster   { 0xffe5e5ea };
 
     inline juce::Colour focusRing   { 0xff6db8a8 };
     inline constexpr float    disabled    = 0.38f;

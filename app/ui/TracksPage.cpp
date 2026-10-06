@@ -1656,7 +1656,7 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
     if (chip.text == "DIGITAL")
     {
         note = "The level works only because DINE raised it digitally. Raise the console gain instead.";
-        briefNote = "Raise the console gain";
+        briefNote = "Raise console gain";
     }
     else if (std::fabs (pan) >= 0.005f)
     {

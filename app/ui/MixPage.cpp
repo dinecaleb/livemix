@@ -37,7 +37,7 @@ namespace
     }
 
     // The same group named in as few letters as it can be, for a tile too narrow for the
-    // whole word. Every other group is already one short word.
+    // whole word. Ambience is the one long name; every other group is already one short word.
     juce::String groupNameBrief (int i)
     {
         if (i >= kGroupTiles)
@@ -50,7 +50,8 @@ namespace
                 case FxSlot::DrumRoom:   return "Room";
                 case FxSlot::Count:      break;
             }
-        return i >= kGroupBuses ? juce::String ("FX") : groupName (i);
+        if (i >= kGroupBuses) return "FX";
+        return groupBus (i) == MixBus::Ambience ? juce::String ("Amb") : groupName (i);
     }
 
     juce::Colour groupColour (int i) noexcept

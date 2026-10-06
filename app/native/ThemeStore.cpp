@@ -88,11 +88,41 @@ namespace
         return t;
     }
 
-    // The v3 design, exactly as app/ui/AppTheme.h declares it. Every key is present, so this
-    // is the floor every other theme resolves down to.
+    // The v4 design (docs/design/v4, 2026-10-06), exactly as app/ui/AppTheme.h declares it:
+    // macOS dark planes - a #1c1c1e window, a #2a2a2d sidebar card, a #161618 workspace - the
+    // system status colours, and DINE's own teal kept as the accent and the "on" and "fine"
+    // colour where the mockup has Apple's green. Every key is present, so this is the floor
+    // every other theme resolves down to.
     Theme studioTeal()
     {
-        return make ("Studio Teal", "Flat neutral planes, one teal accent.", "", {
+        return make ("Studio Teal", "macOS dark planes, one teal accent.", "", {
+            { "desk", 0xff1c1c1e }, { "window", 0xff161618 }, { "toolbar", 0xff1c1c1e }, { "title", 0xff1c1c1e },
+            { "menubar", 0xff242426 }, { "sidebar", 0xff2a2a2d }, { "rail", 0xff1a1a1c }, { "pageBar", 0xff161618 },
+            { "console", 0xff222224 }, { "tile", 0xff1f1f21 }, { "card", 0xff232325 }, { "raised", 0xff262628 },
+            { "item", 0xff1f1f21 }, { "selected", 0xff2c2c2e }, { "control", 0xff2a2a2c }, { "controlHot", 0xff333335 },
+            { "controlOn", 0xff464648 }, { "sheet", 0xff262628 }, { "popover", 0xff2a2a2d },
+            { "inset", 0xff141416 }, { "deep", 0xff0b0b0c }, { "refuse", 0xff2e2414 },
+            { "recGround", 0xff3a1f1e }, { "soloGround", 0xff2c2c2e }, { "editGround", 0xff1f2730 },
+            { "hairSoft", 0x0fffffff }, { "hair", 0x17ffffff }, { "hairStrong", 0x24ffffff }, { "edge", 0x33ffffff },
+            { "fill", 0x0fffffff }, { "fillHover", 0x1affffff }, { "fillSoft", 0x0affffff }, { "well", 0x0fffffff },
+            { "ink", 0xfff5f5f7 }, { "ink2", 0x9eebebf5 }, { "ink3", 0x57ebebf5 }, { "ink4", 0x40ebebf5 },
+            { "glyph", 0xbfebebf5 }, { "panMark", 0x59ebebf5 },
+            { "accent", 0xff6db8a8 }, { "accentHover", 0xff8ed0c2 }, { "accentDeep", 0xff5aa393 }, { "onAccent", 0xff0b0d10 },
+            { "focusRing", 0xff6db8a8 },
+            { "ok", 0xff6db8a8 }, { "hot", 0xffffd60a }, { "warn", 0xffff9f0a }, { "crit", 0xffff453a }, { "monitor", 0xff64d2ff },
+            { "keyMute", 0xffff9f0a }, { "keySolo", 0xffffd60a }, { "keyRec", 0xffff453a }, { "keyMon", 0xff5e5ce6 },
+            { "keyFx", 0xffbf5af2 },
+            { "busDrums", 0xffff9f0a }, { "busBass", 0xff30d158 }, { "busMusic", 0xffbf5af2 }, { "busVocals", 0xff5e8bff },
+            { "busSpeech", 0xffff6482 }, { "busAmbience", 0xffac8e68 }, { "busMaster", 0xffe5e5ea },
+            { "busLead", 0xff64d2ff },
+        });
+    }
+
+    // The v3 design ("DINE - Full UX Mockup", Figma, 2026-09-29), kept whole so a booth that
+    // liked it can go back to it: Inter-era neutral planes and the same teal.
+    Theme studioV3()
+    {
+        return make ("Studio v3", "The v3 planes, one teal accent.", "Studio Teal", {
             { "desk", 0xff0b0b0c }, { "window", 0xff161719 }, { "toolbar", 0xff1d1e21 }, { "title", 0xff1d1e21 },
             { "menubar", 0xff111214 }, { "sidebar", 0xff1a1b1e }, { "rail", 0xff18191c }, { "pageBar", 0xff161719 },
             { "console", 0xff18191c }, { "tile", 0xff18191c }, { "card", 0xff202226 }, { "raised", 0xff202226 },
@@ -221,7 +251,7 @@ bool ThemeStore::isToken (const juce::String& key)
 // ---------------------------------------------------------------- built in
 const std::vector<Theme>& ThemeStore::builtIn()
 {
-    static const std::vector<Theme> themes = { studioTeal(), limeDesk(), slate(), tape(), daylight() };
+    static const std::vector<Theme> themes = { studioTeal(), studioV3(), limeDesk(), slate(), tape(), daylight() };
     return themes;
 }
 

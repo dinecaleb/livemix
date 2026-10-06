@@ -8,8 +8,8 @@ namespace livemix
 {
 
 // ============================================================================ type
-// Inter and IBM Plex Mono, embedded (LiveMixFonts): the same faces the design file loads,
-// so the booth Mac reads exactly like the mock whatever it has installed.
+// SF Pro and SF Mono, the Mac's own faces (v4, docs/design/v4); Inter and IBM Plex Mono stay
+// embedded (LiveMixFonts) as the fallback and for the six plug-ins.
 //
 // EVERY ROLE IS BUILT ONCE, and that is not only about speed.
 // `LiveMixLookAndFeel::typefaceFor` shares its typeface cache through a **stack**
@@ -33,9 +33,36 @@ namespace
     {
         ~FontMemo() override { clearSingletonInstance(); }
         std::map<std::tuple<int, int, int, int>, juce::Font> faces;
+        std::map<std::pair<bool, int>, juce::Typeface::Ptr> systemFaces;   // SF Pro / SF Mono by weight
         juce::CriticalSection lock;
         JUCE_DECLARE_SINGLETON_INLINE (FontMemo, false)
     };
+
+    // THE v4 TYPE IS THE MAC'S OWN: SF Pro for words, SF Mono for every number (docs/design/v4).
+    // Neither may be embedded, and neither needs to be - every Mac DINE runs on has both. They
+    // are hidden families, so they are asked for by the names CoreText gives them
+    // (".AppleSystemUIFont", ".AppleSystemUIFontMonospaced"); "SF Pro" by its public name falls
+    // back to Helvetica. One Typeface per face and weight, held for the life of the app, so two
+    // Fonts of the same role carry the same object and the layout cache below keeps working.
+    juce::Typeface::Ptr systemFace (bool monospaced, int weight)
+    {
+        // Held by the memo, which is DeletedAtShutdown for the reason given above: a static map
+        // of typefaces outlives JUCE's typeface cache and fails on its lock at exit.
+        const int w = weight >= 700 ? 700 : weight >= 600 ? 600 : weight >= 500 ? 500 : 400;
+        auto* memo = FontMemo::getInstance();
+        juce::Typeface::Ptr spare;
+        auto& face = memo != nullptr ? memo->systemFaces[{ monospaced, w }] : spare;
+        if (face == nullptr)
+        {
+            const char* style = w == 700 ? "Bold" : w == 600 ? "Semibold" : w == 500 ? "Medium" : "Regular";
+            face = juce::Typeface::createSystemTypefaceFor (
+                juce::Font (juce::FontOptions (monospaced ? ".AppleSystemUIFontMonospaced" : ".AppleSystemUIFont", style, 13.0f)));
+            if (face == nullptr)   // not a Mac, or a Mac that renamed its system face: the embedded pair
+                face = monospaced ? LiveMixLookAndFeel::mono (13.0f, weight, 0.0f).getTypefacePtr()
+                                  : LiveMixLookAndFeel::inter (13.0f, weight, 0.0f).getTypefacePtr();
+        }
+        return face;
+    }
 
     juce::Font memoisedFont (int kind, float px, int weight, float tracking)
     {
@@ -43,8 +70,9 @@ namespace
                                                    juce::roundToInt (tracking * 1000.0f) };
         const auto build = [&]
         {
-            return kind == 1 ? LiveMixLookAndFeel::mono (px, weight, 0.0f)
-                             : LiveMixLookAndFeel::inter (px, weight, 0.0f).withExtraKerningFactor (tracking);
+            return juce::Font (juce::FontOptions().withTypeface (systemFace (kind == 1, weight))
+                                                  .withPointHeight (px))
+                       .withExtraKerningFactor (kind == 1 ? 0.0f : tracking);
         };
 
         auto* memo = FontMemo::getInstance();
@@ -1741,6 +1769,11 @@ void DineLookAndFeel::setBipolar (juce::Slider& s, bool on) { s.getProperties().
 
 juce::Typeface::Ptr DineLookAndFeel::getTypefaceForFont (const juce::Font& f)
 {
+    // A stock JUCE widget asking for "the sans" or "the mono" gets the same faces DINE draws with.
+    if (f.getTypefaceName() == juce::Font::getDefaultSansSerifFontName())
+        return systemFace (false, f.isBold() ? 600 : 400);
+    if (f.getTypefaceName() == juce::Font::getDefaultMonospacedFontName())
+        return systemFace (true, f.isBold() ? 600 : 400);
     return LiveMixLookAndFeel::getTypefaceForFont (f);
 }
 
