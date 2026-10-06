@@ -1452,6 +1452,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     mixerPage->onOpenAssign = [this] { assignPage->refresh(); showPage (Page::Assign); };
     livePage->onToast = [this] (const juce::String& t) { showToast (t); };
     livePage->onOpenHistory = [this] { showHistory(); };
+    livePage->onOpenCheck = [this] { showCheck(); };
     livePage->onLiveSafeChanged = [this] { updateChrome(); repaint(); };
     livePage->onToggleRecord = [this] { handleCommand (501); };
     advancedPage->onBack = [this] { showPage (Page::Tune); };

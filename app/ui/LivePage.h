@@ -24,6 +24,7 @@ public:
     std::function<void()> onLiveSafeChanged;
     std::function<void()> onToggleRecord;
     std::function<void()> onOpenHistory;      // MIX HISTORY: the mix as it was, by name
+    std::function<void()> onOpenCheck;        // CHECK INPUTS, from the "Needs attention" card
 
     // The sidebar's SCENES row brings you here and points at them: the scenes live on LIVE,
     // where the service is run from, and nowhere else.
@@ -47,7 +48,7 @@ private:
     struct Layout
     {
         juce::Rectangle<int> health, groupsHeader, sceneCaption, sceneTrack, strips, safe, autopilot, monitor,
-                             modesA, modesB, output, speaking, priorityRow, shareRow;
+                             modesA, modesB, output, speaking, priorityRow, shareRow, attention;
     };
     Layout lay;                        // measured in resized(), and again when a card changes height
     int sceneFlash = 0;                // frames left of the mark the sidebar's SCENES row leaves
@@ -68,7 +69,10 @@ private:
     int sceneSlot = -1;
     void refreshScenes();
 
-    std::unique_ptr<Link> safeLink, autopilotLink;
+    std::unique_ptr<Link> safeLink, autopilotLink, checkLink;
+    juce::StringArray attentionNow;    // re-read twice a second with the clipping count
+    int attentionShown = 0;            // how many of them the rail has room for
+    int attentionLines = 2;            // ... and how many lines of what to do each one gets
     // SPEAKING MICS: speech priority and share the mics, the two things that move a level for
     // the spoken word, on LIVE where a service or a show is run - not only in the Mix menu.
     std::unique_ptr<Link> priorityLink, shareLink;
@@ -88,6 +92,9 @@ private:
         juce::String recording, recordingNote, output, outputNote, clipping, clippingNote, headroom, headroomNote,
                      monitorNote, autopilotSince;
         juce::StringArray autopilotLog;
+        // v4's "Needs attention": "Snare Btm is clipping\tTurn its preamp down 6 dB at the console.\tc"
+        // - what, the sentence, and c / w for the lamp (critical, warning).
+        juce::StringArray attention;
         bool isRecording = false, safe = false, running = false, anyClip = false, inPlace = false, routed = false,
              autopilotOn = false, autopilotMoved = false, priorityOn = false, shareOn = false;
         int speakingMics = 0;
@@ -98,6 +105,7 @@ private:
             return recording == o.recording && recordingNote == o.recordingNote && output == o.output && outputNote == o.outputNote
                 && clipping == o.clipping && clippingNote == o.clippingNote && headroom == o.headroom && headroomNote == o.headroomNote
                 && monitorNote == o.monitorNote && autopilotSince == o.autopilotSince && autopilotLog == o.autopilotLog
+                && attention == o.attention
                 && isRecording == o.isRecording && safe == o.safe && running == o.running && anyClip == o.anyClip
                 && inPlace == o.inPlace && routed == o.routed && autopilotOn == o.autopilotOn
                 && autopilotMoved == o.autopilotMoved && soloCount == o.soloCount

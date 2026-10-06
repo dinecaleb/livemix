@@ -410,6 +410,12 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     };
     refreshScenes();
 
+    checkLink = std::make_unique<Link>();
+    checkLink->set ("Check inputs " + juce::String (juce::CharPointer_UTF8 ("\xe2\x80\xba")), Dine::ink2);
+    checkLink->setTooltip ("Every input, its level and one word about it.");
+    checkLink->onClick = [this] { if (onOpenCheck) onOpenCheck(); };
+    addChildComponent (*checkLink);
+
     safeLink = std::make_unique<Link>();
     addAndMakeVisible (*safeLink);
     safeLink->onClick = [this]
@@ -610,11 +616,27 @@ void LivePage::refresh()
                 if (clipping < 2) names += (clipping == 0 ? "" : ", ") + juce::String (controller.getGraph().strips[size_t (i)].name);
                 ++clipping;
             }
+        // v4's "Needs attention": every input the desk should still move, said as a sentence.
+        attentionNow.clear();
+        if (controller.isPrepared())
+            for (int i = 0; i < controller.getEngine().getNumStrips() && i < controller.getGraph().numStrips(); ++i)
+            {
+                const auto a = controller.getInputAdvice (i);
+                if (! a.needsAttention()) continue;
+                using Level = MixController::InputAdvice::Level;
+                const juce::String what = a.level == Level::Clipping ? "is clipping" : a.level == Level::Hot ? "is hot"
+                                        : a.level == Level::Digital ? "is only loud because DINE raised it"
+                                        : a.level == Level::NotHeard ? "was not heard" : "is too quiet";
+                const bool crit = a.level == Level::Clipping || a.level == Level::NotHeard;
+                attentionNow.add (juce::String (controller.getGraph().strips[size_t (i)].name) + " " + what + "\t"
+                                  + juce::String (a.detail) + "\t" + (crit ? "c" : "w"));
+            }
         clipText = clipping == 0 ? "None" : juce::String (clipping) + (clipping == 1 ? " input" : " inputs");
         clipNote = clipping == 0 ? juce::String() : names + " " + Glyph::dash() + " fix it at the console";
         anyClipping = clipping > 0;
     }
     next.anyClip = anyClipping;
+    next.attention = attentionNow;
     next.clipping = clipText;
     next.clippingNote = clipNote;
 
@@ -691,7 +713,8 @@ void LivePage::refresh()
     {
         const bool reflow = next.safe != look.safe || next.autopilotOn != look.autopilotOn
                          || next.priorityOn != look.priorityOn || next.shareOn != look.shareOn || next.speakingMics != look.speakingMics
-                         || next.autopilotLog != look.autopilotLog || next.monitorNote != look.monitorNote;
+                         || next.autopilotLog != look.autopilotLog || next.monitorNote != look.monitorNote
+                         || next.attention != look.attention;
         look = next;
         if (reflow) resized();
         repaint();
@@ -867,6 +890,34 @@ void LivePage::paint (juce::Graphics& g)
         }
     }
 
+    // NEEDS ATTENTION: a lamp, what is wrong in a sentence, and what to do about it.
+    if (! l.attention.isEmpty())
+    {
+        Dine::fillRounded (g, l.attention.toFloat(), Dine::card, 8.0f);
+        header (l.attention, Dine::warn, "Needs attention");
+        auto text = body (l.attention);
+        for (int i = 0; i < attentionShown && i < look.attention.size(); ++i)
+        {
+            const auto& a = look.attention[i];
+            const auto what = a.upToFirstOccurrenceOf ("\t", false, false);
+            const auto rest = a.fromFirstOccurrenceOf ("\t", false, false);
+            const auto detail = rest.upToFirstOccurrenceOf ("\t", false, false);
+            const bool crit = rest.endsWith ("c");
+            const int lines = juce::jmin (attentionLines, wrapLines (noteFont(), detail, text.getWidth() - 14));
+            auto row = text.removeFromTop (18 + 14 * lines);
+            text.removeFromTop (10);
+            g.setColour (crit ? Dine::crit : Dine::warn);
+            g.fillEllipse (row.withWidth (7).withHeight (18).withSizeKeepingCentre (7, 7).toFloat());
+            row.removeFromLeft (14);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::text (12.5f, 600));
+            Dine::drawFittedText (g, what, row.removeFromTop (18), juce::Justification::centredLeft, 1, 0.85f);
+            g.setColour (Dine::ink3);
+            g.setFont (noteFont());
+            Dine::drawFittedText (g, detail, row, juce::Justification::topLeft, lines, 1.0f);
+        }
+    }
+
     // SPEAKING MICS: two rows, each a name, a line saying what it does, and its switch.
     if (! l.speaking.isEmpty())
     {
@@ -1021,11 +1072,36 @@ void LivePage::resized()
         const int monitorH = kCardPadY + titleH + kCardGap + modesH + kCardGap + 24 + kCardPadY;
         l.monitor = rail.removeFromBottom (monitorH);
 
+        rail.removeFromTop (12);
+        rail.removeFromBottom (12);
+        // NEEDS ATTENTION (v4), first in what is left above WHAT I HEAR - a preamp to move is
+        // more urgent than the speaking mics' switches, which the Mix menu also has: as many of
+        // the inputs the desk should move as fit, each its name and what to do (one line of it
+        // when the rail is short).
+        {
+            l.attention = {};
+            if (! look.attention.isEmpty())
+            {
+                attentionLines = rail.getHeight() > 260 ? 2 : 1;
+                int h = kCardPadY + kHeadH + kCardGap + kCardPadY;
+                int fits = 0;
+                for (const auto& a : look.attention)
+                {
+                    const auto detail = a.fromFirstOccurrenceOf ("\t", false, false).upToFirstOccurrenceOf ("\t", false, false);
+                    const int rowH = 18 + 14 * juce::jmin (attentionLines, wrapLines (noteFont(), detail, textW - 14)) + 10;
+                    if (h + rowH > rail.getHeight()) break;
+                    h += rowH;
+                    ++fits;
+                }
+                if (fits > 0) { l.attention = rail.removeFromTop (h); rail.removeFromTop (12); }
+                attentionShown = fits;
+            }
+            checkLink->setVisible (! l.attention.isEmpty());
+        }
+
         // SPEAKING MICS, under Autopilot, in what is left above WHAT I HEAR: two rows of a name
         // and one line each, or the names and their switches alone when the rail is short.
         {
-            rail.removeFromTop (12);
-            rail.removeFromBottom (12);
             const int rowTextW = textW - 90;
             const int pFull = 18 + 2 + 14 * wrapLines (noteFont(), priorityText(), rowTextW);
             const int sFull = 18 + 2 + 14 * wrapLines (noteFont(), shareText(), rowTextW);
@@ -1043,6 +1119,8 @@ void LivePage::resized()
             inner.removeFromTop (compact ? 6 : 10);
             l.shareRow = inner.removeFromTop (s).withTrimmedRight (90);
         }
+
+
 
         auto inner = l.monitor.reduced (kCardPadX, kCardPadY);
         auto titleRow = inner.removeFromTop (titleH);
@@ -1081,6 +1159,7 @@ void LivePage::resized()
     // the links at the right of the two cards' headers
     auto linkArea = [] (juce::Rectangle<int> card, int w) { return card.reduced (kCardPadX, kCardPadY).removeFromTop (kHeadH).removeFromRight (w); };
     safeLink->setBounds (linkArea (l.safe, juce::jmin (180, safeLink->idealWidth())));
+    if (checkLink->isVisible()) checkLink->setBounds (linkArea (l.attention, juce::jmin (140, checkLink->idealWidth())));
     autopilotLink->setBounds (linkArea (l.autopilot, juce::jmin (200, autopilotLink->idealWidth())));
     auto rowLink = [&l] (juce::Rectangle<int> row, int w)
     {
