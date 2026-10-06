@@ -466,7 +466,8 @@ public:
         Look next;
         const bool running = services.isAudioRunning();
         const bool lost = ! running && services.deviceStopped();
-        next.engine = lost ? "Device lost" : ! running ? "Not running" : controller.isBypassed() ? "Bypassed" : "running";
+        // Lower case: it is the second half of a sentence, "Engine not running".
+        next.engine = lost ? "device lost" : ! running ? "not running" : controller.isBypassed() ? "bypassed" : "running";
         next.engineTint = lost ? Dine::crit : ! running ? Dine::ink3 : controller.isBypassed() ? Dine::warn : Dine::ink;
         next.engineLabel = "Engine";
         // THE FIRST CELL IS THE ONE THAT IS ALWAYS THERE. A narrow window drops the cells from
@@ -1696,6 +1697,9 @@ void MainView::updateChrome()
         check->setEnabled (mixable);
     }
     if (auto* setlist = sidebar->actionItem (Sidebar::Action::Scenes)) setlist->setEnabled (mixable);
+    // The device along the foot, at once rather than on the next slow tick: a window that has
+    // just opened says what the engine is doing from its first frame.
+    sidebar->refresh (services.daw().isRecording());
     if (auto* history = sidebar->actionItem (Sidebar::Action::MixHistory)) history->setEnabled (mixable);
     if (auto* exporting = sidebar->actionItem (Sidebar::Action::Export)) exporting->setEnabled (mixable);
     routingPage->refresh();
