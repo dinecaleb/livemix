@@ -100,6 +100,16 @@ namespace MixProfile
         // artificial room steps back by this much.
         float drumRoomSendCutWithRoomMicsDb = 6.0f;
 
+        // The returns <-> the real room (crowd and ambience microphones, 2026-10-06). When the
+        // building is already in the mix the made-up spaces step back so they do not fight it:
+        // the halls (Backing Hall, Band Hall) by this much, the lead's plate by less - it is the
+        // voice's polish more than a space - and the drum room by drumRoomSendCutWithRoomMicsDb.
+        // The halls' tails also lose this many beats of the song. With no room microphone the
+        // returns carry the space at the profile's own sends and tails.
+        float hallSendCutWithAmbienceDb = 4.0f;
+        float plateSendCutWithAmbienceDb = 2.0f;
+        float hallTailBeatsCutWithAmbience = 1.0f;
+
         // Backing vocals <-> lead: N voices add up. The group is held this far under the lead.
         float backingGroupBelowLeadDb = 3.0f;
 

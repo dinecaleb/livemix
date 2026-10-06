@@ -560,6 +560,17 @@ MixPlan plan (const MixPlanContext& ctx)
                                          "plays to set it.", Confidence::High));
         }
 
+    // THE REAL ROOM: a crowd or ambience microphone heard, and in the mix, carries the building.
+    // When it does the made-up spaces step back (sends below, tails here); when nothing does,
+    // the returns carry the space at the profile's own levels.
+    bool roomInTheMix = false;
+    for (int i = 0; i < n; ++i)
+    {
+        const auto& sp = plan.strips[size_t (i)];
+        if (sp.heard && roleFamily (sp.role) == RoleFamily::Ambience && ! plan.proposed.strips[size_t (i)].mute)
+            roomInTheMix = true;
+    }
+
     // ---- Tempo: what the delays have to be in time with ----
     {
         float agreement = 0.0f;
@@ -576,8 +587,10 @@ MixPlan plan (const MixPlanContext& ctx)
             for (int f = 0; f < int (FxSlot::Count); ++f)
             {
                 if (! ctx.graph.fxUsed[size_t (f)]) continue;
-                const float beats = MixProfile::reverbBeats (profile, FxSlot (f));
+                float beats = MixProfile::reverbBeats (profile, FxSlot (f));
                 if (beats <= 0.0f) continue;
+                const bool hall = FxSlot (f) == FxSlot::BgvHall || FxSlot (f) == FxSlot::BandHall;
+                if (hall && roomInTheMix) beats = std::max (1.0f, beats - R.hallTailBeatsCutWithAmbience);
                 auto& fx = plan.proposed.fx[size_t (f)];
                 if (! fx.fx.reverbEnabled) continue;
                 const float character = FxProfiles::baseline (profile, ctx.graph.fxType[size_t (f)]).reverbDecayS;
@@ -856,23 +869,50 @@ MixPlan plan (const MixPlanContext& ctx)
         }
     }
 
-    // Drum room return <-> real room microphones.
-    if (anyHeard (RoleFamily::Room) && ctx.graph.fxUsed[size_t (FxSlot::DrumRoom)])
+    // The returns <-> the real room. The drum room steps back for a drum room microphone or
+    // a crowd / ambience one; the halls and the plate for a crowd / ambience one. Absolute from
+    // the profile's send: stepped back while the room is in the mix, and a send DINE stepped
+    // back returns to the profile's own once it is not. A send set by hand to anything else is
+    // the engineer's, and only the room being in the mix moves it.
     {
-        bool moved = false;
-        for (int i = 0; i < n; ++i)
+        struct Rule { FxSlot slot; bool on; float cutDb; const char* what; const char* why; };
+        const bool drumRoomMic = anyHeard (RoleFamily::Room);
+        const Rule rules[] = {
+            { FxSlot::DrumRoom, drumRoomMic || roomInTheMix, R.drumRoomSendCutWithRoomMicsDb, "Drum room",
+              "Real room microphones are in the mix, so the artificial drum room only adds a little depth instead of doubling the space." },
+            { FxSlot::BgvHall, roomInTheMix, R.hallSendCutWithAmbienceDb, "Backing hall",
+              "The crowd and ambience microphones carry the building, so the backing voices' hall steps back rather than putting a second room around them." },
+            { FxSlot::BandHall, roomInTheMix, R.hallSendCutWithAmbienceDb, "Band hall",
+              "The crowd and ambience microphones carry the building, so the band's hall steps back rather than putting a second room around the keys and guitars." },
+            { FxSlot::VocalPlate, roomInTheMix, R.plateSendCutWithAmbienceDb, "Vocal plate",
+              "The room is already in the mix; the lead keeps its plate, a little lighter, so the voice stays in front of the building." },
+        };
+        for (const auto& rule : rules)
         {
-            auto& sp = plan.strips[size_t (i)];
-            const RoleFamily f = roleFamily (sp.role);
-            const float base = MixProfile::defaultSendDb (profile, f, FxSlot::DrumRoom);
-            if (base <= kSilenceDb) continue;
-            const float target = base - R.drumRoomSendCutWithRoomMicsDb;
-            auto& send = plan.proposed.strips[size_t (i)].sendDb[size_t (FxSlot::DrumRoom)];
-            if (std::fabs (send - target) > 0.01f) { send = target; moved = true; }
+            if (! ctx.graph.fxUsed[size_t (rule.slot)]) continue;
+            int back = 0, restored = 0;
+            for (int i = 0; i < n; ++i)
+            {
+                const RoleFamily f = roleFamily (plan.strips[size_t (i)].role);
+                const float base = MixProfile::defaultSendDb (profile, f, rule.slot);
+                if (base <= kSilenceDb) continue;
+                const float stepped = base - rule.cutDb;
+                auto& send = plan.proposed.strips[size_t (i)].sendDb[size_t (rule.slot)];
+                float target = send;
+                if (rule.on) target = stepped;
+                else if (std::fabs (send - stepped) < 0.01f) target = base;
+                if (std::fabs (send - target) <= 0.01f) continue;
+                send = target;
+                (rule.on ? back : restored)++;
+            }
+            if (back > 0)
+                plan.relationships.push_back (info (Recommendation::Kind::Info, std::string (rule.what) + " return stepped back " + fmtDb (-rule.cutDb, 0),
+                                                     rule.why, Confidence::Medium));
+            if (restored > 0)
+                plan.relationships.push_back (info (Recommendation::Kind::Info, std::string (rule.what) + " return back to its own level",
+                                                     "No room microphone is in the mix now, so the effect carries the space again at the profile's level.",
+                                                     Confidence::Medium));
         }
-        if (moved)
-            plan.relationships.push_back (info (Recommendation::Kind::Info, "Drum room return stepped back " + fmtDb (-R.drumRoomSendCutWithRoomMicsDb, 0),
-                                                 "Real room microphones are in the mix, so the artificial drum room only adds a little depth instead of doubling the space.", Confidence::Medium));
     }
 
     // ---- 3. Balance: faders fitted to the profile's mix levels from the measured processed peaks ----

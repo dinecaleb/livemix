@@ -576,6 +576,87 @@ TEST_CASE ("MixPlanner: a crowd microphone gets its own group, is never gated, a
     CHECK (second.noChangeRequired);
 }
 
+// THE EFFECTS AND THE REAL ROOM (2026-10-06). With crowd or ambience microphones in the mix
+// the building is already there: the halls, the drum room and (a little) the plate step back
+// and the halls' tails lose a beat. With none heard the returns carry the space at the
+// profile's own sends - and a send DINE stepped back goes back. Re-tuning either listen says
+// nothing changed.
+TEST_CASE ("MixPlanner: the effects step back for a room in the mix, and carry the space without one")
+{
+    auto session = band();
+    session.inputs.push_back ({ "Crowd", ChannelRole::CrowdMic, 15, 16 });
+    Rig rig (session);
+    const auto& R = MixProfile::relationships (StyleProfileId::ModernGospel);
+    const auto gospel = StyleProfileId::ModernGospel;
+
+    auto listenWith = [&] (bool crowd)
+    {
+        testsig::Buffer in (17, int (kSr * 8));
+        auto full = bandAudio();
+        for (size_t c = 0; c < full.data.size() && c < in.data.size(); ++c) in.data[c] = full.data[c];
+        if (crowd) { noise (in.data[15], 0.05f, 31); noise (in.data[16], 0.05f, 32); }
+        return rig.listen (in);
+    };
+    auto sendOf = [] (const MixPlan& p, const char* name, FxSlot slot)
+    {
+        return p.proposed.strips[size_t (stripIndex (p, name))].sendDb[size_t (slot)];
+    };
+
+    // A room in the mix.
+    auto ctx = rig.context (listenWith (true));
+    const auto withRoom = MixPlanner::plan (ctx);
+    REQUIRE (withRoom.valid);
+    REQUIRE (ctx.graph.fxUsed[size_t (FxSlot::BandHall)]);
+    CHECK_NEAR (sendOf (withRoom, "Vox 1", FxSlot::BgvHall),
+                MixProfile::defaultSendDb (gospel, RoleFamily::BackingVocal, FxSlot::BgvHall) - R.hallSendCutWithAmbienceDb, 0.01f);
+    CHECK_NEAR (sendOf (withRoom, "Keys", FxSlot::BandHall),
+                MixProfile::defaultSendDb (gospel, RoleFamily::Piano, FxSlot::BandHall) - R.hallSendCutWithAmbienceDb, 0.01f);
+    CHECK_NEAR (sendOf (withRoom, "Lead", FxSlot::VocalPlate),
+                MixProfile::defaultSendDb (gospel, RoleFamily::LeadVocal, FxSlot::VocalPlate) - R.plateSendCutWithAmbienceDb, 0.01f);
+    CHECK_NEAR (sendOf (withRoom, "Tom L", FxSlot::DrumRoom),
+                MixProfile::defaultSendDb (gospel, RoleFamily::Tom, FxSlot::DrumRoom) - R.drumRoomSendCutWithRoomMicsDb, 0.01f);
+    CHECK (hasRelationship (withRoom, "Band hall return stepped back"));
+    CHECK (hasRelationship (withRoom, "Backing hall return stepped back"));
+    // The halls' tails lose a beat of the song (never below a beat, never past the character).
+    const float spb = 60.0f / withRoom.proposed.tempoBpm;
+    for (FxSlot hall : { FxSlot::BgvHall, FxSlot::BandHall })
+    {
+        const float character = FxProfiles::baseline (gospel, ctx.graph.fxType[size_t (hall)]).reverbDecayS;
+        const float beats = std::max (1.0f, MixProfile::reverbBeats (gospel, hall) - R.hallTailBeatsCutWithAmbience);
+        CHECK_NEAR (withRoom.proposed.fx[size_t (hall)].fx.reverbDecayS,
+                    std::max (std::min (beats * spb, character), 0.5f * character), 0.05f);
+    }
+    ctx.current = withRoom.proposed;
+    const auto again = MixPlanner::plan (ctx);
+    if (! again.noChangeRequired) dumpDifferences (withRoom, again);
+    CHECK (again.noChangeRequired);
+
+    // The same session, the crowd silent: the returns carry the space again at the profile's
+    // own sends - from the stepped-back mix the engineer kept.
+    auto quiet = rig.context (listenWith (false));
+    quiet.current = withRoom.proposed;
+    quiet.atCapture = withRoom.proposed;
+    const auto noRoom = MixPlanner::plan (quiet);
+    REQUIRE (noRoom.valid);
+    CHECK_NEAR (sendOf (noRoom, "Vox 1", FxSlot::BgvHall), MixProfile::defaultSendDb (gospel, RoleFamily::BackingVocal, FxSlot::BgvHall), 0.01f);
+    CHECK_NEAR (sendOf (noRoom, "Keys", FxSlot::BandHall), MixProfile::defaultSendDb (gospel, RoleFamily::Piano, FxSlot::BandHall), 0.01f);
+    CHECK_NEAR (sendOf (noRoom, "Lead", FxSlot::VocalPlate), MixProfile::defaultSendDb (gospel, RoleFamily::LeadVocal, FxSlot::VocalPlate), 0.01f);
+    CHECK (hasRelationship (noRoom, "Band hall return back to its own level"));
+    // The drum room still answers to the kit's own room microphone, which is still heard.
+    CHECK_NEAR (sendOf (noRoom, "Tom L", FxSlot::DrumRoom),
+                MixProfile::defaultSendDb (gospel, RoleFamily::Tom, FxSlot::DrumRoom) - R.drumRoomSendCutWithRoomMicsDb, 0.01f);
+    quiet.current = noRoom.proposed;
+    const auto still = MixPlanner::plan (quiet);
+    if (! still.noChangeRequired) dumpDifferences (noRoom, still);
+    CHECK (still.noChangeRequired);
+
+    // A send the engineer set by hand is theirs while no room is in the mix.
+    quiet.current = noRoom.proposed;
+    quiet.current.strips[size_t (stripIndex (noRoom, "Keys"))].sendDb[size_t (FxSlot::BandHall)] = -25.0f;
+    const auto hand = MixPlanner::plan (quiet);
+    CHECK_NEAR (sendOf (hand, "Keys", FxSlot::BandHall), -25.0f, 0.01f);
+}
+
 // ---------------------------------------------------------------------------
 // Saxophone
 // ---------------------------------------------------------------------------
