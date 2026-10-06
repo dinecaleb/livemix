@@ -97,7 +97,6 @@ must not be done as part of the UI work.
 | Desk labels as names | Inputs, right panel "suggested names" | "Use desk labels" writes "Desk NN"; only output channel names are exposed | read-only `inputChannelNames()` (JUCE `getInputChannelNames`) |
 | Feeds ▾ (a group other than the role's) | Inputs right panel | The group follows the role; no feed override | **SESSION** if stored. Not in the UI work |
 | Source ▾ (move to another port) | Inputs right panel | `inputA` is fixed to the row | host (reassign through `commit`); verify it needs no format change first |
-| "Check again" | Preamp banner | No reset of the peak hold | read-only/UI (reset the held peak the page owns) |
 | Source-port column and record dot | Inputs table | No data on AssignPage | read-only (port from the device; arm from `daw()`) |
 | Patch applied undo | Input Mappings | None | host (keep the previous map before `Apply`) |
 
@@ -140,10 +139,10 @@ These are wired by the UI work; no backend change is needed.
 - Keep snapshots the previous mix: `keepPlan` checkpoints into the mix history; confirm, do not add.
 - BYPASS fader-drag toast and LIVE SAFE pre-check toasts on Tune buttons: UI only; the refusal stays in
   `MixController::liveSafeRefuses`, the toast reuses `MainView::liveSafeBlocks`.
-- Inputs: built - Return / ↓ / ↑ / Tab / ⇧Tab / Esc through the name and what-it-is cells, the typeahead,
-  a pasted list filling down (with a tab-separated role column), ⌘D, the shortcut hint. Still to do, UI only
-  over `AssignPage::entries` + `commit`: keyboard selection with no cell focused (↑/↓, ⇧↑/↓, Space, ⌘A), the
-  "Paste a list of names" preview for ⌘V outside a cell, "Number them", the right-hand panel, the "Not used" section.
+- Inputs: built (v4 fast entry and C1) - the keys through the cells, the typeahead, a pasted list filling down, Cmd-D,
+  keyboard selection with no cell focused (up/down, Shift, Space, Return, Cmd-A, Esc), Cmd-V's "Paste a list of
+  names" with its preview, Number them, the right panel, the preamp banner with Check again, the group chips with
+  Not used and search, the Not used section ("Use it").
 - UI preferences (sidebar folded, strip size, rails, window bounds, Mixer view): none persisted today;
   per-Mac keys beside theme and text size in `preferences.json`, never `SessionStore`.
 

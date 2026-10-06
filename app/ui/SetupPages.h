@@ -164,6 +164,7 @@ public:
     std::function<void()> onContinue, onBack;
     std::function<void()> onSaveMapping, onApplyMapping;   // the patch: saved, or a saved one applied
     std::function<void (const juce::String&)> onToast;     // "14 names -> inputs 05-18"
+    std::function<void (int strip)> onTuneChannel, onOpenInspector;   // the right panel's verbs
     void refresh();                       // rebuild rows from the controller's session and the device's channel count
     // The meters and the gain-staging verdict, at the window's rate. Nothing is rebuilt here;
     // a page of live numbers that only moves when somebody types is worse than no numbers.
@@ -185,6 +186,24 @@ public:
     static bool roleFor (const juce::String& typed, ChannelRole& role);
     void clearAll();
 
+    // ---- v4 leftovers (C1): everything below is UI over `entries` + `commit`
+    // The input the right panel is about; ↑/↓ with no cell focused move it.
+    void pickInput (int input);
+    int pickedInput() const noexcept { return picked; }
+    bool keyPressed (const juce::KeyPress&) override;
+    // Cmd-V outside a cell: "Paste a list of names", with its live preview.
+    void openPaste (const juce::String& text);
+    bool isPasteOpen() const noexcept;
+    juce::String pastePreview() const;
+    void applyPaste();
+    // Bulk "Number them": the picked-out inputs become "BV 1", "BV 2", ...
+    void numberSelection();
+    // "Check again": forget every held peak, so the next hit is the reading.
+    void checkAgain();
+    // The group chips: -2 all, -1 not used, else a MixBus.
+    void setBusFilter (int filter);
+    int selectedCount() const { return selectionCount(); }
+
 private:
     class Row;
     // The band a group of inputs sits under: its colour, its name, how many are in it, and
@@ -194,6 +213,19 @@ private:
     // left-aligned, because "Name everything from what it is" needs the sentence under it
     // more than it needs to be centred.
     class QuickAction;
+    class Detail;                         // the right panel for the picked input
+    class PastePanel;                     // "Paste a list of names"
+    std::unique_ptr<Detail> detail;
+    std::unique_ptr<PastePanel> paste;
+    int picked = -1;
+    std::vector<int> fillTargets (int fromInput, int count) const;   // where fillDown would put a list
+    int sessionIndexOf (int input) const; // the session's input (and track) on this device channel, or -1
+    int stripOf (int input) const;        // its console strip, or -1
+    std::vector<int> visibleOrder() const;
+    juce::Rectangle<int> bannerArea, actionsArea;
+    int captionTop = 0;
+    struct Cols { int num = 52, name = 200, bus = 140, pair = 56, meter = 92, verdict = 120, gap = 20; };
+    static Cols colsFor (int width);
     struct Entry
     {
         juce::String name;
@@ -274,7 +306,8 @@ private:
     juce::String query;
     int busFilter = -2;                   // -2 all, -1 not used, else MixBus
     int lastClicked = -1;                 // for shift-click
-    bool grouped = false;   // the design's table is flat; Quick actions groups it by bus
+    bool grouped = true;    // v4: the table in sections by the group each input feeds, Not used last
+    int neighbour (int input, int delta) const;   // the next / previous input in the list as shown
     juce::Viewport viewport;
     juce::Component listHolder;
     juce::TextEditor search;
@@ -296,6 +329,11 @@ private:
     DineButton patchSaveButton { "Save this patch", DineButton::Style::Standard };
     DineButton patchApplyButton { "Apply a saved patch", DineButton::Style::Standard };
     DineButton quickButton { "Quick actions", DineButton::Style::Standard };
+    DineButton numberButton { "Number them", DineButton::Style::Standard };
+    DineButton nameSelButton { "Name from what it is", DineButton::Style::Standard };
+    DineButton pairSelButton { "Pair L and R", DineButton::Style::Standard };
+    DineButton patchButton { "Patch", DineButton::Style::Standard };
+    DineButton checkAgainButton { "Check again", DineButton::Style::Standard };
 };
 
 // STEP 3: purpose (how loud it lands and how hard it may peak) and sound (the character

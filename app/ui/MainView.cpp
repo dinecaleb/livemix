@@ -1475,6 +1475,8 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     assignPage->onContinue = [this] { showPage (Page::Purpose); };
     assignPage->onSaveMapping = [this] { saveInputMapping(); };
     assignPage->onToast = [this] (const juce::String& t) { showToast (t); };
+    assignPage->onTuneChannel = [this] (int strip) { tuneChannel (strip); };
+    assignPage->onOpenInspector = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
     assignPage->onApplyMapping = [this] { showPage (Page::Maps); };
 
     // ---- ROUTING: the sections, and the two it owns

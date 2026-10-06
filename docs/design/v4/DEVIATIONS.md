@@ -92,3 +92,13 @@ The mockup is `docs/design/v4/DINE v4.html`; open it in a browser and compare it
 | **The header's fader and TUNE** | A level bar under the name and the dB beside it | The horizontal fader, the meter, the dB and TUNE as before | The fader and per-track TUNE are inventory items on the header; v4's header simply has fewer things on it. |
 | **The tool row** | S M L, Snap / Follow, Split, Marker, the selection, zoom, All to record | ... and All to input, Loop and Fit | Inventory items; the row's order is v4's. |
 | **The header's state lamp** | A group-colour bar | A group-colour bar | The lamp said armed / monitoring / muted, which the R, A and M keys beside it already say. |
+
+## Inputs (commit "C1: Inputs")
+
+| What | The mockup | The build | Why |
+| --- | --- | --- | --- |
+| **Feeds and Source in the right panel** | Pickers | Read as text: the group the role feeds, "Input 3" | A feed other than the role's and moving an input to another port have no backend (`GAPS.md`: SESSION, host). |
+| **The table's port and record columns** | "Mic/Line 3" and a record dot per row | The channel number; Record it is in the right panel | The device's own channel names have no accessor yet (`GAPS.md`). |
+| **The table on a narrow window** | Every column | The arriving meter gives way first, then the group's cell narrows, then the name | The role popup and the verdict never shrink; nothing is cut. |
+| **A click on a row** | Edits it in the right panel | The same; Cmd-click adds to the selection, Shift-click a range | Before v4 a click toggled the selection; Cmd-click now does. |
+| **The verdict** | "Healthy", "Clipping -6" | The same words as the Mixer's chip | It replaced the capitals ("CLIPPING - PREAMP DOWN 10 dB"); the right panel and the banner say the sentence. |

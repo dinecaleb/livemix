@@ -903,4 +903,60 @@ TEST_CASE ("Inputs fast entry: the typeahead knows the desk's shorthand, a list 
     // Cmd-D on the next input: the same thing as the one above, with the next number.
     assign.sameAsAbove (14);
     CHECK (named ("BV 3") == ChannelRole::BackingVocal);
+
+    // ---- with no cell focused (v4): the arrows move the picked input, Shift extends the
+    // selection, Space picks one out, Cmd-A everything shown, Escape lets go.
+    assign.setBusFilter (-2);
+    window.pump (5);
+    const int first = window.controller.getSession().inputs.front().inputA;
+    assign.pickInput (first);
+    CHECK (assign.pickedInput() == first);
+    assign.keyPressed ({ juce::KeyPress::downKey, 0, 0 });
+    const int second = assign.pickedInput();
+    CHECK (second != first);
+    CHECK (second >= 0);
+    assign.keyPressed ({ juce::KeyPress::upKey, 0, 0 });
+    CHECK (assign.pickedInput() == first);
+    assign.keyPressed ({ juce::KeyPress::downKey, juce::ModifierKeys::shiftModifier, 0 });
+    CHECK (assign.selectedCount() == 2);
+    assign.keyPressed ({ juce::KeyPress::spaceKey, 0, 0 });            // Space lets the second go again
+    CHECK (assign.selectedCount() == 1);
+    assign.keyPressed ({ juce::KeyPress::escapeKey, 0, 0 });
+    CHECK (assign.selectedCount() == 0);
+    assign.keyPressed ({ 'A', juce::ModifierKeys::commandModifier, 0 });
+    CHECK (assign.selectedCount() > 10);
+    assign.keyPressed ({ juce::KeyPress::escapeKey, 0, 0 });
+
+    // ---- Cmd-V outside a cell: the list, and where it lands before it lands
+    assign.pickInput (first);
+    assign.openPaste ("Kick In\nKick Out\nSnare");
+    REQUIRE (assign.isPasteOpen());
+    CHECK (assign.pastePreview().startsWith ("3 names"));
+    CHECK (assign.pastePreview().contains ("inputs " + juce::String (first + 1).paddedLeft ('0', 2)));
+    assign.applyPaste();
+    window.pump (5);
+    CHECK (! assign.isPasteOpen());
+    CHECK (named ("Kick Out") != ChannelRole::Count);
+
+    // ---- Number them: three inputs picked out become one name with a number
+    std::vector<int> three;
+    for (const auto& in : window.controller.getSession().inputs)
+        if (three.size() < 3 && juce::String (in.name).startsWith ("BV")) three.push_back (in.inputA);
+    REQUIRE (three.size() == 3);
+    assign.selectInputs (three);
+    assign.numberSelection();
+    CHECK (named ("BV 1") != ChannelRole::Count);
+    CHECK (named ("BV 2") != ChannelRole::Count);
+    CHECK (named ("BV 3") != ChannelRole::Count);
+
+    // ---- an edit here never forgets the pinned focal source (found 2026-10-06: commit()
+    // rebuilt every input and dropped it, and what a voice was before it spoke)
+    auto session = window.controller.getSession();
+    session.setFocus (0);
+    session.inputs[0].otherVoiceRole = int (ChannelRole::SpeechLapel);
+    window.controller.setSession (session);
+    assign.refresh();
+    assign.fillDown (session.inputs[0].inputA, "Renamed\n");
+    CHECK (window.controller.getSession().inputs[0].focus);
+    CHECK (window.controller.getSession().inputs[0].otherVoiceRole == int (ChannelRole::SpeechLapel));
 }
