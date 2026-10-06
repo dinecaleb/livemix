@@ -76,3 +76,11 @@ The mockup is `docs/design/v4/DINE v4.html`; open it in a browser and compare it
 | **The setlist, cues and "Up next"** | A cue header ("Way Maker - Cue 3 of 10 - Band"), This cue / Groups / All / Alerts, an "Up next" card with "Go to Goodness of God (Space)", the setlist with Now and Next, cue editing | The scenes (Band, Speech, Worship, Custom) and Keep, as before | A setlist is a new thing in the session document - a SESSION change the UI work does not make (`GAPS.md`). The scenes are what DINE has to recall. |
 | **Needs attention** | A card of inputs to fix, each with a button ("Done", "Notch it") | Built: the inputs whose gain the desk should still move, each "<name> is clipping" and the sentence of what to do, and "Check inputs >" in its header | The verdicts are `InputAdvice` - the same as Check inputs, the Mixer's chip and TUNE. A per-row "Done" has nothing to record and "Notch it" is a feedback tool DINE does not have, so the card has the one action that exists. It takes its room before the speaking mics' card, which also lives in the Mix menu. The snapshot set has no frame with both an input flagged and room on the rail, so no PNG shows it yet. |
 | **Strips per input on LIVE** | The cue's inputs as strips, with Autopilot's "Auto +1.5" chips | The group strips and the effects, as before | LIVE is the group-level desk in DINE; Autopilot moves group faders only (CLAUDE.md), so a per-input Auto chip would describe a move it never makes. |
+
+## Tracks (commit "v4 Tracks")
+
+| What | The mockup | The build | Why |
+| --- | --- | --- | --- |
+| **The header's fader and TUNE** | A level bar under the name and the dB beside it | The horizontal fader, the meter, the dB and TUNE as before | The fader and per-track TUNE are inventory items on the header; v4's header simply has fewer things on it. |
+| **The tool row** | S M L, Snap / Follow, Split, Marker, the selection, zoom, All to record | ... and All to input, Loop and Fit | Inventory items; the row's order is v4's. |
+| **The header's state lamp** | A group-colour bar | A group-colour bar | The lamp said armed / monitoring / muted, which the R, A and M keys beside it already say. |

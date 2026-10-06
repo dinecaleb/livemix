@@ -17,6 +17,7 @@ namespace
     constexpr int kMaxHeaderWidth = 640;
     constexpr int kDividerGrip = 4;        // how close the pointer has to be to grab it
     constexpr int kToolbarHeight = 46;
+    constexpr int kTitleW = 64;          // v4: "Tracks" at the left of the tool row
     constexpr int kRulerHeight = 44;
     constexpr int kLoopStrip = 14;         // the top of the ruler: drag here to mark a loop
     constexpr int kLoopGrip = 8;           // how close to a loop's edge counts as grabbing that edge
@@ -1275,6 +1276,7 @@ void TracksPage::paint (juce::Graphics& g)
 {
     g.fillAll (Dine::window);
 
+
     const int tracks = numTracks();
     const auto lanes = lanesArea();
     const auto& project = services.daw().getProject();
@@ -1484,6 +1486,10 @@ void TracksPage::paintToolbar (juce::Graphics& g)
 {
     auto area = toolbarArea();
     Dine::drawHeaderBand (g, area);
+    // v4: the workspace's title at the left of its tool row.
+    g.setColour (Dine::ink);
+    g.setFont (Dine::text (15.0f, 700));
+    Dine::drawText (g, "Tracks", area.reduced (18, 0).withWidth (kTitleW), juce::Justification::centredLeft);
 
     if (rowTabs[0] != nullptr && rowTabs[0]->isVisible())
         Dine::drawSegmentTrack (g, rowTabs[0]->getBounds().getUnion (rowTabs[2]->getBounds()).expanded (2, 2));
@@ -1523,12 +1529,16 @@ void TracksPage::paintRuler (juce::Graphics& g)
     g.setColour (Dine::pageBar);
     g.fillRect (all);
 
-    // The header column of the ruler stays empty: the design leaves it so, and how many
-    // tracks are set to record is on the status foot, where it is true from every workspace.
+    // The header column of the ruler says how many tracks are set to record (v4), as the
+    // status foot does from every workspace.
     {
         auto cell = juce::Rectangle<int> (0, all.getY(), headerWidth, all.getHeight());
         g.setColour (Dine::console);
         g.fillRect (cell);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (11.0f));
+        Dine::drawText (g, juce::String (services.daw().getProject().numArmed()) + " to record",
+                        cell.reduced (14, 0).withTrimmedBottom (4), juce::Justification::bottomLeft, true);
         g.setColour (Dine::hair);
         g.fillRect (cell.removeFromRight (1));
     }
@@ -1636,10 +1646,13 @@ void TracksPage::paintHeader (juce::Graphics& g, int track, juce::Rectangle<int>
     const auto tune = tuneCell (track);
     auto text = row.reduced (12, 0).withRight ((tune.isEmpty() ? keyCell (track, 0).getX() : tune.getX()) - 8);
     {
-        auto dot = text.removeFromLeft (7).withSizeKeepingCentre (7, 7);
-        g.setColour (state.armed ? Dine::crit : monitoring ? Dine::monitor : mute ? Dine::warn : tint);
-        g.fillEllipse (dot.toFloat());
-        text.removeFromLeft (8);
+        // v4: the group's colour as a bar down the row's left edge. Set to record, monitoring
+        // and muted are said by the R, A and M keys beside it, so the bar says one thing.
+        juce::ignoreUnused (monitoring);
+        const auto bar = juce::Rectangle<int> (row.getX() + 10, row.getY() + 8, 3, juce::jmax (6, row.getHeight() - 16));
+        g.setColour (mute ? tint.withAlpha (0.4f) : tint);
+        g.fillRoundedRectangle (bar.toFloat(), 1.5f);
+        text.removeFromLeft (7 + 8);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (11.0f));
         Dine::drawText (g, juce::String (track + 1).paddedLeft ('0', 2), text.removeFromLeft (20), juce::Justification::centredLeft);
@@ -1788,9 +1801,12 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
         const bool named = box.getHeight() > 22 && box.getWidth() > 44;
         const auto tint = dim ? Dine::ink4 : colour;
 
-        // A clip is a plane of its group's colour, the waveform dark on it, the name dark in
-        // the corner - the way the design draws one.
-        Dine::fillRounded (g, box.toFloat(), tint.withMultipliedSaturation (dim ? 0.0f : 1.0f).withAlpha (selected ? 1.0f : 0.85f), Dine::Radius::chip);
+        // v4: a clip is its group's colour at a fifth, a hairline of it round the edge, and the
+        // waveform and the name in the colour itself - the group reads at a glance and the
+        // waveform stays the brightest thing in the lane.
+        const auto clipTint = tint.withMultipliedSaturation (dim ? 0.0f : 1.0f);
+        Dine::fillRounded (g, box.toFloat(), clipTint.withAlpha (selected ? 0.32f : 0.20f), 4.0f);
+        Dine::hairlineRounded (g, box.toFloat().reduced (0.5f), clipTint.withAlpha (selected ? 0.95f : 0.65f), 3.5f);
         auto wave = box.reduced (2, 3).withTrimmedTop (named ? 14 : 0);
         if (auto* thumb = thumbnailFor (clip); thumb != nullptr && wave.getHeight() > 4)
         {
@@ -1799,7 +1815,7 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
             const double to = from + double (clip.length) / juce::jmax (1.0, project.sampleRate);
             juce::Graphics::ScopedSaveState save (g);
             g.reduceClipRegion (wave);
-            g.setColour (juce::Colours::black.withAlpha (dim ? 0.25f : 0.42f));
+            g.setColour (clipTint.withAlpha (dim ? 0.45f : 0.95f));
             // A desk's multichannel file is many tracks: each one draws its own channel of it.
             if (thumb->getNumChannels() > 2)
                 thumb->drawChannel (g, wave, from, to, juce::jlimit (0, thumb->getNumChannels() - 1, clip.fileChannel), 0.95f);
@@ -1808,8 +1824,8 @@ void TracksPage::paintLane (juce::Graphics& g, int track, juce::Rectangle<int> a
         }
         if (named)
         {
-            g.setColour (juce::Colours::black.withAlpha (0.65f));
-            g.setFont (Dine::text (10.0f));
+            g.setColour (clipTint.brighter (0.15f));
+            g.setFont (Dine::text (10.0f, 600));
             Dine::drawText (g, clip.name.isEmpty() ? juce::String (session.inputs[size_t (track)].name) : clip.name,
                         box.reduced (7, 0).withTrimmedTop (2).withHeight (14), juce::Justification::centredLeft, true);
         }
@@ -1862,6 +1878,7 @@ void TracksPage::updateToolbar()
 void TracksPage::resized()
 {
     auto row = toolbarArea().reduced (18, 0).withSizeKeepingCentre (juce::jmax (100, getWidth() - 36), Dine::Metric::control);
+    row.removeFromLeft (kTitleW);
 
     auto seg = [&row] (std::initializer_list<DineButton*> buttons, int minW)
     {
