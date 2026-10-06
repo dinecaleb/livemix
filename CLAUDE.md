@@ -87,14 +87,15 @@ file under `docs/` — read the one for the area you are touching before changin
   `MixController::touch()`'s revision, never a UI call site. A session survives a crash the way a take does
   (`app/native/SessionAutosave`): an autosave and a clean-exit marker sit beside the document, and one found on the
   next launch offers Recover / Open last saved / Keep both. `docs/SESSION-STATE.md` is the audit and the contract.
-- **The design is the Figma file, and `docs/DESIGN-V3.md` is the map to it.** The DINE
-  application is built to "DINE - Full UX Mockup" (v3, 2026-09-29): Inter and IBM Plex Mono,
-  flat neutral planes, one 52 pt toolbar with the window's own buttons inside it, a 208 pt
-  sidebar in sentence case that folds to a 52 pt icon rail, and a 28 pt status foot. **The only
-  capitals in the product are its verbs** - `Dine::drawSection` puts a caption back into
-  sentence case, so a caption written in capitals is corrected rather than shouted. Read
-  `docs/DESIGN-V3.md` before moving anything in `app/ui`; it also lists, with the reason, every
-  place the code and the design disagree.
+- **The design is the v4 mockup in `docs/design/v4`** (2026-10-06; it supersedes the Figma v3
+  file and `docs/DESIGN-V3.md`). macOS dark planes, SF Pro for words and SF Mono for numbers (the
+  Mac's own faces, asked for by their CoreText names), a 214 pt sidebar card that hides completely,
+  a 60 pt toolbar, the workspace and the chain strip as cards, white pills for the primary verbs.
+  **DINE's teal (`Dine::accent`) stays the brand and the "on" colour** where the mockup has Apple's
+  green - the owner's call. **The only capitals in the product are its verbs.** Before moving
+  anything in `app/ui` read `docs/design/v4/INVENTORY.md` (everything the UI must keep),
+  `DEVIATIONS.md` (where the build and the mockup differ, and why), `GAPS.md` (what has no backend,
+  stubbed as `TODO(v4-backend)`, and the owner's open decisions) and `PERF.md`.
 - **UI changes are verified by looking at the PNGs** (`dine_ui_snapshots`, the per-product
   `livemix_*_ui_snapshots`), never by reasoning about layout code; regression references change only when a
   baseline changes on purpose. No page repaints itself wholesale from its tick; a page's `paint` and its `Look`
