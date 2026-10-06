@@ -260,7 +260,16 @@ void MacroPad::resized()
     const int n = int (snapButtons.size());
     const int gap = 2;
     const int w = n > 0 ? (row.getWidth() - gap * (n - 1)) / n : 0;
-    for (int i = 0; i < n; ++i) { snapButtons[size_t (i)]->setBounds (row.removeFromLeft (w)); row.removeFromLeft (gap); }
+    // A pad too narrow for every snap's word drops the row: a snap is a shortcut to a place
+    // the puck can be dragged to, and "Spe" is not the name of a place.
+    bool room = true;
+    for (const auto& sn : snaps)
+        if (Dine::textWidth (Dine::text (12.0f, 500), sn.name) + 8 > w) room = false;
+    for (int i = 0; i < n; ++i)
+    {
+        snapButtons[size_t (i)]->setBounds (room ? row.removeFromLeft (w) : juce::Rectangle<int>());
+        row.removeFromLeft (gap);
+    }
 }
 
 void MacroPad::paint (juce::Graphics& g)
@@ -333,8 +342,12 @@ void MacroPad::paint (juce::Graphics& g)
             g.setFont (Dine::mono (11.0f, 500));
             // Both names and both numbers, squeezed a little on a narrow pad rather than the
             // second one cut off: "BASS 62 - VOI..." is not a reading of anything.
-            Dine::drawFittedText (g, describeValues(), in.withTrimmedTop (16).removeFromTop (14),
-                                  juce::Justification::centred, 1, 0.7f);
+            // Too narrow even squeezed: the two numbers alone, in the corners' order.
+            const auto line = in.withTrimmedTop (16).removeFromTop (14);
+            const auto full = describeValues();
+            const bool fits = float (Dine::textWidth (Dine::mono (11.0f, 500), full)) * 0.7f <= float (line.getWidth());
+            Dine::drawFittedText (g, fits ? full : juce::String (int (std::round (x))) + "  " + Glyph::dot() + "  " + juce::String (int (std::round (y))),
+                                  line, juce::Justification::centred, 1, 0.7f);
         }
 
         // the puck

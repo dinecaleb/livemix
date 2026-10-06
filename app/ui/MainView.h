@@ -28,8 +28,17 @@
 namespace livemix
 {
 
-// The window, after the v3 design ("DINE - Full UX Mockup", `Toolbar v3.4` 117:32462 and
-// `Sidebar` 64:9437). docs/DESIGN-V3.md is the map.
+// The window, after the v4 design (docs/design/v4, "DLIVE v3.html" as handed over). It was
+// the v3 Figma design before it; the layout below is v4's, and docs/design/v4/INVENTORY.md is
+// the list of everything it must keep.
+//
+// v4: a sidebar CARD floating 8 pt in from the window, the window's own buttons at its top,
+// hiding completely (no rail); a 60 pt toolbar beside it - the session button, the transport
+// pill and clock, the readiness pill, the solo pill, then at the right TUNE LIVE MIX as a white
+// pill, the broadcast keys in one pill, LIVE SAFE as a switch, the output pill and Mix Buddy;
+// the workspace as a card with 14 pt corners; the chain strip as a card under it; and the status
+// foot as one quiet line along the bottom. What follows is the v3 description, still true of
+// what each part is for.
 //
 // ONE 52 px toolbar across the whole width. The window's own buttons sit inside it, then the
 // sidebar switch; the transport well is at the left of the workspace column with the clock in
@@ -93,8 +102,11 @@ public:
     // "outputs", "check", "history", "appearance", "channel", "chat", or "" for none.
     juce::String openSheetName() const;
 
-    // The sidebar folds to a named handle; a workspace's own panels fold from `[` and `]`.
-    void setSidebarShown (bool);
+    // The sidebar hides completely (v4); a workspace's own panels fold from `[` and `]`.
+    void setSidebarShown (bool shown, bool automatic = false);
+    // The application answers whether the Mac asks for less motion (Accessibility > Display >
+    // Reduce motion). Left empty - the snapshot tool, the tests - nothing animates.
+    std::function<bool()> prefersReducedMotion;
     bool isSidebarShown() const noexcept { return sidebarShown; }
     bool isSoloBarShown() const;               // the reachability test and the snapshot tool
     void togglePanel (bool left);
@@ -216,11 +228,14 @@ private:
     static constexpr int kRequestsW = 380;   // the Mix Buddy panel down the right of the workspace
     // What macOS draws at the left of the toolbar: three 12 pt buttons at 16 / 36 / 56, so the
     // first thing this window may put there starts at 86 (design: `Toolbar v3.4`).
-    static constexpr int kTrafficLights = 86;
+    static constexpr int kTrafficLights = 77;   // v4: the buttons at 25 / 45 / 65, ending at 77
     // Where the toolbar's own left cluster ends: the window buttons, the sidebar switch and the
     // wordmark. Nothing else in the row may start before it, whatever the sidebar is doing.
     static constexpr int kToolbarLeft   = 224;
     class SidebarButton;
+    class SessionButton;
+    class ReadyPill;
+    class OutputPill;
     class MixerWindow;
     class PageWindow;
     class StatusBar;
@@ -336,7 +351,11 @@ private:
     std::unique_ptr<Tutorial> tutorial;
     std::unique_ptr<WorkspaceGuide> guide;
 
-    DinePopup outputButton;
+    std::unique_ptr<OutputPill> outputButton;
+    std::unique_ptr<SessionButton> sessionButton;
+    std::unique_ptr<ReadyPill> readyPill;
+    int inputsNeedingAttention() const;
+    void readyPillClicked();
     std::unique_ptr<juce::FileChooser> chooser;
 
     int saveTicks = 0, toastTicks = 0, slowTicks = 0;
@@ -350,8 +369,21 @@ private:
     bool tuningLiveWasOn = false;
     bool usingCloudMixEngineer = false;
     bool sidebarShown = true;
+    // The sidebar's slide (v4): 1 out, 0 gone, eased over 420 ms on the display's own clock
+    // while it moves and not at all otherwise. Going to LIVE folds it away by itself, and
+    // leaving LIVE brings it back only if that is what folded it.
+    float sidebarReveal = 1.0f, revealFrom = 1.0f;
+    double revealStartMs = 0.0;
+    std::unique_ptr<juce::VBlankAttachment> sidebarClock;
+    bool sidebarAutoHidden = false;
+    void stepSidebar();
+    int columnLeft() const noexcept;
+    juce::Rectangle<int> workspaceCard() const;
+    void paintOverChildren (juce::Graphics&) override;
     int lastChannel = -1;               // the last channel picked out anywhere: what the chain foot reads
     int dividerX = 0;                   // where the toolbar's one divider was last laid out
+    juce::Rectangle<int> broadcastPill; // the one pill DIM, MUTE, BYPASS and Auto sit in
+    static constexpr int kBypassBanner = 42;   // the white BYPASS bar under the toolbar, and its gap
     float onAir = 0.0f;
 };
 

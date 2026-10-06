@@ -36,7 +36,7 @@ inline bool hasSampleStage (ChannelRole role) noexcept { return sampleReplacemen
 class ChainStrip : public juce::Component
 {
 public:
-    ChainStrip();
+    ChainStrip();   // not opaque: a card with rounded corners on the window's ground
 
     std::function<void()> onOpen;
 
@@ -48,7 +48,7 @@ public:
     void paint (juce::Graphics&) override;
     void mouseUp (const juce::MouseEvent&) override;
 
-    static constexpr int height = 48;
+    static constexpr int height = 46;   // the v4 card
 
 private:
     juce::String name, note, empty;

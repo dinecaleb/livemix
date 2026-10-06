@@ -832,8 +832,50 @@ namespace
         static const std::vector<IconStroke> v3Close { { "M5 5L15 15M15 5L5 15", 1.75f, false } };
         static const std::vector<IconStroke> v3Headphones { { "M3.75 13.75V10C3.75 3.75 16.25 3.75 16.25 10V13.75M2.5 12.5H6.25V17.5H2.5V12.5ZM13.75 12.5H17.5V17.5H13.75V12.5Z", 1.75f, false } };
 
+        // ---------------------------------------------------------------- the v4 sidebar set
+        // The mockup's sidebar glyphs (docs/design/v4): small geometric marks, a solid part where
+        // the mockup fills one, a 1.5 stroke in the 20 pt box everywhere else.
+        static const std::vector<IconStroke> v4Sessions { { "M6 4.5h8a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3z", 1.5f, false } };
+        static const std::vector<IconStroke> v4Purpose {
+            { "M10 3.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13", 1.5f, false },
+            { "M10 3.5a6.5 6.5 0 0 0 0 13z", 1.0f, true } };
+        static const std::vector<IconStroke> v4Routing {
+            { "M5 7.4a2.6 2.6 0 1 0 0 5.2a2.6 2.6 0 1 0 0-5.2", 1.0f, true },
+            { "M7.6 10h4.8M15 7.4a2.6 2.6 0 1 0 0 5.2a2.6 2.6 0 1 0 0-5.2", 1.5f, false } };
+        static const std::vector<IconStroke> v4Check { { "M4 11.5h3v5H4zM8.5 8h3v8.5h-3zM13 4.5h3v12h-3z", 1.0f, true } };
+        static const std::vector<IconStroke> v4Mixer { { "M5.5 6v10M10 9v7M14.5 4v12", 2.0f, false } };
+        static const std::vector<IconStroke> v4Tune {
+            { "M10 3.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13", 1.5f, false },
+            { "M10 8a2 2 0 1 0 0 4a2 2 0 1 0 0-4", 1.0f, true } };
+        static const std::vector<IconStroke> v4Inspector { { "M5 4h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9 4v12", 1.5f, false } };
+        static const std::vector<IconStroke> v4Favourite { { "M10 3.2l6.8 6.8-6.8 6.8-6.8-6.8z", 1.5f, false } };
+        static const std::vector<IconStroke> v4History {
+            { "M10 3.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13", 1.5f, false },
+            { "M10 6.5V10l2.5 1.6", 1.5f, false } };
+        static const std::vector<IconStroke> v4Live {
+            { "M10 3.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13", 1.5f, false },
+            { "M10 7a3 3 0 1 0 0 6a3 3 0 1 0 0-6", 1.0f, true } };
+        static const std::vector<IconStroke> v4Setlist {
+            { "M3.5 3.5h5.5v5.5H3.5z", 1.0f, true },
+            { "M11 3.5h5.5v5.5H11zM3.5 11h5.5v5.5H3.5zM11 11h5.5v5.5H11z", 1.4f, false } };
+        static const std::vector<IconStroke> v4Tracks { { "M3 5h14M3 10h10M3 15h12", 1.8f, false } };
+        static const std::vector<IconStroke> v4Export { { "M10 3.5v9M6.5 9l3.5 3.5 3.5-3.5M4 16.5h12", 1.5f, false } };
+
         switch (icon)
         {
+            case Dine::Icon::NavSessions:  return v4Sessions;
+            case Dine::Icon::NavPurpose:   return v4Purpose;
+            case Dine::Icon::NavRouting:   return v4Routing;
+            case Dine::Icon::NavCheck:     return v4Check;
+            case Dine::Icon::NavMixer:     return v4Mixer;
+            case Dine::Icon::NavTune:      return v4Tune;
+            case Dine::Icon::NavInspector: return v4Inspector;
+            case Dine::Icon::NavFavourite: return v4Favourite;
+            case Dine::Icon::NavHistory:   return v4History;
+            case Dine::Icon::NavLive:      return v4Live;
+            case Dine::Icon::NavSetlist:   return v4Setlist;
+            case Dine::Icon::NavTracks:    return v4Tracks;
+            case Dine::Icon::NavExport:    return v4Export;
             case Dine::Icon::Drum:     return drum;
             case Dine::Icon::Cymbal:   return cymbal;
             case Dine::Icon::Mic:      return mic;
@@ -883,7 +925,7 @@ namespace
 
     const ParsedIcon& parsedIcon (Dine::Icon icon)
     {
-        static std::array<std::unique_ptr<ParsedIcon>, 48> cache;
+        static std::array<std::unique_ptr<ParsedIcon>, 64> cache;   // past the last Icon
         auto& slot = cache[size_t (icon)];
         if (slot == nullptr)
         {
@@ -1578,8 +1620,35 @@ DineNavItem::DineNavItem (const juce::String& l, Dine::Icon i) : juce::Button (l
 // 10 pt gap. Selected lifts to a plane and turns the icon accent - which is what says "you are
 // here"; there is no bar of colour and no capital letter anywhere on it. It is also the row a
 // set-up list is built from, so `meta` and `done` still have their places at the right.
+void DineNavItem::paintSidebarRow (juce::Graphics& g, bool over)
+{
+    auto r = getLocalBounds().toFloat();
+    if (selected)                 Dine::fillRounded (g, r, juce::Colours::white.withAlpha (0.12f), 8.0f);
+    else if (over && isEnabled()) Dine::fillRounded (g, r, juce::Colours::white.withAlpha (0.06f), 8.0f);
+
+    auto inner = getLocalBounds().withTrimmedLeft (childRow ? 35 : 10).withTrimmedRight (9);
+    if (! childRow)
+    {
+        Dine::drawIcon (g, icon, inner.removeFromLeft (16).toFloat().withSizeKeepingCentre (16.0f, 16.0f),
+                        ! isEnabled() ? Dine::ink4 : selected ? Dine::ink : Dine::glyph);
+        inner.removeFromLeft (9);
+    }
+    if (meta.isNotEmpty())
+    {
+        const auto font = Dine::text (11.0f, 600);
+        g.setColour (metaTint.isTransparent() ? Dine::ink3 : metaTint);
+        g.setFont (font);
+        Dine::drawText (g, meta, inner.removeFromRight (Dine::textWidth (font, meta)), juce::Justification::centredRight);
+        inner.removeFromRight (6);
+    }
+    g.setColour (! isEnabled() ? Dine::ink4 : childRow && ! selected ? Dine::ink2 : Dine::ink);
+    g.setFont (Dine::text (childRow ? 12.5f : 13.0f));
+    Dine::drawText (g, label, inner, juce::Justification::centredLeft, true);
+}
+
 void DineNavItem::paintButton (juce::Graphics& g, bool over, bool)
 {
+    if (sidebarLook) { paintSidebarRow (g, over); return; }
     auto r = getLocalBounds().toFloat();
     if (selected)                     Dine::fillRounded (g, r, Dine::selected, Dine::Radius::control);
     else if (over && isEnabled())     Dine::fillRounded (g, r, Dine::control, Dine::Radius::control);

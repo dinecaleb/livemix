@@ -32,6 +32,7 @@ namespace livemix
 {
     void putWindowButtonsInTheToolbar (juce::Component&);
     void dragWindowFromToolbar (juce::Component&);
+    bool systemPrefersReducedMotion();
     void toolbarDoubleClicked (juce::Component&);
 }
 #endif
@@ -958,6 +959,7 @@ namespace
             // the peer exists only once the window is on screen, so this is asked for here.
             putWindowButtonsInTheToolbar (*this);
             view().onToolbarPressed = [this] { dragWindowFromToolbar (*this); };
+            view().prefersReducedMotion = [] { return systemPrefersReducedMotion(); };
             view().onToolbarDoubleClicked = [this] { toolbarDoubleClicked (*this); };
            #endif
            #if JUCE_MAC

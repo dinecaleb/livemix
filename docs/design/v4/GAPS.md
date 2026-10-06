@@ -92,8 +92,9 @@ must not be done as part of the UI work.
 
 | v4 control | Where | What is missing | Smallest backend |
 | --- | --- | --- | --- |
-| Readiness pill and Ready sheet rows with Fix | Toolbar | No live status aggregate; `BroadcastReadiness` is an operator checklist and must never auto-tick | read-only aggregator (device state, audio running, input advice count, armed tracks, seconds free, monitor output, autosave failing), separate from BroadcastReadiness |
+| Readiness pill and Ready sheet rows with Fix (today the pill counts inputs needing attention plus open checklist items, and opens the broadcast checklist or Check inputs: `MainView::readyPillClicked`) | Toolbar | No live status aggregate; `BroadcastReadiness` is an operator checklist and must never auto-tick | read-only aggregator (device state, audio running, input advice count, armed tracks, seconds free, monitor output, autosave failing), separate from BroadcastReadiness |
 | Ready: disk and recording destination | Ready sheet | `getRecordingSecondsFree()` is 0 with nothing armed; no bytes free | read-only (`File::getBytesFreeOnVolume` on the session folder) |
+| Session menu "Recover Session…" | Session menu | Recovery is offered only at launch (`Main.cpp` → `MainView::offerRecovery`); nothing can be asked for later. Today it says so in a toast (`MainView::setupPopover`, case 21) | pass-through: `AppServices::findRecovery()` returning the same offer `Main.cpp` builds |
 | "Edited" after the session name | Session menu | No "changed since the last explicit save" | read-only (revision at last save beside `sessionRevision`) |
 | Traffic lights move with the sidebar | Toolbar | `WindowChrome.mm` places buttons at a fixed `kFirstButtonX` | host (an x-offset setter) |
 | Reduce Motion | Every animation | No accessor | host (small .mm helper over NSWorkspace) |

@@ -37,7 +37,7 @@ namespace
     }
 
     // The same group named in as few letters as it can be, for a tile too narrow for the
-    // whole word. Ambience is the one long name; every other group is already one short word.
+    // whole word: the long names lose all but their first three letters.
     juce::String groupNameBrief (int i)
     {
         if (i >= kGroupTiles)
@@ -51,7 +51,10 @@ namespace
                 case FxSlot::Count:      break;
             }
         if (i >= kGroupBuses) return "FX";
-        return groupBus (i) == MixBus::Ambience ? juce::String ("Amb") : groupName (i);
+        // A name longer than five letters keeps its first three (Amb, Spe); the tooltip and
+        // every wider place still say it whole.
+        const auto full = groupName (i);
+        return full.length() > 5 ? full.substring (0, 3) : full;
     }
 
     juce::Colour groupColour (int i) noexcept
@@ -284,7 +287,7 @@ public:
 
 private:
     // A narrow console gives its padding up before anything on the tile gives up a letter.
-    int paddingX() const noexcept { return getWidth() >= 96 ? 12 : getWidth() >= 64 ? 8 : 6; }
+    int paddingX() const noexcept { return getWidth() >= 96 ? 12 : getWidth() >= 64 ? 8 : getWidth() >= 44 ? 6 : 3; }
     float nameSizePx() const noexcept { return getWidth() >= 96 ? 13.0f : getWidth() >= 64 ? 12.0f : 11.5f; }
     bool isFx() const noexcept { return group == kGroupBuses; }
     bool isReturn() const noexcept { return group >= kGroupTiles; }
@@ -2471,13 +2474,17 @@ void MixPage::paint (juce::Graphics& g)
         {
             g.setColour (Dine::ink3);
             g.setFont (Dine::text (11.0f, 500));
-            Dine::drawText (g, label, area.removeFromTop (16), juce::Justification::centredLeft, true);
+            // "True peak" says "Peak" in a cell too narrow for both words.
+            const bool roomy = Dine::textWidth (Dine::text (11.0f, 500), label) <= area.getWidth();
+            Dine::drawText (g, roomy || label != "True peak" ? label : juce::String ("Peak"), area.removeFromTop (16),
+                            juce::Justification::centredLeft, true);
             area.removeFromTop (2);
             g.setColour (ink);
             const auto valueFont = Dine::mono (12.0f, 500);
             g.setFont (valueFont);
-            Dine::drawText (g, brief.isNotEmpty() && Dine::textWidth (valueFont, value) > area.getWidth() ? brief : value,
-                            area, juce::Justification::centredLeft, true);
+            // A reading squeezes rather than loses a digit: "-10." is a different number.
+            Dine::drawFittedText (g, brief.isNotEmpty() && Dine::textWidth (valueFont, value) > area.getWidth() ? brief : value,
+                                  area, juce::Justification::centredLeft, 1, 0.75f);
         };
         cell (inner.removeFromLeft (juce::jmin (cellW, inner.getWidth())), "Level", masterLevelText, {}, Dine::ink);
         cell (inner.removeFromLeft (juce::jmin (cellW, inner.getWidth())), "Loudness", masterLoudText, masterLoudBrief,

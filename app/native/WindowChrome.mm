@@ -1,7 +1,7 @@
 // The window's own buttons, inside the toolbar.
 //
-// The v3 design puts the three macOS window buttons at x = 16 / 36 / 56 of DINE's one 52 pt
-// toolbar, not on a title bar above it (`Toolbar v3.4`, 117:32462). That is a window-server
+// The v4 design puts the three macOS window buttons at x = 25 / 45 / 65, at the top of the
+// sidebar card and level with DINE's one toolbar, not on a title bar above it (docs/design/v4). That is a window-server
 // arrangement, not a drawing one: macOS still draws and runs those buttons, and the window is
 // still a native, resizable, full-screen-capable window - the content view is simply allowed
 // to extend under a title bar that has been made transparent and emptied of its title.
@@ -38,8 +38,11 @@ namespace
         return [(NSView*) handle window];
     }
 
-    constexpr CGFloat kToolbarHeight = 52.0;   // Dine::Metric::toolbar
-    constexpr CGFloat kFirstButtonX  = 16.0;
+    // v4: the buttons sit at the top of the sidebar card, 25 / 45 / 65 across and centred on
+    // y = 32, and stay there when the sidebar is hidden. The container is 64 tall so that its
+    // centre line is 32; the toolbar itself is 60 (Dine::Metric::toolbar).
+    constexpr CGFloat kToolbarHeight = 64.0;
+    constexpr CGFloat kFirstButtonX  = 25.0;
     constexpr CGFloat kButtonPitch   = 20.0;
 
     void placeWindowButtons (NSWindow* w)
@@ -134,6 +137,14 @@ void toolbarDoubleClicked (juce::Component& c)
     if ([action isEqualToString: @"None"]) return;
     if ([action isEqualToString: @"Minimize"]) [w performMiniaturize: nil];
     else                                       [w performZoom: nil];
+}
+
+
+
+// Accessibility > Display > Reduce motion. The sidebar's slide is instant when it is on.
+bool systemPrefersReducedMotion()
+{
+    return [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldReduceMotion];
 }
 
 } // namespace livemix

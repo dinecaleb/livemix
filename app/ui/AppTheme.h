@@ -153,14 +153,14 @@ namespace Dine
 
     namespace Metric
     {
-        inline constexpr int toolbar   = 52;    // the one row: lights, sidebar switch, transport, the right cluster
+        inline constexpr int toolbar   = 60;    // v4: the one row beside the sidebar card: session, transport, the right cluster
         inline constexpr int titleRow  = 0;     // there is no separate title row in v3
-        inline constexpr int sidebar   = 208;   // Library / Workspace / Safety / Setup, the device along the foot
+        inline constexpr int sidebar   = 230;   // v4: the 214 pt sidebar card and the 8 pt margin either side of it
         inline constexpr int sidebarRail = 52;  // what a folded sidebar becomes: the icons, still reachable
         inline constexpr int railHandle= 52;    // kept as an alias of the above
         inline constexpr int header    = 40;    // a workspace's own tool row
-        inline constexpr int status    = 28;    // the status foot
-        inline constexpr int chainFoot = 44;    // the picked-out channel's chain, under every workspace
+        inline constexpr int status    = 30;    // the status foot
+        inline constexpr int chainFoot = 52;    // v4: the chain card (46) and the 6 pt gap over it, under every workspace
         inline constexpr int onAir     = 2;
         inline constexpr int chanRail  = 180;   // the Inspector's channel list
         inline constexpr int tuneRail  = 198;   // TUNE's input rail
@@ -301,7 +301,10 @@ namespace Dine
         // The v3 set: the sixteen glyphs of the design's `Icon` component (61:9083), drawn from
         // its own path data in a 16 pt box at a 1.4 pt stroke with round caps and joins.
         Sessions, DeviceNav, Inputs, Purpose, TracksNav, MixerNav, TuneNav, LiveNav, InspectorNav,
-        Lock, WindowNav, Close, Headphones
+        Lock, WindowNav, Close, Headphones,
+        // The v4 sidebar set (docs/design/v4): the mockup's glyphs, drawn in the same 20 pt box.
+        NavSessions, NavPurpose, NavRouting, NavCheck, NavMixer, NavTune, NavInspector, NavFavourite,
+        NavHistory, NavLive, NavSetlist, NavTracks, NavExport
     };
     void drawIcon (juce::Graphics&, Icon, juce::Rectangle<float>, juce::Colour, float thickness = 1.4f);
     Icon iconForRole (ChannelRole) noexcept;
@@ -431,6 +434,12 @@ public:
     void setDone (bool d)                 { if (d != done) { done = d; repaint(); } }
     void setSelected (bool s)             { if (s != selected) { selected = s; repaint(); } }
     bool isSelected() const noexcept      { return selected; }
+    // The v4 sidebar row (docs/design/v4): 13 pt in sentence case on the sidebar card, a white
+    // plane at .12 when chosen and .06 under the pointer, 8 pt corners. A child row (ROUTING's
+    // sections) has no icon and quieter, smaller type. The badge is the meta at the right, in
+    // its own colour: amber for "this many need you", ink3 for a plain count.
+    void setSidebarLook (bool child)      { sidebarLook = true; childRow = child; repaint(); }
+    void setMetaTint (juce::Colour c)     { if (c != metaTint) { metaTint = c; repaint(); } }
     void paintButton (juce::Graphics&, bool over, bool down) override;
     // A right-click (or Ctrl-click) on the row: its own menu, instead of a click.
     std::function<void()> onSecondaryClick;
@@ -449,6 +458,9 @@ private:
     juce::String label, meta;
     Dine::Icon icon;
     bool selected = false, done = false;
+    bool sidebarLook = false, childRow = false;
+    juce::Colour metaTint;
+    void paintSidebarRow (juce::Graphics&, bool over);
 };
 
 // The handle a collapsible side panel is opened and closed by: a slim gutter with the

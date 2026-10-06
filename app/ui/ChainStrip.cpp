@@ -131,19 +131,21 @@ void ChainStrip::setNote (const juce::String& text)
     repaint();
 }
 
+// The v4 chain strip (docs/design/v4): a card along the foot of every workspace - the
+// picked-out channel's group lamp and name, then one chip per stage in chain order, each with
+// a lamp (the accent while the stage is on, a quiet ring of white while it is off), its name
+// and what it is set to in mono. A stage that is off stays in the row, so the gaps can be read.
 void ChainStrip::paint (juce::Graphics& g)
 {
-    auto r = getLocalBounds();
-    g.setColour (Dine::window);
-    g.fillRect (r);
-    g.setColour (Dine::hair);
-    g.fillRect (r.removeFromTop (1));   // the seam between the workspace and its chain foot
+    const auto card = getLocalBounds().toFloat();
+    Dine::fillRounded (g, card, Dine::card, 12.0f);
+    Dine::hairlineRounded (g, card.reduced (0.5f), Dine::hairSoft, 11.5f);
 
-    auto row = r.reduced (18, 0);
+    auto row = getLocalBounds().reduced (13, 0);
 
     if (note.isNotEmpty())
     {
-        const auto noteFont = Dine::caps (10.0f, 0.08f);
+        const auto noteFont = Dine::text (11.0f, 700);
         auto cell = row.removeFromRight (juce::jmin (row.getWidth() / 2, Dine::textWidth (noteFont, note)));
         g.setColour (Dine::warn);
         g.setFont (noteFont);
@@ -153,38 +155,50 @@ void ChainStrip::paint (juce::Graphics& g)
 
     if (! hasSource)
     {
-        g.setColour (Dine::ink4);
+        g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.0f));
         Dine::drawText (g, empty, row, juce::Justification::centredLeft, true);
         return;
     }
 
-    // The name, in the group's colour when it is hovered so the strip reads as one thing
-    // that opens the Inspector.
-    const auto nameFont = Dine::text (13.0f, 600);
-    g.setColour (hover ? Dine::ink : Dine::ink2);
+    // The group lamp and the name; the name lights when the pointer is on the strip, which
+    // is what says the whole strip opens the Inspector.
+    g.setColour (tint);
+    g.fillRoundedRectangle (row.removeFromLeft (8).withSizeKeepingCentre (8, 8).toFloat(), 3.0f);
+    row.removeFromLeft (7);
+    const auto nameFont = Dine::text (12.5f, 600);
+    g.setColour (hover ? Dine::ink : Dine::ink.withMultipliedAlpha (0.92f));
     g.setFont (nameFont);
-    Dine::drawText (g, name, row.removeFromLeft (juce::jmin (180, Dine::textWidth (nameFont, name))),
-                juce::Justification::centredLeft, true);
-    row.removeFromLeft (8);
+    Dine::drawText (g, name, row.removeFromLeft (juce::jmin (160, Dine::textWidth (nameFont, name))),
+                    juce::Justification::centredLeft, true);
+    row.removeFromLeft (14);
 
-    // The chain, stage by stage: a chip per stage on the control plane, 11 px, the value
-    // beside the name. A stage that is off stays in the row, quiet, so the gaps can be read.
-    const auto font = Dine::text (11.0f);
-    for (size_t i = 0; i < stages.size(); ++i)
+    const auto labelFont = Dine::text (11.5f);
+    const auto valueFont = Dine::mono (10.5f);
+    for (const auto& s : stages)
     {
-        const auto& s = stages[i];
         const juce::String label = s.label.substring (0, 1) + s.label.substring (1).toLowerCase();
-        const juce::String textValue = label + " " + s.value;
-        const int chipW = Dine::textWidth (font, textValue) + 18;
-        if (chipW + 8 > row.getWidth()) break;
-        auto chip = row.removeFromLeft (chipW).withSizeKeepingCentre (chipW, 24);
-        const bool out = s.label == "OUT";
-        Dine::fillRounded (g, chip.toFloat(), Dine::control, Dine::Radius::chip);
-        g.setColour (! s.active ? Dine::ink4 : out ? Dine::accent : Dine::ink2);
-        g.setFont (font);
-        Dine::drawText (g, textValue, chip, juce::Justification::centred);
-        row.removeFromLeft (8);
+        const int labelW = Dine::textWidth (labelFont, label);
+        const int valueW = s.value.isEmpty() ? 0 : Dine::textWidth (valueFont, s.value);
+        const int chipW = 10 + 6 + 6 + labelW + (valueW > 0 ? 6 + valueW : 0) + 10;
+        if (chipW > row.getWidth()) break;
+        auto chip = row.removeFromLeft (chipW).withSizeKeepingCentre (chipW, 28);
+        row.removeFromLeft (6);
+        Dine::fillRounded (g, chip.toFloat(), juce::Colours::white.withAlpha (0.05f), 8.0f);
+        auto inner = chip.reduced (10, 0);
+        g.setColour (s.active ? Dine::accent : juce::Colours::white.withAlpha (0.25f));
+        g.fillEllipse (inner.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat());
+        inner.removeFromLeft (6);
+        g.setColour (s.active ? Dine::ink.withMultipliedAlpha (0.88f) : Dine::ink3);
+        g.setFont (labelFont);
+        Dine::drawText (g, label, inner.removeFromLeft (labelW), juce::Justification::centredLeft);
+        if (valueW > 0)
+        {
+            inner.removeFromLeft (6);
+            g.setColour (Dine::ink3);
+            g.setFont (valueFont);
+            Dine::drawText (g, s.value, inner.removeFromLeft (valueW), juce::Justification::centredLeft);
+        }
     }
 }
 

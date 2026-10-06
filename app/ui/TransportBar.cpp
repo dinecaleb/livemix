@@ -5,27 +5,27 @@ namespace livemix
 
 namespace
 {
-    // The well (design: `Transport v2`, 117:10151): 4 px in on the left, 14 on the right, four
-    // 28 x 28 keys 2 px apart, a divider, then the clock. Loop is not a transport key in v3 -
-    // it is a button on the TRACKS tool row, where the loop it sets is drawn.
-    constexpr int kKeyW      = 28;
+    // The v4 transport (docs/design/v4): one pill, 36 high and round-ended, holding five
+    // 32 x 28 keys 2 apart - back to the start, stop, play, record, loop - and beside it, off
+    // the pill, the clock on two lines: the time to the millisecond, and "of" the session's
+    // length under it.
+    constexpr int kKeyW      = 32;
     constexpr int kKeyH      = 28;
     constexpr int kKeyGap    = 2;
-    constexpr int kPadLeft   = 4;
-    constexpr int kPadRight  = 14;
-    constexpr int kClusterGap = 6;
-    constexpr int kNumKeys   = 4;
+    constexpr int kPad       = 5;
+    constexpr int kClockGap  = 8;
+    constexpr int kNumKeys   = 5;
 
     int keysWidth() { return kKeyW * kNumKeys + kKeyGap * (kNumKeys - 1); }
+    int pillWidth() { return kPad + keysWidth() + kPad; }
 
-    // The length beside the clock, the way the design writes it: hh:mm:ss.t
+    // The length under the clock, the way the design writes it: hh:mm:ss
     juce::String shortTime (double seconds)
     {
         if (seconds < 0.0) seconds = 0.0;
         const int total = (int) seconds;
         return juce::String (total / 3600).paddedLeft ('0', 2) + ":" + juce::String ((total / 60) % 60).paddedLeft ('0', 2)
-             + ":" + juce::String (total % 60).paddedLeft ('0', 2)
-             + "." + juce::String (juce::jlimit (0, 9, (int) ((seconds - (double) total) * 10.0)));
+             + ":" + juce::String (total % 60).paddedLeft ('0', 2);
     }
 }
 
@@ -50,14 +50,15 @@ public:
     {
         auto r = getLocalBounds().toFloat();
         const bool lit = active;
-        // Flat inside the well until the key is doing something: then a quiet plane, and the
-        // record ground while a take is being written.
-        if (lit)        Dine::fillRounded (g, r, glyph == Glyph::Record ? Dine::recGround : Dine::selected, Dine::Radius::control);
-        else if (down)  Dine::fillRounded (g, r, Dine::selected, Dine::Radius::control);
-        else if (over)  Dine::fillRounded (g, r, Dine::control, Dine::Radius::control);
+        // Flat inside the pill until the key is doing something: then a lifted round plane
+        // (white at .16), and the record ground while a take is being written.
+        const float radius = r.getHeight() * 0.5f;
+        if (lit)        Dine::fillRounded (g, r, glyph == Glyph::Record ? Dine::recGround : juce::Colours::white.withAlpha (0.16f), radius);
+        else if (down)  Dine::fillRounded (g, r, juce::Colours::white.withAlpha (0.12f), radius);
+        else if (over)  Dine::fillRounded (g, r, juce::Colours::white.withAlpha (0.08f), radius);
 
-        juce::Colour ink = lit ? (glyph == Glyph::Record ? Dine::keyRec : Dine::accent)
-                               : over ? Dine::ink : Dine::ink2;
+        juce::Colour ink = lit ? (glyph == Glyph::Record ? Dine::keyRec : Dine::ink)
+                               : over ? Dine::ink : (glyph == Glyph::Loop ? Dine::ink2 : Dine::ink);
         if (glyph == Glyph::Record && ! lit) ink = Dine::keyRec;
         if (! isEnabled()) ink = ink.withAlpha (0.5f);
 
@@ -126,11 +127,13 @@ TransportBar::TransportBar (MixController& c, AppServices& s) : controller (c), 
     make (stopButton, TransportButton::Glyph::Stop, "Stop (Space)");
     make (playButton, TransportButton::Glyph::Play, "Play (Space)");
     make (recordButton, TransportButton::Glyph::Record, "Record: captures every track with its R key on (R)");
+    make (loopButton, TransportButton::Glyph::Loop, "Loop (L)");
 
     startButton->onClick = [this] { returnToStart(); };
     playButton->onClick = [this] { togglePlay(); };
     stopButton->onClick = [this] { if (services.daw().getTransport().isPlaying()) togglePlay(); };
     recordButton->onClick = [this] { toggleRecord(); };
+    loopButton->onClick = [this] { toggleLoop(); };
     setOpaque (false);
 }
 
@@ -252,6 +255,7 @@ void TransportBar::refresh()
     playButton->setActive (nowPlaying && ! nowRecording);
     playButton->setPaused (nowPlaying);
     recordButton->setActive (nowRecording);
+    loopButton->setActive (nowLooping);
 
     // A take that ended with nobody pressing stop - the device changed rate, the disk failed.
     if (recording && ! nowRecording && ! stopPressed) stoppedByItself = true;
@@ -289,86 +293,71 @@ void TransportBar::refresh()
         playing = nowPlaying;
         recording = nowRecording;
         looping = nowLooping;
-        const auto full = Transport::formatTime (transport.getPositionSeconds());
-        // hh:mm:ss.t - one decimal, the way the design's clock reads
-        timeText = full.length() > 4 ? full.dropLastCharacters (2) : full;
+        // hh:mm:ss.mmm, the way the v4 clock reads
+        timeText = Transport::formatTime (transport.getPositionSeconds());
         const double rate = transport.getSampleRate();
         lengthText = shortTime (rate > 0.0 ? double (length) / rate : 0.0);
-        repaint (clockWell);
+        repaint (clockWell.expanded (2));
     }
 }
 
 // ---------------------------------------------------------------- measurement
 int TransportBar::clockCellWidth() const
 {
-    return Dine::textWidth (Dine::mono (17.0f, 500), "00:00:00.0") + 2;
+    return juce::jmax (Dine::textWidth (Dine::mono (15.0f, 500), "00:00:00.000"),
+                       Dine::textWidth (Dine::mono (10.5f), "of 00:00:00")) + 2;
 }
 
-int TransportBar::lengthCellWidth() const
-{
-    return Dine::textWidth (Dine::mono (11.0f), "/ 00:00:00.0") + 10;
-}
+int TransportBar::lengthCellWidth() const { return 0; }   // the length sits under the clock in v4
 
-int TransportBar::idealWidth() const
-{
-    return kPadLeft + keysWidth() + kClusterGap + 1 + kClusterGap + clockCellWidth() + lengthCellWidth() + kPadRight;
-}
-
-int TransportBar::minimumWidth() const
-{
-    return kPadLeft + keysWidth() + kClusterGap + 1 + kClusterGap + clockCellWidth() + kPadRight;
-}
-
-int TransportBar::keysOnlyWidth() const { return kPadLeft + keysWidth() + kPadRight; }
+int TransportBar::idealWidth() const   { return pillWidth() + kClockGap + clockCellWidth(); }
+int TransportBar::minimumWidth() const { return idealWidth(); }
+int TransportBar::keysOnlyWidth() const { return pillWidth(); }
 
 // ---------------------------------------------------------------- paint
 void TransportBar::paint (juce::Graphics& g)
 {
-    auto r = getLocalBounds().toFloat();
-    Dine::fillRounded (g, r, Dine::menubar, Dine::Radius::well);
-    Dine::hairlineRounded (g, r.reduced (0.5f), Dine::hair, Dine::Radius::well);
+    const auto pill = getLocalBounds().removeFromLeft (pillWidth()).toFloat();
+    Dine::fillRounded (g, pill, juce::Colours::white.withAlpha (0.06f), pill.getHeight() * 0.5f);
+    Dine::hairlineRounded (g, pill.reduced (0.5f), juce::Colours::white.withAlpha (0.10f), pill.getHeight() * 0.5f - 0.5f);
     if (! showClock) return;
-    if (! divider.isEmpty())
-    {
-        g.setColour (Dine::hair);
-        g.fillRect (divider);
-    }
     // The clock turns red while a take is being written.
     g.setColour (recording ? Dine::keyRec : Dine::ink);
-    g.setFont (Dine::mono (17.0f, 500));
-    Dine::drawText (g, timeText, timeCell, juce::Justification::centredLeft);
+    g.setFont (Dine::mono (15.0f, 500));
+    Dine::drawText (g, timeText, timeCell, juce::Justification::bottomLeft);
     if (showLength)
     {
         g.setColour (Dine::ink4);
-        g.setFont (Dine::mono (11.0f));
-        Dine::drawText (g, "/ " + lengthText, lengthCell, juce::Justification::centredLeft);
+        g.setFont (Dine::mono (10.5f));
+        Dine::drawText (g, "of " + lengthText, lengthCell, juce::Justification::topLeft);
     }
 }
 
 void TransportBar::resized()
 {
-    auto r = getLocalBounds().withTrimmedLeft (kPadLeft).withTrimmedRight (kPadRight);
-    auto keys = r.removeFromLeft (keysWidth()).withSizeKeepingCentre (keysWidth(), kKeyH);
+    auto r = getLocalBounds();
+    auto keys = r.removeFromLeft (pillWidth()).reduced (kPad, 0).withSizeKeepingCentre (keysWidth(), kKeyH);
     keysWell = keys;
-    auto place = [&keys] (juce::Component& c, int w)
+    auto place = [&keys] (juce::Component& c)
     {
-        c.setBounds (keys.removeFromLeft (w));
+        c.setBounds (keys.removeFromLeft (kKeyW));
         keys.removeFromLeft (kKeyGap);
     };
-    place (*startButton, kKeyW);
-    place (*stopButton, kKeyW);
-    place (*playButton, kKeyW);
-    place (*recordButton, kKeyW);
+    place (*startButton);
+    place (*stopButton);
+    place (*playButton);
+    place (*recordButton);
+    place (*loopButton);
 
-    r.removeFromLeft (kClusterGap);
-    showLength = r.getWidth() >= 1 + kClusterGap + clockCellWidth() + lengthCellWidth();
-    showClock = r.getWidth() >= 1 + kClusterGap + clockCellWidth();
-    if (! showClock) { divider = clockWell = timeCell = lengthCell = {}; return; }
-    divider = r.removeFromLeft (1).withSizeKeepingCentre (1, 20);
-    r.removeFromLeft (kClusterGap);
-    clockWell = r;
-    timeCell = r.removeFromLeft (clockCellWidth());
-    lengthCell = r.withTrimmedTop (3);
+    r.removeFromLeft (kClockGap);
+    showClock = r.getWidth() >= clockCellWidth();
+    showLength = showClock;
+    divider = {};
+    if (! showClock) { clockWell = timeCell = lengthCell = {}; return; }
+    clockWell = r.withWidth (clockCellWidth());
+    const int mid = r.getCentreY() + 3;
+    timeCell = clockWell.withBottom (mid);
+    lengthCell = clockWell.withTop (mid);
 }
 
 } // namespace livemix

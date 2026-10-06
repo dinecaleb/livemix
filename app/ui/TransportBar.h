@@ -8,14 +8,12 @@
 namespace livemix
 {
 
-// The transport, in the one toolbar (design: `Transport v2`, 117:10151): go to the start,
-// stop, play, record, then a divider and the clock. Space plays and stops, R records, Return
-// goes back to the start; the same actions the keys perform, so the keyboard and the mouse can
-// never disagree. Loop is not one of these keys in v3 - it is a button on the TRACKS tool row,
-// beside the loop it sets - but L and Transport > Loop still reach `toggleLoop()`.
-//
-// It is one well, not a bar: it paints its own plane, sizes itself with idealWidth() and drops
-// the session length, then the clock, when the toolbar is too narrow for them.
+// The transport, in the one toolbar (v4, docs/design/v4): a round-ended pill of five keys -
+// back to the start, stop, play, record, loop - and beside it the clock, to the millisecond,
+// with the session's length under it. Space plays and stops, R records, Return goes back to
+// the start, L loops; the same actions the keys perform, so the keyboard and the mouse can
+// never disagree. It sizes itself with idealWidth() and drops the clock when the toolbar is
+// too narrow for it; the keys are never dropped.
 class TransportBar : public juce::Component
 {
 public:
@@ -40,7 +38,7 @@ public:
     // what gives way when the window is narrow: the transport's keys are never dropped,
     // but the clock is, and the document title is entitled to its 96 px before that.
     int keysOnlyWidth() const;             // keys + the timecode alone
-    static constexpr int height = 36;   // the pill
+    static constexpr int height = 36;   // the pill, and the clock's two lines beside it
 
     void paint (juce::Graphics&) override;
     void resized() override;
