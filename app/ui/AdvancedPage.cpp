@@ -69,6 +69,16 @@ namespace
     }
 }
 
+namespace
+{
+    // A group as people say it: "Drums bus", and "BGV bus" - an initialism stays one.
+    juce::String busWord (MixBus b)
+    {
+        const juce::String raw (mixBusName (b));
+        return raw.length() <= 3 ? raw.toUpperCase() : raw.substring (0, 1).toUpperCase() + raw.substring (1).toLowerCase();
+    }
+}
+
 // ------------------------------------------------------------------ SectionHeader
 // The rail groups a console's channels under their bus, which the design's sixteen-input
 // frame had no need of and a real service does: a caption, quiet, with the group's colour.
@@ -80,14 +90,13 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        // v4: the family's name in its own colour, 11 pt semibold; "BGV" stays an initialism.
         auto r = getLocalBounds().reduced (kRailPadX, 0);
-        auto dot = r.removeFromLeft (6);
-        g.setColour (tint.withAlpha (0.9f));
-        g.fillEllipse (dot.withSizeKeepingCentre (5, 5).toFloat());
-        r.removeFromLeft (10);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::text (11.0f, 500));
-        Dine::drawText (g, Dine::sectionCase (label), r.removeFromLeft (r.getWidth() - 26), juce::Justification::centredLeft, true);
+        const juce::String word = label.length() <= 3 ? label.toUpperCase()
+                                                      : label.substring (0, 1).toUpperCase() + label.substring (1).toLowerCase();
+        g.setColour (tint);
+        g.setFont (Dine::text (11.0f, 600));
+        Dine::drawText (g, word, r.removeFromLeft (r.getWidth() - 26), juce::Justification::centredLeft, true);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (10.0f));
         Dine::drawText (g, countText, r, juce::Justification::centredRight);
@@ -900,6 +909,11 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
 
 // A folded panel keeps only its gutter: the handle stays where it was, so the width
 // comes back with one click and the channel never moves out from under the pointer.
+void AdvancedPage::setSampleLibrary (std::function<const SampleLibrary*()> f)
+{
+    chain->sampleLibrary = std::move (f);
+}
+
 void AdvancedPage::setRailAvailable (bool available)
 {
     if (available == railAvailable) return;
@@ -975,7 +989,7 @@ void AdvancedPage::rebuild()
 
         if (controller.isPrepared() && controller.getEngine().isBusUsed (bus))
         {
-            auto row = std::make_unique<Row> (sentenceCase (mixBusName (bus)) + " bus", Row::Kind::Bus, bus);
+            auto row = std::make_unique<Row> (busWord (bus) + " bus", Row::Kind::Bus, bus);
             row->setClickingTogglesState (false);
             row->onClick = [this, bus] { selectBus (bus); };
             addRow (std::move (row));
@@ -1295,7 +1309,7 @@ void AdvancedPage::paintHead (juce::Graphics& g, juce::Rectangle<int> area) cons
     if (selection.isBus)
     {
         const bool master = selection.bus == MixBus::Master;
-        title = master ? juce::String ("Master") : sentenceCase (mixBusName (selection.bus)) + " bus";
+        title = master ? juce::String ("Master") : busWord (selection.bus) + " bus";
         sub = master ? juce::String ("MASTER  ") + Glyph::dot() + "  Master bus"
                      : juce::String (mixBusName (selection.bus)).toUpperCase() + "  " + Glyph::dot() + "  "
                            + juce::String (graph.stripsOnBus (selection.bus)) + " inputs";
@@ -1441,8 +1455,10 @@ void AdvancedPage::resized()
         simple->setBounds (card.withHeight (juce::jmin (card.getHeight(), simple->wantedHeight())));
         return;
     }
-    path->setBounds (area.withTrimmedTop (kPathTop).withHeight (SignalPath::height).reduced (kPadX, 0));
-    chain->setBounds (area.withTrimmedTop (kCardTop).reduced (kPadX, 0).withTrimmedBottom (24));
+    const auto pathRow = area.withTrimmedTop (kPathTop).reduced (kPadX, 0);
+    const int pathH = path->wantedHeight (pathRow.getWidth());
+    path->setBounds (pathRow.withHeight (pathH));
+    chain->setBounds (area.withTrimmedTop (kPathTop + pathH + (kCardTop - kPathTop - SignalPath::height)).reduced (kPadX, 0).withTrimmedBottom (24));
 }
 
 } // namespace livemix

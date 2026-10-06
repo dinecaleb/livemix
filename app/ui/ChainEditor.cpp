@@ -97,6 +97,7 @@ struct ChainEditor::Field
     double min = 0.0, max = 1.0, step = 0.01, mid = 0.0;   // mid inside the range: the sweep is skewed to it
     Fmt fmt = Fmt::Db;
     juce::StringArray choices;                              // Choice: the items; Toggle: { off, on }
+    juce::StringArray choiceGroups;                         // Choice, optional: a heading per item (v4's SOUND list)
     std::function<double (const ChannelParameters&)> get;
     std::function<void (ChannelParameters&, double)> set;
 };
@@ -209,7 +210,8 @@ namespace
     // stage to do and only the master owns a limiter, so those two are asked for.
     // The chain, in the order the audio meets it. `hasSample` is true on a kick, snare or tom
     // strip (MixEngine gives those the stage); `sounds` is the SOUND list the library loaded.
-    std::vector<StageSpec> chainSpecs (bool stereo, bool hasLimiter, bool hasSample, const juce::StringArray& sounds)
+    std::vector<StageSpec> chainSpecs (bool stereo, bool hasLimiter, bool hasSample, const juce::StringArray& sounds,
+                                       const juce::StringArray& soundGroups = {})
     {
         std::vector<StageSpec> v;
 
@@ -303,6 +305,7 @@ namespace
             sound.kind = Field::Kind::Choice;
             sound.label = "Sound";
             sound.choices = sounds.isEmpty() ? juce::StringArray { "No sounds loaded" } : sounds;
+            if (soundGroups.size() == sounds.size()) sound.choiceGroups = soundGroups;
             sound.get = [n = juce::jmax (1, sounds.size())] (const ChannelParameters& p) { return double (juce::jlimit (0, n - 1, p.replaceSound)); };
             sound.set = [] (ChannelParameters& p, double v) { p.replaceSound = juce::roundToInt (v); };
             s.fields = { number ("Blend", &ChannelParameters::replaceBlend, 0.0, 1.0, 0.01, 0.0, Fmt::Percent),
@@ -572,7 +575,18 @@ public:
             popup->onClick = [this]
             {
                 juce::PopupMenu m;
-                for (int i = 0; i < field.choices.size(); ++i) m.addItem (i + 1, field.choices[i], true, i == index);
+                juce::String group;
+                for (int i = 0; i < field.choices.size(); ++i)
+                {
+                    // A list in sections (Built in / Your sounds / This session) says each
+                    // section's name once, above its first item.
+                    if (i < field.choiceGroups.size() && field.choiceGroups[i] != group)
+                    {
+                        group = field.choiceGroups[i];
+                        m.addSectionHeader (group);
+                    }
+                    m.addItem (i + 1, field.choices[i], true, i == index);
+                }
                 m.showMenuAsync (juce::PopupMenu::Options {}.withTargetComponent (popup.get()),
                                  [this] (int r) { if (r > 0) commit (double (r - 1)); });
             };
@@ -1425,19 +1439,30 @@ void ChainEditor::build()
 
     // A kick, snare or tom strip carries the sample stage, with the sounds the library loaded.
     bool hasSample = false;
-    juce::StringArray sounds;
+    juce::StringArray sounds, soundGroups;
     if (! isBus)
     {
         const auto& g = controller.getGraph();
         if (strip >= 0 && strip < g.numStrips() && hasSampleStage (g.strips[size_t (strip)].role))
         {
             hasSample = true;
+            const auto family = roleFamily (g.strips[size_t (strip)].role);
             if (const auto* table = controller.getSampleBanks())
                 for (int i = 0; i < SampleBankTable::kSounds; ++i)
-                    if (const auto* b = table->bank (roleFamily (g.strips[size_t (strip)].role), i)) sounds.add (juce::String (b->name));
+                    if (const auto* b = table->bank (family, i)) sounds.add (juce::String (b->name));
+            // Where each sound came from, from the library's catalogue (it lists the sounds in
+            // the order they sit in the bank table): the bundle, this Mac, or this session.
+            if (sampleLibrary)
+                if (const auto* lib = sampleLibrary(); lib != nullptr)
+                {
+                    const auto& catalogue = lib->sounds (family);
+                    if (catalogue.size() == size_t (sounds.size()))
+                        for (const auto& c : catalogue)
+                            soundGroups.add (c.inSession ? "This session" : c.user ? "Your sounds" : "Built in");
+                }
         }
     }
-    stages = chainSpecs (stereo, hasLimiter, hasSample, sounds);
+    stages = chainSpecs (stereo, hasLimiter, hasSample, sounds, soundGroups);
 
     // The sends leave after the chain, so they close the path - and only where the
     // session actually uses a return.
@@ -2094,10 +2119,15 @@ void ChainEditor::paint (juce::Graphics& g)
     // The plain word this stage answers to, beside its name: CLEAN-UP, SMOOTH, STEADY, WARMTH.
     if (const auto word = macroWordFor (s.id); word.isNotEmpty() && title.getWidth() > 60)
     {
-        title.removeFromLeft (12);
-        g.setColour (Dine::ink4);
-        g.setFont (Dine::caps (11.0f, 0.36f, 600));
-        Dine::drawText (g, word, title, juce::Justification::centredLeft, true);
+        // v4: "- answers to Steady", quiet, in sentence case beside the name.
+        title.removeFromLeft (6);
+        const juce::String phrase = Glyph::dot() + " answers to " + word.substring (0, 1).toUpperCase() + word.substring (1).toLowerCase();
+        if (Dine::textWidth (Dine::text (13.0f), phrase) <= title.getWidth())
+        {
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (13.0f));
+            Dine::drawText (g, phrase, title, juce::Justification::centredLeft);
+        }
     }
 
     // Who set it, with a lamp in front: the same sentence the trail tells in its own words.
@@ -2155,12 +2185,34 @@ int SignalPath::chipWidth (int index) const
     return 31 + Dine::textWidth (chipFont(), chipName (views[size_t (index)].label));
 }
 
+// The chips flow left to right and break onto a new row where the next one would not fit
+// (v4), so no stage is ever off the end of a scrolled row.
 juce::Rectangle<int> SignalPath::chipBounds (int index) const
 {
-    auto row = getLocalBounds().withHeight (chipH);
-    int x = row.getX() - scrollX;
-    for (int i = 0; i < index; ++i) x += chipWidth (i) + gap;
-    return { x, row.getY(), chipWidth (index), chipH };
+    const int width = juce::jmax (1, getWidth());
+    int x = 0, y = 0;
+    for (int i = 0; i <= index; ++i)
+    {
+        const int w = chipWidth (i);
+        if (x > 0 && x + w > width) { x = 0; y += chipH + gap; }
+        if (i == index) return { x, y, w, chipH };
+        x += w + gap;
+    }
+    return {};
+}
+
+int SignalPath::wantedHeight (int width) const
+{
+    const int n = chain.numStages();
+    if (n <= 0) return height;
+    int x = 0, rows = 1;
+    for (int i = 0; i < n; ++i)
+    {
+        const int w = chipWidth (i);
+        if (x > 0 && x + w > width) { x = 0; ++rows; }
+        x += w + gap;
+    }
+    return rows * chipH + (rows - 1) * gap;
 }
 
 int SignalPath::contentWidth() const
@@ -2172,7 +2224,7 @@ int SignalPath::contentWidth() const
     return juce::jmax (0, w - gap);
 }
 
-int SignalPath::maxScroll() const { return juce::jmax (0, contentWidth() - getWidth()); }
+int SignalPath::maxScroll() const { return 0; }   // the chips wrap; nothing scrolls
 void SignalPath::clampScroll() { scrollX = juce::jlimit (0, maxScroll(), scrollX); }
 void SignalPath::resized() { clampScroll(); }
 
@@ -2205,9 +2257,8 @@ void SignalPath::paint (juce::Graphics& g)
         auto chip = chipBounds (i);
         if (chip.getRight() < 0 || chip.getX() > getWidth()) continue;
 
-        juce::Colour ground = sel ? Dine::controlOn : Dine::control;
-        if (hover == i && ! sel) ground = Dine::controlHot;
-        Dine::fillRounded (g, chip.toFloat(), ground, Dine::Radius::chip);
+        const float a = sel ? 0.16f : hover == i ? 0.10f : 0.06f;
+        Dine::fillRounded (g, chip.toFloat(), juce::Colours::white.withAlpha (a), 8.0f);
 
         auto r = chip.reduced (10, 0);
         auto lamp = r.removeFromLeft (6).withSizeKeepingCentre (6, 6).toFloat();

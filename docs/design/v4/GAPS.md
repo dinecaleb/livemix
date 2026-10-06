@@ -169,8 +169,6 @@ These are wired by the UI work; no backend change is needed.
 
 - Scene rename: `MixController::renameScene` (`app/native/MixController.h`) has no UI.
 - Favourite rename and delete: `MixController::renameFavourite`, `removeFavourite`; FavouritesPage has neither.
-- SOUND list grouped Built in / Your sounds / This session: `SampleLibrary::sounds(family)` carries `user`
-  and `inSession`; pass `services.sampleLibrary()` to ChainEditor (today it reads bank names only).
 - Overflow note: `SampleLibrary::whatWasLeftOut()` is never shown.
 - Gain-health chip and card ("Healthy / Clipping −6 / Digital +12 / Low +6"): `InputAdvice::Level`,
   `consoleMoveDb`, `digitalGainDb`, headline and detail via `getInputAdvice` / `liveCaptureAdvice`.

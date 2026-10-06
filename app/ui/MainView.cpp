@@ -1472,6 +1472,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
                               });
     };
     advancedPage->onTuneChannel = [this] (int strip) { tuneChannel (strip); };
+    advancedPage->setSampleLibrary ([this] { return services.sampleLibrary(); });
     advancedPage->drumKitName = [this] { return drumKitName(); };
     advancedPage->onDrumKit = [this] (juce::Component& anchor) { drumKitMenu (anchor); };
     transportBar->onToast = [this] (const juce::String& t) { showToast (t); };
@@ -2699,6 +2700,7 @@ void MainView::openInspectorWindow()
     p->onImportSample = [this] (RoleFamily family) { if (advancedPage->onImportSample) advancedPage->onImportSample (family); };
     p->drumKitName = [this] { return drumKitName(); };
     p->onDrumKit = [this] (juce::Component& anchor) { drumKitMenu (anchor); };
+    p->setSampleLibrary ([this] { return services.sampleLibrary(); });
     p->onBack = [this] { closePageWindow (inspectorWindow); };
     p->rebuild();
     inspectorInWindow = p;

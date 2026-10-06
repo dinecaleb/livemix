@@ -58,3 +58,13 @@ The mockup is `docs/design/v4/DINE v4.html`; open it in a browser and compare it
 | **The master's pickers** | "Target: Broadcast -23 LUFS" and "For: Room and stream" under the numbers | The loudness target and "Sound: as tuned" in the heading row | The voicing list is the owner's decision (`GAPS.md`): v4's four "For:" choices are not the eight master voicings DINE has. |
 | **The pads' corner words** | "Clear voices", "Big and present", "Tight and driving", "Big room" (top only) | The macros' own words (AIRY, PRESENT, ...) on all four corners; a pair that would touch on a small pad is left off | The words are `MixMacros`' and name what each corner does to the sound; renaming them is a profile-data change, not a UI one. |
 | **The rail's role line** | Always under the name | Squeezed a little, then left off on a narrow rail | A name is the row; a cut role is the one thing the clipping report forbids. |
+
+## The Inspector (commit "v4 Inspector")
+
+| What | The mockup | The build | Why |
+| --- | --- | --- | --- |
+| **MUTE, SOLO and TUNE CHANNEL in the head** | Simple / Advanced and RE-TUNE | ... and MUTE, SOLO, TUNE CHANNEL | Inventory items on the head today; they give way first on a narrow window. |
+| **Group buses in the channel rail** | Inputs only | Each family's bus at the end of its family, and the master | The buses and the master have to be inspectable somewhere (DESIGN-V3 section 5). |
+| **The live hit visualiser on the Sample stage** | A scrolling waveform with fired / held / ghost markers and a velocity pad of the last 16 hits | The threshold line and the last hit, as before | It needs a per-hit event queue out of the engine, which is an engine change (`GAPS.md`, ENGINE); the UI does not change the audio thread to fit a drawing. |
+| **Per-family Sample defaults** | Kick band 30-150 Hz; hi-hat blend 0.2, mask 20 ms, band 6-16 kHz | `ProfileData.cpp`'s values | Numbers live in the profile data and nowhere else (CLAUDE.md); the brief's are a decision for the owner (`GAPS.md`). |
+| **"Back to DINE" per control** | A link on the provenance line | Put back per stage (the card's menu), per record (the trail) and per channel | No per-control put-back exists; the stage-level one is one press. |

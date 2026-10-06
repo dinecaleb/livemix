@@ -46,6 +46,10 @@ public:
     };
 
     explicit ChainEditor (MixController&);
+
+    // The drum sound library, so the SOUND list can say where each sound came from (Built in,
+    // Your sounds, This session). Empty in the tools; the list is then one flat list.
+    std::function<const SampleLibrary*()> sampleLibrary;
     ~ChainEditor() override;
 
     // What to edit. Rebuilds the stages: a mono input has no width stage, only the master
@@ -145,9 +149,12 @@ public:
     void mouseExit (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
-    static constexpr int height = 32;     // the design's row; the chips are 30 inside it
+    static constexpr int height = 32;     // one row; the chips are 30 inside it
     static constexpr int chipH  = 30;
     static constexpr int gap    = 6;
+    // v4: the chips wrap onto as many rows as the width needs, so every stage is always in
+    // view; this is the height that takes at a width.
+    int wantedHeight (int width) const;
 
 private:
     int chipWidth (int index) const;

@@ -25,6 +25,8 @@ class AdvancedPage : public juce::Component
 {
 public:
     explicit AdvancedPage (MixController&);
+    // Handed down to the stage editor for the SOUND list's sections.
+    void setSampleLibrary (std::function<const SampleLibrary*()> f);
     ~AdvancedPage() override;
 
     std::function<void()> onBack;

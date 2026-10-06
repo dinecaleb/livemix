@@ -1396,9 +1396,19 @@ void DineKnob::paint (juce::Graphics& g)
     }
     if (showCaption)
     {
+        // v4: a knob's caption in sentence case - "Threshold", "Detector HP" - with a word of
+        // one or two letters (HP, Q, LF) kept as the initialism it is.
+        juce::StringArray words;
+        words.addTokens (caption.trim(), " ", {});
+        for (int i = 0; i < words.size(); ++i)
+        {
+            const auto w = words[i];
+            words.set (i, w.length() <= 2 ? w.toUpperCase()
+                                          : i == 0 ? w.substring (0, 1).toUpperCase() + w.substring (1).toLowerCase() : w.toLowerCase());
+        }
         g.setColour (live ? Dine::ink3 : Dine::ink4);
-        g.setFont (knobCaps());
-        Dine::drawText (g, caption.trim().toUpperCase(), r.removeFromTop (lineH), juce::Justification::centred, true);
+        g.setFont (Dine::text (10.5f));
+        Dine::drawText (g, words.joinIntoString (" "), r.removeFromTop (lineH), juce::Justification::centred, true);
     }
 }
 
