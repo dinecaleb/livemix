@@ -32,3 +32,18 @@ The mockup is `docs/design/v4/DINE v4.html`; open it in a browser and compare it
 | **The pulsing "on air" strip** | Not drawn | Removed | It was v3's, it repainted the window's width every tick while nothing else moved, and the status foot's "On air" cell says the same. |
 | **The status foot** | Engine, CPU, Disk "34.2 GB · 9 h 40 m", recording, On air, dropped, Live safe, BPM, Autosaved | The same, plus "Monitor solo · AFL"; Disk says the hours left, not the gigabytes | The monitor cell is an inventory item. Bytes free has no accessor yet (`GAPS.md`). |
 | **A toolbar piece with no room** | Not drawn narrow | It gives way whole: the clock, the session button, "· solo …", the solo names - never half a word | CLAUDE.md: a fixed word is never ellipsised. The transport's keys and the readiness pill never give way. |
+
+## The Mixer (commit "v4 Mixer")
+
+| What | The mockup | The build | Why |
+| --- | --- | --- | --- |
+| **The FX key** | Not drawn | At the right of a voice strip's "Sends" caption | Effects on this microphone is an inventory item (one press for the pastor who starts singing). v4 has no third key row, and growing one on every strip would bend the console's line. |
+| **Effects filter, Sends toggle, Clear solo** | All / Inputs / Groups; no Sends toggle; no Clear solo | ... and Effects; Sends; Clear solo | All three are inventory items with no v4 home; they sit in the header row where they were. |
+| **Effect returns** | Not drawn on the console | A family card of their own, "Effects", after the last group | Each return has its own fader on DINE's console (inventory). |
+| **The inserts** | Three slots naming the inserts | Three slots naming the first three stages that are on, in chain order | DINE has a fixed chain, not insert slots; the slots read what the chain is doing, as v3's did. The full chain is on the chain card under the workspace. |
+| **The edited dot** | A ring beside the level when a hand edit moved it | Not drawn | No backend says "this fader was moved by hand since the tune" (`GAPS.md`). The quick inspector's provenance line counts hand edits since the last tune. |
+| **The gain chip's number** | "Clipping -6", "Digital +12", "Low +6" | The same, from `InputAdvice::consoleMoveDb` | The number is what the preamp should still move. A healthy input, or one not yet measured, says nothing more. |
+| **The quick inspector's plain words** | "Clarity", "Steady" | "Clarity" / "Steady" when the EQ / compressor is on, "Off" when not | The rail reads the chain; it does not yet carry the macro words per stage. |
+| **The LIST view** | A dense table | The v3 rows, restyled by the shared tokens and keys | The table's columns and behaviour are unchanged inventory; a denser v4 table is a later pass. |
+| **Buttons, segments, keys, pan bars** | Pills, white lifts, coloured keys | The shared widgets were restyled (`DineButton`, `Dine::drawSegmentTrack`, `DineKey`, `PanBar`), so every page has them | v4's control language is the whole product's, not the Mixer's. A filled button with its own tint (a mute) keeps that colour; the primary action is the white pill. |
+| **The white band under the console** | - | Fixed | An opaque viewport over its own unpainted scrollbar strip showed whatever the window held there; it was in the v3 snapshots too. |

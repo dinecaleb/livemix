@@ -10,6 +10,11 @@
 namespace livemix
 {
 
+// v4 (docs/design/v4): a title row - Mixer, Strips / List, what is shown, S M L, New Window,
+// TUNE CHANNEL - then each family on a card of its own with its group bus at the end, the
+// effect returns on theirs, the master on a card pinned at the right, and the quick inspector
+// down the right of the page.
+//
 // The console: every strip, the group buses and the master, with a meter, fader, pan, the
 // record / monitoring / mute / solo keys, the inserts and the sends. The same session as
 // TRACKS, TUNE and LIVE - switching views never changes the sound.
@@ -61,6 +66,10 @@ public:
     int returnStripCount() const;            // the effect returns showing, likewise
 
     void setWindowButtonVisible (bool);
+    // The quick inspector down the right (v4). `]` folds it; it also gives way by itself on a
+    // window too narrow for it and a console.
+    void setRailShown (bool);
+    bool isRailShown() const noexcept { return railWanted; }
     // The chain along the foot belongs to the window now; the detached mixer keeps its own.
     void setFootShown (bool);
 
@@ -72,6 +81,10 @@ public:
 private:
     class Strip;
     class Bank;
+    class QuickInspector;
+    std::unique_ptr<QuickInspector> rail;
+    bool railWanted = true;
+    bool railFits() const noexcept;
 
     Strip* masterStrip() const;
     void layoutStrips();
@@ -104,8 +117,11 @@ private:
     std::array<std::unique_ptr<DineButton>, 4> showTabs;
     DineButton sendsButton { "Sends", DineButton::Style::Toggle };
     DineButton clearSolos { "Clear solo", DineButton::Style::Segment };
-    DineButton windowButton { "Open in a new window", DineButton::Style::Standard };
+    DineButton windowButton { "New Window", DineButton::Style::Standard };
+    DineButton tuneChannelButton { "TUNE CHANNEL", DineButton::Style::Standard };
     bool windowButtonWanted = true;
+    int titleW = 0;                         // "Mixer", measured once per layout
+    juce::Rectangle<int> pageArea;          // under the title row, beside the rail, over the foot
 };
 
 } // namespace livemix

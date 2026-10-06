@@ -2003,6 +2003,7 @@ juce::String MainView::panelName (bool left) const
         return "Sidebar";
     }
     if (page == Page::Inspector) return "What DINE did";
+    if (page == Page::Mixer) return "Quick inspector";
     return {};
 }
 
@@ -2016,6 +2017,7 @@ bool MainView::panelShown (bool left) const
     }
     if (page == Page::Inspector) return advancedPage->isTrailShown();
     if (page == Page::Tune) return mixPage->isSideShown();
+    if (page == Page::Mixer) return mixerPage->isRailShown();
     return true;
 }
 
@@ -2030,6 +2032,7 @@ void MainView::togglePanel (bool left)
     }
     if (page == Page::Inspector) { advancedPage->setTrailShown (! advancedPage->isTrailShown()); return; }
     if (page == Page::Tune) mixPage->setSideShown (! mixPage->isSideShown());
+    if (page == Page::Mixer) mixerPage->setRailShown (! mixerPage->isRailShown());
 }
 
 // ---------------------------------------------------------------- bypass and the second console
