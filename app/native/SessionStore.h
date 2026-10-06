@@ -35,7 +35,9 @@ namespace SessionStore
     // 8 appended the BAND HALL return (FxSlot::BandHall). A version 7 file has five sends per
     // strip and five returns: the sixth send loads silent and the sixth return takes the
     // profile's character, so it sounds as saved until the next TUNE MIX feeds the hall.
-    inline constexpr int kVersion = 8;
+    // 9 added the setlist (SessionState::setlist): the cues in order and which one is on.
+    // Absent before it: an empty setlist, which is what those sessions had.
+    inline constexpr int kVersion = 9;
 
     // The old name for SessionState, kept because it reads well at the call sites that mean
     // "the thing on disk".

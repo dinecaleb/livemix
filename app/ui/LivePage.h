@@ -9,11 +9,11 @@
 namespace livemix
 {
 
-// LIVE: the view for the service itself, built to "06b - Live - decluttered" (161:18761).
-// One health strip for the four things that matter while it is happening (is it recording,
-// is it going out, is anything clipping, how much room the master has); the groups as tall
-// strips with the scene picker over them; and a rail that says what LIVE SAFE and Autopilot
-// are doing, in sentences, with the engineer's own listen - and where it goes - at its foot.
+// LIVE: the view for the service itself (v4). One health strip for the four things that
+// matter while it is happening (is it recording, is it going out, is anything clipping, how
+// much room the master has); the cue that is on and This cue / Groups / All / Alerts over the
+// strips, the scenes under them; and a rail with what is up next, the setlist, what LIVE SAFE
+// and Autopilot are doing, what needs attention, and the engineer's own listen at its foot.
 class LivePage : public juce::Component
 {
 public:
@@ -25,42 +25,71 @@ public:
     std::function<void()> onToggleRecord;
     std::function<void()> onOpenHistory;      // MIX HISTORY: the mix as it was, by name
     std::function<void()> onOpenCheck;        // CHECK INPUTS, from the "Needs attention" card
+    std::function<void (int)> onEditSetlist;  // the Setlist sheet, at a cue (-1: the one on now)
 
     // The sidebar's SCENES row brings you here and points at them: the scenes live on LIVE,
     // where the service is run from, and nowhere else.
     void focusScenes();
+    // The sidebar's SETLIST row: the same, for the setlist on the rail.
+    void focusSetlist();
+
+    // THE SETLIST: Space on LIVE, the Up next card's button, and a click on a cue all land here.
+    void goToNextCue();
+    void goToCue (int index);
+
+    // What the strips show: the groups on in this cue, every group, every input and effect,
+    // or only the inputs that need attention.
+    enum class View { ThisCue, Groups, All, Alerts };
+    void setView (View);
+    View getView() const noexcept { return view; }
 
     void refresh();                    // 30 Hz
     void rebuild();
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    // The group row opened out to the effect returns, or back to the groups.
+    // The effect returns, each on its own fader: the All view, scrolled to them; or back to the groups.
     void showEffects (bool open);
-    bool effectsShown() const noexcept { return effectsOpen; }
+    bool effectsShown() const noexcept { return view == View::All; }
 
 private:
     class GroupTile;
     class Link;
     class LevelLine;
     class SafeDetail;
+    class CueList;
 
     struct Layout
     {
-        juce::Rectangle<int> health, groupsHeader, sceneCaption, sceneTrack, strips, safe, autopilot, monitor,
-                             modesA, modesB, output, speaking, priorityRow, shareRow, attention;
+        juce::Rectangle<int> health, groupsHeader, viewTrack, sceneCaption, sceneTrack, strips, safe, autopilot, monitor,
+                             modesA, modesB, output, speaking, priorityRow, shareRow, attention, upNext, setlist, empty;
+        bool safeCompact = false, autopilotCompact = false;
     };
     Layout lay;                        // measured in resized(), and again when a card changes height
     int sceneFlash = 0;                // frames left of the mark the sidebar's SCENES row leaves
+    int setlistFlash = 0;              // ... and its SETLIST row
 
     MixController& controller;
     AppServices& services;
     // One strip per group bus in the console's order, then the effects returns.
     std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 1 + size_t (FxSlot::Count)> tiles;
-    // EACH EFFECT: the row opened out to the returns, one fader each, instead of the groups.
-    bool effectsOpen = false;
-    DineButton effectsButton { "Each effect", DineButton::Style::Standard };
+    // ONE PER INPUT, for All and Alerts: a strip each, in a row that scrolls sideways.
+    std::vector<std::unique_ptr<GroupTile>> inputTiles;
+    juce::Viewport scroller;
+    juce::Component scrollHolder;
+    void rebuildInputTiles();
+    std::vector<int> shownTiles;       // what the row holds now: group tiles by index, inputs as 1000 + strip
+    View view = View::ThisCue;
+    std::array<std::unique_ptr<DineButton>, 4> viewTabs;
+    DineButton effectsOff { "Effects off", DineButton::Style::Toggle };
     bool anyEffects() const;
+    std::vector<int> tilesFor (View) const;
+    void refreshViewTabs();
+
+    // THE SETLIST on the rail: Up next and its GO, and the list with Now and Next.
+    std::unique_ptr<CueList> cueList;
+    DineButton goButton { "Go", DineButton::Style::Filled };
+    DineButton editSetlist { "Edit", DineButton::Style::Standard };
 
     // SCENES: the picker over the strips. A kept scene comes back in one press; KEEP writes the
     // mix that is running into the one picked.
@@ -71,6 +100,7 @@ private:
 
     std::unique_ptr<Link> safeLink, autopilotLink, checkLink;
     juce::StringArray attentionNow;    // re-read twice a second with the clipping count
+    juce::StringArray attentionStripsNow;
     int attentionShown = 0;            // how many of them the rail has room for
     int attentionLines = 2;            // ... and how many lines of what to do each one may take, whole
     // SPEAKING MICS: speech priority and share the mics, the two things that move a level for
@@ -95,6 +125,10 @@ private:
         // v4's "Needs attention": "Snare Btm is clipping\tTurn its preamp down 6 dB at the console.\tc"
         // - what, the sentence, and c / w for the lamp (critical, warning).
         juce::StringArray attention;
+        juce::StringArray attentionStrips;       // the strips the Alerts view shows, by number
+        Setlist setlist;                         // what the cue header, Up next and the list read
+        juce::StringArray cueScenes;             // each cue's scene, in words
+        std::array<int, 4> counts {};            // This cue, Groups, All, Alerts
         bool isRecording = false, safe = false, running = false, anyClip = false, inPlace = false, routed = false,
              autopilotOn = false, autopilotMoved = false, priorityOn = false, shareOn = false;
         int speakingMics = 0;
@@ -105,7 +139,8 @@ private:
             return recording == o.recording && recordingNote == o.recordingNote && output == o.output && outputNote == o.outputNote
                 && clipping == o.clipping && clippingNote == o.clippingNote && headroom == o.headroom && headroomNote == o.headroomNote
                 && monitorNote == o.monitorNote && autopilotSince == o.autopilotSince && autopilotLog == o.autopilotLog
-                && attention == o.attention
+                && attention == o.attention && attentionStrips == o.attentionStrips && setlist == o.setlist
+                && cueScenes == o.cueScenes && counts == o.counts
                 && isRecording == o.isRecording && safe == o.safe && running == o.running && anyClip == o.anyClip
                 && inPlace == o.inPlace && routed == o.routed && autopilotOn == o.autopilotOn
                 && autopilotMoved == o.autopilotMoved && soloCount == o.soloCount

@@ -292,6 +292,46 @@ namespace
             for (const auto& n : *ops) r.knownOperators.push_back (n.toString().toStdString());
     }
 
+    juce::var setlistToVar (const Setlist& s)
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty ("current", s.current);
+        juce::Array<juce::var> cues;
+        for (const auto& c : s.cues)
+        {
+            auto* co = new juce::DynamicObject();
+            co->setProperty ("name", juce::String (c.name));
+            co->setProperty ("scene", c.scene);
+            if (! c.favourite.empty()) co->setProperty ("favourite", juce::String (c.favourite));
+            if (! c.louder.empty()) co->setProperty ("louder", juce::String (c.louder));
+            if (! c.softer.empty()) co->setProperty ("softer", juce::String (c.softer));
+            cues.add (juce::var (co));
+        }
+        obj->setProperty ("cues", cues);
+        return juce::var (obj);
+    }
+
+    void setlistFromVar (const juce::var& v, Setlist& s)
+    {
+        s = Setlist {};
+        auto* obj = v.getDynamicObject();
+        if (obj == nullptr) return;
+        if (auto* cues = obj->getProperty ("cues").getArray())
+            for (const auto& cv : *cues)
+            {
+                auto* co = cv.getDynamicObject();
+                if (co == nullptr) continue;
+                Cue c;
+                c.name = co->getProperty ("name").toString().toStdString();
+                c.scene = co->hasProperty ("scene") ? juce::jlimit (-1, kMixScenes - 1, int (co->getProperty ("scene"))) : 0;
+                c.favourite = co->getProperty ("favourite").toString().toStdString();
+                c.louder = co->getProperty ("louder").toString().toStdString();
+                c.softer = co->getProperty ("softer").toString().toStdString();
+                s.cues.push_back (c);
+            }
+        s.current = obj->hasProperty ("current") ? juce::jlimit (-1, int (s.cues.size()) - 1, int (obj->getProperty ("current"))) : -1;
+    }
+
     juce::var scenesToVar (const std::vector<MixScene>& scenes)
     {
         juce::Array<juce::var> out;
@@ -747,6 +787,7 @@ juce::var toVar (const Document& d)
     if (d.hasMix) obj->setProperty ("mix", mixToVar (d.mix));
     if (! d.history.empty()) obj->setProperty ("history", historyToVar (d.history));   // the track history; absent = none yet
     if (! d.scenes.empty()) obj->setProperty ("scenes", scenesToVar (d.scenes));       // the scenes; absent = none kept
+    obj->setProperty ("setlist", setlistToVar (d.setlist));                            // version 9
     if (! d.checkpoints.empty()) obj->setProperty ("checkpoints", checkpointsToVar (d.checkpoints));   // the mix history
     // Broadcast readiness: absent before version 7 means an empty checklist, which is correct.
     if (! d.readiness.active.id.empty() || ! d.readiness.history.empty()
@@ -873,6 +914,7 @@ bool fromVar (const juce::var& v, Document& d)
     if (d.hasMix) mixFromVar (obj->getProperty ("mix"), d.mix, d.session.profile);
     historyFromVar (obj->getProperty ("history"), d.history);       // absent before the track history existed
     scenesFromVar (obj->getProperty ("scenes"), d.scenes, d.session.profile);          // absent before scenes existed
+    setlistFromVar (obj->getProperty ("setlist"), d.setlist);       // absent before version 9: an empty setlist
     checkpointsFromVar (obj->getProperty ("checkpoints"), d.checkpoints, d.session.profile);   // absent before the mix history existed
     readinessFromVar (obj->getProperty ("readiness"), d.readiness);         // absent before version 7
     projectFromVar (obj->getProperty ("project"), d.project);      // absent in version 1: no timeline yet

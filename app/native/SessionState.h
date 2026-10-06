@@ -121,6 +121,9 @@ struct SessionState
     // ---- the scenes: the whole mix kept for one part of the service. Empty slots by name.
     std::vector<MixScene> scenes;
 
+    // ---- the setlist: the service in order, each cue the scene it brings back, and which is on
+    Setlist setlist;
+
     // ---- the track history: every tune and hand edit on each channel, before and after
     std::vector<StripTuneRecord> history;
 

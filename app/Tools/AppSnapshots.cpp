@@ -1432,6 +1432,31 @@ int main (int argc, char** argv)
     view.showPage (MainView::Page::Live);
     rig.feed (0.5);
     rig.snap (dir, "17-live");
+
+    // THE SETLIST: ten cues, the third on now - the mockup's Sunday.
+    {
+        rig.controller.keepScene (0);
+        const char* names[10] = { "Walk-in", "Welcome", "Way Maker", "Goodness of God", "Prayer", "Sermon",
+                                  "Build My Life", "Offering", "Benediction", "Walk-out" };
+        const int scenesFor[10] = { -1, 1, 0, 0, 2, 1, 0, 2, 1, -1 };
+        for (int i = 0; i < 10; ++i)
+            rig.controller.addCue ({ names[i], scenesFor[i], {}, i == 3 ? "Lead singer" : "", i == 3 ? "Guitars, room mics" : "" });
+        rig.controller.goToCue (2);
+        rig.feed (0.5);
+        rig.snap (dir, "17f-live-setlist");
+        view.getLivePage().setView (LivePage::View::Groups);
+        rig.feed (0.3);
+        rig.snap (dir, "17g-live-groups");
+        view.getLivePage().setView (LivePage::View::Alerts);
+        rig.feed (0.3);
+        rig.snap (dir, "17h-live-alerts");
+        view.getLivePage().setView (LivePage::View::ThisCue);
+        view.showSetlist (3);
+        rig.feed (0.3);
+        rig.snap (dir, "17i-setlist-sheet");
+        view.closeSheets();
+        rig.feed (0.2);
+    }
     view.getLivePage().showEffects (true);
     rig.feed (0.3);
     rig.snap (dir, "17e-live-effects");

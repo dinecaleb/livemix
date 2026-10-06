@@ -257,6 +257,8 @@ TEST_CASE ("Reachability: every keyboard shortcut still asks for the same comman
         { { '4', cmd, 0 },                     Page::Tracks, 603, "LIVE" },
         { { '5', cmd, 0 },                     Page::Mixer,  600, "TRACKS" },
         { { juce::KeyPress::spaceKey, 0, 0 },  Page::Tracks, 500, "play / stop" },
+        { { juce::KeyPress::spaceKey, 0, 0 },  Page::Mixer,  500, "play / stop, on the mixer too" },
+        { { juce::KeyPress::spaceKey, 0, 0 },  Page::Live,   520, "the next cue, on LIVE (never play / stop there)" },
         { { juce::KeyPress::returnKey, 0, 0 }, Page::Tracks, 502, "return to start" },
         { { 'R', 0, 0 },                       Page::Tracks, 501, "record" },
         { { 'L', 0, 0 },                       Page::Tracks, 503, "loop" },
@@ -332,6 +334,7 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         { "appearance", [&] { view.showThemes(); } },
         { "chat",       [&] { view.showChat(); } },
         { "readiness",  [&] { view.showBroadcastReadiness(); } },
+        { "setlist",    [&] { view.showSetlist(); } },
         { "channel",    [&] { view.tuneChannel (0); } },
         // TUNE asks *which* group or channels before it tunes them - the whole mix needs
         // nothing more said about it, so that one starts. It is the workspace's own sheet

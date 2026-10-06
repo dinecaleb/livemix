@@ -67,12 +67,6 @@ must not be done as part of the UI work.
 | --- | --- | --- | --- |
 | "Silent, with the reason" per input during the listen | Listen list | `busHeard` is per group; per-strip flags exist only once a plan exists | read-only only if a live per-strip reason is already computed; otherwise ENGINE |
 
-### Live
-
-| v4 control | Where | What is missing | Smallest backend |
-| --- | --- | --- | --- |
-| Setlist with cue editing (order, add, remove, notes, next) | Live, sidebar "Setlist" | Scenes are four fixed slots; no order, cue notes or "next" | **SESSION** (a new SessionState field and a SessionStore version). Not in the UI work; stub, or show the favourites in their stored order read-only |
-
 ### Inspector
 
 | v4 control | Where | What is missing | Smallest backend |
@@ -112,6 +106,14 @@ must not be done as part of the UI work.
 | v4 control | Where | What is missing | Smallest backend |
 | --- | --- | --- | --- |
 | "Templates" filter | Sessions | A name match only; no template model | host. Keep the name match until one exists |
+
+## Closed
+
+- **Setlist and cues** (2026-10-06): `Setlist` / `Cue` in `app/native/MixHistory.h`, owned by MixController
+  (add, update, move, remove, go to, go to next), carried by `SessionState::setlist`, SessionStore version 9
+  (an older file opens with an empty setlist). LIVE has the cue header, This cue / Groups / All / Alerts, Up
+  next with Louder / Softer and Go, the setlist with Now and Next, and Edit (the Setlist sheet). Space on LIVE
+  is the next cue; the sidebar's Setlist row opens LIVE at the setlist.
 
 ## Backend exists, no UI yet
 

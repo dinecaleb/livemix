@@ -361,6 +361,22 @@ public:
     std::vector<MixScene> getScenes() const;
     void restoreScenes (const std::vector<MixScene>& scenes);
 
+    // ---- The setlist: the service in order, one cue at a time (MixHistory.h) ----
+    //
+    // Edits mark the document (touch); none of them changes the sound. Going to a cue is a
+    // scene recall - recallScene's refusals, Mix history entry and LIVE SAFE rules - and moves
+    // `current` on even when the mix stays as it is, because the setlist is the running order.
+    const Setlist& getSetlist() const noexcept { return setlist; }
+    void restoreSetlist (const Setlist&);                 // from the document; marks nothing
+    int addCue (const Cue&, int at = -1);                 // returns where it went
+    void updateCue (int index, const Cue&);
+    void moveCue (int from, int to);
+    void removeCue (int index);
+    bool goToCue (int index);                             // true when the mix changed
+    bool goToNextCue();
+    // What a cue recalls, in words: the scene's or favourite's name, or "as it is".
+    std::string cueSceneName (const Cue&) const;
+
     // ---- FAVOURITE MIXES: the ones that worked, kept and measured ----
     //
     // Not a third store. A favourite *is* a scene - the whole kept mix, the macros and the
@@ -980,6 +996,7 @@ private:
     void autopilotFlushHistory (const char* why);
 
     std::vector<MixScene> scenes = std::vector<MixScene> (size_t (kMixScenes));
+    Setlist setlist;
     MixFingerprint measureNow() const;      // what the mix that is running actually sounds like
     std::vector<MixCheckpoint> checkpoints;
     long long lastCheckpointMs = 0;     // the slow beat: see poll()

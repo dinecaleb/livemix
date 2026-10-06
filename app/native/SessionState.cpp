@@ -33,6 +33,7 @@ SessionState captureSession (const MixController& controller, const DawEngine& d
     s.safety = controller.getLiveSafePolicy();
     s.reference = controller.getReference();          // what the mix is aimed at, already measured
     s.scenes = controller.getScenes();
+    s.setlist = controller.getSetlist();
     s.history = controller.getAllStripHistory();
     s.checkpoints = controller.getCheckpoints();
     s.trackPanelWidth = trackPanelWidth;
@@ -75,6 +76,7 @@ void applySession (const SessionState& s, MixController& controller, DawEngine& 
     controller.setOutputFeeds (s.outputs);        // routing belongs to the device, not the mix
     controller.setReference (s.reference);        // never a previous session's: resetDocument cleared it
     controller.restoreScenes (s.scenes);          // recall checks the inputs by name
+    controller.restoreSetlist (s.setlist);        // after the scenes: a cue names them
 
     if (s.hasMix)
     {

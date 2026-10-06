@@ -76,6 +76,7 @@ set(DINE_UI_SOURCES
     ui/ChoiceSheet.cpp
     ui/RoutingPage.cpp
     ui/CheckSheet.cpp
+    ui/SetlistSheet.cpp
     ui/HistorySheet.cpp
     ui/BroadcastReadinessSheet.cpp
     ui/ChannelTuneSheet.cpp

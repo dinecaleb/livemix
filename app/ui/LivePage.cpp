@@ -3,6 +3,7 @@
 #include "native/MixHistory.h"
 #include "OutputsSheet.h"
 #include "UI/Widgets.h"
+#include <algorithm>
 #include <cmath>
 
 namespace livemix
@@ -71,7 +72,8 @@ namespace
 class LivePage::GroupTile : public juce::Component
 {
 public:
-    GroupTile (MixController& c, int index) : controller (c), group (index)
+    // `input`: the tile is one input's strip (All and Alerts), `index` its console strip.
+    GroupTile (MixController& c, int index, bool input = false) : controller (c), group (index), inputStrip (input)
     {
         addAndMakeVisible (meter);
         addAndMakeVisible (fader);
@@ -83,13 +85,15 @@ public:
         fader.setDoubleClickReturnValue (true, 0.0);
         fader.getProperties().set ("dineFader", true);
         fader.getProperties().set ("dineFaderCap", 40);     // the design's 26 x 40 cap
-        fader.setTooltip (isFx() ? "Level for every effect return together. Double-click for 0.0 dB, which is what TUNE MIX set."
+        fader.setTooltip (isInput() ? "This input's fader. Double-click for 0.0 dB."
+                          : isFx() ? "Level for every effect return together. Double-click for 0.0 dB, which is what TUNE MIX set."
                           : isReturn() ? "This effect's own level, on top of what TUNE MIX set for it. Double-click for 0.0 dB."
                                        : "Level for the whole group. Double-click for 0.0 dB.");
         fader.onValueChange = [this]
         {
             if (updating) return;
-            if (isFx())          controller.setFxReturn (float (fader.getValue()));
+            if (isInput())       controller.setStripFader (group, float (fader.getValue()));
+            else if (isFx())     controller.setFxReturn (float (fader.getValue()));
             else if (isReturn()) controller.setFxSlotReturn (slot(), float (fader.getValue()));
             else                 controller.setBusFader (bus(), float (fader.getValue()));
             repaint();
@@ -97,21 +101,25 @@ public:
 
         addAndMakeVisible (mute);
         addAndMakeVisible (solo);
-        mute.setTooltip (isFx() ? "Mute the effects: the reverbs and delays leave the mix, the sources stay."
+        mute.setTooltip (isInput() ? "Mute: this input is not heard"
+                         : isFx() ? "Mute the effects: the reverbs and delays leave the mix, the sources stay."
                          : isReturn() ? "Mute this effect. The others stay as they are."
                                       : "Mute: the whole group is not heard");
-        solo.setTooltip (isFx() ? "Solo just the reverbs and delays, so you hear what the sends are adding. Only you hear it."
+        solo.setTooltip (isInput() ? "Solo this input. Only you hear it."
+                         : isFx() ? "Solo just the reverbs and delays, so you hear what the sends are adding. Only you hear it."
                          : isReturn() ? "Solo this effect on its own. Only you hear it."
                                       : "Solo this group. Only you hear it.");
         mute.onClick = [this]
         {
-            if (isFx())          controller.setFxMute (! controller.getBase().fxMute);
+            if (isInput())       controller.setStripMute (group, ! controller.getBase().strips[size_t (group)].mute);
+            else if (isFx())     controller.setFxMute (! controller.getBase().fxMute);
             else if (isReturn()) controller.setFxSlotMute (slot(), ! controller.getBase().fx[size_t (slot())].mute);
             else                 controller.setBusMute (bus(), ! controller.getBase().buses[size_t (bus())].mute);
         };
         solo.onClick = [this]
         {
-            if (isFx())          controller.setFxSoloAll (! controller.anyFxSolo());
+            if (isInput())       controller.setStripSolo (group, ! controller.getBase().strips[size_t (group)].solo);
+            else if (isFx())     controller.setFxSoloAll (! controller.anyFxSolo());
             else if (isReturn()) controller.setFxSolo (slot(), ! controller.getBase().fx[size_t (slot())].solo);
             else                 controller.setBusSolo (bus(), ! controller.getBase().buses[size_t (bus())].solo);
         };
@@ -122,7 +130,17 @@ public:
         const auto& p = controller.getBase();
         float faderDb = 0.0f, peak = -120.0f;
         bool m = false, s = false, isUsed = true;
-        if (isFx())
+        if (isInput())
+        {
+            isUsed = controller.isPrepared() && group < controller.getEngine().getNumStrips() && group < p.numStrips;
+            if (isUsed)
+            {
+                const auto& st = p.strips[size_t (group)];
+                faderDb = juce::jmax (st.faderDb, -60.0f); m = st.mute; s = st.solo;
+                peak = controller.getEngine().getStrip (group).getOutputMeter().consumeMaxPeakDb();
+            }
+        }
+        else if (isFx())
         {
             faderDb = p.fxReturnDb;
             m = p.fxMute;
@@ -253,14 +271,22 @@ public:
 
 private:
     static constexpr int kInsetX = 8;
-    bool isFx() const noexcept { return group == kFxTile; }
-    bool isReturn() const noexcept { return group >= kTiles; }
+    bool isInput() const noexcept { return inputStrip; }
+    bool isFx() const noexcept { return ! inputStrip && group == kFxTile; }
+    bool isReturn() const noexcept { return ! inputStrip && group >= kTiles; }
     FxSlot slot() const noexcept { return FxSlot (group - kTiles); }
     // A strip's position is the console's order, not the enum's: LEAD sits with the voices.
     MixBus bus() const noexcept { return mixBusInDisplayOrder (group); }
-    juce::Colour tint() const { return isFx() ? Dine::busAmbience : isReturn() ? Dine::keyFx : Dine::busTint (bus()); }
+    juce::Colour tint() const
+    {
+        if (isInput())
+            return group < controller.getGraph().numStrips() ? Dine::busTint (controller.getGraph().strips[size_t (group)].bus) : Dine::ink4;
+        return isFx() ? Dine::busAmbience : isReturn() ? Dine::keyFx : Dine::busTint (bus());
+    }
     juce::String name() const
     {
+        if (isInput())
+            return group < controller.getGraph().numStrips() ? juce::String (controller.getGraph().strips[size_t (group)].name) : juce::String();
         if (isFx()) return "FX returns";
         if (isReturn()) return slot() == FxSlot::BgvHall ? juce::String ("BGV Hall") : juce::String (fxSlotName (slot()));
         const juce::String raw (mixBusName (bus()));
@@ -269,6 +295,7 @@ private:
 
     MixController& controller;
     int group;
+    bool inputStrip = false;
     bool used = true, muted = false, soloed = false, updating = false;
     DineMeter meter { DineMeter::Style::Bar };
     juce::Slider fader;
@@ -368,6 +395,77 @@ private:
     std::vector<Rule> rules;
 };
 
+// THE SETLIST on the rail: a row per cue - its number, its name, Now or Next - the one on now
+// on a lit plane. A long setlist shows the rows around Now. A click goes to that cue.
+class LivePage::CueList : public juce::Component
+{
+public:
+    static constexpr int kRowH = 28;
+    std::function<void (int)> onPick;
+
+    void set (const Setlist& s)
+    {
+        if (s == list) return;
+        list = s;
+        repaint();
+    }
+    int rowsWanted() const noexcept { return int (list.cues.size()); }
+    int firstShown() const noexcept
+    {
+        // Now and Next always; the cue before Now as well once there are three rows.
+        const int rows = juce::jmax (1, getHeight() / kRowH), n = int (list.cues.size());
+        return juce::jlimit (0, juce::jmax (0, n - rows), rows >= 3 ? list.current - 1 : list.current);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const int rows = getHeight() / kRowH, n = int (list.cues.size()), first = firstShown();
+        const int next = list.next();
+        const auto numFont = Dine::mono (11.0f, 500), nameFont = Dine::text (13.0f, 500), tagFont = Dine::text (11.0f, 600);
+        const int numW = Dine::textWidth (numFont, "00") + 4;
+        for (int k = 0; k < rows && first + k < n; ++k)
+        {
+            const int i = first + k;
+            auto row = juce::Rectangle<int> (0, k * kRowH, getWidth(), kRowH);
+            if (i == list.current) Dine::fillRounded (g, row.toFloat(), Dine::controlOn, 6.0f);
+            else if (i == hover) Dine::fillRounded (g, row.toFloat(), Dine::control, 6.0f);
+            auto inner = row.reduced (8, 0);
+            g.setColour (Dine::ink3);
+            g.setFont (numFont);
+            Dine::drawText (g, juce::String (i + 1), inner.removeFromLeft (numW), juce::Justification::centredLeft, false);
+            const juce::String tag = i == list.current ? "Now" : i == next ? "Next" : juce::String();
+            if (tag.isNotEmpty())
+            {
+                g.setColour (i == list.current ? Dine::accent : Dine::ink3);
+                g.setFont (tagFont);
+                Dine::drawText (g, tag, inner.removeFromRight (Dine::textWidth (tagFont, tag) + 2), juce::Justification::centredRight, false);
+                inner.removeFromRight (8);
+            }
+            g.setColour (i == list.current ? Dine::ink : Dine::ink2);
+            g.setFont (nameFont);
+            Dine::drawFittedText (g, juce::String (list.cues[size_t (i)].name), inner, juce::Justification::centredLeft, 1, 0.85f);
+        }
+    }
+
+    void mouseMove (const juce::MouseEvent& e) override { setHover (rowAt (e.y)); }
+    void mouseExit (const juce::MouseEvent&) override  { setHover (-1); }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        const int i = rowAt (e.y);
+        if (i >= 0 && ! e.mouseWasDraggedSinceMouseDown() && onPick) onPick (i);
+    }
+
+private:
+    int rowAt (int y) const noexcept
+    {
+        const int i = firstShown() + y / kRowH;
+        return y >= 0 && i < int (list.cues.size()) && y / kRowH < getHeight() / kRowH ? i : -1;
+    }
+    void setHover (int i) { if (i != hover) { hover = i; repaint(); } }
+    Setlist list;
+    int hover = -1;
+};
+
 LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services (s)
 {
     for (int i = 0; i < kAllTiles; ++i)
@@ -376,9 +474,50 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         addChildComponent (*tiles[size_t (i)]);
     }
     tiles[size_t (kFxTile)]->onOpen = [this] { showEffects (true); };
-    effectsButton.setTooltip ("The reverbs and the delay, each on its own fader. The FX returns strip still moves them all.");
-    effectsButton.onClick = [this] { showEffects (! effectsOpen); };
-    addAndMakeVisible (effectsButton);
+
+    // ---- what the strips show: This cue / Groups / All / Alerts, with their counts
+    const char* viewNames[4] = { "This cue", "Groups", "All", "Alerts" };
+    const char* viewTips[4] = {
+        "The groups that are on right now, in this cue.",
+        "Every group, and the effects together on one strip.",
+        "Every input on its own strip, then each effect on its own fader.",
+        "Only the inputs whose level the desk should still move." };
+    for (int i = 0; i < 4; ++i)
+    {
+        auto tab = std::make_unique<DineButton> (viewNames[i], DineButton::Style::Segment);
+        tab->setFontPx (12.0f);
+        tab->setPadX (10);
+        tab->setClickingTogglesState (false);
+        tab->setTooltip (viewTips[i]);
+        tab->onClick = [this, i] { setView (View (i)); };
+        addAndMakeVisible (*tab);
+        viewTabs[size_t (i)] = std::move (tab);
+    }
+    effectsOff.setFontPx (12.0f);
+    effectsOff.setPadX (10);
+    effectsOff.setClickingTogglesState (false);
+    effectsOff.setTooltip ("Take every reverb and delay out of the mix at once, without touching their levels. Press again to bring them back.");
+    effectsOff.onClick = [this] { controller.setFxMute (! controller.getBase().fxMute); refresh(); };
+    addAndMakeVisible (effectsOff);
+
+    scroller.setViewedComponent (&scrollHolder, false);
+    scroller.setScrollBarsShown (false, true);
+    scroller.setScrollBarThickness (8);
+    addChildComponent (scroller);
+
+    // ---- the setlist: Up next and its GO, the list, and Edit
+    cueList = std::make_unique<CueList>();
+    cueList->onPick = [this] (int i) { goToCue (i); };
+    addAndMakeVisible (*cueList);
+    goButton.setFontPx (13.0f);
+    goButton.setTooltip ("Go to the next cue: its scene comes back, as a scene does. Space does the same on this page.");
+    goButton.onClick = [this] { goToNextCue(); };
+    addChildComponent (goButton);
+    editSetlist.setFontPx (11.0f);
+    editSetlist.setPadX (8);
+    editSetlist.setTooltip ("Add, rename, reorder and delete cues, and pick the scene each one brings back.");
+    editSetlist.onClick = [this] { if (onEditSetlist) onEditSetlist (look.setlist.current); };
+    addAndMakeVisible (editSetlist);
 
     // ---- scenes: pick one; a kept one comes straight back, KEEP writes the mix into the one picked
     for (int i = 0; i < 4; ++i)
@@ -547,11 +686,98 @@ void LivePage::refreshMonitor()
 void LivePage::rebuild()
 {
     refreshScenes();
+    rebuildInputTiles();
     for (auto& t : tiles) if (t != nullptr) t->refresh();
+    for (auto& t : inputTiles) t->refresh();
     refreshMonitor();
-    // The session's effects are the routing's: a rebuilt graph may have more, fewer or none.
-    if (effectsOpen && ! anyEffects()) effectsOpen = false;
     resized();
+    repaint();
+}
+
+// One strip per input on the console, made again only when the number of strips changes.
+void LivePage::rebuildInputTiles()
+{
+    const int n = controller.isBuilt() ? controller.getGraph().numStrips() : 0;
+    if (int (inputTiles.size()) == n) return;
+    inputTiles.clear();
+    for (int i = 0; i < n; ++i)
+    {
+        inputTiles.push_back (std::make_unique<GroupTile> (controller, i, true));
+        scrollHolder.addChildComponent (*inputTiles.back());
+    }
+}
+
+// What each view puts on the row: group tiles by their index, inputs as 1000 + their strip.
+std::vector<int> LivePage::tilesFor (View v) const
+{
+    std::vector<int> out;
+    const auto& p = controller.getBase();
+    const bool prepared = controller.isPrepared();
+    switch (v)
+    {
+        case View::ThisCue:
+            // What is on right now: the groups in use and not muted, and the effects if they are heard.
+            for (int t = 0; t < kGroupBuses; ++t)
+            {
+                const auto b = mixBusInDisplayOrder (t);
+                if (prepared && controller.getEngine().isBusUsed (b) && ! p.buses[size_t (b)].mute) out.push_back (t);
+            }
+            if (anyEffects() && ! p.fxMute) out.push_back (kFxTile);
+            break;
+        case View::Groups:
+            for (int t = 0; t < kTiles; ++t) out.push_back (t);
+            break;
+        case View::All:
+            for (int i = 0; i < int (inputTiles.size()); ++i) out.push_back (1000 + i);
+            for (int t = kTiles; t < kAllTiles; ++t)
+                if (prepared && controller.getEngine().isFxUsed (FxSlot (t - kTiles))) out.push_back (t);
+            if (anyEffects()) out.push_back (kFxTile);
+            break;
+        case View::Alerts:
+            for (const auto& s : look.attentionStrips)
+                if (s.getIntValue() < int (inputTiles.size())) out.push_back (1000 + s.getIntValue());
+            break;
+    }
+    return out;
+}
+
+void LivePage::setView (View v)
+{
+    if (v == view) return;
+    view = v;
+    refreshViewTabs();
+    resized();
+    repaint();
+}
+
+void LivePage::refreshViewTabs()
+{
+    const char* names[4] = { "This cue", "Groups", "All", "Alerts" };
+    for (int i = 0; i < 4; ++i)
+    {
+        auto& tab = *viewTabs[size_t (i)];
+        const int n = look.counts[size_t (i)];
+        const juce::String text = juce::String (names[i]) + (n > 0 ? "  " + juce::String (n) : juce::String());
+        if (tab.getButtonText() != text) tab.setButtonText (text);
+        tab.setToggleState (int (view) == i, juce::dontSendNotification);
+    }
+}
+
+void LivePage::goToNextCue()
+{
+    controller.goToNextCue();
+    refresh();
+}
+
+void LivePage::goToCue (int index)
+{
+    controller.goToCue (index);
+    refresh();
+}
+
+void LivePage::focusSetlist()
+{
+    setlistFlash = 45;
     repaint();
 }
 
@@ -575,7 +801,9 @@ void LivePage::refresh()
 {
     refreshScenes();                 // the picker follows the controller: a scene kept from anywhere shows here
 
-    for (auto& t : tiles) if (t != nullptr) t->refresh();
+    rebuildInputTiles();
+    for (auto& t : tiles) if (t != nullptr && t->isVisible()) t->refresh();
+    for (auto& t : inputTiles) if (t->isVisible()) t->refresh();
     updateDiskNote();
 
     auto& daw = services.daw();
@@ -618,6 +846,7 @@ void LivePage::refresh()
             }
         // v4's "Needs attention": every input the desk should still move, said as a sentence.
         attentionNow.clear();
+        attentionStripsNow.clear();
         if (controller.isPrepared())
             for (int i = 0; i < controller.getEngine().getNumStrips() && i < controller.getGraph().numStrips(); ++i)
             {
@@ -630,6 +859,7 @@ void LivePage::refresh()
                 const bool crit = a.level == Level::Clipping || a.level == Level::NotHeard;
                 attentionNow.add (juce::String (controller.getGraph().strips[size_t (i)].name) + " " + what + "\t"
                                   + juce::String (a.detail) + "\t" + (crit ? "c" : "w"));
+                attentionStripsNow.add (juce::String (i));
             }
         clipText = clipping == 0 ? "None" : juce::String (clipping) + (clipping == 1 ? " input" : " inputs");
         clipNote = clipping == 0 ? juce::String() : names + " " + Glyph::dash() + " fix it at the console";
@@ -637,6 +867,25 @@ void LivePage::refresh()
     }
     next.anyClip = anyClipping;
     next.attention = attentionNow;
+    next.attentionStrips = attentionStripsNow;
+
+    // THE SETLIST, and what each view would hold.
+    next.setlist = controller.getSetlist();
+    for (const auto& cue : next.setlist.cues) next.cueScenes.add (juce::String (controller.cueSceneName (cue)));
+    {
+        int on = 0, used = 0;
+        for (int t = 0; t < kGroupBuses; ++t)
+        {
+            const auto b = mixBusInDisplayOrder (t);
+            if (! controller.isPrepared() || ! controller.getEngine().isBusUsed (b)) continue;
+            ++used;
+            if (! controller.getBase().buses[size_t (b)].mute) ++on;
+        }
+        next.counts = { on, used, int (inputTiles.size()), attentionNow.size() };
+    }
+    cueList->set (next.setlist);
+    effectsOff.setVisible (anyEffects());
+    effectsOff.setToggleState (controller.getBase().fxMute, juce::dontSendNotification);
     next.clipping = clipText;
     next.clippingNote = clipNote;
 
@@ -712,13 +961,19 @@ void LivePage::refresh()
     if (next != look)
     {
         const bool reflow = next.safe != look.safe || next.autopilotOn != look.autopilotOn
+                         || next.setlist != look.setlist || next.cueScenes != look.cueScenes || next.counts != look.counts
+                         || next.attentionStrips != look.attentionStrips
                          || next.priorityOn != look.priorityOn || next.shareOn != look.shareOn || next.speakingMics != look.speakingMics
                          || next.autopilotLog != look.autopilotLog || next.monitorNote != look.monitorNote
                          || next.attention != look.attention;
         look = next;
+        refreshViewTabs();
         if (reflow) resized();
         repaint();
     }
+    // The marks the sidebar's rows leave fade over a second and a half, painting only themselves.
+    if (sceneFlash > 0) repaint (lay.sceneTrack.expanded (6));
+    if (setlistFlash > 0) repaint (lay.setlist.expanded (2));
 }
 
 juce::String LivePage::safeText() const
@@ -803,14 +1058,47 @@ void LivePage::paint (juce::Graphics& g)
         }
     }
 
-    // ---- Groups, and the scene picker over them
-    g.setColour (Dine::ink);
-    g.setFont (Dine::text (17.0f, 600));
-    Dine::drawText (g, effectsOpen ? "Effects" : "Groups", l.groupsHeader, juce::Justification::centredLeft, true);
+    // ---- the cue that is on: a lamp, its name, "Cue 3 of 10 - Band"; the views; the scenes
+    {
+        const auto& sl = look.setlist;
+        const bool onCue = sl.current >= 0 && sl.current < int (sl.cues.size());
+        auto head = l.groupsHeader;
+        g.setColour (onCue ? Dine::accent : Dine::ink4);
+        g.fillEllipse (head.removeFromLeft (8).withSizeKeepingCentre (8, 8).toFloat());
+        head.removeFromLeft (10);
+        const juce::String title = onCue ? juce::String (sl.cues[size_t (sl.current)].name) : juce::String ("Live");
+        const juce::String meta = onCue ? "Cue " + juce::String (sl.current + 1) + " of " + juce::String (sl.cues.size()) + " " + Glyph::dot() + " "
+                                              + look.cueScenes[sl.current]
+                                : sl.cues.empty() ? juce::String ("No setlist yet")
+                                                  : juce::String (sl.cues.size()) + (sl.cues.size() == 1 ? " cue" : " cues") + ", none on yet";
+        const auto titleFont = Dine::text (17.0f, 600), metaFont = Dine::text (11.0f, 500);
+        const int metaW = Dine::textWidth (metaFont, meta);
+        const int titleW = juce::jmin (Dine::textWidth (titleFont, title) + 2, head.getWidth() - (metaW + 10 <= head.getWidth() / 2 ? metaW + 10 : 0));
+        g.setColour (Dine::ink);
+        g.setFont (titleFont);
+        Dine::drawFittedText (g, title, head.removeFromLeft (titleW), juce::Justification::centredLeft, 1, 0.8f);
+        // The meta is a second reading: left out whole on a narrow window, never cut.
+        if (metaW + 10 <= head.getWidth())
+        {
+            head.removeFromLeft (10);
+            g.setColour (Dine::ink3);
+            g.setFont (metaFont);
+            Dine::drawText (g, meta, head.removeFromLeft (metaW), juce::Justification::centredLeft, false);
+        }
+        Dine::drawSegmentTrack (g, l.viewTrack);
+    }
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (11.0f, 500));
-    Dine::drawText (g, "Scene", l.sceneCaption, juce::Justification::centredRight, false);
+    Dine::drawText (g, "Scene", l.sceneCaption, juce::Justification::centredLeft, false);
     Dine::fillRounded (g, l.sceneTrack.toFloat(), Dine::control, 7.0f);
+    if (! l.empty.isEmpty())
+    {
+        g.setColour (Dine::ink3);
+        g.setFont (calloutFont());
+        Dine::drawFittedText (g, view == View::Alerts ? "Nothing needs attention. Every input arrives at a level DINE can work with."
+                                                      : "There is nothing to show here yet. Assign the inputs, and every one gets a strip.",
+                              l.empty.withSizeKeepingCentre (juce::jmin (l.empty.getWidth(), 420), 40), juce::Justification::centred, 2, 1.0f);
+    }
     // The mark the sidebar's SCENES row leaves: a ring round the picker for a second, so an
     // eye that came looking for the scenes finds them without anything changing.
     if (sceneFlash > 0)
@@ -833,25 +1121,103 @@ void LivePage::paint (juce::Graphics& g)
     };
     auto body = [] (juce::Rectangle<int> card) { return card.reduced (kCardPadX, kCardPadY).withTrimmedTop (kHeadH + kCardGap); };
 
+    // UP NEXT: the cue Space goes to, what to bring up and take down, and its GO.
+    if (! l.upNext.isEmpty())
+    {
+        const auto& sl = look.setlist;
+        const int next = sl.next();
+        Dine::fillRounded (g, l.upNext.toFloat(), Dine::card, 8.0f);
+        auto r = l.upNext.reduced (kCardPadX, kCardPadY);
+        g.setColour (Dine::ink3);
+        g.setFont (noteFont());
+        Dine::drawText (g, "Up next", r.removeFromTop (14), juce::Justification::centredLeft, false);
+        r.removeFromTop (4);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (17.0f, 600));
+        Dine::drawFittedText (g, next >= 0 ? juce::String (sl.cues[size_t (next)].name) : juce::String ("The end of the setlist"),
+                              r.removeFromTop (22), juce::Justification::centredLeft, 1, 0.8f);
+        r.removeFromTop (2);
+        g.setColour (Dine::ink3);
+        g.setFont (noteFont());
+        const juce::String meta = next >= 0 ? "Cue " + juce::String (next + 1) + " " + Glyph::dot() + " " + look.cueScenes[next]
+                                                + " " + Glyph::dot() + " Space"
+                                            : juce::String ("That was the last cue. Edit adds more.");
+        Dine::drawFittedText (g, meta, r.removeFromTop (14), juce::Justification::centredLeft, 1, 0.9f);
+        if (next >= 0)
+        {
+            const auto& cue = sl.cues[size_t (next)];
+            for (const auto& note : { std::pair<const char*, const std::string*> { "Louder", &cue.louder }, { "Softer", &cue.softer } })
+            {
+                if (note.second->empty()) continue;
+                r.removeFromTop (6);
+                auto line = r.removeFromTop (14);
+                g.setColour (Dine::ink3);
+                g.setFont (calloutFont());
+                Dine::drawText (g, note.first, line.removeFromLeft (Dine::textWidth (calloutFont(), note.first) + 12), juce::Justification::centredLeft, false);
+                g.setColour (Dine::ink);
+                Dine::drawFittedText (g, juce::String (*note.second), line, juce::Justification::centredRight, 1, 0.85f);
+            }
+        }
+    }
+
+    // THE SETLIST: the header, "3 of 10" and Edit; the rows are the CueList's.
+    if (! l.setlist.isEmpty())
+    {
+        const auto& sl = look.setlist;
+        Dine::fillRounded (g, l.setlist.toFloat(), Dine::card, 8.0f);
+        if (setlistFlash > 0)
+        {
+            Dine::hairlineRounded (g, l.setlist.toFloat().reduced (0.5f), Dine::accent.withAlpha (juce::jmin (1.0f, float (setlistFlash) / 30.0f)), 8.0f);
+            --setlistFlash;
+        }
+        auto head = l.setlist.reduced (kCardPadX, kCardPadY).removeFromTop (kHeadH);
+        head.removeFromRight (editSetlist.getWidth() + 8);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (13.0f, 600));
+        Dine::drawText (g, "Setlist", head, juce::Justification::centredLeft, false);
+        if (! sl.cues.empty())
+        {
+            const juce::String count = sl.current >= 0 ? juce::String (sl.current + 1) + " of " + juce::String (sl.cues.size())
+                                                       : juce::String (sl.cues.size()) + (sl.cues.size() == 1 ? " cue" : " cues");
+            g.setColour (Dine::ink3);
+            g.setFont (noteFont());
+            Dine::drawText (g, count, head, juce::Justification::centredRight, false);
+        }
+        else
+        {
+            auto text = l.setlist.reduced (kCardPadX, kCardPadY).withTrimmedTop (kHeadH + 8);
+            g.setColour (Dine::ink2);
+            g.setFont (calloutFont());
+            Dine::drawFittedText (g, "No setlist yet. Add the songs and moments of the service in order, and Space goes from one to the next.",
+                                  text, juce::Justification::topLeft, juce::jmax (1, text.getHeight() / 16), 1.0f);
+        }
+    }
+
     // LIVE SAFE: amber on its own ground while the sound is locked; a quiet card while it is not.
+    if (! l.safe.isEmpty())
     {
         Dine::fillRounded (g, l.safe.toFloat(), look.safe ? Dine::refuse : Dine::card, 8.0f);
         if (look.safe) Dine::hairlineRounded (g, l.safe.toFloat().reduced (0.5f), Dine::warn, 8.0f);
         header (l.safe, look.safe ? Dine::warn : Dine::ink4, look.safe ? "Live safe is on" : "Live safe is off");
-        auto text = body (l.safe);
-        g.setColour (Dine::ink2);
-        g.setFont (calloutFont());
-        Dine::drawFittedText (g, safeText(), text, juce::Justification::topLeft, juce::jmax (1, text.getHeight() / 16), 1.0f);
+        if (! l.safeCompact)
+        {
+            auto text = body (l.safe);
+            g.setColour (Dine::ink2);
+            g.setFont (calloutFont());
+            Dine::drawFittedText (g, safeText(), text, juce::Justification::topLeft, juce::jmax (1, text.getHeight() / 16), 1.0f);
+        }
     }
 
     // AUTOPILOT: the second thing allowed to move a level by itself, so while it is on the card
     // says so, says what it has had to move and why, and says where its fence is.
+    if (! l.autopilot.isEmpty())
     {
         Dine::fillRounded (g, l.autopilot.toFloat(), look.autopilotOn ? Dine::editGround : Dine::card, 8.0f);
         if (look.autopilotOn) Dine::hairlineRounded (g, l.autopilot.toFloat().reduced (0.5f), Dine::monitor, 8.0f);
         header (l.autopilot, look.autopilotOn ? Dine::monitor : Dine::ink4, "Autopilot");
         auto text = body (l.autopilot);
-        if (look.autopilotOn)
+        if (l.autopilotCompact) {}
+        else if (look.autopilotOn)
         {
             const auto timeFont = Dine::mono (11.0f, 500);
             const int timeW = Dine::textWidth (timeFont, "00:00") + 4;
@@ -976,11 +1342,10 @@ bool LivePage::anyEffects() const
 
 void LivePage::showEffects (bool open)
 {
-    if (open && ! anyEffects()) open = false;
-    if (open == effectsOpen) return;
-    effectsOpen = open;
-    resized();
-    repaint();
+    if (open && ! anyEffects()) return;
+    setView (open ? View::All : View::Groups);
+    // Each effect is at the end of All: scroll there, so "the effects" is what is in view.
+    if (open) scroller.setViewPositionProportionately (1.0, 0.0);
 }
 
 void LivePage::resized()
@@ -994,79 +1359,104 @@ void LivePage::resized()
     auto rail = r.removeFromRight (railW);
     r.removeFromRight (kGap);
 
-    // ---- the groups: a header row, then the strips
+    // ---- the cue that is on, the views, Effects off; then the scenes; then the strips
     {
         auto head = r.removeFromTop (Dine::Metric::button);
-        const int keepW = juce::jmax (52, keepButton.idealWidth());
-        keepButton.setBounds (head.removeFromRight (keepW));
-        head.removeFromRight (12);
+        if (effectsOff.isVisible())
+        {
+            const int w = juce::jmax (84, effectsOff.idealWidth());
+            effectsOff.setBounds (head.removeFromRight (w).withSizeKeepingCentre (w, kSegmentH + 2));
+            head.removeFromRight (12);
+        }
         int widths[4] {}, total = 0;
-        for (int i = 0; i < 4; ++i) { widths[i] = juce::jmax (44, sceneSegments[size_t (i)]->idealWidth()); total += widths[i]; }
-        l.sceneTrack = head.removeFromRight (total + 2 * 3 + 4).withSizeKeepingCentre (total + 2 * 3 + 4, kSegmentH + 4);
-        auto seg = l.sceneTrack.reduced (2);
+        for (int i = 0; i < 4; ++i) { widths[i] = juce::jmax (48, viewTabs[size_t (i)]->idealWidth()); total += widths[i]; }
+        const int trackW = total + 2 * 3 + 4;
+        // The views sit after the cue's name; a long name squeezes, the views never do.
+        const int titleRoom = juce::jmax (120, head.getWidth() - trackW - 16);
+        l.groupsHeader = head.removeFromLeft (titleRoom);
+        head.removeFromLeft (16);
+        l.viewTrack = head.removeFromLeft (trackW).withSizeKeepingCentre (trackW, kSegmentH + 4);
+        auto seg = l.viewTrack.reduced (2);
         for (int i = 0; i < 4; ++i)
         {
-            sceneSegments[size_t (i)]->setBounds (seg.removeFromLeft (widths[i]));
+            viewTabs[size_t (i)]->setBounds (seg.removeFromLeft (widths[i]));
             seg.removeFromLeft (2);
         }
-        head.removeFromRight (12);
-        l.sceneCaption = head.removeFromRight (Dine::textWidth (Dine::text (11.0f, 500), "Scene") + 2);
+
+        r.removeFromTop (10);
+        auto scenesRow = r.removeFromTop (kSegmentH + 4);
+        l.sceneCaption = scenesRow.removeFromLeft (Dine::textWidth (Dine::text (11.0f, 500), "Scene") + 2);
+        scenesRow.removeFromLeft (10);
+        int sw[4] {}, sTotal = 0;
+        for (int i = 0; i < 4; ++i) { sw[i] = juce::jmax (44, sceneSegments[size_t (i)]->idealWidth()); sTotal += sw[i]; }
+        l.sceneTrack = scenesRow.removeFromLeft (sTotal + 2 * 3 + 4);
+        auto ss = l.sceneTrack.reduced (2);
+        for (int i = 0; i < 4; ++i)
         {
-            // The heading, then the button that opens the row out to the effects (or back).
-            effectsButton.setButtonText (effectsOpen ? "Back to groups" : "Each effect");
-            const int titleW = Dine::textWidth (Dine::text (17.0f, 600), effectsOpen ? "Effects" : "Groups") + 14;
-            auto b = head.withTrimmedLeft (titleW);
-            const int bw = effectsButton.idealWidth() + 8;
-            effectsButton.setBounds (b.removeFromLeft (bw).withSizeKeepingCentre (bw, kSegmentH + 2));
-            effectsButton.setVisible (anyEffects());
+            sceneSegments[size_t (i)]->setBounds (ss.removeFromLeft (sw[i]));
+            ss.removeFromLeft (2);
         }
-        l.groupsHeader = head;
+        scenesRow.removeFromLeft (10);
+        const int keepW = juce::jmax (52, keepButton.idealWidth());
+        keepButton.setBounds (scenesRow.removeFromLeft (keepW).withSizeKeepingCentre (keepW, kSegmentH + 2));
+
         r.removeFromTop (12);
         l.strips = r;
+        l.empty = {};
 
-        // Which strips are on the row: the groups and FX, or every effect the session uses and FX.
-        std::vector<int> shown;
-        if (effectsOpen)
+        shownTiles = tilesFor (view);
+        for (auto& t : tiles) t->setVisible (false);
+        for (auto& t : inputTiles) t->setVisible (false);
+        const int gap = 8;
+        if (view == View::ThisCue || view == View::Groups)
         {
-            for (int t = kTiles; t < kAllTiles; ++t)
-                if (controller.isPrepared() && controller.getEngine().isFxUsed (FxSlot (t - kTiles))) shown.push_back (t);
-            shown.push_back (kFxTile);
+            scroller.setVisible (false);
+            // A group's own width whatever the view, so a strip is the same size in each.
+            auto row = l.strips;
+            const int w = (row.getWidth() - gap * (kTiles - 1)) / kTiles;
+            for (size_t k = 0; k < shownTiles.size(); ++k)
+            {
+                auto& t = tiles[size_t (shownTiles[k])];
+                t->setVisible (true);
+                const bool last = view == View::Groups && k + 1 == shownTiles.size();
+                t->setBounds (last ? row : row.removeFromLeft (w));
+                row.removeFromLeft (gap);
+            }
         }
         else
-            for (int t = 0; t < kTiles; ++t) shown.push_back (t);
-
-        auto row = l.strips;
-        const int gap = 8;
-        // The groups' own width, open or not, so an effect's fader is the same size as a group's.
-        const int w = (row.getWidth() - gap * (kTiles - 1)) / kTiles;
-        for (auto& t : tiles) t->setVisible (false);
-        for (size_t k = 0; k < shown.size(); ++k)
         {
-            auto& t = tiles[size_t (shown[k])];
-            t->setVisible (true);
-            t->setBounds (! effectsOpen && k + 1 == shown.size() ? row : row.removeFromLeft (w));
-            row.removeFromLeft (gap);
+            // One strip per input (and each effect, on All), the width a v4 strip is, in a row
+            // that scrolls sideways when there are more than fit.
+            constexpr int kInputW = 84;
+            scroller.setVisible (! shownTiles.empty());
+            scroller.setBounds (l.strips);
+            const int h = l.strips.getHeight() - (int (shownTiles.size()) * (kInputW + gap) > l.strips.getWidth() ? 12 : 0);
+            scrollHolder.setSize (juce::jmax (l.strips.getWidth(), int (shownTiles.size()) * (kInputW + gap) - gap), h);
+            int x = 0;
+            for (const int id : shownTiles)
+            {
+                GroupTile* t = id >= 1000 ? inputTiles[size_t (id - 1000)].get() : tiles[size_t (id)].get();
+                if (id < 1000 && t->getParentComponent() != &scrollHolder) scrollHolder.addChildComponent (*t);
+                t->setVisible (true);
+                t->setBounds (x, 0, kInputW, h);
+                x += kInputW + gap;
+            }
+            if (shownTiles.empty()) l.empty = l.strips;
+        }
+        // A group tile lives on the page unless All has borrowed it for the scroller.
+        for (int t = 0; t < kAllTiles; ++t)
+        {
+            const bool inScroller = view == View::All && std::find (shownTiles.begin(), shownTiles.end(), t) != shownTiles.end();
+            auto* parent = inScroller ? (juce::Component*) &scrollHolder : (juce::Component*) this;
+            if (tiles[size_t (t)]->getParentComponent() != parent) parent->addChildComponent (*tiles[size_t (t)]);
         }
     }
 
-    // ---- the rail: LIVE SAFE and Autopilot at the top, what I hear at the foot
+    // ---- the rail: Up next and the setlist at the top, LIVE SAFE and Autopilot, what needs
+    // attention and the speaking mics as room allows, what I hear at the foot
     {
         const int textW = railW - 2 * kCardPadX;
-        const int safeH = kCardPadY + kHeadH + kCardGap + 16 * wrapLines (calloutFont(), safeText(), textW) + kCardPadY;
-        l.safe = rail.removeFromTop (safeH);
-        rail.removeFromTop (12);
 
-        int apBody = 0;
-        if (look.autopilotOn)
-        {
-            const int timeW = Dine::textWidth (Dine::mono (11.0f, 500), "00:00") + 4;
-            if (look.autopilotLog.isEmpty()) apBody += 16 + 6;
-            for (const auto& entry : look.autopilotLog)
-                apBody += 16 * wrapLines (calloutFont(), entry.fromFirstOccurrenceOf ("\t", false, false), textW - timeW - 10) + 6;
-            apBody += 4 + 14 * wrapLines (noteFont(), autopilotText(), textW);
-        }
-        else apBody = 16 * wrapLines (calloutFont(), autopilotText(), textW);
-        l.autopilot = rail.removeFromTop (kCardPadY + kHeadH + kCardGap + apBody + kCardPadY);
         const int clearW = juce::jmax (84, clearSolo.idealWidth());
         const int noteLines = wrapLines (noteFont(), look.monitorNote.isEmpty() ? juce::String ("Press S on a group. Only you hear it.") : look.monitorNote,
                                          textW - clearW - 8);
@@ -1077,13 +1467,89 @@ void LivePage::resized()
         const int modesH = stacked ? 2 * (kSegmentH + 4) + 8 : kSegmentH + 4;
         const int monitorH = kCardPadY + titleH + kCardGap + modesH + kCardGap + 24 + kCardPadY;
         l.monitor = rail.removeFromBottom (monitorH);
-
-        rail.removeFromTop (12);
         rail.removeFromBottom (12);
-        // NEEDS ATTENTION (v4), first in what is left above WHAT I HEAR - a preamp to move is
-        // more urgent than the speaking mics' switches, which the Mix menu also has: as many of
-        // the inputs the desk should move as fit, each its name and what to do (one line of it
-        // when it fits whole, never a cut one).
+
+        // UP NEXT: what Space goes to, its notes, and its GO.
+        const auto& sl = look.setlist;
+        const int next = sl.cues.empty() ? -1 : sl.next();
+        l.upNext = {};
+        goButton.setVisible (false);
+        if (! sl.cues.empty())
+        {
+            int h = kCardPadY + 14 + 4 + 22 + 2 + 14;
+            if (next >= 0)
+            {
+                const auto& cue = sl.cues[size_t (next)];
+                h += (cue.louder.empty() ? 0 : 20) + (cue.softer.empty() ? 0 : 20) + 10 + 36;
+            }
+            h += kCardPadY;
+            l.upNext = rail.removeFromTop (h);
+            rail.removeFromTop (12);
+            if (next >= 0)
+            {
+                goButton.setButtonText ("Go to " + juce::String (sl.cues[size_t (next)].name));
+                goButton.setVisible (true);
+                goButton.setBounds (l.upNext.reduced (kCardPadX, kCardPadY).removeFromBottom (36));
+            }
+        }
+
+        // THE SETLIST: its rows, as many as there is room for once LIVE SAFE and Autopilot have
+        // their header lines (they are a press away on the toolbar too).
+        const int compactCard = kCardPadY + kHeadH + kCardPadY;
+        const int safeFull = kCardPadY + kHeadH + kCardGap + 16 * wrapLines (calloutFont(), safeText(), textW) + kCardPadY;
+        int apBody = 0;
+        if (look.autopilotOn)
+        {
+            const int timeW = Dine::textWidth (Dine::mono (11.0f, 500), "00:00") + 4;
+            if (look.autopilotLog.isEmpty()) apBody += 16 + 6;
+            for (const auto& entry : look.autopilotLog)
+                apBody += 16 * wrapLines (calloutFont(), entry.fromFirstOccurrenceOf ("\t", false, false), textW - timeW - 10) + 6;
+            apBody += 4 + 14 * wrapLines (noteFont(), autopilotText(), textW);
+        }
+        else apBody = 16 * wrapLines (calloutFont(), autopilotText(), textW);
+        const int apFull = kCardPadY + kHeadH + kCardGap + apBody + kCardPadY;
+
+        const int listHead = kCardPadY + kHeadH + 8;
+        const int emptyLines = sl.cues.empty() ? wrapLines (calloutFont(), "No setlist yet. Add the songs and moments of the service in order, "
+                                                                             "and Space goes from one to the next.", textW) : 0;
+        // Now and Next at least; more as the rail allows.
+        const int minRows = sl.cues.empty() ? 0 : juce::jmin (int (sl.cues.size()), 2);
+        const int setlistMin = listHead + (sl.cues.empty() ? 16 * emptyLines : minRows * CueList::kRowH) + kCardPadY;
+        // Room is kept for LIVE SAFE's and Autopilot's header lines only when they can have it.
+        const bool cardsFit = rail.getHeight() - setlistMin - 12 >= 2 * (compactCard + 12);
+        const int reserved = cardsFit ? 2 * (compactCard + 12) : 0;
+        int setlistH = setlistMin;
+        if (! sl.cues.empty())
+        {
+            const int roomForRows = (rail.getHeight() - reserved - listHead - kCardPadY) / CueList::kRowH;
+            setlistH = listHead + juce::jlimit (minRows, int (sl.cues.size()), juce::jmin (roomForRows, 8)) * CueList::kRowH + kCardPadY;
+        }
+        l.setlist = rail.removeFromTop (juce::jmin (setlistH, juce::jmax (0, rail.getHeight())));
+        rail.removeFromTop (12);
+        cueList->setVisible (! sl.cues.empty());
+        cueList->setBounds (l.setlist.reduced (kCardPadX - 8, kCardPadY).withTrimmedTop (kHeadH + 8));
+        editSetlist.setButtonText (sl.cues.empty() ? "Add cues" : "Edit");
+        {
+            const int w = editSetlist.idealWidth() + 4;
+            editSetlist.setBounds (l.setlist.reduced (kCardPadX, kCardPadY).removeFromTop (kHeadH).removeFromRight (w).expanded (0, 3));
+        }
+
+        // LIVE SAFE and Autopilot: whole when there is room, their header lines when not.
+        // A card with no room for even its header line is left out whole - the toolbar has
+        // LIVE SAFE and Auto - never drawn as a sliver.
+        l.safeCompact = safeFull + 12 + apFull > rail.getHeight();
+        const int safeH = l.safeCompact ? compactCard : safeFull;
+        l.safe = safeH <= rail.getHeight() ? rail.removeFromTop (safeH) : juce::Rectangle<int>();
+        if (! l.safe.isEmpty()) rail.removeFromTop (12);
+        l.autopilotCompact = apFull > rail.getHeight();
+        const int apH = l.autopilotCompact ? compactCard : apFull;
+        l.autopilot = apH <= rail.getHeight() ? rail.removeFromTop (apH) : juce::Rectangle<int>();
+        if (! l.autopilot.isEmpty()) rail.removeFromTop (12);
+        safeLink->setVisible (! l.safe.isEmpty());
+        autopilotLink->setVisible (! l.autopilot.isEmpty());
+
+        // NEEDS ATTENTION, in what is left: as many of the inputs the desk should move as fit,
+        // each its name and what to do (the whole sentence when it fits, never a cut one).
         {
             l.attention = {};
             if (! look.attention.isEmpty())
@@ -1106,8 +1572,8 @@ void LivePage::resized()
             checkLink->setVisible (! l.attention.isEmpty());
         }
 
-        // SPEAKING MICS, under Autopilot, in what is left above WHAT I HEAR: two rows of a name
-        // and one line each, or the names and their switches alone when the rail is short.
+        // SPEAKING MICS: two rows of a name and one line each, or the names and their switches
+        // alone when the rail is short, or not at all (the Mix menu has both).
         {
             const int rowTextW = textW - 90;
             const int pFull = 18 + 2 + 14 * wrapLines (noteFont(), priorityText(), rowTextW);
@@ -1116,7 +1582,6 @@ void LivePage::resized()
             const bool compact = full > rail.getHeight();
             const int p = compact ? 18 : pFull, s = compact ? 18 : sFull;
             const int wanted = kCardPadY + kHeadH + kCardGap + p + (compact ? 6 : 10) + s + kCardPadY;
-            // No room even for the names: the card steps out (the Mix menu still has both).
             const bool fits = wanted <= rail.getHeight();
             priorityLink->setVisible (fits);
             shareLink->setVisible (fits);
@@ -1126,8 +1591,6 @@ void LivePage::resized()
             inner.removeFromTop (compact ? 6 : 10);
             l.shareRow = inner.removeFromTop (s).withTrimmedRight (90);
         }
-
-
 
         auto inner = l.monitor.reduced (kCardPadX, kCardPadY);
         auto titleRow = inner.removeFromTop (titleH);

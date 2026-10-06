@@ -141,6 +141,7 @@ void MixController::resetDocument()
     reference = ReferenceProfile {};
     safety = LiveSafePolicy {};
     for (int i = 0; i < kMixScenes; ++i) { scenes[size_t (i)] = MixScene {}; scenes[size_t (i)].name = defaultSceneName (i); }
+    setlist = Setlist {};
     for (auto& h : stripHistory) h.clear();
     history.clear();
     future.clear();
@@ -761,6 +762,114 @@ void MixController::restoreScenes (const std::vector<MixScene>& list)
         if (favourite.name.empty()) favourite.name = "Favourite " + std::to_string (i - size_t (kMixScenes) + 1);
         scenes.push_back (favourite);
     }
+}
+
+// ---------------------------------------------------------------------------
+// THE SETLIST
+// ---------------------------------------------------------------------------
+void MixController::restoreSetlist (const Setlist& s)
+{
+    setlist = s;
+    for (auto& c : setlist.cues) c.scene = std::clamp (c.scene, -1, kMixScenes - 1);
+    setlist.current = std::clamp (setlist.current, -1, int (setlist.cues.size()) - 1);
+}
+
+int MixController::addCue (const Cue& cue, int at)
+{
+    if (at < 0 || at > int (setlist.cues.size())) at = int (setlist.cues.size());
+    auto c = cue;
+    c.scene = std::clamp (c.scene, -1, kMixScenes - 1);
+    if (c.name.empty()) c.name = "Cue " + std::to_string (setlist.cues.size() + 1);
+    setlist.cues.insert (setlist.cues.begin() + at, c);
+    if (setlist.current >= at) ++setlist.current;          // the cue that is on stays on
+    touch();
+    return at;
+}
+
+void MixController::updateCue (int index, const Cue& cue)
+{
+    if (index < 0 || index >= int (setlist.cues.size())) return;
+    auto c = cue;
+    c.scene = std::clamp (c.scene, -1, kMixScenes - 1);
+    if (c.name.empty()) c.name = setlist.cues[size_t (index)].name;
+    if (setlist.cues[size_t (index)] == c) return;
+    setlist.cues[size_t (index)] = c;
+    touch();
+}
+
+void MixController::moveCue (int from, int to)
+{
+    const int n = int (setlist.cues.size());
+    if (from < 0 || from >= n || to < 0 || to >= n || from == to) return;
+    const auto cue = setlist.cues[size_t (from)];
+    setlist.cues.erase (setlist.cues.begin() + from);
+    setlist.cues.insert (setlist.cues.begin() + to, cue);
+    // "Now" follows the cue it pointed at, wherever it went.
+    if (setlist.current == from) setlist.current = to;
+    else if (from < setlist.current && to >= setlist.current) --setlist.current;
+    else if (from > setlist.current && to <= setlist.current) ++setlist.current;
+    touch();
+}
+
+void MixController::removeCue (int index)
+{
+    if (index < 0 || index >= int (setlist.cues.size())) return;
+    setlist.cues.erase (setlist.cues.begin() + index);
+    if (setlist.current > index) --setlist.current;
+    else if (setlist.current == index) setlist.current = std::min (index, int (setlist.cues.size())) - 1;
+    touch();
+}
+
+std::string MixController::cueSceneName (const Cue& c) const
+{
+    if (! c.favourite.empty()) return c.favourite;
+    if (c.scene < 0 || c.scene >= kMixScenes) return "As it is";
+    const auto& s = scenes[size_t (c.scene)];
+    return s.name.empty() ? defaultSceneName (c.scene) : s.name;
+}
+
+bool MixController::goToCue (int index)
+{
+    if (index < 0 || index >= int (setlist.cues.size())) return false;
+    const auto cue = setlist.cues[size_t (index)];
+    setlist.current = index;
+    touch();
+    const std::string where = "Cue " + std::to_string (index + 1) + ": " + cue.name;
+
+    int slot = cue.scene;
+    if (! cue.favourite.empty())
+    {
+        slot = -1;
+        for (int i = kMixScenes; i < int (scenes.size()); ++i)
+            if (scenes[size_t (i)].name == cue.favourite) { slot = i; break; }
+        if (slot < 0)
+        {
+            if (onMessage) onMessage (where + ". The favourite " + cue.favourite + " is not in this session any more, so the mix stayed as it is.");
+            return false;
+        }
+    }
+    if (slot < 0)
+    {
+        if (onMessage) onMessage (where + ". This cue keeps the mix as it is.");
+        mark (where);
+        return false;
+    }
+    // recallScene says what it did, or why it could not; the setlist has moved on either way.
+    const bool recalled = recallScene (slot);
+    if (! recalled) mark (where);
+    return recalled;
+}
+
+bool MixController::goToNextCue()
+{
+    const int next = setlist.next();
+    if (next < 0)
+    {
+        if (onMessage) onMessage (setlist.cues.empty() ? std::string ("There is no setlist yet. Add the service's cues on LIVE, then Space goes from one to the next.")
+                                                       : std::string ("That was the last cue."));
+        return false;
+    }
+    return goToCue (next);
 }
 
 // ---------------------------------------------------------------------------

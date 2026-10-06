@@ -10,6 +10,7 @@
 #include "TracksPage.h"
 #include "MixerPage.h"
 #include "CheckSheet.h"
+#include "SetlistSheet.h"
 #include "HistorySheet.h"
 #include "BroadcastReadinessSheet.h"
 #include "ChannelTuneSheet.h"
@@ -149,6 +150,8 @@ public:
     void performBuddyAction (const BuddyAction&);
     void closeSheets();
     bool closeTopSheet();
+    // THE SETLIST sheet, at a cue (-1: the one on now). LIVE's Edit and the Setlist row's menu.
+    void showSetlist (int cue = -1);
     // RECOVER SESSION? DINE did not close cleanly and there is unsaved work beside the
     // document. The two are compared side by side and nothing is deleted by any of the three
     // answers; the application hands the facts in, because it is the thing that found them.
@@ -309,6 +312,7 @@ private:
     std::unique_ptr<TracksPage> tracksPage;
     std::unique_ptr<MixerPage> mixerPage;
     std::unique_ptr<CheckSheet> checkSheet;
+    std::unique_ptr<SetlistSheet> setlistSheet;
     std::unique_ptr<HistorySheet> historySheet;
     std::unique_ptr<BroadcastReadinessSheet> readinessSheet;
     std::unique_ptr<ThemeSheet> themeSheet;

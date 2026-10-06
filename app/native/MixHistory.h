@@ -111,6 +111,33 @@ struct MixScene
     MixFingerprint sound;                // what it actually sounded like, measured
 };
 inline constexpr int kMixScenes = 4;
+
+// ---------------------------------------------------------------------------
+// THE SETLIST: the service in order. A cue is a moment in it - a song, the welcome, the
+// sermon - with the scene it brings back and two notes for whoever is at the desk ("Louder:
+// lead singer", "Softer: guitars"). Going to a cue is an ordinary scene recall, with its Mix
+// history entry; a cue with no scene (or one nothing is kept under) still moves the setlist
+// on and leaves the mix as it is, and says so.
+// ---------------------------------------------------------------------------
+struct Cue
+{
+    std::string name;
+    int scene = 0;                 // one of the four scene slots; -1 = the cue keeps the mix as it is
+    std::string favourite;         // a kept favourite by name; when set it is what the cue recalls
+    std::string louder, softer;    // the desk's notes: what should come up, what should go down
+    bool operator== (const Cue& o) const
+    {
+        return name == o.name && scene == o.scene && favourite == o.favourite && louder == o.louder && softer == o.softer;
+    }
+};
+struct Setlist
+{
+    std::vector<Cue> cues;
+    int current = -1;              // the cue that is on now; -1 before the first
+    bool operator== (const Setlist& o) const { return cues == o.cues && current == o.current; }
+    bool operator!= (const Setlist& o) const { return ! (*this == o); }
+    int next() const noexcept { return current + 1 < int (cues.size()) ? current + 1 : -1; }
+};
 inline const char* defaultSceneName (int slot) noexcept
 {
     switch (slot) { case 0: return "Band"; case 1: return "Speech"; case 2: return "Worship"; default: return "Custom"; }

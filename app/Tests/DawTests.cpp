@@ -2567,6 +2567,11 @@ namespace
             controller.setReference (ref);
 
             controller.keepScene (1);
+            // The service in order: three cues, the second on now.
+            controller.addCue ({ "Walk-in", -1, {}, {}, {} });
+            controller.addCue ({ "Way Maker", 1, {}, "Lead singer", "Guitars, room mics" });
+            controller.addCue ({ "Sermon", 1, {}, {}, {} });
+            controller.restoreSetlist ([this] { auto s = controller.getSetlist(); s.current = 1; return s; }());
             controller.renameScene (1, "Sermon");
 
             auto policy = LiveSafePolicy::armed();
@@ -2927,6 +2932,7 @@ namespace
                 for (auto& sv : *scenes)
                     if (auto* so = sv.getDynamicObject()) trimFx (so->getProperty ("mix").getDynamicObject());
         }
+        if (toVersion < 9) out->removeProperty ("setlist");
         if (toVersion < 5) { out->removeProperty ("liveSafeLimits"); out->removeProperty ("samples"); }
         if (toVersion < 4)
         {
@@ -3033,6 +3039,17 @@ TEST_CASE ("SessionStore: a document from every version DINE has ever written st
         if (version >= 2) CHECK (back.project.markers.size() == 1);
         else              CHECK (back.project.tracks.size() == state.session.inputs.size());   // syncTracks builds them
 
+        // THE SETLIST (version 9): an older file opens with none, and nothing else moves.
+        if (version < 9) { CHECK (back.setlist.cues.empty()); CHECK (back.setlist.current == -1); }
+        else
+        {
+            REQUIRE (back.setlist.cues.size() == 3);
+            CHECK (back.setlist == state.setlist);
+            CHECK (back.setlist.cues[1].louder == "Lead singer");
+            CHECK (back.setlist.cues[0].scene == -1);
+            CHECK (back.setlist.current == 1);
+        }
+
         // BAND HALL (version 8): a file without it sends nothing there and the return carries
         // the profile's own character - never a 0 dB send out of an empty slot.
         const auto band = size_t (FxSlot::BandHall);
@@ -3055,6 +3072,84 @@ TEST_CASE ("SessionStore: a document from every version DINE has ever written st
         CHECK_NEAR (fresh.getKept().strips[0].faderDb, -4.5f, 1e-3f);
         CHECK_NEAR (fresh.getKept().master().channel.limiterCeilingDb, -1.5f, 1e-3f);
     }
+}
+
+// THE SETLIST. Edits keep "Now" on the cue it pointed at; going to a cue is a scene recall
+// with its Mix history entry; a cue whose scene has nothing kept still moves the setlist on
+// and says the mix stayed; a favourite is found by name; the document carries all of it.
+TEST_CASE ("MixController: the setlist runs the service in order, and a cue is an ordinary scene recall")
+{
+    FullSession live (true);
+    auto& c = live.controller;
+    c.restoreSetlist ({});
+    std::vector<std::string> said;
+    c.onMessage = [&] (const std::string& m) { said.push_back (m); };
+
+    CHECK (! c.goToNextCue());
+    REQUIRE (! said.empty());
+    CHECK (said.back().find ("no setlist") != std::string::npos);
+
+    // Band (slot 0) has nothing kept; Speech (slot 1) was kept by the fixture.
+    c.addCue ({ "Welcome", 1, {}, {}, {} });
+    c.addCue ({ "Way Maker", 0, {}, "Lead singer", {} });
+    c.addCue ({ "Prayer", -1, {}, {}, {} });
+    REQUIRE (c.getSetlist().cues.size() == 3);
+    CHECK (c.getSetlist().current == -1);
+
+    // Cue 1 recalls Speech: the kept mix comes back and the Mix history says so.
+    auto mix = c.getKept();
+    mix.strips[0].faderDb = -20.0f;
+    c.restoreKept (mix, 2);
+    const auto checkpointsBefore = c.getCheckpoints().size();
+    CHECK (c.goToNextCue());
+    CHECK (c.getSetlist().current == 0);
+    CHECK_NEAR (c.getKept().strips[0].faderDb, -4.5f, 1e-3f);
+    CHECK (c.getCheckpoints().size() > checkpointsBefore);
+
+    // Cue 2's scene has nothing kept: the setlist moves on, the mix stays, and it says why.
+    CHECK (! c.goToNextCue());
+    CHECK (c.getSetlist().current == 1);
+    CHECK_NEAR (c.getKept().strips[0].faderDb, -4.5f, 1e-3f);
+    CHECK (said.back().find ("nothing kept") != std::string::npos);
+
+    // Moving and removing cues keeps "Now" on the cue that is on.
+    c.moveCue (1, 0);                                   // Way Maker first
+    CHECK (c.getSetlist().cues[0].name == "Way Maker");
+    CHECK (c.getSetlist().current == 0);
+    c.moveCue (2, 0);                                   // Prayer first: Way Maker is now second
+    CHECK (c.getSetlist().current == 1);
+    c.removeCue (0);
+    CHECK (c.getSetlist().cues[size_t (c.getSetlist().current)].name == "Way Maker");
+    c.updateCue (0, { "Way Maker (key of B)", 0, {}, "Lead singer", "Guitars" });
+    CHECK (c.getSetlist().cues[0].softer == "Guitars");
+
+    // A favourite is recalled by its name, and one that has gone is said, not guessed.
+    c.addCue ({ "Benediction", 0, "Not a favourite", {}, {} });
+    CHECK (! c.goToCue (2));
+    CHECK (said.back().find ("Not a favourite") != std::string::npos);
+    CHECK (c.getSetlist().current == 2);
+    CHECK (c.cueSceneName (c.getSetlist().cues[0]) == c.getScene (0).name);
+    CHECK (c.cueSceneName ({ "x", -1, {}, {}, {} }) == "As it is");
+
+    // Under LIVE SAFE a cue still goes: a scene recall is allowed there.
+    auto policy = c.getLiveSafePolicy();
+    policy.on = true;
+    c.setLiveSafePolicy (policy);
+    CHECK (c.goToCue (1));                              // Welcome: Speech is kept, and comes back
+    CHECK (c.getSetlist().current == 1);
+    CHECK (! c.goToCue (0));                            // Way Maker: Band has nothing kept, the cue still moves
+    CHECK (c.getSetlist().current == 0);
+
+    // The document carries the setlist through capture and apply.
+    auto state = captureSession (c, live.daw, kDevices, 0);
+    CHECK (state.setlist == c.getSetlist());
+    SessionState back;
+    REQUIRE (SessionStore::fromVar (SessionStore::toVar (state), back));
+    CHECK (back.setlist == state.setlist);
+    MixController fresh;
+    DawEngine freshDaw { fresh };
+    applySession (back, fresh, freshDaw);
+    CHECK (fresh.getSetlist() == state.setlist);
 }
 
 TEST_CASE ("SessionStore: a corrupt file is held inside what a knob can reach, never played as written")

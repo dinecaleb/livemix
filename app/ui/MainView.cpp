@@ -1198,6 +1198,8 @@ public:
                 m.addItem (501, "Record");
                 m.addItem (502, "Return to Start");
                 m.addItem (503, "Loop");
+                m.addSeparator();
+                m.addItem (520, "Go to the Next Cue   Space on Live", ! view.controller.getSetlist().cues.empty());
                 break;
             case 5:
                 m.addItem (601, "Mixer");
@@ -1343,7 +1345,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
             // Safety: two rows that are not pages. MIX HISTORY is the sheet it has always been
             // (the design's own note says so); SCENES is the sheet beside it.
             if (a == Sidebar::Action::MixHistory) showHistory();
-            else if (a == Sidebar::Action::Scenes) { showPage (Page::Live); livePage->focusScenes(); }
+            else if (a == Sidebar::Action::Scenes) { showPage (Page::Live); livePage->focusSetlist(); }
             else if (a == Sidebar::Action::BroadcastReadiness) showBroadcastReadiness (true);
             else if (a == Sidebar::Action::CheckInputs) showCheck();
             else if (a == Sidebar::Action::Export) exportMix (AppServices::ExportFormat::Wav);
@@ -1541,6 +1543,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     livePage->onToast = [this] (const juce::String& t) { showToast (t); };
     livePage->onOpenHistory = [this] { showHistory(); };
     livePage->onOpenCheck = [this] { showCheck(); };
+    livePage->onEditSetlist = [this] (int cue) { showSetlist (cue); };
     livePage->onLiveSafeChanged = [this] { updateChrome(); repaint(); };
     livePage->onToggleRecord = [this] { handleCommand (501); };
     advancedPage->onBack = [this] { showPage (Page::Tune); };
@@ -1588,6 +1591,7 @@ MainView::~MainView()
     liveWindow.reset();
     inspectorWindow.reset();
     checkSheet.reset();
+    setlistSheet.reset();
     historySheet.reset();
     readinessSheet.reset();
     themeSheet.reset();
@@ -2154,6 +2158,7 @@ void MainView::closeSheets()
 {
     if (mixPage != nullptr && mixPage->isScopeSheetOpen()) mixPage->closeScopeSheet();
     checkSheet.reset();
+    setlistSheet.reset();
     historySheet.reset();
     readinessSheet.reset();
     themeSheet.reset();
@@ -2183,7 +2188,7 @@ bool MainView::closeTopSheet()
         else { sheet.reset(); updateChrome(); resized(); }
         return true;
     };
-    if (closeVia (choiceSheet) || closeVia (exportSheet) || closeVia (themeSheet) || closeVia (readinessSheet)
+    if (closeVia (choiceSheet) || closeVia (exportSheet) || closeVia (setlistSheet) || closeVia (themeSheet) || closeVia (readinessSheet)
         || closeVia (historySheet) || closeVia (checkSheet) || closeVia (channelSheet) || closeVia (chatSheet))
         return true;
     return false;
@@ -2373,6 +2378,30 @@ void MainView::followMicrophone()
         };
         explainMicrophone (std::move (ask));
     }
+}
+
+void MainView::showSetlist (int cue)
+{
+    if (setlistSheet != nullptr) { setlistSheet->select (cue < 0 ? controller.getSetlist().current : cue); return; }
+    closeSheets();
+    setlistSheet = std::make_unique<SetlistSheet> (controller, cue < 0 ? controller.getSetlist().current : cue);
+    setlistSheet->onToast = [this] (const juce::String& t) { showToast (t); };
+    setlistSheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe == nullptr) return;
+            safe->setlistSheet.reset();
+            safe->livePage->refresh();
+            safe->updateChrome();
+            safe->grabKeyboardFocus();
+        });
+    };
+    addAndMakeVisible (*setlistSheet);
+    resized();
+    setlistSheet->toFront (true);
+    setlistSheet->grabKeyboardFocus();
 }
 
 void MainView::showCheck()
@@ -2793,6 +2822,8 @@ void MainView::openLiveWindow()
     p->onOpenHistory = [this] { toFront (true); showHistory(); };
     p->onLiveSafeChanged = [this] { updateChrome(); repaint(); };
     p->onToggleRecord = [this] { handleCommand (501); };
+    p->onOpenCheck = [this] { toFront (true); showCheck(); };
+    p->onEditSetlist = [this] (int cue) { toFront (true); showSetlist (cue); };
     p->rebuild();
     liveInWindow = p;
     liveWindow = std::make_unique<PageWindow> ("Live", std::move (page),
@@ -3038,6 +3069,7 @@ void MainView::handleCommand (int id)
             break;
         }
         case 502: transportBar->returnToStart(); break;
+        case 520: livePage->goToNextCue(); break;
         case 503: transportBar->toggleLoop(); break;
 
         case 600: showPage (Page::Tracks); break;
@@ -3147,7 +3179,9 @@ int MainView::commandForKey (const juce::KeyPress& key, Page page)
         return 0;
     }
 
-    if (code == juce::KeyPress::spaceKey)  return 500;
+    // On LIVE, Space goes to the next cue (the owner's call, 2026-10-06); play and stop are the
+    // transport pill's there, so a stray Space at a service never stops a recording.
+    if (code == juce::KeyPress::spaceKey)  return page == Page::Live ? 520 : 500;
     if (code == juce::KeyPress::returnKey) return 502;
     if (code == 'R') return 501;
     if (code == 'L') return 503;
@@ -3167,6 +3201,7 @@ juce::String MainView::openSheetName() const
     // The scope picker belongs to TUNE rather than to the window, but it is a sheet over the
     // workspace like any other and Escape has to mean the same thing over it.
     if (mixPage != nullptr && mixPage->isScopeSheetOpen()) return "tunescope";
+    if (setlistSheet != nullptr) return "setlist";
     if (checkSheet   != nullptr) return "check";
     if (historySheet != nullptr) return "history";
     if (readinessSheet != nullptr) return "readiness";
@@ -3677,6 +3712,7 @@ void MainView::timerCallback()
 
     if (channelSheet != nullptr) channelSheet->refresh();
     if (checkSheet != nullptr) checkSheet->refresh();
+    if (setlistSheet != nullptr) setlistSheet->refresh();
     if (readinessSheet != nullptr) readinessSheet->refresh();
     if (chatSheet != nullptr) chatSheet->refresh();
 
@@ -4016,7 +4052,7 @@ void MainView::resized()
     auto sheetColumn = columnBounds();
     for (juce::Component* sheetComponent : { (juce::Component*) themeSheet.get(), (juce::Component*) historySheet.get(),
                                              (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get(),
-                                             (juce::Component*) readinessSheet.get(),
+                                             (juce::Component*) readinessSheet.get(), (juce::Component*) setlistSheet.get(),
                                              (juce::Component*) exportSheet.get(), (juce::Component*) choiceSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (sheetColumn); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)
