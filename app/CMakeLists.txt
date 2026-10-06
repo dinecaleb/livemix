@@ -36,6 +36,7 @@ set(DINE_APP_SOURCES
     ${CMAKE_SOURCE_DIR}/src/Intelligence/HttpJson.cpp
     native/SessionAutosave.cpp
     native/SessionState.cpp
+    native/BroadcastReadiness.cpp
     native/Telemetry.cpp
     native/SessionStore.cpp
     native/InputMapStore.cpp
@@ -75,6 +76,7 @@ set(DINE_UI_SOURCES
     ui/RoutingPage.cpp
     ui/CheckSheet.cpp
     ui/HistorySheet.cpp
+    ui/BroadcastReadinessSheet.cpp
     ui/ChannelTuneSheet.cpp
     ui/ReferenceSheet.cpp
     ui/ChatSheet.cpp
@@ -154,6 +156,7 @@ if (LIVEMIX_BUILD_TESTS)
         Tests/RecordingTests.cpp
         Tests/ThemeTests.cpp
         Tests/TelemetryTests.cpp
+        Tests/BroadcastReadinessTests.cpp
         ${DINE_APP_SOURCES}
         ${CMAKE_SOURCE_DIR}/tests/TestMain.cpp)
     target_include_directories(dine_app_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests)

@@ -2658,6 +2658,7 @@ namespace
         CHECK (a.devices.soloOutput == b.devices.soloOutput);
         CHECK (a.trackPanelWidth == b.trackPanelWidth);
         for (int i = 0; i < kMaxStrips; ++i) CHECK (a.samples[size_t (i)] == b.samples[size_t (i)]);
+        CHECK (readinessEquals (a.readiness, b.readiness));
     }
 
     const DeviceChoice kDevices { "Dante Virtual Soundcard", "MacBook Pro Speakers", "Scarlett 2i2" };

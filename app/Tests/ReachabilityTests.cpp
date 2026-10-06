@@ -19,6 +19,7 @@
 #include "native/MixController.h"
 #include "native/SampleLibrary.h"
 #include "ui/MainView.h"
+#include "ui/BroadcastReadinessSheet.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
 #include <map>
@@ -326,6 +327,7 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         { "history",    [&] { view.showHistory(); } },
         { "appearance", [&] { view.showThemes(); } },
         { "chat",       [&] { view.showChat(); } },
+        { "readiness",  [&] { view.showBroadcastReadiness(); } },
         { "channel",    [&] { view.tuneChannel (0); } },
         // TUNE asks *which* group or channels before it tunes them - the whole mix needs
         // nothing more said about it, so that one starts. It is the workspace's own sheet
@@ -658,6 +660,36 @@ TEST_CASE ("Reachability: ROUTING gathers the set-up, and LIVE SAFE covers it un
     CHECK_MESSAGE (routing.isCovered(), "a confirmation outlived the visit it was given for");
 
     window.services.daw().setLiveSafe (false);
+}
+
+// ------------------------------------------------------------------------ broadcast readiness
+TEST_CASE ("Broadcast readiness: the list holds still while nothing changes, and an answer is a visible control")
+{
+    Window w;
+    auto& view = *w.view;
+    view.showBroadcastReadiness();
+    w.pump (20);
+    BroadcastReadinessSheet* sheet = nullptr;
+    for (int i = 0; i < view.getNumChildComponents(); ++i)
+        if (auto* s = dynamic_cast<BroadcastReadinessSheet*> (view.getChildComponent (i))) sheet = s;
+    REQUIRE (sheet != nullptr);
+    CHECK (sheet->numItemRows() == kReadinessItemCount);
+
+    // Thirty ticks with nothing changing rebuild nothing: a button under the pointer stays the
+    // button that was pressed (it used to be thrown away and made again thirty times a second).
+    const int before = sheet->rebuildCount();
+    for (int i = 0; i < 30; ++i) sheet->refresh();
+    CHECK (sheet->rebuildCount() == before);
+
+    // An answer reaches the record, and the list follows it once.
+    sheet->setItemForTest (ReadinessItemId::SpeechClear, ReadinessStatus::Checked);
+    w.pump (20);
+    sheet->refresh();
+    CHECK (w.controller.getReadiness().active.items[size_t (ReadinessItemId::SpeechClear)].status == ReadinessStatus::Checked);
+    CHECK (sheet->rebuildCount() > before);
+    const int after = sheet->rebuildCount();
+    for (int i = 0; i < 30; ++i) sheet->refresh();
+    CHECK (sheet->rebuildCount() == after);
 }
 
 TEST_CASE ("Recording: REC with nothing to record from says so and records nothing")

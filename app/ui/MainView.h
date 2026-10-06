@@ -11,6 +11,7 @@
 #include "MixerPage.h"
 #include "CheckSheet.h"
 #include "HistorySheet.h"
+#include "BroadcastReadinessSheet.h"
 #include "ChannelTuneSheet.h"
 #include "ChatSheet.h"
 #include "ThemeSheet.h"
@@ -117,6 +118,7 @@ public:
     void showOutputs();                        // the ROUTING workspace, at its Outputs section
     void showHistory();                       // MIX HISTORY: the whole mix as it was, hours ago, by name
     void showCheck();                       // CHECK INPUTS: every assigned input, its level and one word about it
+    void showBroadcastReadiness (bool history = false);  // optional livestream checklist
     // RESET MIX TO RAW: everything DINE decided, taken back. Asked out loud; never a one-way door.
     void resetMixToRaw();
     void updateChromeForSnapshot() { updateChrome(); }   // the snapshot tool: the toolbar re-reads the controller now
@@ -260,6 +262,7 @@ private:
     std::unique_ptr<MixerPage> mixerPage;
     std::unique_ptr<CheckSheet> checkSheet;
     std::unique_ptr<HistorySheet> historySheet;
+    std::unique_ptr<BroadcastReadinessSheet> readinessSheet;
     std::unique_ptr<ThemeSheet> themeSheet;
     std::unique_ptr<ExportSheet> exportSheet;
     // RESET THE MIX TO RAW and RECOVER SESSION?: the two questions DINE asks out loud.

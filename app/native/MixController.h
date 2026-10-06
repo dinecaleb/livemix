@@ -17,6 +17,7 @@
 #include "MixAI/TuneLiveCoordinator.h"
 #include "MixAI/MixBuddy.h"
 #include "MixHistory.h"
+#include "BroadcastReadiness.h"
 
 namespace livemix
 {
@@ -798,6 +799,24 @@ public:
     bool restoreCheckpoint (int index);
     void restoreCheckpoints (const std::vector<MixCheckpoint>& list);     // session restore
 
+    // ---- BROADCAST READINESS: optional livestream checklist (confirmations only) ----
+    //
+    // Never changes the mix. Observations shown beside checks are computed live; the ticks
+    // themselves are previous operator confirmations and are not proof of current readiness.
+    const BroadcastReadiness& getReadiness() const noexcept { return readiness; }
+    BroadcastReadiness& editReadiness() noexcept { return readiness; }   // UI edits; call touch() after
+    void setReadiness (const BroadcastReadiness& r) { readiness = r; touch(); }
+    void restoreReadiness (const BroadcastReadiness& r) { readiness = r; }  // session apply: no touch storm
+    void flagReadiness (ReadinessChange c) { readiness.flagForReview (c); touch(); }
+    // Live observations beside checks — never auto-check an item from these.
+    struct ReadinessHint
+    {
+        ReadinessItemId item = ReadinessItemId::SourcesMapped;
+        std::string text;
+        bool concerning = false;
+    };
+    std::vector<ReadinessHint> readinessHints() const;
+
     std::function<void (const std::string&)> onMessage;   // one-line notices for a toast
 
     // What happened, for the usage events (app/native/Telemetry, docs/ANALYTICS.md): a fixed
@@ -937,6 +956,7 @@ private:
     std::vector<MixCheckpoint> checkpoints;
     long long lastCheckpointMs = 0;     // the slow beat: see poll()
     MixParameters atLastCheckpoint;
+    BroadcastReadiness readiness;
     std::vector<std::string> inputNamesNow() const;
     void recordStripTune (int strip, const std::string& what, const StripParameters& before, const StripParameters& after);
     std::array<std::vector<StripTuneRecord>, kMaxStrips> carriedStripHistory (const MixSession& previous) const;

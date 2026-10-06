@@ -36,6 +36,7 @@ SessionState captureSession (const MixController& controller, const DawEngine& d
     s.history = controller.getAllStripHistory();
     s.checkpoints = controller.getCheckpoints();
     s.trackPanelWidth = trackPanelWidth;
+    s.readiness = controller.getReadiness();
 
     // The TUNE LIVE MIX record, when there is one to keep. It is read-only: the mix itself is
     // in `mix`, so reopening the session sounds as it did without contacting any provider.
@@ -95,6 +96,10 @@ void applySession (const SessionState& s, MixController& controller, DawEngine& 
     auto policy = s.safety;
     policy.on = s.project.liveSafe;
     controller.setLiveSafePolicy (policy);
+
+    // Confirmations only — never rewritten into the mix. Restored ticks are previous checks,
+    // not proof that the stream is ready now.
+    controller.restoreReadiness (s.readiness);
 }
 
 // ---------------------------------------------------------------------------

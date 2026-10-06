@@ -30,7 +30,9 @@ namespace SessionStore
     // it opens with an empty LEAD group and every lead microphone still on BGV, where it was;
     // the next TUNE MIX routes it where it belongs, because a routing graph is built from the
     // assignments rather than stored.
-    inline constexpr int kVersion = 6;
+    // 7 added Broadcast readiness: the optional livestream checklist (active record + history).
+    // Absent in older files: the checklist starts empty, which is the correct default.
+    inline constexpr int kVersion = 7;
 
     // The old name for SessionState, kept because it reads well at the call sites that mean
     // "the thing on disk".

@@ -473,7 +473,7 @@ class MainView::Sidebar : public juce::Component
 {
 public:
     // What a row does: go to a page, or ask the window for something (a sheet).
-    enum class Action { None = 0, MixHistory, Scenes };
+    enum class Action { None = 0, MixHistory, Scenes, BroadcastReadiness };
 
     // `child` is a row that belongs to the one above it: ROUTING's own two sections, indented
     // and without an icon of their own, so the patch and the output feeds are one press away
@@ -498,6 +498,7 @@ public:
             { "Inspector",         Page::Inspector,  Dine::Icon::InspectorNav,  Action::None,       "\u23185", false },
             { "Mix history",       Page::Tracks,     Dine::Icon::WindowNav,     Action::MixHistory, "",       false },
             { "Scenes",            Page::Live,       Dine::Icon::LiveNav,       Action::Scenes,     "",       false },
+            { "Broadcast readiness", Page::Mixer,    Dine::Icon::Check,         Action::BroadcastReadiness, "", false },
             { "Sessions",          Page::Sessions,   Dine::Icon::Sessions,      Action::None,       "",       false },
             { "Favourite mixes",   Page::Favourites, Dine::Icon::Purpose,       Action::None,       "",       false },
         };
@@ -547,6 +548,11 @@ public:
     }
 
     DineNavItem& item (Page p) { return *items[size_t (indexOf (p))]; }
+    DineNavItem* actionItem (Action a)
+    {
+        for (int i = 0; i < kRows; ++i) if (rowDefs()[i].action == a) return items[size_t (i)].get();
+        return nullptr;
+    }
     void setSelected (Page p)
     {
         const int sel = indexOf (p);
@@ -564,11 +570,22 @@ public:
         collapsed = c;
         for (auto& i : items) i->setVisible (! c);
         for (int i = 0; i < kRows; ++i) rail[size_t (i)]->setVisible (c && ! rowDefs()[i].child);
+        applyBroadcastReadinessVisibility();
         resized();
         repaint();
     }
     bool isCollapsed() const noexcept { return collapsed; }
     int width() const noexcept { return collapsed ? Dine::Metric::sidebarRail : Dine::Metric::sidebar; }
+
+    // Broadcast readiness is only for Church Broadcast / Livestream purposes.
+    void setBroadcastReadinessVisible (bool on)
+    {
+        if (on == broadcastReadinessVisible) return;
+        broadcastReadinessVisible = on;
+        applyBroadcastReadinessVisibility();
+        resized();
+        repaint();
+    }
 
     // The device along the foot. Compared before a repaint.
     void refresh (bool recording)
@@ -645,6 +662,7 @@ public:
             r.removeFromBottom (kFootH);
             for (int i = 0; i < kRows; ++i)
             {
+                if (! rail[size_t (i)]->isVisible()) continue;
                 rail[size_t (i)]->setBounds (r.removeFromTop (32).withSizeKeepingCentre (36, 32));
                 r.removeFromTop (4);
             }
@@ -665,6 +683,7 @@ public:
         {
             for (int i = from; i < to; ++i)
             {
+                if (! items[size_t (i)]->isVisible()) continue;
                 // A child is stepped in and sits closer to the row above it: it is part of that
                 // row, not another one beside it. A hairline runs down the left of the run of
                 // them, from under the parent's icon - without it the rows with no icon read as
@@ -682,12 +701,22 @@ public:
         };
         caption ("Setup");     rows (0, 5);
         caption ("Workspace"); rows (5, 10);
-        caption ("Safety");    rows (10, 12);
-        caption ("Library");   rows (12, kRows);
+        caption ("Safety");    rows (10, 13);
+        caption ("Library");   rows (13, kRows);
     }
 
 private:
-    static constexpr int kRows = 14;
+    void applyBroadcastReadinessVisibility()
+    {
+        for (int i = 0; i < kRows; ++i)
+        {
+            if (rowDefs()[i].action != Action::BroadcastReadiness) continue;
+            items[size_t (i)]->setVisible (! collapsed && broadcastReadinessVisible);
+            rail[size_t (i)]->setVisible (collapsed && broadcastReadinessVisible);
+        }
+    }
+
+    static constexpr int kRows = 15;
     static constexpr int kFootH = 72;
     // A child row's step in, and where its spine is drawn: under the middle of the parent's
     // 16 pt icon, with a hand's width between the line and the child's own label.
@@ -705,19 +734,21 @@ private:
             case Page::Purpose: return 4;
             case Page::Tracks: return 5; case Page::Mixer: return 6; case Page::Tune: return 7;
             case Page::Live: return 8; case Page::Inspector: return 9;
-            case Page::Sessions: return 12;
-            case Page::Favourites: return 13;
+            case Page::Sessions: return 13;
+            case Page::Favourites: return 14;
         }
         return 0;
     }
 
     AppServices& services;
     std::array<std::unique_ptr<DineNavItem>, size_t (kRows)> items, rail;
+    bool collapsed = false;
+    bool broadcastReadinessVisible = true;
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> captions;
     juce::Rectangle<int> spine;       // the hairline binding ROUTING's sections to it
     juce::String footState, footName, footSpec;
     int footXruns = 0;
-    bool footRecording = false, collapsed = false;
+    bool footRecording = false;
 };
 
 // ---------------------------------------------------------------- mixer window
@@ -1078,6 +1109,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
             // (the design's own note says so); SCENES is the sheet beside it.
             if (a == Sidebar::Action::MixHistory) showHistory();
             else if (a == Sidebar::Action::Scenes) { showPage (Page::Live); livePage->focusScenes(); }
+            else if (a == Sidebar::Action::BroadcastReadiness) showBroadcastReadiness (true);
         },
         [this] (Page p)
         {
@@ -1302,6 +1334,7 @@ MainView::~MainView()
     inspectorWindow.reset();
     checkSheet.reset();
     historySheet.reset();
+    readinessSheet.reset();
     themeSheet.reset();
     channelSheet.reset();
     chatSheet.reset();
@@ -1464,12 +1497,23 @@ void MainView::updateChrome()
     for (const Page p : all)
         sidebar->item (p).setEnabled (isSetupPage (p) || mixable);
     sidebar->item (Page::Inspector).setEnabled (mixable);
+    const bool showReadiness = broadcastReadinessApplies (session.purpose);
+    sidebar->setBroadcastReadinessVisible (showReadiness);
+    if (! showReadiness && readinessSheet != nullptr) readinessSheet.reset();
     // ROUTING's sections light their own rows now, so the page is handed over as it is: the
     // device and the saved patches still light ROUTING, because `indexOf` puts them there.
     sidebar->setSelected (page);
     sidebar->item (Page::Sessions).setMeta (juce::String (services.listSessions().size()));
     sidebar->item (Page::Favourites).setMeta (controller.numFavourites() > 0 ? juce::String (controller.numFavourites()) : juce::String());
     sidebar->item (Page::Routing).setMeta (hasInputs ? juce::String (int (session.inputs.size())) + " in" : juce::String());
+    if (auto* ready = sidebar->actionItem (Sidebar::Action::BroadcastReadiness))
+    {
+        // How far this service's checklist has got, the way Routing says how many inputs.
+        const auto& active = controller.getReadiness().active;
+        const auto p = active.progress();
+        ready->setMeta (active.id.empty() || ! active.hasWork() ? juce::String()
+                        : juce::String (p.checked) + "/" + juce::String (p.applicable));
+    }
     sidebar->item (Page::Routing).setDone (mixable && ! isRoutingPage (page));
     routingPage->refresh();
 
@@ -1725,6 +1769,7 @@ void MainView::closeSheets()
     if (mixPage != nullptr && mixPage->isScopeSheetOpen()) mixPage->closeScopeSheet();
     checkSheet.reset();
     historySheet.reset();
+    readinessSheet.reset();
     themeSheet.reset();
     channelSheet.reset();
     chatSheet.reset();
@@ -1915,6 +1960,41 @@ void MainView::showHistory()
     addAndMakeVisible (*historySheet);
     resized();
     historySheet->toFront (true);
+}
+
+void MainView::showBroadcastReadiness (bool history)
+{
+    if (! broadcastReadinessApplies (controller.getSession().purpose))
+    {
+        showToast ("Broadcast readiness is for Church Broadcast or Livestream. Other purposes will get their own checklist later.");
+        if (readinessSheet != nullptr) readinessSheet.reset();
+        return;
+    }
+    if (readinessSheet != nullptr)
+    {
+        readinessSheet->setMode (history ? BroadcastReadinessSheet::Mode::History
+                                         : BroadcastReadinessSheet::Mode::Checklist);
+        readinessSheet->refresh();
+        readinessSheet->toFront (true);
+        return;
+    }
+    readinessSheet = std::make_unique<BroadcastReadinessSheet> (
+        controller, services,
+        history ? BroadcastReadinessSheet::Mode::History : BroadcastReadinessSheet::Mode::Checklist);
+    readinessSheet->onToast = [this] (const juce::String& s) { showToast (s); };
+    // Each of these runs after the sheet's own click has finished (BroadcastReadinessSheet::later),
+    // so closing the sheet here never destroys a button inside its own callback.
+    readinessSheet->onOpenCheck = [this] { readinessSheet.reset(); showCheck(); };
+    readinessSheet->onOpenHistory = [this] { readinessSheet.reset(); showHistory(); };
+    readinessSheet->onOpenOutputs = [this] { readinessSheet.reset(); showOutputs(); };
+    readinessSheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->readinessSheet.reset(); safe->updateChrome(); } });
+    };
+    addAndMakeVisible (*readinessSheet);
+    resized();
+    readinessSheet->toFront (true);
 }
 
 // Outputs is a section of ROUTING now, not a sheet over the console: where the sound leaves
@@ -2640,6 +2720,7 @@ juce::String MainView::openSheetName() const
     if (mixPage != nullptr && mixPage->isScopeSheetOpen()) return "tunescope";
     if (checkSheet   != nullptr) return "check";
     if (historySheet != nullptr) return "history";
+    if (readinessSheet != nullptr) return "readiness";
     if (themeSheet   != nullptr) return "appearance";
     if (channelSheet != nullptr) return "channel";
     if (chatSheet    != nullptr) return "chat";
@@ -2915,7 +2996,12 @@ void MainView::chooseOutput()
                          const auto err = services.isAudioRunning() ? services.changeOutput (name)
                                                                     : services.openOutputOnly (name);
                          if (err.isNotEmpty()) showToast (err);
-                         else { showToast ("Broadcast: " + name); updateChrome(); }
+                         else
+                         {
+                             controller.flagReadiness (ReadinessChange::BroadcastDevice);
+                             showToast ("Broadcast: " + name);
+                             updateChrome();
+                         }
                      });
 }
 
@@ -2936,6 +3022,7 @@ void MainView::timerCallback()
 
     if (channelSheet != nullptr) channelSheet->refresh();
     if (checkSheet != nullptr) checkSheet->refresh();
+    if (readinessSheet != nullptr) readinessSheet->refresh();
     if (chatSheet != nullptr) chatSheet->refresh();
 
     const bool slow = (++slowTicks % 30) == 0;
@@ -3200,6 +3287,7 @@ void MainView::resized()
     auto column = columnBounds();
     for (juce::Component* sheetComponent : { (juce::Component*) themeSheet.get(), (juce::Component*) historySheet.get(),
                                              (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get(),
+                                             (juce::Component*) readinessSheet.get(),
                                              (juce::Component*) exportSheet.get(), (juce::Component*) choiceSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (column); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)

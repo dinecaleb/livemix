@@ -1492,6 +1492,35 @@ int main (int argc, char** argv)
     rig.snap (dir, "18b-check-inputs");
     view.closeSheetsForSnapshot();
 
+    // BROADCAST READINESS: a service part-way through - some done, one problem with its note,
+    // one changed since it was answered - then finished, then the list of past services.
+    {
+        auto& r = rig.controller.editReadiness();
+        r.ensureActive();
+        r.setActiveName ("Sunday morning");
+        r.setActiveOperator ("Sam");
+        r.setItem (ReadinessItemId::SourcesMapped, ReadinessStatus::Checked);
+        r.setItem (ReadinessItemId::InputLevels, ReadinessStatus::Checked);
+        r.setItem (ReadinessItemId::BroadcastOutput, ReadinessStatus::Checked);
+        r.setItem (ReadinessItemId::SpeechClear, ReadinessStatus::NeedsAttention,
+                   "The pastor's gate cuts off the ends of quiet words.");
+        r.setItem (ReadinessItemId::RoomSound, ReadinessStatus::NotNeeded);
+        r.flagForReview (ReadinessChange::BroadcastRouting);
+        rig.controller.touch();
+        view.showBroadcastReadiness();
+        rig.feed (0.3);
+        rig.snap (dir, "18d-broadcast-readiness");
+        r.finishActive();
+        rig.feed (0.3);
+        rig.snap (dir, "18e-broadcast-readiness-finished");
+        view.showBroadcastReadiness (true);
+        rig.feed (0.3);
+        rig.snap (dir, "18f-broadcast-readiness-past");
+        view.closeSheetsForSnapshot();
+        rig.controller.editReadiness() = BroadcastReadiness {};
+        rig.feed (0.1);
+    }
+
     // EXPORT: what to write, how much of it, in which format, and where.
     view.exportMixForSnapshot();
     rig.feed (0.2);

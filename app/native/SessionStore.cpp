@@ -195,6 +195,96 @@ namespace
         pruneCheckpoints (list);
     }
 
+    juce::var readinessItemToVar (const ReadinessItemState& it)
+    {
+        auto* o = new juce::DynamicObject();
+        o->setProperty ("status", int (it.status));
+        if (! it.note.empty()) o->setProperty ("note", juce::String (it.note));
+        if (it.confirmedMs > 0) o->setProperty ("confirmedMs", juce::int64 (it.confirmedMs));
+        if (it.needsReview) o->setProperty ("needsReview", true);
+        return juce::var (o);
+    }
+
+    void readinessItemFromVar (const juce::var& v, ReadinessItemState& it)
+    {
+        auto* o = v.getDynamicObject();
+        if (o == nullptr) return;
+        const int st = int (o->getProperty ("status"));
+        if (st >= 0 && st <= int (ReadinessStatus::NotNeeded)) it.status = ReadinessStatus (st);
+        it.note = o->getProperty ("note").toString().toStdString();
+        it.confirmedMs = (long long) juce::int64 (o->getProperty ("confirmedMs"));
+        it.needsReview = o->hasProperty ("needsReview") && bool (o->getProperty ("needsReview"));
+    }
+
+    juce::var readinessRecordToVar (const ReadinessRecord& r)
+    {
+        auto* o = new juce::DynamicObject();
+        o->setProperty ("id", juce::String (r.id));
+        o->setProperty ("name", juce::String (r.name));
+        o->setProperty ("startedMs", juce::int64 (r.startedMs));
+        if (r.finishedMs > 0) o->setProperty ("finishedMs", juce::int64 (r.finishedMs));
+        if (! r.operatorName.empty()) o->setProperty ("operator", juce::String (r.operatorName));
+        if (r.finished) o->setProperty ("finished", true);
+        juce::Array<juce::var> items;
+        for (int i = 0; i < kReadinessItemCount; ++i)
+            items.add (readinessItemToVar (r.items[size_t (i)]));
+        o->setProperty ("items", items);
+        return juce::var (o);
+    }
+
+    void readinessRecordFromVar (const juce::var& v, ReadinessRecord& r)
+    {
+        auto* o = v.getDynamicObject();
+        if (o == nullptr) return;
+        r.id = o->getProperty ("id").toString().toStdString();
+        r.name = o->getProperty ("name").toString().toStdString();
+        if (r.name.empty()) r.name = "Service";
+        r.startedMs = (long long) juce::int64 (o->getProperty ("startedMs"));
+        r.finishedMs = (long long) juce::int64 (o->getProperty ("finishedMs"));
+        r.operatorName = o->getProperty ("operator").toString().toStdString();
+        r.finished = o->hasProperty ("finished") && bool (o->getProperty ("finished"));
+        r.items = {};
+        if (auto* items = o->getProperty ("items").getArray())
+            for (int i = 0; i < std::min (kReadinessItemCount, items->size()); ++i)
+                readinessItemFromVar (items->getReference (i), r.items[size_t (i)]);
+    }
+
+    juce::var readinessToVar (const BroadcastReadiness& r)
+    {
+        auto* o = new juce::DynamicObject();
+        if (! r.active.id.empty()) o->setProperty ("active", readinessRecordToVar (r.active));
+        if (! r.history.empty())
+        {
+            juce::Array<juce::var> hist;
+            for (const auto& h : r.history) hist.add (readinessRecordToVar (h));
+            o->setProperty ("history", hist);
+        }
+        if (! r.knownOperators.empty())
+        {
+            juce::Array<juce::var> ops;
+            for (const auto& n : r.knownOperators) ops.add (juce::String (n));
+            o->setProperty ("operators", ops);
+        }
+        return juce::var (o);
+    }
+
+    void readinessFromVar (const juce::var& v, BroadcastReadiness& r)
+    {
+        r = BroadcastReadiness {};
+        auto* o = v.getDynamicObject();
+        if (o == nullptr) return;
+        if (o->hasProperty ("active")) readinessRecordFromVar (o->getProperty ("active"), r.active);
+        if (auto* hist = o->getProperty ("history").getArray())
+            for (const auto& hv : *hist)
+            {
+                ReadinessRecord rec;
+                readinessRecordFromVar (hv, rec);
+                if (! rec.id.empty()) r.history.push_back (std::move (rec));
+            }
+        if (auto* ops = o->getProperty ("operators").getArray())
+            for (const auto& n : *ops) r.knownOperators.push_back (n.toString().toStdString());
+    }
+
     juce::var scenesToVar (const std::vector<MixScene>& scenes)
     {
         juce::Array<juce::var> out;
@@ -639,6 +729,10 @@ juce::var toVar (const Document& d)
     if (! d.history.empty()) obj->setProperty ("history", historyToVar (d.history));   // the track history; absent = none yet
     if (! d.scenes.empty()) obj->setProperty ("scenes", scenesToVar (d.scenes));       // the scenes; absent = none kept
     if (! d.checkpoints.empty()) obj->setProperty ("checkpoints", checkpointsToVar (d.checkpoints));   // the mix history
+    // Broadcast readiness: absent before version 7 means an empty checklist, which is correct.
+    if (! d.readiness.active.id.empty() || ! d.readiness.history.empty()
+        || ! d.readiness.knownOperators.empty())
+        obj->setProperty ("readiness", readinessToVar (d.readiness));
     obj->setProperty ("project", projectToVar (d.project));
     // Stored for REVIEW CHANGES and for the record. Nothing reads it back into the mix: the
     // parameters that actually run are in "mix", which is the only thing the engine is given.
@@ -759,6 +853,7 @@ bool fromVar (const juce::var& v, Document& d)
     historyFromVar (obj->getProperty ("history"), d.history);       // absent before the track history existed
     scenesFromVar (obj->getProperty ("scenes"), d.scenes);          // absent before scenes existed
     checkpointsFromVar (obj->getProperty ("checkpoints"), d.checkpoints);   // absent before the mix history existed
+    readinessFromVar (obj->getProperty ("readiness"), d.readiness);         // absent before version 7
     projectFromVar (obj->getProperty ("project"), d.project);      // absent in version 1: no timeline yet
     d.tuneLive = obj->getProperty ("tuneLive");                     // absent until a live run has been made
     referenceFromVar (obj->getProperty ("reference"), d.reference);  // absent unless the mix is aimed at a recording

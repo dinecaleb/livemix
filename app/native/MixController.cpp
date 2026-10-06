@@ -25,6 +25,22 @@ MixController::~MixController()
 
 void MixController::setSession (const MixSession& s)
 {
+    // Flag broadcast-readiness mapping checks when the inputs themselves moved — not when
+    // only the session name or purpose changed. History records are never touched.
+    const bool mappingChanged = [&]
+    {
+        if (s.inputs.size() != session.inputs.size()) return true;
+        for (size_t i = 0; i < s.inputs.size(); ++i)
+        {
+            if (s.inputs[i].role != session.inputs[i].role) return true;
+            if (s.inputs[i].inputA != session.inputs[i].inputA) return true;
+            if (s.inputs[i].inputB != session.inputs[i].inputB) return true;
+            if (s.inputs[i].enabled != session.inputs[i].enabled) return true;
+            if (s.inputs[i].name != session.inputs[i].name) return true;
+        }
+        return false;
+    }();
+
     session = s;
     // The document has moved ahead of the graph, which is a different thing from having no
     // graph. The engine keeps running the one it was prepared with until a host calls
@@ -44,6 +60,7 @@ void MixController::setSession (const MixSession& s)
     const bool wasListening = stage == Stage::Listening || stage == Stage::Planning || stage == Stage::Preview;
     if (wasListening) capture.abort();
     rebuild();
+    if (mappingChanged) readiness.flagForReview (ReadinessChange::InputMapping);
     mark ("The inputs changed");
 }
 
@@ -143,6 +160,7 @@ void MixController::resetDocument()
     chat.clear();
     tuneLive.clearAnswers();
     clearTuningScope();
+    readiness = BroadcastReadiness {};
     stage = Stage::Setup;
     graphStale = true;
     stateStale = true;
@@ -377,6 +395,77 @@ MixController::MasterLoudness MixController::getMasterLoudness() const
     m.headroomDb = m.ceilingDb - master.getOutputMeter().getMaxPeakDb();
     return m;
 }
+
+std::vector<MixController::ReadinessHint> MixController::readinessHints() const
+{
+    // What DINE can see beside a check, in a sentence. Observations only: never a tick - a
+    // signal is not a good sound, and DINE's output meter cannot see the encoder.
+    std::vector<ReadinessHint> out;
+    if (! built || graph.numStrips() == 0) return out;
+    auto add = [&out] (ReadinessItemId id, std::string text, bool concerning = false)
+    {
+        out.push_back ({ id, std::move (text), concerning });
+    };
+    auto plural = [] (int n, const char* one, const char* many) { return std::to_string (n) + " " + (n == 1 ? one : many); };
+
+    add (ReadinessItemId::SourcesMapped, plural (graph.numStrips(), "source is", "sources are") + " assigned.");
+
+    // Only what a listen actually measured: an input nobody has heard is not "healthy".
+    int clip = 0, quiet = 0, ok = 0, measured = 0;
+    for (int i = 0; i < graph.numStrips(); ++i)
+    {
+        const auto a = getInputAdvice (i);
+        if (! a.known || a.level == InputAdvice::Level::Unknown) continue;
+        ++measured;
+        using L = InputAdvice::Level;
+        if (a.level == L::Clipping || a.level == L::Hot) ++clip;
+        else if (a.level == L::NotHeard || a.level == L::Faint || a.level == L::Low) ++quiet;
+        else ++ok;
+    }
+    if (measured == 0)
+        add (ReadinessItemId::InputLevels, "Not measured yet. CHECK INPUTS listens to every input.");
+    else
+    {
+        std::string t = plural (ok, "input is", "inputs are") + " healthy";
+        if (clip > 0) t += ", " + plural (clip, "is", "are") + " too hot";
+        if (quiet > 0) t += ", " + plural (quiet, "is", "are") + " too quiet";
+        add (ReadinessItemId::InputLevels, t + ".", clip > 0 || quiet > 0);
+    }
+
+    {
+        const auto loud = getMasterLoudness();
+        if (! loud.known) add (ReadinessItemId::OutputLevel, "Not measured yet: play something through the mix.");
+        else
+        {
+            char buf[128];
+            std::snprintf (buf, sizeof buf, "Now %.1f LUFS against a target of %.0f; peaks %.1f dB.",
+                           double (loud.shortTermLufs), double (loud.targetLufs), double (loud.truePeakDb));
+            add (ReadinessItemId::OutputLevel, buf, loud.truePeakDb > loud.ceilingDb + 0.1f || loud.limiterWorkingHard());
+        }
+    }
+
+    {
+        int muted = 0;
+        std::string first;
+        for (int i = 0; i < graph.numStrips() && i < kept.numStrips; ++i)
+            if (kept.strips[size_t (i)].mute)
+                if (muted++ == 0) first = i < int (session.inputs.size()) && ! session.inputs[size_t (i)].name.empty()
+                                              ? session.inputs[size_t (i)].name : "Channel " + std::to_string (i + 1);
+        if (anySolo())
+            add (ReadinessItemId::NoUnintendedSoloMute, plural (numSoloed(), "thing is", "things are") + " soloed. Solo never reaches the stream, but check it is meant.", true);
+        else if (muted > 0)
+            add (ReadinessItemId::NoUnintendedSoloMute, first + (muted > 1 ? " and " + std::to_string (muted - 1) + " more are" : std::string (" is")) + " muted.", true);
+        else
+            add (ReadinessItemId::NoUnintendedSoloMute, "Nothing is muted or soloed.");
+    }
+
+    add (ReadinessItemId::RecoverySnapshot,
+         numFavourites() == 0 ? std::string ("No favourite mix yet.")
+                              : plural (numFavourites(), "favourite is", "favourites are") + " saved.",
+         numFavourites() == 0);
+    return out;
+}
+
 void MixController::setProfile (StyleProfileId p) { session.profile = p; touch(); }
 
 void MixController::mark (const std::string& what)
@@ -823,8 +912,10 @@ void MixController::setOutputFeeds (const OutputFeeds& f)
     auto next = f;
     normaliseOutputs (next);
     if (safety.on && ! onlyMonitorChanged (outputs, next) && liveSafeRefuses (LiveAction::OutputRouting)) return;
+    const bool broadcastMoved = ! onlyMonitorChanged (outputs, next);
     outputs = next;
     if (prepared) engine.setOutputFeeds (outputs);
+    if (broadcastMoved) readiness.flagForReview (ReadinessChange::BroadcastRouting);
     touch();        // the session remembers where the cue goes
 }
 

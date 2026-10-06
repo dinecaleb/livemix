@@ -10,6 +10,7 @@
 #include "Mix/OutputFeeds.h"
 #include "Mix/LiveSafe.h"
 #include "MixHistory.h"
+#include "BroadcastReadiness.h"
 #include "Project.h"
 
 namespace livemix
@@ -135,6 +136,11 @@ struct SessionState
 
     // ---- layout the engineer set once and expects back
     int trackPanelWidth = 0;         // 0 = the page's own default
+
+    // ---- Broadcast readiness: optional checklist for the livestream mix. Confirmations only;
+    // never routing, gain or recording. Active progress and finished history travel with the
+    // session; restored ticks are previous confirmations, not proof of current readiness.
+    BroadcastReadiness readiness;
 };
 
 // ---------------------------------------------------------------------------
