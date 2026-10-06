@@ -11,75 +11,25 @@ code to fit a drawing. A v4 control with no backend is built, wired to a clearly
 the "No backend today" table. A gap is closed by landing the backend and deleting its line here, in the
 same commit as the stub.
 
-## Decisions for the user
+## Decisions the owner made (2026-10-06)
 
-Each of these is a conflict between the brief and a rule or a test that already exists. The UI work
-does not pick one silently.
+Each was a conflict between the brief and a rule or a test. The owner's answers, and where they landed:
 
-### ⌘1–5 page order
-- Today ⌘1–5 are Tracks, Mixer, Tune, Live, Inspector (`MainView::commandForKey`, `kTabCommand`, the
-  sidebar shortcut labels, and `app/Tests/ReachabilityTests.cpp`, which asserts the table). v4 makes them
-  Mixer, Tune, Inspector, Live, Tracks.
-- Options: (a) take v4's order and change the key table, the sidebar labels, the tour and
-  `ReachabilityTests` in one commit; (b) keep today's order and draw v4's sidebar with today's numbers.
-- Recommendation: (a). v4's order follows its sidebar sections (Mix, Perform, Record). It is a muscle-memory
-  change for current users, so it goes in the release notes.
-
-### ⇧⌘E: split at the playhead or Export
-- `commandForKey` ignores Shift on E, so ⇧⌘E splits at the playhead today (command 201). v4 keeps ⌘E for
-  split and gives ⇧⌘E to Export, and there is no generic "Export…" command id.
-- Options: (a) test Shift first, add an Export command id, keep ⌘E as split; (b) leave ⇧⌘E as split and
-  give Export no shortcut.
-- Recommendation: (a). ⇧⌘S (Save As) and ⇧⌘Z (Redo) are not in v4's list and stay.
-
-### Esc: close everything, or only the topmost
-- Today Esc closes every sheet at once, chat included (`MainView::closeSheets`). v4 closes the topmost
-  only, in the order menu → sheet → tune → chat, which needs a sheet stack.
-- Options: (a) topmost only, with a stack in MainView; (b) keep close-all.
-- Recommendation: (a), with one rule kept: the microphone sheet treats any close as "Not now", so a
-  partial Esc must still resolve it, and a sheet that cannot close (Reference while measuring) stays.
-
-### Tune's voicing menu
-- v4 draws "Room and stream / Stream first / Room first / Recording". The code's list is `MasterVoicing`
-  (`src/Mix/MixSession.h`: Neutral, Warm, Bright, VoiceFirst, PhoneSpeakers, Earbuds, Car, TvSoundbar),
-  which is stored in the session.
-- Options: (a) keep the existing list and draw it in v4's menu style; (b) map v4's four words onto
-  existing values; (c) new voicings, which is an engine and session-format change.
-- Recommendation: (a). v4's words describe the purpose (room versus stream), which `MixPurpose` already
-  owns; enum values are never added to fit a drawing.
-
-### Sample stage per-family defaults
-- The brief gives Kick blend 0.4 / rise 6 dB / mask 40 ms / band 30–150 Hz, Snare 0.3 / 8 / 30 /
-  150 Hz–4 kHz, Toms 0.5 / 6 / 60 / 60 Hz–1 kHz, Hat 0.2 / 8 / 20 / 6–16 kHz.
-  `src/Profiles/ProfileData.cpp` (Modern Gospel) differs: the kick band is 30–250 Hz; the hat is blend
-  0.3, mask 25 ms, band 1.5–12 kHz. Snare and toms agree.
-- Options: (a) keep ProfileData's numbers and have the stage read them; (b) retune the profile to the
-  brief, which is a profile change tuned by listening, outside the UI work.
-- Recommendation: (a). Numbers live in the profile data and never in the UI; the stage shows whatever
-  the profile says.
-
-### Purposes: three or four
-- The brief lists three purposes (Service / Stream / Record). The code has four `MixPurpose` cards, and
-  Broadcast readiness is gated on two of them.
-- Recommendation: keep four. A purpose is stored; dropping one would strand sessions that use it.
-
-### Minimum window size
-- Today `setResizeLimits (1180, 760, …)` (`app/Main.cpp`). v4 says 1280×780.
-- Options: (a) raise to 1280×780; (b) keep 1180×760 and make the v4 layout fit it.
-- Recommendation: (a), checked on a 13-inch display at its default scale. The snapshot tool renders at
-  the new minimum.
-
-### SOLO pill: click clears, or click jumps
-- Today the name in the pill jumps to the soloed item and only its cross clears. v4 says "click clears".
-- Recommendation: keep both: the name jumps, the cross clears. A pill that clears on any click loses the
-  one way to find what is soloed.
-
-### Smaller calls
-- Toast duration: 5 s today, v4 about 4 s. Recommendation: 4 s; the refusal tint is keyword-based in
-  `Toast::show`, so copy changes are checked against it.
-- Sidebar icon rail: v4 hides the sidebar fully. The folded rail is today's only one-click route to the
-  workspaces with the sidebar folded. Recommendation: take v4, since ⌘1–5 remain.
-- Live FX strip S is `setFxSoloAll`; the Tune FX tile has no solo. Recommendation: keep the difference.
+- **⌘1–5:** v4's order - Mixer, Tune, Inspector, Live, Tracks (`MainView::commandForKey`, the sidebar
+  tooltips, View menu order, `ReachabilityTests`). A muscle-memory change for the release notes.
+- **⇧⌘E:** Export (command 105, the Export sheet). Shift is tested first; ⌘E still splits at the playhead.
+  ⇧⌘S (Save As) and ⇧⌘Z (Redo) stay.
+- **Esc:** the topmost layer only - a menu closes itself, then the sheet, then a channel's tune, then Mix
+  Buddy (`MainView::closeTopSheet`). Each closes through its own `onClose`, so the microphone sheet's
+  close is still "Not now" (asserted in `ReachabilityTests`).
+- **Space on Live:** goes to the next cue (Part B). Play / stop stays on the transport pill there, and Space
+  is play / stop on every other workspace. A stray Space on Live during a service never stops anything.
+- **Tune's voicing menu:** the eight stored `MasterVoicing` values, drawn in v4's style. No new enum values.
+- **Sample stage defaults:** `ProfileData.cpp`'s numbers; the stage reads the profile.
+- **Minimum window:** 1280 x 780 (`app/Main.cpp`); the snapshot tool and the console test render there.
+- **SOLO pill:** the name goes to what is soloed, the cross clears every solo.
+- **Purposes:** four, as stored.
+- **Smaller calls:** toast about 4 s; the sidebar hides fully; Live's FX strip keeps its S.
 
 ## No backend today (stub in the UI)
 

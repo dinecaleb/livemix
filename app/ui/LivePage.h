@@ -72,7 +72,7 @@ private:
     std::unique_ptr<Link> safeLink, autopilotLink, checkLink;
     juce::StringArray attentionNow;    // re-read twice a second with the clipping count
     int attentionShown = 0;            // how many of them the rail has room for
-    int attentionLines = 2;            // ... and how many lines of what to do each one gets
+    int attentionLines = 2;            // ... and how many lines of what to do each one may take, whole
     // SPEAKING MICS: speech priority and share the mics, the two things that move a level for
     // the spoken word, on LIVE where a service or a show is run - not only in the Mix menu.
     std::unique_ptr<Link> priorityLink, shareLink;

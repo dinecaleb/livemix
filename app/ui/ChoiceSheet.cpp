@@ -54,8 +54,10 @@ void ChoiceSheet::addAction (const juce::String& text, bool destructive, bool is
     const int index = int (actions.size());
     b->onClick = [this, index]
     {
+        // Copies: onClose destroys this sheet, and with it the functions it is running.
         auto go = handlers[size_t (index)];
-        if (onClose) onClose();              // the sheet is gone before the work starts
+        auto close = onClose;
+        if (close) close();                  // the sheet is gone before the work starts
         if (go) go();
     };
     addAndMakeVisible (*b);
@@ -67,7 +69,7 @@ void ChoiceSheet::addAction (const juce::String& text, bool destructive, bool is
 
 bool ChoiceSheet::keyPressed (const juce::KeyPress& key)
 {
-    if (key == juce::KeyPress::escapeKey) { if (onClose) onClose(); return true; }
+    if (key == juce::KeyPress::escapeKey) { auto close = onClose; if (close) close(); return true; }
     if (key == juce::KeyPress::returnKey && defaultAction >= 0)
     {
         actions[size_t (defaultAction)]->onClick();

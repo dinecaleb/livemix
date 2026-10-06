@@ -50,7 +50,7 @@ Abbreviations: MV = `app/ui/MainView.cpp`, MVh = `app/ui/MainView.h`, Main = `ap
 - `[cmd]` Quit while exporting: "DINE is exporting" alert with Keep Exporting / Stop and Quit — `Main:systemRequestedQuit` — v4: KEEP current
 - `[behaviour]` Shutdown stops the export (15 s wait), stops the engine, saves for quit, then closes the autosave cleanly (or flushes it if the save failed) — `Main:shutdown, MainView::stopExportAndWait` — v4: KEEP current
 - `[behaviour]` Window close button means quit (systemRequestedQuit) — `Main:MainWindow::closeButtonPressed` — v4: KEEP current
-- `[pref]` Main window min 1180x760, opens at 1520x960 centred. **The size is not persisted** — `Main:MainWindow ctor` — v4: min 1280x780 (HANDOFF). This is a change; flag it
+- `[pref]` Main window min 1180x760, opens at 1520x960 centred. **The size is not persisted** — `Main:MainWindow ctor` — v4: min 1280x780 - taken 2026-10-06
 - `[behaviour]` Native title bar is transparent and the traffic lights sit inside the 52 pt toolbar — `Main:MainWindow ctor -> putWindowButtonsInTheToolbar` (WindowChrome.mm) — v4: the traffic lights move between the sidebar card and the toolbar edge on collapse (HANDOFF Shell). WindowChrome.mm must follow
 - `[behaviour]` Dragging the empty toolbar moves the window; double-click follows the System Settings title-bar action — `MV:MainView::mouseDown/mouseDoubleClick -> onToolbarPressed/onToolbarDoubleClicked`, WindowChrome.mm `dragWindowFromToolbar/toolbarDoubleClicked` — v4: toolbar (keep)
 - `[menu]` The macOS menu bar is attached by the app (not by the snapshot tool) — `Main:MainWindow ctor setMacMainMenu(view().getMenuModel())`, `MVh:getMenuModel` — v4: KEEP current (macOS menu bar)

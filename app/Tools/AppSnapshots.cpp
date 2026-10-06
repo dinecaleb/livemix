@@ -705,9 +705,9 @@ static int renderSizes (const juce::File& dir)
     rig.feed (0.5);
 
     // The three desk sizes the design is drawn at, and the smallest window the application
-    // allows (app/Main.cpp's setResizeLimits): a layout that survives 1180 x 760 survives a
+    // allows (app/Main.cpp's setResizeLimits): a layout that survives 1280 x 780 survives a
     // laptop in a booth with a stream window beside it.
-    for (const auto& size : { std::pair<int, int> { 1180, 760 }, { 1280, 800 }, { 1440, 900 }, { 1920, 1080 } })
+    for (const auto& size : { std::pair<int, int> { 1280, 780 }, { 1440, 900 }, { 1920, 1080 } })
     {
         rig.view->setSize (size.first, size.second);
         const juce::String tag = juce::String (size.first) + "x" + juce::String (size.second);
@@ -771,7 +771,7 @@ static int renderTextSizes (const juce::File& dir)
     rig.services.reconfigure();
     rig.pump (120);
 
-    view.setSize (1180, 760);            // app/Main.cpp's smallest allowed window
+    view.setSize (1280, 780);            // app/Main.cpp's smallest allowed window
     for (const auto& size : ThemeStore::textSizes())
     {
         Dine::setTextScale (size.scale);
@@ -1626,7 +1626,7 @@ int main (int argc, char** argv)
     // only works at the developer's resolution is a workspace that breaks on a laptop at the
     // back of a church, so every one of them is rendered here too.
     view.closeSheets();
-    rig.view->setSize (1180, 760);
+    rig.view->setSize (1280, 780);
     for (const auto& small : { std::pair<MainView::Page, const char*> { MainView::Page::Tracks,    "21-min-tracks" },
                                { MainView::Page::Mixer,     "22-min-mixer" },
                                { MainView::Page::Tune,      "23-min-tune" },

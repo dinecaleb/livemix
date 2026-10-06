@@ -951,7 +951,7 @@ namespace
             setUsingNativeTitleBar (true);
             setContentOwned (new MainView (c, s), true);
             setResizable (true, true);
-            setResizeLimits (1180, 760, 6000, 4000);
+            setResizeLimits (1280, 780, 6000, 4000);
             centreWithSize (1520, 960);
             setVisible (true);
            #if JUCE_MAC

@@ -903,7 +903,10 @@ void LivePage::paint (juce::Graphics& g)
             const auto rest = a.fromFirstOccurrenceOf ("\t", false, false);
             const auto detail = rest.upToFirstOccurrenceOf ("\t", false, false);
             const bool crit = rest.endsWith ("c");
-            const int lines = juce::jmin (attentionLines, wrapLines (noteFont(), detail, text.getWidth() - 14));
+            // The whole sentence or none of it: a cut instruction is worse than the name alone,
+            // and "Check inputs" says the rest.
+            const int full = wrapLines (noteFont(), detail, text.getWidth() - 14);
+            const int lines = full <= attentionLines ? full : 0;
             auto row = text.removeFromTop (18 + 14 * lines);
             text.removeFromTop (10);
             g.setColour (crit ? Dine::crit : Dine::warn);
@@ -912,9 +915,12 @@ void LivePage::paint (juce::Graphics& g)
             g.setColour (Dine::ink);
             g.setFont (Dine::text (12.5f, 600));
             Dine::drawFittedText (g, what, row.removeFromTop (18), juce::Justification::centredLeft, 1, 0.85f);
-            g.setColour (Dine::ink3);
-            g.setFont (noteFont());
-            Dine::drawFittedText (g, detail, row, juce::Justification::topLeft, lines, 1.0f);
+            if (lines > 0)
+            {
+                g.setColour (Dine::ink3);
+                g.setFont (noteFont());
+                Dine::drawFittedText (g, detail, row, juce::Justification::topLeft, lines, 1.0f);
+            }
         }
     }
 
@@ -1077,18 +1083,19 @@ void LivePage::resized()
         // NEEDS ATTENTION (v4), first in what is left above WHAT I HEAR - a preamp to move is
         // more urgent than the speaking mics' switches, which the Mix menu also has: as many of
         // the inputs the desk should move as fit, each its name and what to do (one line of it
-        // when the rail is short).
+        // when it fits whole, never a cut one).
         {
             l.attention = {};
             if (! look.attention.isEmpty())
             {
-                attentionLines = rail.getHeight() > 260 ? 2 : 1;
+                attentionLines = rail.getHeight() > 260 ? 4 : 2;
                 int h = kCardPadY + kHeadH + kCardGap + kCardPadY;
                 int fits = 0;
                 for (const auto& a : look.attention)
                 {
                     const auto detail = a.fromFirstOccurrenceOf ("\t", false, false).upToFirstOccurrenceOf ("\t", false, false);
-                    const int rowH = 18 + 14 * juce::jmin (attentionLines, wrapLines (noteFont(), detail, textW - 14)) + 10;
+                    const int full = wrapLines (noteFont(), detail, textW - 14);
+                    const int rowH = 18 + 14 * (full <= attentionLines ? full : 0) + 10;
                     if (h + rowH > rail.getHeight()) break;
                     h += rowH;
                     ++fits;

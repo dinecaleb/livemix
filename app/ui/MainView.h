@@ -148,6 +148,7 @@ public:
     // own headphones, or the start of a TUNE that ends on BEFORE / AFTER - never a change kept.
     void performBuddyAction (const BuddyAction&);
     void closeSheets();
+    bool closeTopSheet();
     // RECOVER SESSION? DINE did not close cleanly and there is unsaved work beside the
     // document. The two are compared side by side and nothing is deleted by any of the three
     // answers; the application hands the facts in, because it is the thing that found them.

@@ -244,16 +244,18 @@ TEST_CASE ("Reachability: every keyboard shortcut still asks for the same comman
         { { 'Z', cmd, 0 },                     Page::Mixer,  200, "undo, on the mixer too" },
         { { 'Z', cmd | shift, 0 },             Page::Tracks, 204, "redo (it used to be undo as well)" },
         { { 'E', cmd, 0 },                     Page::Tracks, 201, "split at playhead" },
+        { { 'E', cmd | shift, 0 },             Page::Mixer,  105, "export (Shift-Cmd-E, not a split)" },
         { { 'O', cmd, 0 },                     Page::Mixer,  101, "open a session" },
         { { 'N', cmd, 0 },                     Page::Mixer,  100, "a new session" },
         { { '=', cmd, 0 },                     Page::Tracks, 605, "zoom in" },
         { { '-', cmd, 0 },                     Page::Tracks, 606, "zoom out" },
         { { '0', cmd, 0 },                     Page::Tracks, 607, "zoom to fit" },
-        { { '1', cmd, 0 },                     Page::Mixer,  600, "TRACKS" },
-        { { '2', cmd, 0 },                     Page::Tracks, 601, "MIXER" },
-        { { '3', cmd, 0 },                     Page::Tracks, 602, "TUNE" },
+        // v4's order, the sidebar's top to bottom (the owner's call, 2026-10-06).
+        { { '1', cmd, 0 },                     Page::Tracks, 601, "MIXER" },
+        { { '2', cmd, 0 },                     Page::Tracks, 602, "TUNE" },
+        { { '3', cmd, 0 },                     Page::Tracks, 604, "INSPECTOR" },
         { { '4', cmd, 0 },                     Page::Tracks, 603, "LIVE" },
-        { { '5', cmd, 0 },                     Page::Tracks, 604, "INSPECTOR" },
+        { { '5', cmd, 0 },                     Page::Mixer,  600, "TRACKS" },
         { { juce::KeyPress::spaceKey, 0, 0 },  Page::Tracks, 500, "play / stop" },
         { { juce::KeyPress::returnKey, 0, 0 }, Page::Tracks, 502, "return to start" },
         { { 'R', 0, 0 },                       Page::Tracks, 501, "record" },
@@ -367,6 +369,44 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         CHECK_MESSAGE (view.openSheetName().isEmpty(),
                        std::string ("Escape did not close the ") + sheet.name + " sheet");
     }
+}
+
+// ESCAPE CLOSES THE TOPMOST LAYER ONLY (v4: menu, then sheet, then tune, then Mix Buddy) -
+// and the microphone sheet still hears "Not now" when Escape is what closed it.
+TEST_CASE ("Reachability: Escape closes the topmost sheet, one press each")
+{
+    Window window;
+    auto& view = *window.view;
+    view.showPage (MainView::Page::Mixer);
+    window.pump (10);
+
+    view.showChat();
+    view.showThemes();
+    window.pump (10);
+    REQUIRE (view.openSheetName() == "appearance");
+
+    view.keyPressed ({ juce::KeyPress::escapeKey, 0, 0 });
+    window.pump (10);
+    CHECK_MESSAGE (view.openSheetName() == "chat", "Escape closed more than the sheet on top");
+
+    view.keyPressed ({ juce::KeyPress::escapeKey, 0, 0 });
+    window.pump (10);
+    CHECK (view.openSheetName().isEmpty());
+    CHECK (! view.keyPressed ({ juce::KeyPress::escapeKey, 0, 0 }));   // nothing left: the key is free
+
+    bool notNow = false, continued = false;
+    MainView::MicrophoneAsk ask;
+    ask.device = "Desk";
+    ask.onNotNow = [&] { notNow = true; };
+    ask.onContinue = [&] { continued = true; };
+    view.explainMicrophone (std::move (ask));
+    window.pump (5);
+    REQUIRE (view.openSheetName() == "choice");
+    view.keyPressed ({ juce::KeyPress::escapeKey, 0, 0 });
+    window.pump (10);
+    CHECK (view.openSheetName().isEmpty());
+    CHECK_MESSAGE (notNow, "Escape on the microphone sheet has to mean Not now");
+    CHECK (! continued);
 }
 
 // ------------------------------------------------------------------- the document
@@ -546,7 +586,7 @@ TEST_CASE ("Reachability: every group bus has a strip on the console, at any siz
     }
     controller.setSession (session);
     window.services.reconfigure();
-    view.setSize (1180, 760);            // app/Main.cpp's smallest allowed window
+    view.setSize (1280, 780);            // app/Main.cpp's smallest allowed window
     view.showPage (MainView::Page::Mixer);
     window.pump (30);
 

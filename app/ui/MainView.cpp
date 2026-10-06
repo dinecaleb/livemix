@@ -692,14 +692,14 @@ public:
             { "Inputs",            Page::Assign,     Dine::Icon::None,         Action::None,        "",        true  },
             { "Outputs",           Page::Outputs,    Dine::Icon::None,         Action::None,        "",        true  },
             { "Check inputs",      Page::Mixer,      Dine::Icon::NavCheck,     Action::CheckInputs, "",        false },
-            { "Mixer",             Page::Mixer,      Dine::Icon::NavMixer,     Action::None,        "⌘2", false },
-            { "Tune",              Page::Tune,       Dine::Icon::NavTune,      Action::None,        "⌘3", false },
-            { "Inspector",         Page::Inspector,  Dine::Icon::NavInspector, Action::None,        "⌘5", false },
+            { "Mixer",             Page::Mixer,      Dine::Icon::NavMixer,     Action::None,        "⌘1", false },
+            { "Tune",              Page::Tune,       Dine::Icon::NavTune,      Action::None,        "⌘2", false },
+            { "Inspector",         Page::Inspector,  Dine::Icon::NavInspector, Action::None,        "⌘3", false },
             { "Favourite mixes",   Page::Favourites, Dine::Icon::NavFavourite, Action::None,        "",        false },
             { "Mix history",       Page::Tracks,     Dine::Icon::NavHistory,   Action::MixHistory,  "",        false },
             { "Live",              Page::Live,       Dine::Icon::NavLive,      Action::None,        "⌘4", false },
             { "Setlist",           Page::Live,       Dine::Icon::NavSetlist,   Action::Scenes,      "",        false },
-            { "Tracks",            Page::Tracks,     Dine::Icon::NavTracks,    Action::None,        "⌘1", false },
+            { "Tracks",            Page::Tracks,     Dine::Icon::NavTracks,    Action::None,        "⌘5", false },
             { "Export",            Page::Tracks,     Dine::Icon::NavExport,    Action::Export,      "⇧⌘E", false },
         };
         return defs;
@@ -1200,11 +1200,11 @@ public:
                 m.addItem (503, "Loop");
                 break;
             case 5:
-                m.addItem (600, "Tracks");
                 m.addItem (601, "Mixer");
                 m.addItem (602, "Tune");
-                m.addItem (603, "Live");
                 m.addItem (604, "Inspector");
+                m.addItem (603, "Live");
+                m.addItem (600, "Tracks");
                 m.addSeparator();
                 m.addItem (613, "Set-up and Routing");
                 m.addItem (616, "Saved Input Patches");
@@ -2160,9 +2160,33 @@ void MainView::closeSheets()
     channelSheet.reset();
     chatSheet.reset();
     exportSheet.reset();
+    // A choice closes through its own onClose: the microphone sheet's means "Not now".
+    if (choiceSheet != nullptr)
+        if (auto close = choiceSheet->onClose) close();
     choiceSheet.reset();
     updateChrome();
     resized();
+}
+
+// ESCAPE: the topmost layer, one press each - a sheet, then a channel's tune, then Mix Buddy.
+// Each closes through its own onClose, the way its own button closes it, so the microphone
+// sheet still hears "Not now" and a sheet that tidies up after itself still does.
+bool MainView::closeTopSheet()
+{
+    if (mixPage != nullptr && mixPage->isScopeSheetOpen()) { mixPage->closeScopeSheet(); return true; }
+
+    const auto closeVia = [this] (auto& sheet)
+    {
+        if (sheet == nullptr) return false;
+        // A copy: an onClose may destroy the sheet, and with it the function it is running.
+        if (auto close = sheet->onClose) close();
+        else { sheet.reset(); updateChrome(); resized(); }
+        return true;
+    };
+    if (closeVia (choiceSheet) || closeVia (exportSheet) || closeVia (themeSheet) || closeVia (readinessSheet)
+        || closeVia (historySheet) || closeVia (checkSheet) || closeVia (channelSheet) || closeVia (chatSheet))
+        return true;
+    return false;
 }
 
 void MainView::showThemes()
@@ -3107,16 +3131,17 @@ int MainView::commandForKey (const juce::KeyPress& key, Page page)
         if (code == 'S') return 103;
         // UNDO and REDO, the way every Mac app has them. Cmd+Shift+Z used to be undo as well.
         if (code == 'Z') return mods.isShiftDown() ? 204 : 200;
-        if (code == 'E') return 201;
+        // Shift first: Shift-Cmd-E opens Export, Cmd-E splits at the playhead.
+        if (code == 'E') return mods.isShiftDown() ? 105 : 201;
         if (code == 'O') return 101;
         if (code == 'N') return 100;
         if (code == '=' || code == '+') return 605;
         if (code == '-') return 606;
         if (code == '0') return 607;
-        // Cmd-1..5 follow the tab bar left to right: TRACKS MIXER TUNE LIVE INSPECTOR.
+        // Cmd-1..5 follow the sidebar top to bottom (v4): Mixer, Tune, Inspector, Live, Tracks.
         if (code >= '1' && code <= '5')
         {
-            static constexpr int kTabCommand[5] = { 600, 601, 602, 603, 604 };
+            static constexpr int kTabCommand[5] = { 601, 602, 604, 603, 600 };
             return kTabCommand[code - '1'];
         }
         return 0;
@@ -3166,12 +3191,10 @@ bool MainView::keyPressed (const juce::KeyPress& key)
         return true;
     }
 
-    // Escape belongs to whatever is open over the workspace, so it is not in the table.
+    // Escape belongs to whatever is open over the workspace, so it is not in the table. It
+    // closes the topmost layer only (a menu closes itself first).
     if (key.getKeyCode() == juce::KeyPress::escapeKey)
-    {
-        if (openSheetName().isNotEmpty()) { closeSheets(); return true; }
-        return false;
-    }
+        return closeTopSheet();
 
     if (const int command = commandForKey (key, page); command != 0)
     {
