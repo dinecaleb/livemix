@@ -47,16 +47,21 @@ namespace
         {
             case FxType::VocalPlate:
             {
+                // 2026-10-06, measured (impulse, octave bands): the tail held 87 % of its 1 kHz decay at
+                // 4 kHz and carried sibilance into it. Darker input (6.5 kHz), more damping, a longer
+                // pre-delay so the consonant lands before the tail, fewer early taps.
                 auto p = reverbBase();
-                p.reverbDecayS = 1.9f; p.reverbPreDelayMs = 28.0f; p.reverbSize = 45.0f; p.reverbDamping = 45.0f; p.reverbDiffusion = 85.0f;
-                p.reverbLowCutHz = 160.0f; p.reverbHighCutHz = 8500.0f; p.reverbModRateHz = 0.9f; p.reverbModDepth = 35.0f; p.reverbEarly = 25.0f;
+                p.reverbDecayS = 1.9f; p.reverbPreDelayMs = 34.0f; p.reverbSize = 45.0f; p.reverbDamping = 60.0f; p.reverbDiffusion = 85.0f;
+                p.reverbLowCutHz = 180.0f; p.reverbHighCutHz = 6500.0f; p.reverbModRateHz = 0.9f; p.reverbModDepth = 30.0f; p.reverbEarly = 15.0f;
                 return p;
             }
             case FxType::VocalHall:
             {
+                // 2026-10-06: the Backing Hall. Darker input and more damping (8 kHz -14 -> -17 dB),
+                // a higher low cut so three voices do not thicken 150-180 Hz, more diffusion.
                 auto p = reverbBase();
-                p.reverbDecayS = 2.6f; p.reverbPreDelayMs = 40.0f; p.reverbSize = 70.0f; p.reverbDamping = 50.0f; p.reverbDiffusion = 70.0f;
-                p.reverbLowCutHz = 150.0f; p.reverbHighCutHz = 7500.0f; p.reverbModRateHz = 0.6f; p.reverbModDepth = 30.0f; p.reverbEarly = 40.0f;
+                p.reverbDecayS = 2.6f; p.reverbPreDelayMs = 40.0f; p.reverbSize = 70.0f; p.reverbDamping = 62.0f; p.reverbDiffusion = 80.0f;
+                p.reverbLowCutHz = 180.0f; p.reverbHighCutHz = 6500.0f; p.reverbModRateHz = 0.6f; p.reverbModDepth = 30.0f; p.reverbEarly = 30.0f;
                 return p;
             }
             case FxType::WorshipHall:
@@ -75,16 +80,22 @@ namespace
             }
             case FxType::DrumRoom:
             {
+                // 2026-10-06: the harshest return. Flat to 8 kHz with 80 % discrete early taps (a 23 dB
+                // crest: a comb on every hit) - and the toms carry the cymbals into it. Smaller, more
+                // diffuse, half the early taps, input cut at 5 kHz (8 kHz -4 -> -10 dB), low cut 120 Hz
+                // for the kick spill. The short tank recirculates once, so damping alone cannot do it.
                 auto p = reverbBase();
-                p.reverbDecayS = 0.9f; p.reverbPreDelayMs = 8.0f; p.reverbSize = 35.0f; p.reverbDamping = 30.0f; p.reverbDiffusion = 55.0f;
-                p.reverbLowCutHz = 90.0f; p.reverbHighCutHz = 10000.0f; p.reverbModRateHz = 1.2f; p.reverbModDepth = 10.0f; p.reverbEarly = 80.0f;
+                p.reverbDecayS = 0.9f; p.reverbPreDelayMs = 8.0f; p.reverbSize = 24.0f; p.reverbDamping = 60.0f; p.reverbDiffusion = 78.0f;
+                p.reverbLowCutHz = 120.0f; p.reverbHighCutHz = 5000.0f; p.reverbModRateHz = 1.2f; p.reverbModDepth = 10.0f; p.reverbEarly = 30.0f;
                 return p;
             }
             case FxType::SnarePlate:
             {
+                // 2026-10-06: the snare mic is half hi-hat; an 11 kHz plate made a splash of it. Input
+                // cut at 6 kHz (8 kHz -5 -> -10 dB), more damping, smaller, almost no early taps.
                 auto p = reverbBase();
-                p.reverbDecayS = 1.4f; p.reverbPreDelayMs = 12.0f; p.reverbSize = 40.0f; p.reverbDamping = 30.0f; p.reverbDiffusion = 90.0f;
-                p.reverbLowCutHz = 220.0f; p.reverbHighCutHz = 11000.0f; p.reverbModRateHz = 1.1f; p.reverbModDepth = 25.0f; p.reverbEarly = 20.0f;
+                p.reverbDecayS = 1.4f; p.reverbPreDelayMs = 15.0f; p.reverbSize = 32.0f; p.reverbDamping = 58.0f; p.reverbDiffusion = 90.0f;
+                p.reverbLowCutHz = 220.0f; p.reverbHighCutHz = 6000.0f; p.reverbModRateHz = 1.1f; p.reverbModDepth = 20.0f; p.reverbEarly = 10.0f;
                 return p;
             }
             case FxType::LargeAmbient:
@@ -108,8 +119,10 @@ namespace
             }
             case FxType::EighthDelay:
             {
+                // 2026-10-06: the Vocal Delay. Its repeats were flat to 4 kHz - every S came back twice.
+                // Repeats band-limited 280 Hz - 4.2 kHz (in the loop, so each one darker) and ducked harder.
                 auto p = delayBase (int (DelayMode::Stereo), NoteDivision::Eighth, 28.0f);
-                p.delayDuck = 20.0f; p.delayDuckReleaseMs = 400.0f;
+                p.delayDuck = 35.0f; p.delayDuckReleaseMs = 400.0f; p.delayLowCutHz = 280.0f; p.delayHighCutHz = 4200.0f;
                 return p;
             }
             case FxType::DottedEighthDelay:
