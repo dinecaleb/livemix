@@ -342,6 +342,7 @@ public:
         setSkewFactorFromMidPoint (-8.0);
         setDoubleClickReturnValue (true, 0.0);
         setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
+        Dine::dragOnly (*this);     // a click near the end must not put the headphones at +12
     }
 
     void paint (juce::Graphics& g) override

@@ -787,6 +787,9 @@ void Dine::styleTextEditor (juce::TextEditor& e, juce::Colour ground, bool softF
 void Dine::dragOnly (juce::Slider& s)
 {
     s.setScrollWheelEnabled (false);
+    // A fader moves by the distance it is dragged, never to where it was clicked: a click that
+    // lands a little off the cap must not throw the channel to the top or bottom of its travel.
+    s.setSliderSnapsToMousePosition (false);
 }
 
 void Dine::nativeScrolling (juce::Viewport& v)
