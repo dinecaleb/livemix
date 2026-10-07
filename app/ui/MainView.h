@@ -19,6 +19,7 @@
 #include "ThemeSheet.h"
 #include "ExportSheet.h"
 #include "ChoiceSheet.h"
+#include "EffectSheet.h"
 #include "MixPage.h"
 #include "LivePage.h"
 #include "AdvancedPage.h"
@@ -189,6 +190,8 @@ public:
     // applied before the pages are built and remembered on this Mac (ThemeStore); the headless
     // snapshot tool switches the stored choice off so every render starts from the design.
     void showThemes();
+    // One effect return's sound by hand (EffectSheet): from its name on the console.
+    void showEffect (FxSlot);
     void applyThemeNamed (const juce::String& name);
     // Text size: Standard / Large / Larger. The words grow, the console's geometry does not
     // (Dine::setTextScale); remembered on this Mac beside the theme.
@@ -331,6 +334,7 @@ private:
     std::unique_ptr<ExportSheet> exportSheet;
     // RESET THE MIX TO RAW and RECOVER SESSION?: the two questions DINE asks out loud.
     std::unique_ptr<ChoiceSheet> choiceSheet;
+    std::unique_ptr<EffectSheet> effectSheet;
     juce::StringArray themeMenuNames;      // the View > Appearance list, as it was last built
     std::unique_ptr<ChannelTuneSheet> channelSheet;
     std::unique_ptr<ChatSheet> chatSheet;

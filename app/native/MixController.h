@@ -709,6 +709,11 @@ public:
     // One return on its own - the plate, the delay, the hall - on top of TUNE MIX's level for it.
     // A fader under LIVE SAFE's step like any other; the FX group fader still rides them all.
     void setFxSlotReturn (FxSlot, float db);
+    // One return's sound by hand: reverb decay and pre-delay, delay note / time and feedback.
+    // Only those fields of `fx` are read (MixController.cpp says the ranges).
+    void setFxSlotCharacter (FxSlot, const FxParameters& fx);
+    void setTempo (float bpm);                                   // 40..240, what synced delays follow
+    float getTempo() const noexcept { return kept.tempoBpm; }
     void setFxSlotMute (FxSlot, bool mute);
     void setFxMute (bool mute);
     // The chain itself (the Inspector's stage controls): the whole ChannelParameters at

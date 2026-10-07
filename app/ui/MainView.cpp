@@ -1620,6 +1620,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     mixPage->onGraphChanged = [this] { services.reconfigure(); };
     mixerPage->onOpenStrip = [this] (int strip) { inspectStrip (strip); };
     mixerPage->onOpenBus = [this] (MixBus bus) { inspectBus (bus); };
+    mixerPage->onOpenReturn = [this] (FxSlot slot) { showEffect (slot); };
     mixerPage->onTuneStrip = [this] (int strip) { tuneChannel (strip); };
     mixerPage->onOpenWindow = [this] { openMixerWindow(); };
     mixerPage->onToast = [this] (const juce::String& t) { showToast (t); };
@@ -2253,6 +2254,7 @@ void MainView::closeSheets()
     channelSheet.reset();
     chatSheet.reset();
     exportSheet.reset();
+    effectSheet.reset();
     // A choice closes through its own onClose: the microphone sheet's means "Not now".
     if (choiceSheet != nullptr)
         if (auto close = choiceSheet->onClose) close();
@@ -2276,10 +2278,25 @@ bool MainView::closeTopSheet()
         else { sheet.reset(); updateChrome(); resized(); }
         return true;
     };
-    if (closeVia (choiceSheet) || closeVia (exportSheet) || closeVia (setlistSheet) || closeVia (readySheet) || closeVia (themeSheet) || closeVia (readinessSheet)
+    if (closeVia (choiceSheet) || closeVia (effectSheet) || closeVia (exportSheet) || closeVia (setlistSheet) || closeVia (readySheet) || closeVia (themeSheet) || closeVia (readinessSheet)
         || closeVia (historySheet) || closeVia (checkSheet) || closeVia (channelSheet) || closeVia (chatSheet))
         return true;
     return false;
+}
+
+void MainView::showEffect (FxSlot slot)
+{
+    closeSheets();
+    effectSheet = std::make_unique<EffectSheet> (controller, slot);
+    effectSheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->effectSheet.reset(); safe->resized(); safe->repaint(); safe->grabKeyboardFocus(); } });
+    };
+    effectSheet->onEdited = [this] { services.touchSession(); };
+    addAndMakeVisible (*effectSheet);
+    resized();
+    effectSheet->grabKeyboardFocus();
 }
 
 void MainView::showThemes()
@@ -3302,6 +3319,7 @@ juce::String MainView::openSheetName() const
     if (channelSheet != nullptr) return "channel";
     if (chatSheet    != nullptr) return "chat";
     if (exportSheet  != nullptr) return "export";
+    if (effectSheet  != nullptr) return "effect";
     if (choiceSheet  != nullptr) return "choice";
     return {};
 }
@@ -4273,7 +4291,8 @@ void MainView::resized()
     for (juce::Component* sheetComponent : { (juce::Component*) themeSheet.get(), (juce::Component*) historySheet.get(),
                                              (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get(),
                                              (juce::Component*) readinessSheet.get(), (juce::Component*) setlistSheet.get(), (juce::Component*) readySheet.get(),
-                                             (juce::Component*) exportSheet.get(), (juce::Component*) choiceSheet.get() })
+                                             (juce::Component*) exportSheet.get(), (juce::Component*) effectSheet.get(),
+                                             (juce::Component*) choiceSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (sheetColumn); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)
     {

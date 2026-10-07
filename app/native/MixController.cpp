@@ -3321,6 +3321,45 @@ void MixController::setFxReturn (float db)
     touch();
 }
 
+// AN EFFECT BY HAND: the few numbers that decide what a return sounds like - how long the
+// reverb rings and how late it starts, and what the delay repeats at and for how long. Only
+// those fields are taken from `fx`, each inside the range the engine is tuned for; the rest
+// of the return (its filters, its modulation, its level) stays as TUNE MIX or the profile
+// set it. Like a chain edit it is part of the kept mix and the next TUNE MIX replaces it.
+void MixController::setFxSlotCharacter (FxSlot slot, const FxParameters& fx)
+{
+    if (int (slot) < 0 || int (slot) >= int (FxSlot::Count)) return;
+    markHandEdit ("fxchar:" + std::to_string (int (slot)), std::string (fxSlotName (slot)) + " sound");
+    auto apply = [&fx] (FxParameters& to)
+    {
+        to.reverbDecayS = clamp (fx.reverbDecayS, 0.2f, 10.0f);
+        to.reverbPreDelayMs = clamp (fx.reverbPreDelayMs, 0.0f, 250.0f);
+        to.delaySync = fx.delaySync;
+        to.delayDivision = clamp (fx.delayDivision, 0, int (NoteDivision::Count) - 1);
+        to.delayTimeMs = clamp (fx.delayTimeMs, 20.0f, 2000.0f);
+        to.delayFeedback = clamp (fx.delayFeedback, 0.0f, 90.0f);
+    };
+    apply (kept.fx[size_t (slot)].fx);
+    if (plan && stage == Stage::Preview) apply (plan->proposed.fx[size_t (slot)].fx);
+    autopilotRelearn();
+    publish();
+    touch();
+}
+
+// The song's tempo, which every synced delay repeats in time with. TUNE MIX measures it from
+// a listen; this is the engineer saying it (typed, or tapped), for a song TUNE has not heard.
+void MixController::setTempo (float bpm)
+{
+    if (! std::isfinite (bpm)) return;
+    const float want = clamp (bpm, 40.0f, 240.0f);
+    if (std::fabs (want - kept.tempoBpm) < 0.05f) return;
+    markHandEdit ("tempo", "tempo");
+    kept.tempoBpm = want;
+    if (plan && stage == Stage::Preview) plan->proposed.tempoBpm = want;
+    publish();
+    touch();
+}
+
 void MixController::setFxSlotReturn (FxSlot slot, float db)
 {
     if (int (slot) < 0 || int (slot) >= int (FxSlot::Count)) return;

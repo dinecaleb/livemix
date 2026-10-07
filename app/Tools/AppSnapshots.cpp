@@ -1334,6 +1334,14 @@ int main (int argc, char** argv)
     view.getMixerPage().setView (MixerPage::View::Strips);
     rig.feed (0.3);
     rig.snap (dir, "15e2-mixer-effects");
+    // ONE EFFECT, BY HAND: a reverb's sheet, then the delay's with its tempo and Tap.
+    view.showEffect (FxSlot::VocalPlate);
+    rig.feed (0.2);
+    rig.snap (dir, "15e3-effect-reverb");
+    view.showEffect (FxSlot::VocalDelay);
+    rig.feed (0.2);
+    rig.snap (dir, "15e4-effect-delay");
+    view.closeSheetsForSnapshot();
     view.getMixerPage().setView (MixerPage::View::List);
     view.getMixerPage().setShow (MixerPage::Show::All);
     view.getMixerPage().setView (MixerPage::View::Strips);

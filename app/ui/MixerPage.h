@@ -42,6 +42,7 @@ public:
     std::function<void (int strip)> onOpenStrip;
     std::function<void (int strip)> onTuneStrip;
     std::function<void (MixBus bus)> onOpenBus;
+    std::function<void (FxSlot)> onOpenReturn;     // an effect return's sound (EffectSheet)
     std::function<void()> onOpenWindow;
     std::function<void()> onOpenAssign;               // "Fix the assignments..." from a strip's menu
     std::function<void (const juce::String&)> onToast;

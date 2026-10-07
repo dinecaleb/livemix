@@ -74,6 +74,7 @@ set(DINE_UI_SOURCES
     ui/OutputsSheet.cpp
     ui/ExportSheet.cpp
     ui/ChoiceSheet.cpp
+    ui/EffectSheet.cpp
     ui/RoutingPage.cpp
     ui/CheckSheet.cpp
     ui/SetlistSheet.cpp

@@ -300,7 +300,8 @@ public:
             if (kind == Kind::Channel) controller.setStripEffects (strip, ! controller.stripEffectsOn (strip));
         };
 
-        setTooltip (name + "  " + Glyph::dot() + "  " + source);
+        setTooltip (kind == Kind::Return ? name + "  " + Glyph::dot() + "  double-click to set how it sounds"
+                                         : name + "  " + Glyph::dot() + "  " + source);
 
         numberText = kind == Kind::Channel ? juce::String (stripIndex + 1).paddedLeft ('0', 2)
                    : kind == Kind::Bus ? "BUS" : kind == Kind::Return ? "FX" : juce::String();
@@ -1127,7 +1128,17 @@ public:
 
     void showMenu()
     {
-        if (kind == Kind::Return) return;          // a return is its fader and its two keys
+        if (kind == Kind::Return)
+        {
+            // A return is its fader and its two keys - and the sound it makes, one sheet away.
+            juce::PopupMenu m;
+            m.addSectionHeader ("EFFECT " + juce::String (Glyph::dot()) + " " + name);
+            m.addItem (1, "Set how it sounds" + juce::String (Glyph::ellip()), open != nullptr);
+            juce::Component::SafePointer<Strip> self (this);
+            m.showMenuAsync (juce::PopupMenu::Options {}.withTargetComponent (this),
+                             [self] (int r) { if (self != nullptr && r == 1 && self->open) self->open(); });
+            return;
+        }
         juce::PopupMenu m;
         m.addSectionHeader ((kind == Kind::Channel ? "CHANNEL " : "BUS ") + juce::String (Glyph::dot()) + " " + name);
         if (kind == Kind::Channel)
@@ -1902,10 +1913,14 @@ void MixerPage::rebuild()
     if (controller.isPrepared())
         for (int f = 0; f < int (FxSlot::Count); ++f)
             if (controller.getEngine().isFxUsed (FxSlot (f)))
-                add (std::make_unique<Strip> (controller, services, Strip::Kind::Return, MixBus::Master, ChannelRole::KickIn, f,
-                                              // "Backing Hall" is wider than a column; BGV is what the group is called here
-                                              FxSlot (f) == FxSlot::BgvHall ? juce::String ("BGV Hall") : juce::String (fxSlotName (FxSlot (f))),
-                                              "Effect return"));
+            {
+                auto s = std::make_unique<Strip> (controller, services, Strip::Kind::Return, MixBus::Master, ChannelRole::KickIn, f,
+                                                  // "Backing Hall" is wider than a column; BGV is what the group is called here
+                                                  FxSlot (f) == FxSlot::BgvHall ? juce::String ("BGV Hall") : juce::String (fxSlotName (FxSlot (f))),
+                                                  "Effect return");
+                s->setOpenHandler ([this, f] { if (onOpenReturn) onOpenReturn (FxSlot (f)); });
+                add (std::move (s));
+            }
 
     if (controller.isPrepared() && controller.getEngine().isBusUsed (MixBus::Master))
     {

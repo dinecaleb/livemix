@@ -2710,6 +2710,66 @@ TEST_CASE ("MixController: a tune says what it was about in fixed words, and nev
             for (const auto& input : band().inputs) CHECK (v != input.name);
 }
 
+TEST_CASE ("MixController: an effect's sound and the song's tempo are set by hand, kept, saved and undone")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    REQUIRE (c.getGraph().fxUsed[size_t (FxSlot::VocalPlate)]);
+    REQUIRE (c.getGraph().fxUsed[size_t (FxSlot::VocalDelay)]);
+    const auto plateWas = c.getKept().fx[size_t (FxSlot::VocalPlate)].fx;
+
+    // The plate: a longer tail that starts later. It reaches what the engine plays at once.
+    auto plate = plateWas;
+    plate.reverbDecayS = 3.2f;
+    plate.reverbPreDelayMs = 60.0f;
+    plate.reverbSize = 99.0f;                 // not one of the hand's fields: ignored
+    c.setFxSlotCharacter (FxSlot::VocalPlate, plate);
+    CHECK_NEAR (c.getKept().fx[size_t (FxSlot::VocalPlate)].fx.reverbDecayS, 3.2f, 1.0e-4f);
+    CHECK_NEAR (c.getKept().fx[size_t (FxSlot::VocalPlate)].fx.reverbPreDelayMs, 60.0f, 1.0e-4f);
+    CHECK_NEAR (c.getKept().fx[size_t (FxSlot::VocalPlate)].fx.reverbSize, plateWas.reverbSize, 1.0e-4f);
+    CHECK_NEAR (c.getRunning().fx[size_t (FxSlot::VocalPlate)].fx.reverbDecayS, 3.2f, 1.0e-4f);
+
+    // Out of range is held to the range, never passed to the audio.
+    plate.reverbDecayS = 500.0f;
+    plate.reverbPreDelayMs = -20.0f;
+    c.setFxSlotCharacter (FxSlot::VocalPlate, plate);
+    CHECK (c.getKept().fx[size_t (FxSlot::VocalPlate)].fx.reverbDecayS <= 10.0f);
+    CHECK (c.getKept().fx[size_t (FxSlot::VocalPlate)].fx.reverbPreDelayMs >= 0.0f);
+
+    // The delay on a note of the song, and the song's tempo.
+    auto delay = c.getKept().fx[size_t (FxSlot::VocalDelay)].fx;
+    delay.delaySync = true;
+    delay.delayDivision = int (NoteDivision::Quarter);
+    delay.delayFeedback = 45.0f;
+    c.setFxSlotCharacter (FxSlot::VocalDelay, delay);
+    c.setTempo (72.0f);
+    CHECK_NEAR (c.getTempo(), 72.0f, 1.0e-4f);
+    CHECK_NEAR (c.getRunning().tempoBpm, 72.0f, 1.0e-4f);
+    CHECK (c.getRunning().fx[size_t (FxSlot::VocalDelay)].fx.delayDivision == int (NoteDivision::Quarter));
+    c.setTempo (1000.0f);
+    CHECK (c.getTempo() <= 240.0f);
+    c.setTempo (72.0f);
+
+    // Kept with the session: it comes back from the document.
+    SessionStore::Document d;
+    d.session = c.getSession();
+    d.hasMix = true;
+    d.mix = c.getKept();
+    SessionStore::Document back;
+    REQUIRE (SessionStore::fromVar (juce::JSON::parse (juce::JSON::toString (SessionStore::toVar (d))), back));
+    CHECK_NEAR (back.mix.fx[size_t (FxSlot::VocalPlate)].fx.reverbPreDelayMs, c.getKept().fx[size_t (FxSlot::VocalPlate)].fx.reverbPreDelayMs, 0.01f);
+    CHECK (back.mix.fx[size_t (FxSlot::VocalDelay)].fx.delayDivision == int (NoteDivision::Quarter));
+    CHECK_NEAR (back.mix.fx[size_t (FxSlot::VocalDelay)].fx.delayFeedback, 45.0f, 0.01f);
+    CHECK_NEAR (back.mix.tempoBpm, 72.0f, 0.01f);
+
+    // And undone like any edit: the tempo first, the delay, then the plate.
+    c.undoMix();
+    CHECK (std::fabs (c.getTempo() - 72.0f) > 0.01f);
+    c.undoMix(); c.undoMix(); c.undoMix(); c.undoMix();
+    CHECK_NEAR (c.getKept().fx[size_t (FxSlot::VocalPlate)].fx.reverbDecayS, plateWas.reverbDecayS, 1.0e-4f);
+}
+
 TEST_CASE ("MixController: one effect return has its own fader and mute, under LIVE SAFE and through BYPASS")
 {
     MixController c;
