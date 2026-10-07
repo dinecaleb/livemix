@@ -42,8 +42,6 @@ must not be done as part of the UI work.
 
 | v4 control | Where | What is missing | Smallest backend |
 | --- | --- | --- | --- |
-| Readiness pill and Ready sheet rows with Fix (today the pill counts inputs needing attention plus open checklist items, and opens the broadcast checklist or Check inputs: `MainView::readyPillClicked`) | Toolbar | No live status aggregate; `BroadcastReadiness` is an operator checklist and must never auto-tick | read-only aggregator (device state, audio running, input advice count, armed tracks, seconds free, monitor output, autosave failing), separate from BroadcastReadiness |
-| Ready: disk and recording destination | Ready sheet | `getRecordingSecondsFree()` is 0 with nothing armed; no bytes free | read-only (`File::getBytesFreeOnVolume` on the session folder) |
 | Session menu "Recover Session…" | Session menu | Recovery is offered only at launch (`Main.cpp` → `MainView::offerRecovery`); nothing can be asked for later. Today it says so in a toast (`MainView::setupPopover`, case 21) | pass-through: `AppServices::findRecovery()` returning the same offer `Main.cpp` builds |
 | "Edited" after the session name | Session menu | No "changed since the last explicit save" | read-only (revision at last save beside `sessionRevision`) |
 | Traffic lights move with the sidebar | Toolbar | `WindowChrome.mm` places buttons at a fixed `kFirstButtonX` | host (an x-offset setter) |
@@ -107,6 +105,12 @@ must not be done as part of the UI work.
 | "Templates" filter | Sessions | A name match only; no template model | host. Keep the name match until one exists |
 
 ## Closed
+
+- **Ready to go live?** (C2): `ReadyCheck` in `app/ui/ReadySheet.h` reads device, inputs, recording, disk, on air,
+  loudness, BYPASS, LIVE SAFE, autosave (and the broadcast checklist's progress when one is under way), each with
+  its Fix; the readiness pill counts exactly what it flags. `DawEngine::recordingBytesFree` /
+  `recordingSecondsFreeForEveryInput` (File::getBytesFreeOnVolume) give the disk row and the status line's
+  "258 GB - a day+". BroadcastReadiness is untouched and never auto-ticked.
 
 - **Setlist and cues** (2026-10-06): `Setlist` / `Cue` in `app/native/MixHistory.h`, owned by MixController
   (add, update, move, remove, go to, go to next), carried by `SessionState::setlist`, SessionStore version 9

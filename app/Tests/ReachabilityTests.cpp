@@ -335,6 +335,7 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         { "chat",       [&] { view.showChat(); } },
         { "readiness",  [&] { view.showBroadcastReadiness(); } },
         { "setlist",    [&] { view.showSetlist(); } },
+        { "ready",      [&] { view.showReady(); } },
         { "channel",    [&] { view.tuneChannel (0); } },
         // TUNE asks *which* group or channels before it tunes them - the whole mix needs
         // nothing more said about it, so that one starts. It is the workspace's own sheet
@@ -372,6 +373,33 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         CHECK_MESSAGE (view.openSheetName().isEmpty(),
                        std::string ("Escape did not close the ") + sheet.name + " sheet");
     }
+}
+
+// READY TO GO LIVE? Nine rows read from what DINE knows - never ticked by hand - each with
+// the press that fixes it where there is one, and the pill counts the ones that want somebody.
+TEST_CASE ("Reachability: Ready to go live? reads the session and offers the fix")
+{
+    Window window;
+    auto& c = window.controller;
+    auto rows = ReadyCheck::gather (c, window.services);
+    REQUIRE (rows.size() == 9);
+    const char* titles[9] = { "Audio device", "Inputs", "Recording", "Disk", "On air", "Loudness", "BYPASS", "LIVE SAFE", "Autosave" };
+    for (int i = 0; i < 9; ++i) CHECK (rows[size_t (i)].title == titles[i]);
+
+    auto row = [&] (const char* t) { for (const auto& r : rows) if (r.title == t) return r; return ReadyCheck::Row {}; };
+    c.setBypass (true);
+    rows = ReadyCheck::gather (c, window.services);
+    CHECK (row ("BYPASS").state == ReadyCheck::State::Crit);
+    CHECK (row ("BYPASS").fix == ReadyCheck::Fix::BypassOff);
+    c.setBypass (false);
+    rows = ReadyCheck::gather (c, window.services);
+    CHECK (row ("BYPASS").state == ReadyCheck::State::Ok);
+    CHECK (row ("LIVE SAFE").state == (c.isLiveSafe() ? ReadyCheck::State::Ok : ReadyCheck::State::Warn));
+    CHECK (ReadyCheck::problems (rows) >= 0);
+
+    // The disk in the status line's words.
+    CHECK (ReadyCheck::diskText (34'200'000'000LL, 9 * 3600 + 40 * 60) == "34.2 GB " + Glyph::dot() + " 9 h 40 m");
+    CHECK (ReadyCheck::diskText (-1, 100.0).isEmpty());
 }
 
 // ESCAPE CLOSES THE TOPMOST LAYER ONLY (v4: menu, then sheet, then tune, then Mix Buddy) -

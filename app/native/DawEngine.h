@@ -99,6 +99,12 @@ public:
     // (0 = nothing armed, no folder yet, or a volume that will not say). Message thread.
     double getRecordingSeconds() const noexcept;
     double getRecordingSecondsFree() const;
+    // THE DISK, said before anything is armed (the Ready sheet, the status line): the bytes
+    // free on the volume a take would go to (the session's audio folder, or the DINE music
+    // folder before the session has one; -1 when the volume will not say), and how long that
+    // lasts recording every input of the session at the device's rate.
+    juce::int64 recordingBytesFree() const;
+    double recordingSecondsFreeForEveryInput() const;
 
     // What every device input is doing, before anything in the mix touches it. The
     // AUDIO DEVICE page reads this to say how many channels are carrying signal and to

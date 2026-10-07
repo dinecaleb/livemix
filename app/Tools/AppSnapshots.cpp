@@ -1542,6 +1542,10 @@ int main (int argc, char** argv)
         r.setItem (ReadinessItemId::RoomSound, ReadinessStatus::NotNeeded);
         r.flagForReview (ReadinessChange::BroadcastRouting);
         rig.controller.touch();
+        view.showReady();
+        rig.feed (0.3);
+        rig.snap (dir, "18c-ready-to-go-live");
+        view.closeSheets();
         view.showBroadcastReadiness();
         rig.feed (0.3);
         rig.snap (dir, "18d-broadcast-readiness");

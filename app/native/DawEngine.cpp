@@ -1,4 +1,5 @@
 #include "DawEngine.h"
+#include "AppFolders.h"
 #include <array>
 #include <algorithm>
 #include <cmath>
@@ -241,6 +242,32 @@ double DawEngine::getRecordingSecondsFree() const
     const double perSecond = recorder.isRecording() ? recorder.bytesPerSecond()
                                                     : plannedBytesPerSecond();
     return Recorder::secondsFreeOn (project.audioFolder(), perSecond);
+}
+
+juce::int64 DawEngine::recordingBytesFree() const
+{
+    // The nearest folder that exists on the way to where a take would land: a new session's
+    // audio folder is made at the first take, and a volume is asked about through a real path.
+    auto where = project.folder != juce::File() ? project.audioFolder() : AppFolders::music();
+    while (! where.exists() && where.getParentDirectory() != where) where = where.getParentDirectory();
+    const auto free = where.getBytesFreeOnVolume();
+    return free > 0 ? free : -1;
+}
+
+double DawEngine::recordingSecondsFreeForEveryInput() const
+{
+    std::vector<Recorder::Spec> specs;
+    for (const auto& in : session.inputs)
+    {
+        if (! in.enabled) continue;
+        Recorder::Spec s;
+        s.inputA = in.inputA;
+        s.inputB = in.inputB;
+        specs.push_back (s);
+    }
+    const auto free = recordingBytesFree();
+    const double perSecond = Recorder::bytesPerSecondFor (specs, sampleRate);
+    return specs.empty() || free <= 0 || perSecond <= 0.0 ? 0.0 : double (free) / perSecond;
 }
 
 // What a take would cost per second if Record were pressed now: every armed track, at the

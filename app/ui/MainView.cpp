@@ -506,14 +506,12 @@ public:
 
         if (slow || diskText.isEmpty())
         {
-            const double seconds = daw.getRecordingSecondsFree();
-            if (seconds <= 0.0) diskText = Glyph::dash();
-            else
-            {
-                const int total = int (seconds);
-                diskText = total >= 24 * 3600 ? "a day+" : total >= 3600 ? juce::String (total / 3600) + " h " + juce::String ((total / 60) % 60) + " m"
-                                                                         : juce::String (juce::jmax (0, total / 60)) + " m";
-            }
+            // "34.2 GB - 9 h 40 m": what is free, and how long it lasts recording what is set to
+            // record (every input, before anything is).
+            const double armedSeconds = daw.getRecordingSecondsFree();
+            const double seconds = armedSeconds > 0.0 ? armedSeconds : daw.recordingSecondsFreeForEveryInput();
+            diskText = ReadyCheck::diskText (daw.recordingBytesFree(), seconds);
+            if (diskText.isEmpty()) diskText = Glyph::dash();
             diskLow = seconds > 0.0 && seconds < 15.0 * 60.0;
         }
         // An autosave that stopped landing outranks how much room is left: it is the one thing
@@ -1802,17 +1800,8 @@ void MainView::updateChrome()
         sessionButton->setText (name.isNotEmpty() ? name : juce::String ("Untitled"),
                                 juce::String (styleProfileName (session.profile))
                                     + (services.autosavePending() ? " " + Glyph::dot() + " Edited" : juce::String()));
-        // How far this service's checklist has got counts too, when the purpose has one.
-        int open = attention;
-        if (broadcastReadinessApplies (session.purpose))
-        {
-            const auto& active = controller.getReadiness().active;
-            if (! active.id.empty() && active.hasWork())
-            {
-                const auto prog = active.progress();
-                open += juce::jmax (0, prog.applicable - prog.checked);
-            }
-        }
+        // Exactly what "Ready to go live?" flags - the checklist is a row of it when it applies.
+        const int open = mixable || running ? ReadyCheck::problems (ReadyCheck::gather (controller, services)) : attention;
         readyPill->setCount (open, running);
     }
 
@@ -2161,6 +2150,7 @@ void MainView::closeSheets()
     if (mixPage != nullptr && mixPage->isScopeSheetOpen()) mixPage->closeScopeSheet();
     checkSheet.reset();
     setlistSheet.reset();
+    readySheet.reset();
     historySheet.reset();
     readinessSheet.reset();
     themeSheet.reset();
@@ -2190,7 +2180,7 @@ bool MainView::closeTopSheet()
         else { sheet.reset(); updateChrome(); resized(); }
         return true;
     };
-    if (closeVia (choiceSheet) || closeVia (exportSheet) || closeVia (setlistSheet) || closeVia (themeSheet) || closeVia (readinessSheet)
+    if (closeVia (choiceSheet) || closeVia (exportSheet) || closeVia (setlistSheet) || closeVia (readySheet) || closeVia (themeSheet) || closeVia (readinessSheet)
         || closeVia (historySheet) || closeVia (checkSheet) || closeVia (channelSheet) || closeVia (chatSheet))
         return true;
     return false;
@@ -3204,6 +3194,7 @@ juce::String MainView::openSheetName() const
     // workspace like any other and Escape has to mean the same thing over it.
     if (mixPage != nullptr && mixPage->isScopeSheetOpen()) return "tunescope";
     if (setlistSheet != nullptr) return "setlist";
+    if (readySheet   != nullptr) return "ready";
     if (checkSheet   != nullptr) return "check";
     if (historySheet != nullptr) return "history";
     if (readinessSheet != nullptr) return "readiness";
@@ -3681,15 +3672,56 @@ int MainView::inputsNeedingAttention() const
     return count;
 }
 
-// The readiness pill. v4 draws a "Ready to go live?" sheet of its own - device, inputs,
-// recording, disk, on air, loudness, BYPASS, LIVE SAFE, autosave - and nothing aggregates those
-// yet, so the pill opens what exists: the broadcast checklist where the purpose has one, and
-// Check inputs otherwise.
-// TODO(v4-backend): a Ready model that answers every row of the v4 sheet (docs/design/v4/GAPS.md).
-void MainView::readyPillClicked()
+// The readiness pill: "Ready to go live?" - device, inputs, recording, disk, on air, loudness,
+// BYPASS, LIVE SAFE, autosave (ReadyCheck), read from what DINE knows. The broadcast
+// checklist, which a person ticks, is one press from its foot where the purpose has one.
+void MainView::readyPillClicked() { showReady(); }
+
+void MainView::showReady()
 {
-    if (broadcastReadinessApplies (controller.getSession().purpose)) showBroadcastReadiness (true);
-    else showCheck();
+    if (readySheet != nullptr) { readySheet->refresh(); return; }
+    closeSheets();
+    readySheet = std::make_unique<ReadySheet> (controller, services);
+    juce::Component::SafePointer<MainView> safe (this);
+    auto closeThen = [safe] (std::function<void (MainView&)> then)
+    {
+        juce::MessageManager::callAsync ([safe, then]
+        {
+            if (safe == nullptr) return;
+            safe->readySheet.reset();
+            safe->updateChrome();
+            safe->resized();
+            if (then) then (*safe);
+        });
+    };
+    readySheet->onClose = [closeThen] { closeThen ({}); };
+    readySheet->onGoToLive = [closeThen] { closeThen ([] (MainView& v) { v.showPage (Page::Live); }); };
+    if (broadcastReadinessApplies (controller.getSession().purpose))
+        readySheet->onOpenChecklist = [closeThen] { closeThen ([] (MainView& v) { v.showBroadcastReadiness (true); }); };
+    readySheet->onFix = [this, closeThen] (ReadyCheck::Fix fix)
+    {
+        using Fix = ReadyCheck::Fix;
+        switch (fix)
+        {
+            // Those that go somewhere close the sheet; those that just do it stay, and the row turns.
+            case Fix::AudioDevice:   closeThen ([] (MainView& v) { v.showPage (Page::Device); }); return;
+            case Fix::CheckInputs:   closeThen ([] (MainView& v) { v.showCheck(); }); return;
+            case Fix::Outputs:       closeThen ([] (MainView& v) { v.showOutputs(); }); return;
+            case Fix::ArmAll:        handleCommand (300); break;
+            case Fix::RaiseLoudness: handleCommand (420); break;
+            case Fix::BypassOff:     setBypass (false); break;
+            case Fix::LiveSafeOn:    if (! controller.isLiveSafe()) handleCommand (614); break;
+            case Fix::SaveNow:       handleCommand (102); break;
+            case Fix::OpenChecklist: closeThen ([] (MainView& v) { v.showBroadcastReadiness (true); }); return;
+            case Fix::None:          break;
+        }
+        if (readySheet != nullptr) readySheet->refresh();
+    };
+    readySheet->refresh();
+    addAndMakeVisible (*readySheet);
+    resized();
+    readySheet->toFront (true);
+    readySheet->grabKeyboardFocus();
 }
 
 // ---------------------------------------------------------------- ticking
@@ -3715,6 +3747,7 @@ void MainView::timerCallback()
     if (channelSheet != nullptr) channelSheet->refresh();
     if (checkSheet != nullptr) checkSheet->refresh();
     if (setlistSheet != nullptr) setlistSheet->refresh();
+    if (readySheet != nullptr && (slowTicks % 15) == 0) readySheet->refresh();
     if (readinessSheet != nullptr) readinessSheet->refresh();
     if (chatSheet != nullptr) chatSheet->refresh();
 
@@ -4054,7 +4087,7 @@ void MainView::resized()
     auto sheetColumn = columnBounds();
     for (juce::Component* sheetComponent : { (juce::Component*) themeSheet.get(), (juce::Component*) historySheet.get(),
                                              (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get(),
-                                             (juce::Component*) readinessSheet.get(), (juce::Component*) setlistSheet.get(),
+                                             (juce::Component*) readinessSheet.get(), (juce::Component*) setlistSheet.get(), (juce::Component*) readySheet.get(),
                                              (juce::Component*) exportSheet.get(), (juce::Component*) choiceSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (sheetColumn); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)
