@@ -1,7 +1,8 @@
 #include "BroadcastReadiness.h"
 #include <algorithm>
 #include <chrono>
-#include <juce_core/juce_core.h>
+#include <cstdio>
+#include <random>
 
 namespace livemix
 {
@@ -12,6 +13,25 @@ namespace
     {
         using clock = std::chrono::system_clock;
         return std::chrono::duration_cast<std::chrono::milliseconds> (clock::now().time_since_epoch()).count();
+    }
+
+    // A random (version 4) UUID in the dashed lower-case form juce::Uuid wrote, so stored ids keep their shape.
+    std::string makeUuid()
+    {
+        std::random_device rd;
+        std::mt19937_64 gen ((uint64_t (rd()) << 32) ^ rd());
+        uint8_t b[16];
+        for (int i = 0; i < 16; i += 8)
+        {
+            const auto v = gen();
+            for (int k = 0; k < 8; ++k) b[i + k] = uint8_t (v >> (8 * k));
+        }
+        b[6] = uint8_t ((b[6] & 0x0f) | 0x40);
+        b[8] = uint8_t ((b[8] & 0x3f) | 0x80);
+        char out[37];
+        std::snprintf (out, sizeof (out), "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+                       b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]);
+        return out;
     }
 
     // Short, plain, one job each: the label says what is true when it is done, the guidance
@@ -97,12 +117,11 @@ const char* readinessStatusName (ReadinessStatus s) noexcept
 std::string ReadinessProgress::summaryLine() const
 {
     // ASCII separators only here: this string is stored / shown from native code without Glyph.
-    juce::String s;
-    s << checked << " of " << applicable << " done";
-    if (needsAttention > 0) s << ", " << needsAttention << (needsAttention == 1 ? " problem" : " problems");
-    if (needsReview > 0) s << ", " << needsReview << " to check again";
-    if (notNeeded > 0) s << ", " << notNeeded << " skipped";
-    return s.toStdString();
+    std::string s = std::to_string (checked) + " of " + std::to_string (applicable) + " done";
+    if (needsAttention > 0) s += ", " + std::to_string (needsAttention) + (needsAttention == 1 ? " problem" : " problems");
+    if (needsReview > 0) s += ", " + std::to_string (needsReview) + " to check again";
+    if (notNeeded > 0) s += ", " + std::to_string (notNeeded) + " skipped";
+    return s;
 }
 
 ReadinessProgress ReadinessRecord::progress() const noexcept
@@ -137,7 +156,7 @@ ReadinessProgress ReadinessRecord::progress() const noexcept
 ReadinessRecord makeFreshReadinessRecord (const std::string& name, const std::string& operatorName)
 {
     ReadinessRecord r;
-    r.id = juce::Uuid().toDashedString().toStdString();
+    r.id = makeUuid();
     r.name = name.empty() ? "Broadcast" : name;
     r.startedMs = nowMs();
     r.operatorName = operatorName;
@@ -338,9 +357,7 @@ ReadinessSummary BroadcastReadiness::summarise (long long fromMs, long long toMs
             if (st == ReadinessStatus::NeedsAttention) ++s.attentionCount[size_t (i)];
             if (! r->items[size_t (i)].note.empty() && s.relatedNotes.size() < 12)
             {
-                juce::String line;
-                line << juce::String (r->name) << ": " << juce::String (r->items[size_t (i)].note);
-                s.relatedNotes.push_back (line.toStdString());
+                s.relatedNotes.push_back (r->name + ": " + r->items[size_t (i)].note);
             }
         }
     }
