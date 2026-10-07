@@ -217,16 +217,14 @@ public:
         }
         g.setColour (! used ? Dine::ink4 : muted ? Dine::ink3 : Dine::ink);
         // A column is narrow, and a group's name is the one thing on it that must be readable.
-        // A smaller tile carries smaller type, the type is squeezed a little after that, and
-        // only then does the group say its name in fewer letters. It is never cut off.
+        // A smaller tile carries smaller type, and where the whole name still does not fit the
+        // group says it in fewer letters. It is never squeezed and never cut off.
         {
-            constexpr float squeeze = 0.72f;
             const auto nameFont = Dine::text (nameSizePx(), 600);
             g.setFont (nameFont);
             const auto full = groupName (group);
-            const bool whole = float (Dine::textWidth (nameFont, full)) * squeeze <= float (head.getWidth());
-            Dine::drawFittedText (g, whole ? full : groupNameBrief (group), head,
-                                  juce::Justification::centredLeft, 1, squeeze);
+            const bool whole = Dine::textWidth (nameFont, full) <= head.getWidth();
+            Dine::drawFittedText (g, whole ? full : groupNameBrief (group), head, juce::Justification::centredLeft, 1);
         }
 
         auto sub = inner.removeFromTop (16);
@@ -714,17 +712,16 @@ public:
         g.setColour (muted ? Dine::ink3 : Dine::ink);
         g.setFont (Dine::text (13.0f, selected ? 600 : 500));
         Dine::drawText (g, name, nameLine, juce::Justification::bottomLeft, true);
-        // What the input is, under its name: squeezed a little on a narrow rail, and left off
-        // altogether rather than cut - the name is the row, and the Inspector says the rest.
+        // What the input is, under its name - left off altogether on a rail too narrow for it
+        // rather than cut: the name is the row, and the Inspector says the rest.
         {
             const auto roleFont = Dine::text (10.5f);
             const int full = Dine::textWidth (roleFont, roleText);
-            if (float (full) * 0.85f <= float (subLine.getWidth()))
+            if (full <= subLine.getWidth())
             {
                 g.setColour (Dine::ink3);
                 g.setFont (roleFont);
-                const int roleW = juce::jmin (subLine.getWidth(), full);
-                Dine::drawFittedText (g, roleText, subLine.removeFromLeft (roleW), juce::Justification::topLeft, 1, 0.85f);
+                Dine::drawFittedText (g, roleText, subLine.removeFromLeft (full), juce::Justification::topLeft, 1);
             }
         }
         // a gain chip when the desk has something to do, or a lamp when the input is muted / faint

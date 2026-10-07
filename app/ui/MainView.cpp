@@ -481,14 +481,14 @@ public:
         inner.removeFromLeft (6.0f);
         auto cross = inner.removeFromRight (18.0f).withSizeKeepingCentre (18.0f, 18.0f);
         inner.removeFromRight (8.0f);
-        // The cue's name when it fits (squeezed a little at most); CUE when it does not - the
-        // tooltip and LIVE say the rest. Never half a name.
+        // The cue's name when it fits; CUE when it does not - the tooltip and LIVE say the
+        // rest. Never half a name, and never a squeezed one.
         const auto font = Dine::text (12.0f, 500);
-        if (float (Dine::textWidth (font, name)) * 0.8f <= inner.getWidth())
+        if (float (Dine::textWidth (font, name)) <= inner.getWidth())
         {
             g.setColour (Dine::ink);
             g.setFont (font);
-            Dine::drawFittedText (g, name, inner.toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
+            Dine::drawFittedText (g, name, inner.toNearestInt(), juce::Justification::centredLeft, 1);
         }
         else
         {

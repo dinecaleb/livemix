@@ -109,8 +109,10 @@ file under `docs/` — read the one for the area you are touching before changin
   "Clo..." is a cell that is too small. `dine_ui_snapshots <dir>` ends with a TEXT CLIPPING report naming
   every string that lost characters and the screen it was on, and **that report is expected to be empty** -
   widen the cell, or let the control say the same thing in fewer words (`DinePopup::setBriefValue`, a brief
-  form beside the long one, `Dine::shortPath` for a file path). `Dine::drawFittedText` squeezes instead of
-  cutting and is the right call for a name on a narrow strip.
+  form beside the long one, `Dine::shortPath` for a file path). **No letter is ever squeezed** (2026-10-07):
+  `Dine::drawFittedText` wraps and never narrows the glyphs, whatever scale a caller passes, and the
+  look-and-feel sets JUCE's default minimum horizontal scale to 1 for labels, buttons and menus. A box that
+  holds a sentence sizes itself with `Dine::fittedLines`; the clipping report checks wrapped text too.
 - **LIVE SAFE is a policy in `MixController`**, not a menu guard; **BYPASS never touches the kept mix**;
   **solo never changes what the room hears**.
 

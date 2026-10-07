@@ -351,14 +351,13 @@ void MacroPad::paint (juce::Graphics& g)
         {
             g.setColour (dragging ? Dine::ink : Dine::ink2);
             g.setFont (Dine::mono (11.0f, 500));
-            // Both names and both numbers, squeezed a little on a narrow pad rather than the
-            // second one cut off: "BASS 62 - VOI..." is not a reading of anything.
-            // Too narrow even squeezed: the two numbers alone, in the corners' order.
+            // Both names and both numbers where they fit at full width; on a narrow pad the two
+            // numbers alone, in the corners' order - "BASS 62 - VOI..." is not a reading of anything.
             const auto line = in.withTrimmedTop (16).removeFromTop (14);
             const auto full = describeValues();
-            const bool fits = float (Dine::textWidth (Dine::mono (11.0f, 500), full)) * 0.7f <= float (line.getWidth());
+            const bool fits = Dine::textWidth (Dine::mono (11.0f, 500), full) <= line.getWidth();
             Dine::drawFittedText (g, fits ? full : juce::String (int (std::round (x))) + "  " + Glyph::dot() + "  " + juce::String (int (std::round (y))),
-                                  line, juce::Justification::centred, 1, 0.7f);
+                                  line, juce::Justification::centred, 1);
         }
 
         // the puck

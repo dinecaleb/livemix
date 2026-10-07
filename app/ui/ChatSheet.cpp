@@ -38,8 +38,9 @@ public:
             intro.text = "Ask how to do something in DINE, or why something sounds the way it does. For example:";
             intro.lines = MixBuddy::examples();
             const int textWidth = width - 2 * kBubblePad;
-            intro.bounds = { 0, y, width, 2 * kBubblePad + textHeight (intro.text, textWidth, 13.0f) + 6
-                                             + int (intro.lines.size()) * 20 };
+            int examples = 0;
+            for (const auto& l : intro.lines) examples += exampleHeight (l, textWidth);
+            intro.bounds = { 0, y, width, 2 * kBubblePad + textHeight (intro.text, textWidth, 13.0f) + 6 + examples };
             y += intro.bounds.getHeight() + 8;
             rows.push_back (intro);
         }
@@ -110,8 +111,8 @@ public:
                 for (const auto& l : r.lines)
                 {
                     g.setColour (Dine::ink3);
-                    Dine::drawFittedText (g, juce::String (Glyph::dot()) + "  " + juce::String (l),
-                                          inner.removeFromTop (20), juce::Justification::topLeft, 1);
+                    const int h = exampleHeight (l, inner.getWidth());
+                    Dine::drawFittedText (g, exampleText (l), inner.removeFromTop (h), juce::Justification::topLeft, h / 16);
                 }
                 continue;
             }
@@ -192,6 +193,13 @@ private:
         return juce::jmax (18, int (std::ceil (layout.getHeight())));
     }
     static int textHeight (const std::string& text, int width, float px) { return textHeight (juce::String (text), width, px); }
+
+    // One example question under the intro: a bullet and the question, on as many lines as it takes.
+    static juce::String exampleText (const std::string& l) { return juce::String (Glyph::dot()) + "  " + juce::String (l); }
+    static int exampleHeight (const std::string& l, int width)
+    {
+        return juce::jmax (1, Dine::fittedLines (Dine::text (12.0f), exampleText (l), width)) * 16 + 4;
+    }
 
     MixController& controller;
     std::vector<Row> rows;

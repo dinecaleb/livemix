@@ -111,6 +111,11 @@ void LiveMixLookAndFeel::drawElevated (juce::Graphics& g, juce::Rectangle<float>
 
 LiveMixLookAndFeel::LiveMixLookAndFeel()
 {
+    // NEVER SQUASH A WORD. JUCE's fitted text (labels, buttons, menus, drawFittedText) narrows
+    // the letters down to 70 % of their width before it wraps or cuts, which reads as a
+    // different, cramped typeface. 1.0 means text wraps, or a name is cut, but a letter is
+    // always the shape the font drew it.
+    juce::Font::setDefaultMinimumHorizontalScaleFactor (1.0f);
     setColour (juce::ResizableWindow::backgroundColourId, Tokens::window);
     setColour (juce::DocumentWindow::backgroundColourId, Tokens::window);
     setColour (juce::Label::textColourId, Tokens::textHi);

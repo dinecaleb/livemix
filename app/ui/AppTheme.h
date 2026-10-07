@@ -199,6 +199,10 @@ namespace Dine
     float textScale();
 
     int textWidth (const juce::Font&, const juce::String&);
+    // How many lines drawFittedText needs for `text` at this width, laid out exactly the way
+    // it draws (wrapped, never squeezed). A box that holds a sentence asks this for its height
+    // rather than guessing a fixed one and cutting the end off.
+    int fittedLines (const juce::Font&, const juce::String&, int width);
 
     // ---------------------------------------------------------------- drawing text
     // Use these, not g.drawText / g.drawFittedText, everywhere in the application.

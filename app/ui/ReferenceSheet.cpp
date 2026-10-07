@@ -10,8 +10,14 @@ namespace
     constexpr int kCardW = 640;
     constexpr int kBalanceH = 132;     // the two tonal balances, drawn against each other
     constexpr int kAimH = 20;          // one line of "this is what it will aim for"
-    constexpr int kLimitH = 32;
-    constexpr int kPromiseH = 78;      // the three lines of what matching does and does not do        // ... and one refusal, which needs two lines to say why
+    constexpr int kLimitLineH = 16;    // a refusal is as many lines as it takes to say why
+    constexpr int kPromiseH = 78;      // the three lines of what matching does and does not do
+
+    // One refusal's height: it is wrapped beside its icon (26 pt pad each side, 22 for the icon).
+    int limitHeight (const juce::String& limit, int cardWidth)
+    {
+        return juce::jmax (2, Dine::fittedLines (Dine::text (11.5f), limit, cardWidth - 52 - 22)) * kLimitLineH;
+    }
 
     juce::String clock (float seconds)
     {
@@ -201,7 +207,10 @@ ReferenceMatch ReferenceSheet::preview() const
 int ReferenceSheet::listHeight() const
 {
     if (state() != State::Chosen) return 0;
-    return int (shown.aims.size()) * kAimH + int (shown.limits.size()) * kLimitH;
+    const int w = juce::jmin (kCardW, getWidth() - 40);
+    int h = int (shown.aims.size()) * kAimH;
+    for (const auto& limit : shown.limits) h += limitHeight (juce::String (limit), w);
+    return h;
 }
 
 juce::Rectangle<int> ReferenceSheet::cardBounds() const
@@ -416,13 +425,14 @@ void ReferenceSheet::paint (juce::Graphics& g)
     }
     for (const auto& limit : m.limits)
     {
-        if (list.getHeight() < kLimitH) break;
-        auto row = list.removeFromTop (kLimitH);
+        const int lh = limitHeight (juce::String (limit), cardBounds().getWidth());
+        if (list.getHeight() < lh) break;
+        auto row = list.removeFromTop (lh);
         Dine::drawIcon (g, Dine::Icon::Warn, row.removeFromLeft (13).toFloat().withSizeKeepingCentre (12.0f, 12.0f).withY (float (row.getY()) + 2.0f), Dine::ink3);
         row.removeFromLeft (9);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (11.5f));
-        Dine::drawFittedText (g, juce::String (limit), row, juce::Justification::topLeft, 2);
+        Dine::drawFittedText (g, juce::String (limit), row, juce::Justification::topLeft, row.getHeight() / kLimitLineH);
     }
 
 }

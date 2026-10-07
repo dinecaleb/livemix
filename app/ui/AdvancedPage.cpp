@@ -618,7 +618,7 @@ public:
         g.setFont (Dine::text (13.0f, 600));
         Dine::drawText (g, "What DINE did", head.removeFromTop (18), juce::Justification::topLeft, true);
 
-        if (const int gh = gainHeight(); gh > 0)
+        if (const int gh = gainHeight (area.getWidth()); gh > 0)
             paintGain (g, area.removeFromTop (gh).reduced (10, 0).withTrimmedBottom (8));
 
         if (! list.history.empty()) return;
@@ -632,7 +632,7 @@ public:
     {
         auto area = getLocalBounds();
         area.removeFromTop (kHeadH);
-        area.removeFromTop (gainHeight());
+        area.removeFromTop (gainHeight (area.getWidth()));
         view.setBounds (area);
         list.setSize (view.getWidth(), list.heightFor (view.getWidth()));
     }
@@ -640,7 +640,13 @@ public:
     static constexpr int kHeadH = 44, kPad = 16;
 
 private:
-    int gainHeight() const { return advice.known && advice.needsAttention() ? 104 : 0; }
+    // The card is as tall as its sentence: a headline, the figures, then the advice, wrapped.
+    int gainHeight (int width) const
+    {
+        if (! advice.known || ! advice.needsAttention()) return 0;
+        const int lines = Dine::fittedLines (Dine::text (12.0f), juce::String (advice.detail), width - 20 - 24);
+        return 12 + 16 + 4 + 14 + 4 + juce::jmax (3, lines) * 15 + 12 + 8;
+    }
 
     static juce::Colour gainColour (MixController::InputAdvice::Level level)
     {
@@ -677,7 +683,7 @@ private:
         r.removeFromTop (4);
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.0f));
-        Dine::drawFittedText (g, juce::String (advice.detail), r, juce::Justification::topLeft, 3, 1.0f);
+        Dine::drawFittedText (g, juce::String (advice.detail), r, juce::Justification::topLeft, juce::jmax (1, r.getHeight() / 14), 1.0f);
     }
 
     // The records themselves. One shape, painted in one place and hit-tested the same way.

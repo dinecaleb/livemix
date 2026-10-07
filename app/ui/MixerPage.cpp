@@ -594,6 +594,36 @@ public:
 
     // A slot (v4): 19 tall, 5 pt corners. Used - white at .07 and a lamp; reserved and empty -
     // a dashed outline, so the line across the console never bends.
+    // What a used insert or send slot says: a lamp and the words, the first of `forms` that fits
+    // at full width. Where none does with the lamp, the lamp gives its room to the words - a
+    // slot is read for what it holds, and a letter is never squeezed to make it fit.
+    static void drawSlotText (juce::Graphics& g, juce::Rectangle<int> area, std::initializer_list<juce::String> forms)
+    {
+        const auto font = Dine::text (10.5f);
+        const int withLamp = area.getWidth() - 7 - 5 - 5 - 3, without = area.getWidth() - 6 - 3;
+        juce::String text = *forms.begin();
+        bool lamp = true;
+        bool found = false;
+        for (const auto& f : forms) if (Dine::textWidth (font, f) <= withLamp) { text = f; found = true; break; }
+        if (! found)
+        {
+            lamp = false;
+            for (const auto& f : forms) if (Dine::textWidth (font, f) <= without) { text = f; found = true; break; }
+            if (! found) text = *(forms.end() - 1);
+        }
+        if (lamp)
+        {
+            area.removeFromLeft (7);
+            g.setColour (Dine::accent);
+            g.fillEllipse (area.removeFromLeft (5).withSizeKeepingCentre (5, 5).toFloat());
+            area.removeFromLeft (5);
+        }
+        else area.removeFromLeft (6);
+        g.setColour (Dine::ink.withAlpha (0.78f));
+        g.setFont (font);
+        Dine::drawFittedText (g, text, area.withTrimmedRight (3), juce::Justification::centredLeft, 1);
+    }
+
     void drawSlot (juce::Graphics& g, juce::Rectangle<int> row, bool used) const
     {
         if (row.isEmpty()) return;
@@ -671,13 +701,7 @@ public:
                 const bool used = i < insertList.size();
                 drawSlot (g, area, used);
                 if (! used) continue;
-                area.removeFromLeft (7);
-                g.setColour (Dine::accent);
-                g.fillEllipse (area.removeFromLeft (5).withSizeKeepingCentre (5, 5).toFloat());
-                area.removeFromLeft (5);
-                g.setColour (Dine::ink.withAlpha (0.78f));
-                g.setFont (Dine::text (10.5f));
-                Dine::drawFittedText (g, sentenceCase (insertList[i].label), area.withTrimmedRight (3), juce::Justification::centredLeft, 1, 0.78f);
+                drawSlotText (g, area, { sentenceCase (insertList[i].label) });
             }
         }
 
@@ -693,14 +717,9 @@ public:
                 const bool used = i < sendList.size();
                 drawSlot (g, area, used);
                 if (! used) continue;
-                area.removeFromLeft (7);
-                g.setColour (Dine::accent);
-                g.fillEllipse (area.removeFromLeft (5).withSizeKeepingCentre (5, 5).toFloat());
-                area.removeFromLeft (5);
-                g.setColour (Dine::ink.withAlpha (0.78f));
-                g.setFont (Dine::text (10.5f));
-                const auto label = sendList[i].label + " " + Glyph::minus() + juce::String (juce::roundToInt (std::fabs (sendList[i].db)));
-                Dine::drawFittedText (g, label, area.withTrimmedRight (3), juce::Justification::centredLeft, 1, 0.78f);
+                // "Plate -22", or on a strip too narrow for both, the return's name alone.
+                drawSlotText (g, area, { sendList[i].label + " " + Glyph::minus() + juce::String (juce::roundToInt (std::fabs (sendList[i].db))),
+                                         sendList[i].label });
             }
         }
 

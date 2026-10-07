@@ -325,8 +325,17 @@ namespace
         float wanted = juce::GlyphArrangement::getStringWidth (key.font, key.text);
         if (key.fitted)
         {
-            if (key.maxLines != 1) return;
-            wanted *= key.minScale > 0.0f ? key.minScale : juce::Font::getDefaultMinimumHorizontalScaleFactor();
+            // Fitted text wraps and never squeezes (drawLayout), so it has lost characters
+            // exactly when the laid-out glyphs no longer spell the string: JUCE cut it and put
+            // an ellipsis on the last line it had room for.
+            juce::GlyphArrangement a;
+            a.addFittedText (key.font, key.text, 0.0f, 0.0f, key.width, key.height,
+                             juce::Justification (key.justification), key.maxLines, 1.0f);
+            juce::String laid;
+            for (int i = 0; i < a.getNumGlyphs(); ++i)
+                if (! a.getGlyph (i).isWhitespace()) laid << juce::String::charToString (a.getGlyph (i).getCharacter());
+            if (laid == key.text.removeCharacters (" \t\r\n")) return;
+            wanted = juce::jmax (wanted, key.width + 1.0f);
         }
         else if (! key.ellipses) return;
         if (wanted <= key.width + 0.5f) return;
@@ -348,8 +357,10 @@ namespace
             juce::GlyphArrangement a;
             if (key.fitted)
             {
+                // Never squeezed, whatever the caller asked for: a line that does not fit wraps
+                // onto the next, and only what has no line left to go to is cut.
                 a.addFittedText (key.font, key.text, 0.0f, 0.0f, key.width, key.height,
-                                 juce::Justification (key.justification), key.maxLines, key.minScale);
+                                 juce::Justification (key.justification), key.maxLines, 1.0f);
             }
             else
             {
@@ -403,6 +414,21 @@ void Dine::drawText (juce::Graphics& g, const juce::String& text,
               justification, useEllipsesIfTooBig);
 }
 
+int Dine::fittedLines (const juce::Font& font, const juce::String& text, int width)
+{
+    if (text.isEmpty() || width <= 0) return 0;
+    juce::GlyphArrangement a;
+    a.addFittedText (font, text, 0.0f, 0.0f, float (width), 100000.0f, juce::Justification::topLeft, 200, 1.0f);
+    int lines = 0;
+    float lastBaseline = std::numeric_limits<float>::lowest();
+    for (int i = 0; i < a.getNumGlyphs(); ++i)
+    {
+        const float y = a.getGlyph (i).getBaselineY();
+        if (y > lastBaseline + 0.5f) { ++lines; lastBaseline = y; }
+    }
+    return juce::jmax (1, lines);
+}
+
 void Dine::drawFittedText (juce::Graphics& g, const juce::String& text, juce::Rectangle<int> area,
                            juce::Justification justification, int maximumNumberOfLines,
                            float minimumHorizontalScale)
@@ -417,7 +443,8 @@ void Dine::drawFittedText (juce::Graphics& g, const juce::String& text, juce::Re
     key.height = float (area.getHeight());
     key.justification = justification.getFlags();
     key.maxLines = juce::jmax (1, maximumNumberOfLines);
-    key.minScale = minimumHorizontalScale;
+    juce::ignoreUnused (minimumHorizontalScale);    // text is never squeezed (drawLayout)
+    key.minScale = 1.0f;
     key.fitted = true;
     drawLayout (g, key, area.getPosition().toFloat());
 }

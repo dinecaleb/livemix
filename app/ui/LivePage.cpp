@@ -218,7 +218,13 @@ public:
         auto inner = getLocalBounds().reduced (kInsetX, 0).withTrimmedTop (16);
         g.setColour (! used ? Dine::ink4 : muted ? Dine::ink3 : Dine::ink);
         g.setFont (Dine::text (13.0f, 600));
-        Dine::drawFittedText (g, name(), inner.removeFromTop (18), juce::Justification::centred, 1, 0.7f);
+        {
+            // The whole name where it fits; an effect says itself in one word where it does not.
+            const auto line = inner.removeFromTop (18);
+            const auto full = name();
+            Dine::drawFittedText (g, Dine::textWidth (Dine::text (13.0f, 600), full) <= line.getWidth() ? full : briefName(),
+                                  line, juce::Justification::centred, 1);
+        }
         inner.removeFromTop (4);
 
         auto sub = inner.removeFromTop (14);
@@ -291,6 +297,22 @@ private:
         if (isReturn()) return slot() == FxSlot::BgvHall ? juce::String ("BGV Hall") : juce::String (fxSlotName (slot()));
         const juce::String raw (mixBusName (bus()));
         return raw.length() <= 3 ? raw.toUpperCase() : raw.substring (0, 1).toUpperCase() + raw.substring (1).toLowerCase();
+    }
+
+    juce::String briefName() const
+    {
+        if (! isReturn()) return name();
+        switch (slot())
+        {
+            case FxSlot::VocalPlate: return "Plate";
+            case FxSlot::VocalDelay: return "Delay";
+            case FxSlot::BgvHall:    return "Hall";
+            case FxSlot::SnarePlate: return "Snare";
+            case FxSlot::DrumRoom:   return "Room";
+            case FxSlot::BandHall:   return "Band";
+            case FxSlot::Count:      break;
+        }
+        return name();
     }
 
     MixController& controller;
@@ -434,7 +456,12 @@ public:
             g.setColour (Dine::ink3);
             g.setFont (numFont);
             Dine::drawText (g, juce::String (i + 1), inner.removeFromLeft (numW), juce::Justification::centredLeft, false);
-            const juce::String tag = i == list.current ? "Now" : i == next ? "Next" : juce::String();
+            const juce::String cueName (list.cues[size_t (i)].name);
+            juce::String tag = i == list.current ? "Now" : i == next ? "Next" : juce::String();
+            // The cue's name is what the row is for: on a list too narrow for both, the tag gives
+            // way (the plane already says which one is on).
+            if (tag.isNotEmpty() && Dine::textWidth (nameFont, cueName) > inner.getWidth() - Dine::textWidth (tagFont, tag) - 10)
+                tag = {};
             if (tag.isNotEmpty())
             {
                 g.setColour (i == list.current ? Dine::accent : Dine::ink3);
@@ -444,7 +471,7 @@ public:
             }
             g.setColour (i == list.current ? Dine::ink : Dine::ink2);
             g.setFont (nameFont);
-            Dine::drawFittedText (g, juce::String (list.cues[size_t (i)].name), inner, juce::Justification::centredLeft, 1, 0.85f);
+            Dine::drawFittedText (g, cueName, inner, juce::Justification::centredLeft, 1);
         }
     }
 

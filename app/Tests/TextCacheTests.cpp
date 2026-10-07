@@ -125,7 +125,10 @@ TEST_CASE ("Dine::drawText draws exactly the pixels juce::Graphics::drawText dra
     CHECK (compared > 3000);
 }
 
-TEST_CASE ("Dine::drawFittedText draws exactly the pixels juce::Graphics::drawFittedText draws")
+// Dine never squeezes a letter (AppTheme.cpp, drawLayout): whatever minimum scale a caller
+// passes, what is drawn is JUCE's fitted text at full width - wrapped, and cut only when no
+// line is left. So every case is compared against JUCE at a minimum scale of 1.
+TEST_CASE ("Dine::drawFittedText draws exactly the pixels juce::Graphics::drawFittedText draws, never squeezed")
 {
     const std::pair<int, int> boxes[] = { { 200, 40 }, { 60, 34 }, { 120, 14 }, { 300, 80 } };
     int compared = 0;
@@ -141,7 +144,7 @@ TEST_CASE ("Dine::drawFittedText draws exactly the pixels juce::Graphics::drawFi
                             const auto mine = render (w + 8, h + 6, [&] (juce::Graphics& g)
                                 { g.setFont (font); Dine::drawFittedText (g, text, area, just, lines, minScale); });
                             const auto theirs = render (w + 8, h + 6, [&] (juce::Graphics& g)
-                                { g.setFont (font); g.drawFittedText (text, area, just, lines, minScale); });
+                                { g.setFont (font); g.drawFittedText (text, area, just, lines, 1.0f); });
 
                             const auto d = compare (mine, theirs);
                             CHECK_MESSAGE (d.pixels == 0,
