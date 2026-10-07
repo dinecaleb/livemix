@@ -818,6 +818,8 @@ menu bar list, so items that today live only in those menus are marked "v4: near
 
 - `[control]` Trim knob −24..+24 dB, step 0.1 — `inputTrim` — `chainSpecs StageId::Input` — v4: Inspector · Input
 - `[control]` Polarity segment Normal / Flipped — `polarity` — `chainSpecs` — v4: Inspector · Input
+- `[control]` Gain knob −24..+24 dB (channels only): the strip's digital preamp, the one TUNE sets → `MixController::setStripInputGain` — `ChainEditor::StripKnob` (2026-10-06) — v4: Inspector · Input
+- `[control]` Delay knob 0..100 ms, 0 = "off" (channels only): alignment of a far microphone → `MixController::setStripDelay` — `ChainEditor::StripKnob` (2026-10-06) — v4: Inspector · Input
 - `[state]` Drawing: ladders "Arriving" (input meter), "After trim", "Into the fader" (output meter) — `Graph::paintMeters` — v4: Inspector · Input
 - `[state]` Not switchable (always in chain) — `chainSpecs` — v4: Inspector · Input
 
@@ -945,6 +947,7 @@ menu bar list, so items that today live only in those menus are marked "v4: near
 - `[state]` Drawing: labelled ladder bar per send; "This session has no effects set up yet." — `Graph::paintSends` — v4: Inspector · Sends
 - `[state]` Effects off on the mic (Speaking): chip value "off", lamp out, sentence explains levels are kept — `ChainEditor::updateViews` — v4: Inspector · Sends
 - `[control]` PUT BACK for sends → `setStripSend` to `plan->proposed.strips[s].sendDb` — `ChainEditor::revertStage` — v4: Inspector · Sends
+- `[control]` An effect return's sound, by hand (2026-10-06): double-click a return strip on the Mixer, or its menu "Set how it sounds…" → `EffectSheet`. Reverb: Decay, Pre-delay. Delay: Note popup (eight notes + Free time), Time (free only), Repeats, Tempo (40–240 bpm) and Tap (also the T key) → `MixController::setFxSlotCharacter` / `setTempo` — `MainView::showEffect`, openSheetName "effect" — v4: no slot in the mockup; a sheet like the others
 
 ### Inspector — Loudness stage
 
