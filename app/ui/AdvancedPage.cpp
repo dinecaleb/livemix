@@ -689,16 +689,21 @@ private:
         int heightFor (int width)
         {
             heights.clear();
+            summaryHeights.clear();
             int y = 0;
             const auto summaryFont = Dine::text (12.0f);
             for (const auto& v : history)
             {
-                int h = kBase;
+                int h = kBase, sh = 0;
                 if (v.summary.isNotEmpty())
                 {
-                    const float w = juce::GlyphArrangement::getStringWidth (summaryFont, v.summary);
-                    h += juce::jlimit (1, 2, int (std::ceil (w / juce::jmax (60.0f, float (width) - 2 * kPad - 24.0f)))) * 16 + 4;
+                    const float w = Dine::textWidth (summaryFont, v.summary);
+                    sh = juce::jlimit (1, 2, int (std::ceil (w / juce::jmax (60.0f, float (width) - 2 * kPad - 24.0f)))) * 16;
+                    h += sh + 4;
                 }
+                // Each change in its own line: "High-pass 80 Hz to 100 Hz".
+                if (! v.lines.isEmpty()) h += 6 + v.lines.size() * kLineH;
+                summaryHeights.push_back (sh);
                 heights.push_back (h);
                 y += h + kGap;
             }
@@ -741,8 +746,21 @@ private:
                     body.removeFromTop (4);
                     g.setColour (Dine::ink3);
                     g.setFont (Dine::text (12.0f));
-                    auto lines = body.removeFromTop (body.getHeight() - Dine::Metric::button - 10);
-                    Dine::drawFittedText (g, v.summary, lines, juce::Justification::topLeft, 2, 1.0f);
+                    const int sh = i < summaryHeights.size() ? summaryHeights[i] : 16;
+                    Dine::drawFittedText (g, v.summary, body.removeFromTop (sh), juce::Justification::topLeft, juce::jmax (1, sh / 16), 1.0f);
+                }
+                if (! v.lines.isEmpty())
+                {
+                    body.removeFromTop (6);
+                    g.setFont (Dine::text (11.5f));
+                    for (const auto& line : v.lines)
+                    {
+                        auto l = body.removeFromTop (kLineH);
+                        g.setColour (Dine::ink4);
+                        g.fillEllipse (l.removeFromLeft (10).withSizeKeepingCentre (3, 3).toFloat());
+                        g.setColour (Dine::ink2);
+                        Dine::drawFittedText (g, line, l, juce::Justification::centredLeft, 1, 0.8f);
+                    }
                 }
 
                 auto chip = body.removeFromBottom (Dine::Metric::button)
@@ -776,7 +794,7 @@ private:
 
         std::vector<HistoryView> history;        // newest first
 
-        static constexpr int kBase = 92, kGap = 8, kPad = 12, kChipW = 83;
+        static constexpr int kBase = 92, kGap = 8, kPad = 12, kChipW = 83, kLineH = 16;
 
     private:
         // The sentence a record leads with: what it was, in the trail's words.
@@ -789,7 +807,7 @@ private:
         }
 
         Trail& trail;
-        std::vector<int> heights;
+        std::vector<int> heights, summaryHeights;
         std::vector<juce::Rectangle<int>> chips;  // where each row's PUT BACK was painted, for the click
         int hover = -1;
     };

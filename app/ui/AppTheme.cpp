@@ -2186,3 +2186,20 @@ void DineLookAndFeel::drawAlertBox (juce::Graphics& g, juce::AlertWindow& w, con
 }
 
 } // namespace livemix
+
+namespace livemix
+{
+void Dine::askForName (const juce::String& title, const juce::String& sentence, const juce::String& current,
+                       const juce::String& verb, std::function<void (const juce::String&)> done)
+{
+    auto* w = new juce::AlertWindow (title, sentence, juce::MessageBoxIconType::NoIcon);
+    w->addTextEditor ("name", current, "Name");
+    w->addButton (verb, 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([w, done] (int result)
+    {
+        const auto name = w->getTextEditorContents ("name").trim();
+        if (result == 1 && name.isNotEmpty() && done) done (name);
+    }), true);     // the window deletes itself when it is dismissed
+}
+} // namespace livemix

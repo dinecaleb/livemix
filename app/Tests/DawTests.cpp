@@ -3131,6 +3131,14 @@ TEST_CASE ("MixController: the setlist runs the service in order, and a cue is a
     CHECK (c.cueSceneName (c.getSetlist().cues[0]) == c.getScene (0).name);
     CHECK (c.cueSceneName ({ "x", -1, {}, {}, {} }) == "As it is");
 
+    // A favourite renamed takes the cues that recall it with it.
+    if (c.markFavourite ("Choir in"))
+    {
+        c.addCue ({ "Choir song", 0, "Choir in", {}, {} });
+        c.renameFavourite (c.numFavourites() - 1, "Choir");
+        CHECK (c.getSetlist().cues.back().favourite == "Choir");
+    }
+
     // Under LIVE SAFE a cue still goes: a scene recall is allowed there.
     auto policy = c.getLiveSafePolicy();
     policy.on = true;

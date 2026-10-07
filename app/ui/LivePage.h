@@ -95,6 +95,7 @@ private:
     // mix that is running into the one picked.
     std::array<std::unique_ptr<DineButton>, 4> sceneSegments;
     DineButton keepButton { "Keep", DineButton::Style::Standard };
+    DineButton renameScene { "Rename", DineButton::Style::Ghost };   // a scene's name (MixController::renameScene)
     int sceneSlot = -1;
     void refreshScenes();
 

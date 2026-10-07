@@ -638,6 +638,9 @@ DevicePage::DevicePage (MixController& c, AppServices& s) : controller (c), serv
     outputsButton.setTooltip ("Send the mix to more than one pair of outputs at once: the PA on 1-2, headphones or a "
                               "cue on 3-4, each with its own level.");
     outputsButton.onClick = [this] { if (onSetUpOutputs) onSetUpOutputs(); };
+    addAndMakeVisible (midiSetupButton);
+    midiSetupButton.setTooltip ("macOS's own audio settings: build an aggregate device, or set a device's clock and rate.");
+    midiSetupButton.onClick = [this] { services.openAudioMidiSetup(); };
     backButton.onClick = [this] { if (onBack) onBack(); };
     rescanButton.onClick = [this] { refresh(); };
     recordingButton.setTooltip ("Turn a folder of recorded stems (AIFF / WAV / FLAC) into tracks, so you can mix, tune and export without a band in the room.");
@@ -1007,7 +1010,12 @@ void DevicePage::resized()
         for (auto& r : outputRows) r->setBounds (outs.removeFromTop (44).expanded (12, 0));
         outs.removeFromTop (10);
         const int w = juce::jmax (110, outputsButton.idealWidth());
-        outputsButton.setBounds (outs.removeFromTop (Dine::Metric::button).removeFromLeft (w));
+        auto line = outs.removeFromTop (Dine::Metric::button);
+        outputsButton.setBounds (line.removeFromLeft (w));
+        line.removeFromLeft (8);
+        const int mw = midiSetupButton.idealWidth();
+        midiSetupButton.setVisible (mw <= line.getWidth());
+        midiSetupButton.setBounds (line.removeFromLeft (juce::jmin (mw, line.getWidth())));
     }
 
     auto footer = col.footer;

@@ -571,4 +571,25 @@ void Guides::reset (const juce::File& prefs)
     writePrefs (prefs, o);
 }
 
+juce::var UiPrefs::get (const juce::String& key, const juce::File& prefs)
+{
+    auto v = readPrefs (prefs);
+    if (auto* o = object (v))
+        if (auto* ui = o->getProperty ("ui").getDynamicObject())
+            return ui->getProperty (key);
+    return {};
+}
+
+bool UiPrefs::set (const juce::NamedValueSet& values, const juce::File& prefs)
+{
+    auto v = readPrefs (prefs);
+    juce::DynamicObject::Ptr o = object (v);
+    if (o == nullptr) o = new juce::DynamicObject();
+    juce::DynamicObject::Ptr ui = o->getProperty ("ui").getDynamicObject();
+    if (ui == nullptr) ui = new juce::DynamicObject();
+    for (const auto& kv : values) ui->setProperty (kv.name, kv.value);
+    o->setProperty ("ui", juce::var (ui.get()));
+    return writePrefs (prefs, o);
+}
+
 } // namespace livemix

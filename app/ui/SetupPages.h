@@ -151,6 +151,7 @@ private:
     DineButton rescanButton { "Rescan devices", DineButton::Style::Standard };
     DineButton outputsButton { "Set up outputs...", DineButton::Style::Standard };
     DineButton recordingButton { "Import a multitrack folder", DineButton::Style::Standard };
+    DineButton midiSetupButton { "Open Audio MIDI Setup", DineButton::Style::Standard };
     std::unique_ptr<juce::FileChooser> chooser;
 };
 

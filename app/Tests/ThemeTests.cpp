@@ -254,3 +254,23 @@ TEST_CASE ("The guides: shown once per workspace, dismissed for good, and switch
     CHECK (! Guides::seen ("live", prefs));
     CHECK (ThemeStore::chosenTheme (prefs) == "Slate");   // and leaves the rest of the file alone
 }
+
+// UI PREFERENCES (C3): the layout this Mac had, beside the theme in preferences.json, under
+// "ui" - written together, read back one by one, and never disturbing the theme beside it.
+TEST_CASE ("UiPrefs: the layout is kept per Mac beside the theme, and nothing else moves")
+{
+    const auto prefs = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("dine-uiprefs-test.json");
+    prefs.deleteFile();
+    CHECK (UiPrefs::get ("sidebar", prefs).isVoid());
+    REQUIRE (ThemeStore::setChosenTheme ("Slate", prefs));
+    juce::NamedValueSet v;
+    v.set ("sidebar", false);
+    v.set ("mixerSize", 2);
+    v.set ("window", "10 20 1400 900");
+    REQUIRE (UiPrefs::set (v, prefs));
+    CHECK (! bool (UiPrefs::get ("sidebar", prefs)));
+    CHECK (int (UiPrefs::get ("mixerSize", prefs)) == 2);
+    CHECK (UiPrefs::get ("window", prefs).toString() == "10 20 1400 900");
+    CHECK (ThemeStore::chosenTheme (prefs) == "Slate");
+    prefs.deleteFile();
+}

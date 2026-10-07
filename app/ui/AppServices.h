@@ -89,6 +89,11 @@ public:
     // Which device carries the broadcast, and which carries solo ("" = solo is not set up).
     virtual juce::String broadcastOutputDevice() { return currentOutputDevice(); }
     virtual juce::String soloOutputDevice() { return {}; }
+    // Audio MIDI Setup, where macOS builds aggregate devices and sets a device's clock.
+    virtual void openAudioMidiSetup() {}
+    // RECOVER SESSION..., on demand: offer again the unsaved work held for the open session
+    // (a recovery question closed without an answer leaves it). False when there is none.
+    virtual bool offerHeldRecovery() { return false; }
     // Choose the device solo goes to. "" turns it off and puts the Mac back as it was.
     virtual MonitorSetup setSoloOutputDevice (const juce::String&) { return { false, "That is not available here." }; }
     // What is set up right now, in plain words; empty when solo has nowhere to go.

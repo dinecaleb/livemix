@@ -357,6 +357,10 @@ namespace Dine
     // A text editor's colours are set on it, not read at paint time, so the components that
     // own one call this from their constructor *and* from `lookAndFeelChanged()`.
     void styleTextEditor (juce::TextEditor&, juce::Colour ground, bool softFocusRing = false);
+    // A name asked for, the way Mark as favourite asks: a title, one sentence, the name as it
+    // is, and the verb. `done` gets the trimmed name, and is not called on Cancel or an empty name.
+    void askForName (const juce::String& title, const juce::String& sentence, const juce::String& current,
+                     const juce::String& verb, std::function<void (const juce::String&)> done);
 
     // Gestures --------------------------------------------------------------
     void dragOnly (juce::Slider&);

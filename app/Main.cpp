@@ -19,6 +19,7 @@
 #include "native/DevicePlan.h"
 #include "native/MicPermission.h"
 #include "native/MonitorDevice.h"
+#include "native/ThemeStore.h"
 #include "native/Telemetry.h"
 #include "native/UsageIds.h"
 #include "ui/MainView.h"
@@ -619,6 +620,10 @@ namespace
         // The mix survives all three the way it survives any other device change: held before,
         // put back after.
         bool canCombineOutputs() override { return MonitorDevice::available(); }
+        void openAudioMidiSetup() override { MonitorDevice::openAudioMidiSetup(); }
+        std::function<bool()> recoverHeld;     // the application's offerRecovery for the open document
+        bool offerHeldRecovery() override { return recoverHeld != nullptr && recoverHeld(); }
+        juce::File openDocument() const { return documentFile(); }
 
         juce::String broadcastOutputDevice() override
         {
@@ -953,6 +958,11 @@ namespace
             setResizable (true, true);
             setResizeLimits (1280, 780, 6000, 4000);
             centreWithSize (1520, 960);
+            // Where this Mac last had the window (UiPrefs "window"), when it is still on a screen.
+            if (const auto saved = juce::Rectangle<int>::fromString (UiPrefs::get ("window").toString());
+                saved.getWidth() >= 1280 && saved.getHeight() >= 780)
+                for (const auto& d : juce::Desktop::getInstance().getDisplays().displays)
+                    if (d.userArea.intersects (saved)) { setBounds (saved.constrainedWithin (d.userArea)); break; }
             setVisible (true);
            #if JUCE_MAC
             // The three window buttons belong inside the toolbar (app/native/WindowChrome.mm);
@@ -1076,6 +1086,16 @@ public:
         // Found before the session is restored, because the two sheets are one at a time and a
         // recovery is the bigger question: when there is one, it is what the window opens with.
         auto found = SessionAutosave::check (lastDocument);
+        // On demand later (Session menu > Recover Session...): only a held copy - the work a
+        // recovery question was closed on. The open session's own autosave is DINE's, live.
+        services->recoverHeld = [this]
+        {
+            if (services == nullptr) return false;
+            const auto doc = services->openDocument();
+            if (doc == juce::File() || ! SessionAutosave::heldFor (doc).existsAsFile()) return false;
+            offerRecovery (SessionAutosave::check (doc), doc);
+            return true;
+        };
         // A DOCUMENT THAT CANNOT BE READ IS NOT THE END OF THE MIX. A clean quit deletes the
         // autosave, so one still here means the work in it is newer than anything that quit
         // wrote - and with the document unreadable, it is the only copy there is.

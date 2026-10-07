@@ -964,7 +964,10 @@ bool MixController::recallFavourite (int index)
 void MixController::renameFavourite (int index, const std::string& name)
 {
     if (index < 0 || index >= numFavourites() || name.empty()) return;
+    const auto was = scenes[size_t (kMixScenes + index)].name;
     scenes[size_t (kMixScenes + index)].name = name;
+    // A cue recalls a favourite by name: it follows the new one.
+    for (auto& cue : setlist.cues) if (cue.favourite == was) cue.favourite = name;
     touch();
 }
 

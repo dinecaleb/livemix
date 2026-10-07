@@ -140,4 +140,15 @@ namespace Guides
     void reset (const juce::File& preferences = ThemeStore::preferencesFile());
 }
 
+// HOW THIS MAC LAYS DINE OUT (C3): the sidebar, the side panels, the Mixer's view and strip
+// width, the window's place - kept per Mac beside the theme and the text size in
+// preferences.json under "ui", never in a session (a session is the mix, not the screen).
+namespace UiPrefs
+{
+    // The stored value, or a void var when it was never written or the file will not read.
+    juce::var get (const juce::String& key, const juce::File& preferences = ThemeStore::preferencesFile());
+    // Writes every key in one go; false when the file could not be written.
+    bool set (const juce::NamedValueSet& values, const juce::File& preferences = ThemeStore::preferencesFile());
+}
+
 } // namespace livemix

@@ -1464,6 +1464,14 @@ void ChainEditor::build()
         }
     }
     stages = chainSpecs (stereo, hasLimiter, hasSample, sounds, soundGroups);
+    // THE LIBRARY'S OVERFLOW (SampleLibrary::whatWasLeftOut): a folder with more sounds than
+    // DINE plays per drum says so on the stage that would have played them.
+    if (hasSample && sampleLibrary)
+        if (const auto* lib = sampleLibrary(); lib != nullptr && ! lib->whatWasLeftOut().isEmpty())
+            for (auto& st : stages)
+                if (st.id == StageId::Sample)
+                    st.plain += " Not every sound is loaded: a sounds folder holds more than the "
+                              + juce::String (SampleBankTable::kSounds) + " of each drum DINE plays. Take some out of it to reach the rest.";
 
     // The sends leave after the chain, so they close the path - and only where the
     // session actually uses a return.

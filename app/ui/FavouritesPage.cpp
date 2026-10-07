@@ -18,12 +18,15 @@ public:
     {
         addAndMakeVisible (aimButton);
         addAndMakeVisible (restoreButton);
+        addAndMakeVisible (moreButton);
         restoreButton.setStyle (DineButton::Style::Standard);
+        moreButton.setTooltip ("Rename or delete this favourite.");
         setInterceptsMouseClicks (true, true);
     }
 
     DineButton aimButton { "Aim TUNE MIX at this", DineButton::Style::Filled };
     DineButton restoreButton { "Restore mix", DineButton::Style::Standard };
+    DineButton moreButton { "More", DineButton::Style::Ghost };
 
     void setAimed (bool a)
     {
@@ -116,6 +119,8 @@ public:
         foot.removeFromRight (10);
         const int aw = aimButton.idealWidth();
         aimButton.setBounds (foot.removeFromLeft (aw));
+        const int mw = moreButton.idealWidth() + 4;
+        moreButton.setBounds (getLocalBounds().reduced (14, 14).removeFromTop (Dine::Metric::button).removeFromRight (mw));
     }
 
     void lookAndFeelChanged() override { repaint(); }
@@ -233,6 +238,34 @@ void FavouritesPage::rebuild()
             }
             services.touchSession();
             if (onToast) onToast ("\"" + juce::String (controller.getFavourite (i).name) + "\" is on the console again.");
+        };
+        card->moreButton.onClick = [this, i, b = &card->moreButton]
+        {
+            juce::PopupMenu m;
+            m.addItem (1, "Rename" + juce::String (Glyph::ellip()));
+            m.addItem (2, "Delete");
+            juce::Component::SafePointer<FavouritesPage> safe (this);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (b), [safe, i] (int r)
+            {
+                if (safe == nullptr || i >= safe->controller.numFavourites()) return;
+                const juce::String was (safe->controller.getFavourite (i).name);
+                if (r == 1)
+                    Dine::askForName ("Rename this favourite", "TUNE MIX and Autopilot aim at it by this name.", was, "Rename",
+                                      [safe, i] (const juce::String& name)
+                    {
+                        if (safe == nullptr || i >= safe->controller.numFavourites()) return;
+                        safe->controller.renameFavourite (i, name.toStdString());
+                        safe->services.touchSession();
+                        safe->rebuild();
+                        if (safe->onToast) safe->onToast ("Renamed to \"" + name + "\".");
+                    });
+                else if (r == 2)
+                {
+                    safe->controller.removeFavourite (i);      // the controller says the mix is still in the history
+                    safe->services.touchSession();
+                    safe->rebuild();
+                }
+            });
         };
         holder.addAndMakeVisible (*card);
         cards.push_back (std::move (card));

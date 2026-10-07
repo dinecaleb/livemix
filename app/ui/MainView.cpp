@@ -1575,6 +1575,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     seenMilestone = services.sessionMilestone();
 
     setWantsKeyboardFocus (true);
+    applyUiPrefs();
     showPage (! services.listSessions().isEmpty() ? Page::Sessions : Page::Device);
     startTimerHz (30);
 
@@ -1971,9 +1972,11 @@ void MainView::setupPopover()
                              case 18: showThemes(); break;
                              case 19: resetMixToRaw(); break;
                              case 20: showBroadcastReadiness (true); break;
-                             // TODO(v4-backend): recovery is offered at launch, when DINE finds an
-                             // autosave newer than the document; there is no way to ask for it later.
-                             case 21: showToast ("Nothing to recover. When DINE finds unsaved work at launch it offers it to you then."); break;
+                             // Work a recovery question was closed on, offered again (AppServices::offerHeldRecovery).
+                             case 21:
+                                 if (! services.offerHeldRecovery())
+                                     showToast ("Nothing to recover for this session: no unsaved work is waiting. When DINE finds some at launch it offers it then.");
+                                 break;
                              default: break;
                          }
                      });
@@ -3675,6 +3678,37 @@ int MainView::inputsNeedingAttention() const
 // The readiness pill: "Ready to go live?" - device, inputs, recording, disk, on air, loudness,
 // BYPASS, LIVE SAFE, autosave (ReadyCheck), read from what DINE knows. The broadcast
 // checklist, which a person ticks, is one press from its foot where the purpose has one.
+// ---------------------------------------------------------------- UI preferences (per Mac)
+juce::NamedValueSet MainView::uiState() const
+{
+    juce::NamedValueSet v;
+    // The sidebar as the person left it: LIVE folding it by itself is not their choice.
+    v.set ("sidebar", sidebarShown || sidebarAutoHidden);
+    v.set ("mixerView", int (mixerPage->getView()));
+    v.set ("mixerSize", int (mixerPage->getStripSize()));
+    v.set ("mixerChannel", mixerPage->isRailShown());
+    v.set ("tuneRail", mixPage->isRailShown());
+    v.set ("inspectorRail", advancedPage->isRailShown());
+    v.set ("inspectorTrail", advancedPage->isTrailShown());
+    if (auto* top = getTopLevelComponent(); top != nullptr && top != this && top->isOnDesktop())
+        v.set ("window", top->getBounds().toString());
+    return v;
+}
+
+void MainView::applyUiPrefs()
+{
+    if (! gUseStoredTheme) return;      // the snapshot tool and the tests never read this Mac's layout
+    auto get = [] (const char* key) { return UiPrefs::get (key); };
+    if (const auto s = get ("sidebar"); ! s.isVoid()) setSidebarShown (bool (s));
+    if (const auto s = get ("mixerView"); ! s.isVoid()) mixerPage->setView (MixerPage::View (juce::jlimit (0, 1, int (s))));
+    if (const auto s = get ("mixerSize"); ! s.isVoid()) mixerPage->setStripSize (MixerPage::Size (juce::jlimit (0, 2, int (s))));
+    if (const auto s = get ("mixerChannel"); ! s.isVoid()) mixerPage->setRailShown (bool (s));
+    if (const auto s = get ("tuneRail"); ! s.isVoid()) mixPage->setRailShown (bool (s));
+    if (const auto s = get ("inspectorRail"); ! s.isVoid()) advancedPage->setRailShown (bool (s));
+    if (const auto s = get ("inspectorTrail"); ! s.isVoid()) advancedPage->setTrailShown (bool (s));
+    uiSaved = uiState();
+}
+
 void MainView::readyPillClicked() { showReady(); }
 
 void MainView::showReady()
@@ -3752,6 +3786,8 @@ void MainView::timerCallback()
     if (chatSheet != nullptr) chatSheet->refresh();
 
     const bool slow = (++slowTicks % 30) == 0;
+    if (slow && gUseStoredTheme)
+        if (const auto now = uiState(); now != uiSaved) { UiPrefs::set (now); uiSaved = now; }
     statusBar->takeStopped = transportBar->takeStoppedByItself();
     // Once, a few seconds in, on the first run that could share anything: what is sent and how
     // to stop it. Nothing is sent before this has been said (Telemetry::needsNotice).

@@ -547,6 +547,30 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         refreshScenes();
         if (onToast) onToast ("Kept. " + juce::String (controller.getScene (sceneSlot).name) + " brings this mix back in one press.");
     };
+    renameScene.setFontPx (11.0f);
+    renameScene.setTooltip ("Give a scene a name of its own: \"Choir\" instead of Custom. Cues and the setlist follow.");
+    renameScene.onClick = [this]
+    {
+        juce::PopupMenu m;
+        for (int i = 0; i < 4; ++i) m.addItem (1 + i, "Rename " + juce::String (controller.getScene (i).name) + juce::String (Glyph::ellip()));
+        juce::Component::SafePointer<LivePage> safe (this);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&renameScene), [safe] (int r)
+        {
+            if (safe == nullptr || r <= 0) return;
+            const int slot = r - 1;
+            const juce::String was (safe->controller.getScene (slot).name);
+            Dine::askForName ("Rename the " + was + " scene", "What should it be called? Cues that bring it back follow the new name.",
+                              was, "Rename", [safe, slot] (const juce::String& name)
+            {
+                if (safe == nullptr) return;
+                safe->controller.renameScene (slot, name.toStdString());
+                safe->services.touchSession();
+                safe->refreshScenes();
+                safe->refresh();
+            });
+        });
+    };
+    addAndMakeVisible (renameScene);
     refreshScenes();
 
     checkLink = std::make_unique<Link>();
@@ -1399,6 +1423,9 @@ void LivePage::resized()
         scenesRow.removeFromLeft (10);
         const int keepW = juce::jmax (52, keepButton.idealWidth());
         keepButton.setBounds (scenesRow.removeFromLeft (keepW).withSizeKeepingCentre (keepW, kSegmentH + 2));
+        scenesRow.removeFromLeft (6);
+        const int renW = renameScene.idealWidth() + 4;
+        renameScene.setBounds (scenesRow.removeFromLeft (renW).withSizeKeepingCentre (renW, kSegmentH + 2));
 
         r.removeFromTop (12);
         l.strips = r;

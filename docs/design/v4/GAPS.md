@@ -42,7 +42,6 @@ must not be done as part of the UI work.
 
 | v4 control | Where | What is missing | Smallest backend |
 | --- | --- | --- | --- |
-| Session menu "Recover Session…" | Session menu | Recovery is offered only at launch (`Main.cpp` → `MainView::offerRecovery`); nothing can be asked for later. Today it says so in a toast (`MainView::setupPopover`, case 21) | pass-through: `AppServices::findRecovery()` returning the same offer `Main.cpp` builds |
 | "Edited" after the session name | Session menu | No "changed since the last explicit save" | read-only (revision at last save beside `sessionRevision`) |
 | Traffic lights move with the sidebar | Toolbar | `WindowChrome.mm` places buttons at a fixed `kFirstButtonX` | host (an x-offset setter) |
 | Reduce Motion | Every animation | No accessor | host (small .mm helper over NSWorkspace) |
@@ -106,6 +105,14 @@ must not be done as part of the UI work.
 
 ## Closed
 
+- **Backend-exists items** (C3): scene rename (LIVE's Rename by the scenes), favourite rename and delete (a
+  card's More; a cue that recalls a favourite follows its new name), the per-change lines in the Inspector's
+  trail, Open Audio MIDI Setup on Audio device (`AppServices::openAudioMidiSetup`), the sample library's
+  overflow on the Sample stage, Recover Session... on demand (`AppServices::offerHeldRecovery`: the work a
+  recovery question was closed on; the open session's own live autosave is never offered back), and UI
+  preferences per Mac (`UiPrefs` in preferences.json under "ui": sidebar, Mixer view / strip size / channel
+  panel, TUNE's rail, the Inspector's rail and trail, the window's bounds).
+
 - **Ready to go live?** (C2): `ReadyCheck` in `app/ui/ReadySheet.h` reads device, inputs, recording, disk, on air,
   loudness, BYPASS, LIVE SAFE, autosave (and the broadcast checklist's progress when one is under way), each with
   its Fix; the readiness pill counts exactly what it flags. `DawEngine::recordingBytesFree` /
@@ -122,18 +129,13 @@ must not be done as part of the UI work.
 
 These are wired by the UI work; no backend change is needed.
 
-- Scene rename: `MixController::renameScene` (`app/native/MixController.h`) has no UI.
-- Favourite rename and delete: `MixController::renameFavourite`, `removeFavourite`; FavouritesPage has neither.
-- Overflow note: `SampleLibrary::whatWasLeftOut()` is never shown.
 - Gain-health chip and card ("Healthy / Clipping −6 / Digital +12 / Low +6"): `InputAdvice::Level`,
   `consoleMoveDb`, `digitalGainDb`, headline and detail via `getInputAdvice` / `liveCaptureAdvice`.
   The Inspector draws it only in the trail when it needs attention; Simple view gets the card.
 - Per-change confidence and why: `Recommendation::confidence` (`src/Recommendations/Recommendation.h`),
   reached through each strip's `TuneResult::report` in the plan.
-- Per-change trail lines ("High-pass 80 Hz to 100 Hz"): `AdvancedPage::historyViews` builds them; the trail does not paint them.
 - What-it-is typeahead: built (`AssignPage::roleFor` - role names, then `StemNames::guessRole`). "di" and
   "pb" are not in StemNames' table; adding words to it is a host change, not engine.
-- Open Audio MIDI Setup: `MonitorDevice::openAudioMidiSetup()` (`app/native/MonitorDevice.h`); no AppServices call reaches it.
 - Dropped buffers and CPU in the sidebar foot: `services.xrunCount()`, `services.cpuLoad()`, recorder `getDroppedSeconds()`.
 - Loudness menu "Stream −16, Platforms −14": `DeliveryLoudness` Streaming / StreamingLoud. Copy only.
 - Input Mappings popup: `MainView::openInputMappings` (Rename / Duplicate / Export / Delete patch) still has no
@@ -147,13 +149,6 @@ These are wired by the UI work; no backend change is needed.
   keyboard selection with no cell focused (up/down, Shift, Space, Return, Cmd-A, Esc), Cmd-V's "Paste a list of
   names" with its preview, Number them, the right panel, the preamp banner with Check again, the group chips with
   Not used and search, the Not used section ("Use it").
-- UI preferences (sidebar folded, strip size, rails, window bounds, Mixer view): none persisted today;
-  per-Mac keys beside theme and text size in `preferences.json`, never `SessionStore`.
-
-## Kept although v4 draws no home
-
-Each of these survives the rebuild. Where v4 has no slot, the nearest v4 surface gets one.
-
 - FX key on voice strips — `MixController::setStripEffects` (`app/ui/MixerPage.cpp`).
 - Effects filter on the Mixer — `MixerPage::Show::Effects`; Sends toggle — `MixerPage::sendsButton`.
 - Each effect / Back to groups on Tune and Live — `MixController::setFxSlotReturn` (`MixPage.cpp`, `LivePage.cpp`).
