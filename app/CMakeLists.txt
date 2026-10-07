@@ -143,6 +143,12 @@ target_link_libraries(DineApp PRIVATE ${DINE_LIBS} ${AVFOUNDATION_FRAMEWORK}
 add_custom_command(TARGET DineApp POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/Samples" "$<TARGET_BUNDLE_CONTENT_DIR:DineApp>/Resources/Samples"
     COMMENT "Copying the built-in drum samples into the DINE bundle")
+# THE APP ICON is the brand's own iconset (docs/design/brand/app-icon/DINE.iconset), whose
+# small sizes are drawn for their size rather than scaled down from the 1024 - JUCE's generated
+# icon would resample ICON_BIG. It goes in before the signing step below, so it is signed with it.
+add_custom_command(TARGET DineApp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/DINE.icns" "$<TARGET_BUNDLE_CONTENT_DIR:DineApp>/Resources/Icon.icns"
+    COMMENT "Putting the DINE iconset into the bundle")
 # The app reads its own bundle's copy and nothing else: the source folder's path is not
 # compiled into what ships (the tools and the tests, which run from the tree, keep it).
 

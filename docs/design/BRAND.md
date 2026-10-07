@@ -20,12 +20,16 @@ Source: the Claude Design project `6134b080-3212-4c44-abaa-4f53377f10c1`, file `
 
 | Where | What | Code |
 | --- | --- | --- |
-| Dock, Finder | The graphite tile with the symbol in Paper, on Apple's 1024 grid | `app/resources/AppIcon.png`, made by `scripts/brand-icon.py` |
+| Dock, Finder | The backlit app icon (1d) from the brand files: the bundle ships `app/resources/DINE.icns`, built with `iconutil -c icns` from `docs/design/brand/app-icon/DINE.iconset` (its small sizes are drawn for their size); `AppIcon.png` is the 1024 JUCE is given | `app/CMakeLists.txt` post-build copy |
 | DINE > About DINE | The identity's splash: black card, wordmark, "The DAW built for live broadcast", version | `app/ui/AboutSheet.*` |
 | Sessions, first launch | Wordmark and the line, where the product introduces itself | `SessionsPage::paint` |
 | Drawing | `Dine::drawSymbol` / `Dine::drawWordmark`, exact paths on the grid above; `Dine::brand*` colours | `app/ui/AppTheme.*` |
 
 Not used: a launch splash (it would make every start slower - the About sheet carries that
 composition instead), and the mark on working screens - the symbol is for where space is
-tight, the wordmark for where the product is introduced. After changing the icon PNG, delete
-`build/app/DineApp_artefacts/JuceLibraryCode/Icon.icns` so JUCE regenerates the bundle's icon.
+tight, the wordmark for where the product is introduced.
+
+The brand files themselves (SVG and PNG symbol and wordmark, white and black; the iconset; the
+social avatars) are in `docs/design/brand/`. To change the icon, replace the iconset there, run
+`iconutil -c icns docs/design/brand/app-icon/DINE.iconset -o app/resources/DINE.icns`, and copy
+the 1024 to `app/resources/AppIcon.png`.
