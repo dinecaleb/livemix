@@ -128,7 +128,8 @@ private:
         juce::StringArray attention;
         juce::StringArray attentionStrips;       // the strips the Alerts view shows, by number
         Setlist setlist;                         // what the cue header, Up next and the list read
-        juce::StringArray cueScenes;             // each cue's scene, in words
+        juce::StringArray cueScenes;             // what each cue is, in words ("Band", "Quiet moment")
+        juce::StringArray cueLouder, cueSofter;  // who each cue puts up front, and who softer
         std::array<int, 4> counts {};            // This cue, Groups, All, Alerts
         bool isRecording = false, safe = false, running = false, anyClip = false, inPlace = false, routed = false,
              autopilotOn = false, autopilotMoved = false, priorityOn = false, shareOn = false;
@@ -141,7 +142,7 @@ private:
                 && clipping == o.clipping && clippingNote == o.clippingNote && headroom == o.headroom && headroomNote == o.headroomNote
                 && monitorNote == o.monitorNote && autopilotSince == o.autopilotSince && autopilotLog == o.autopilotLog
                 && attention == o.attention && attentionStrips == o.attentionStrips && setlist == o.setlist
-                && cueScenes == o.cueScenes && counts == o.counts
+                && cueScenes == o.cueScenes && cueLouder == o.cueLouder && cueSofter == o.cueSofter && counts == o.counts
                 && isRecording == o.isRecording && safe == o.safe && running == o.running && anyClip == o.anyClip
                 && inPlace == o.inPlace && routed == o.routed && autopilotOn == o.autopilotOn
                 && autopilotMoved == o.autopilotMoved && soloCount == o.soloCount

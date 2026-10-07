@@ -301,10 +301,12 @@ namespace
         {
             auto* co = new juce::DynamicObject();
             co->setProperty ("name", juce::String (c.name));
+            co->setProperty ("kind", int (c.kind));
             co->setProperty ("scene", c.scene);
             if (! c.favourite.empty()) co->setProperty ("favourite", juce::String (c.favourite));
-            if (! c.louder.empty()) co->setProperty ("louder", juce::String (c.louder));
-            if (! c.softer.empty()) co->setProperty ("softer", juce::String (c.softer));
+            auto* who = new juce::DynamicObject();
+            for (const auto& [unit, level] : c.who) who->setProperty (juce::Identifier (juce::String (unit)), level);
+            co->setProperty ("who", juce::var (who));
             cues.add (juce::var (co));
         }
         obj->setProperty ("cues", cues);
@@ -323,10 +325,12 @@ namespace
                 if (co == nullptr) continue;
                 Cue c;
                 c.name = co->getProperty ("name").toString().toStdString();
-                c.scene = co->hasProperty ("scene") ? juce::jlimit (-1, kMixScenes - 1, int (co->getProperty ("scene"))) : 0;
+                c.kind = CueKind (juce::jlimit (0, int (CueKind::Count) - 1, int (co->getProperty ("kind"))));
+                c.scene = co->hasProperty ("scene") ? juce::jlimit (-1, kMixScenes - 1, int (co->getProperty ("scene"))) : -1;
                 c.favourite = co->getProperty ("favourite").toString().toStdString();
-                c.louder = co->getProperty ("louder").toString().toStdString();
-                c.softer = co->getProperty ("softer").toString().toStdString();
+                if (auto* who = co->getProperty ("who").getDynamicObject())
+                    for (const auto& kv : who->getProperties())
+                        c.who[kv.name.toString().toStdString()] = juce::jlimit (int (CueLevel::Off), int (CueLevel::UpFront), int (kv.value));
                 s.cues.push_back (c);
             }
         s.current = obj->hasProperty ("current") ? juce::jlimit (-1, int (s.cues.size()) - 1, int (obj->getProperty ("current"))) : -1;

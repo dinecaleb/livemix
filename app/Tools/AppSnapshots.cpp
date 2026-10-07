@@ -1438,9 +1438,15 @@ int main (int argc, char** argv)
         rig.controller.keepScene (0);
         const char* names[10] = { "Walk-in", "Welcome", "Way Maker", "Goodness of God", "Prayer", "Sermon",
                                   "Build My Life", "Offering", "Benediction", "Walk-out" };
-        const int scenesFor[10] = { -1, 1, 0, 0, 2, 1, 0, 2, 1, -1 };
+        const CueKind kinds[10] = { CueKind::MusicPlayback, CueKind::Speaking, CueKind::Band, CueKind::Band, CueKind::QuietMoment,
+                                    CueKind::Speaking, CueKind::Band, CueKind::Band, CueKind::QuietMoment, CueKind::MusicPlayback };
         for (int i = 0; i < 10; ++i)
-            rig.controller.addCue ({ names[i], scenesFor[i], {}, i == 3 ? "Lead singer" : "", i == 3 ? "Guitars, room mics" : "" });
+        {
+            Cue cue { names[i], kinds[i], -1, {}, {} };
+            rig.controller.fillCueFor (cue, kinds[i]);
+            if (i == 3) { cue.who["lead"] = int (CueLevel::UpFront); cue.who["keys"] = int (CueLevel::Softer); }
+            rig.controller.addCue (cue);
+        }
         rig.controller.goToCue (2);
         rig.feed (0.5);
         rig.snap (dir, "17f-live-setlist");

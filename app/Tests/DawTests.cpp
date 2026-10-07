@@ -2568,9 +2568,19 @@ namespace
 
             controller.keepScene (1);
             // The service in order: three cues, the second on now.
-            controller.addCue ({ "Walk-in", -1, {}, {}, {} });
-            controller.addCue ({ "Way Maker", 1, {}, "Lead singer", "Guitars, room mics" });
-            controller.addCue ({ "Sermon", 1, {}, {}, {} });
+            {
+                Cue walkIn { "Walk-in", CueKind::MusicPlayback, -1, {}, {} };
+                controller.fillCueFor (walkIn, CueKind::MusicPlayback);
+                Cue wayMaker { "Way Maker", CueKind::Band, 1, {}, {} };
+                controller.fillCueFor (wayMaker, CueKind::Band);
+                wayMaker.scene = 1;
+                wayMaker.who["lead"] = int (CueLevel::UpFront);
+                Cue sermon { "Sermon", CueKind::Speaking, -1, {}, {} };
+                controller.fillCueFor (sermon, CueKind::Speaking);
+                controller.addCue (walkIn);
+                controller.addCue (wayMaker);
+                controller.addCue (sermon);
+            }
             controller.restoreSetlist ([this] { auto s = controller.getSetlist(); s.current = 1; return s; }());
             controller.renameScene (1, "Sermon");
 
@@ -3045,7 +3055,9 @@ TEST_CASE ("SessionStore: a document from every version DINE has ever written st
         {
             REQUIRE (back.setlist.cues.size() == 3);
             CHECK (back.setlist == state.setlist);
-            CHECK (back.setlist.cues[1].louder == "Lead singer");
+            CHECK (back.setlist.cues[1].levelOf ("lead") == CueLevel::UpFront);
+            CHECK (back.setlist.cues[1].kind == CueKind::Band);
+            CHECK (back.setlist.cues[1].scene == 1);
             CHECK (back.setlist.cues[0].scene == -1);
             CHECK (back.setlist.current == 1);
         }
@@ -3074,14 +3086,18 @@ TEST_CASE ("SessionStore: a document from every version DINE has ever written st
     }
 }
 
-// THE SETLIST. Edits keep "Now" on the cue it pointed at; going to a cue is a scene recall
-// with its Mix history entry; a cue whose scene has nothing kept still moves the setlist on
-// and says the mix stayed; a favourite is found by name; the document carries all of it.
-TEST_CASE ("MixController: the setlist runs the service in order, and a cue is an ordinary scene recall")
+// THE SETLIST (v4's prototype). A cue says who is on - the sources by kind, each speaking mic
+// by name - and Softer / Normal / Up front for each; going to it mutes the rest and moves the
+// faders by the profile's step, after taking the last cue's moves back, so going to the same
+// cue twice, or away and back, lands in the same place. A cue may start from a kept scene.
+TEST_CASE ("MixController: a cue switches who is on, deterministically, and the setlist runs in order")
 {
-    FullSession live (true);
-    auto& c = live.controller;
-    c.restoreSetlist ({});
+    MixController c;
+    MixSession session;
+    session.inputs = { { "Kick", ChannelRole::KickIn, 0, -1 }, { "Bass", ChannelRole::BassDI, 1, -1 },
+                       { "Keys", ChannelRole::Piano, 2, 3 }, { "Lead", ChannelRole::LeadVocal, 4, -1 },
+                       { "Pastor", ChannelRole::Speech, 5, -1 }, { "Announcer", ChannelRole::SpeechHandheld, 6, -1 } };
+    c.setSession (session);
     std::vector<std::string> said;
     c.onMessage = [&] (const std::string& m) { said.push_back (m); };
 
@@ -3089,75 +3105,108 @@ TEST_CASE ("MixController: the setlist runs the service in order, and a cue is a
     REQUIRE (! said.empty());
     CHECK (said.back().find ("no setlist") != std::string::npos);
 
-    // Band (slot 0) has nothing kept; Speech (slot 1) was kept by the fixture.
-    c.addCue ({ "Welcome", 1, {}, {}, {} });
-    c.addCue ({ "Way Maker", 0, {}, "Lead singer", {} });
-    c.addCue ({ "Prayer", -1, {}, {}, {} });
-    REQUIRE (c.getSetlist().cues.size() == 3);
-    CHECK (c.getSetlist().current == -1);
+    // Who a cue is about: the sources by kind, each speaking mic by name.
+    const auto units = c.cueUnits();
+    std::vector<std::string> keys;
+    for (const auto& u : units) keys.push_back (u.key);
+    const std::vector<std::string> expected { "lead", "drums", "bass", "keys", "speech:Pastor", "speech:Announcer" };
+    CHECK (keys == expected);
 
-    // Cue 1 recalls Speech: the kept mix comes back and the Mix history says so.
-    auto mix = c.getKept();
-    mix.strips[0].faderDb = -20.0f;
-    c.restoreKept (mix, 2);
-    const auto checkpointsBefore = c.getCheckpoints().size();
+    auto stripOf = [&] (const char* name)
+    {
+        for (int s = 0; s < c.getGraph().numStrips(); ++s) if (c.getGraph().strips[size_t (s)].name == name) return s;
+        return -1;
+    };
+    const int lead = stripOf ("Lead"), pastor = stripOf ("Pastor"), keysStrip = stripOf ("Keys");
+    REQUIRE (lead >= 0); REQUIRE (pastor >= 0); REQUIRE (keysStrip >= 0);
+    const float leadBase = c.getKept().strips[size_t (lead)].faderDb;
+    const float keysBase = c.getKept().strips[size_t (keysStrip)].faderDb;
+    const auto steps = MixProfile::cueLevels (session.profile);
+
+    Cue welcome { "Welcome", CueKind::Speaking, -1, {}, {} };
+    c.fillCueFor (welcome, CueKind::Speaking);
+    Cue song { "Way Maker", CueKind::Band, -1, {}, {} };
+    c.fillCueFor (song, CueKind::Band);
+    song.who["lead"] = int (CueLevel::UpFront);
+    Cue prayer { "Prayer", CueKind::QuietMoment, -1, {}, {} };
+    c.fillCueFor (prayer, CueKind::QuietMoment);
+    CHECK (prayer.levelOf ("keys") == CueLevel::Softer);
+    CHECK (prayer.levelOf ("speech:Pastor") == CueLevel::Normal);
+    CHECK (prayer.levelOf ("drums") == CueLevel::Off);
+    c.addCue (welcome);
+    c.addCue (song);
+    c.addCue (prayer);
+
+    // Welcome: the speaking mics on, the band muted, nobody's fader moved.
     CHECK (c.goToNextCue());
     CHECK (c.getSetlist().current == 0);
-    CHECK_NEAR (c.getKept().strips[0].faderDb, -4.5f, 1e-3f);
-    CHECK (c.getCheckpoints().size() > checkpointsBefore);
+    CHECK (! c.getKept().strips[size_t (pastor)].mute);
+    CHECK (c.getKept().strips[size_t (lead)].mute);
+    CHECK_NEAR (c.getKept().strips[size_t (lead)].faderDb, leadBase, 1e-3f);
 
-    // Cue 2's scene has nothing kept: the setlist moves on, the mix stays, and it says why.
-    CHECK (! c.goToNextCue());
-    CHECK (c.getSetlist().current == 1);
-    CHECK_NEAR (c.getKept().strips[0].faderDb, -4.5f, 1e-3f);
-    CHECK (said.back().find ("nothing kept") != std::string::npos);
+    // The song: the band on, the lead up front, the speakers muted.
+    const auto checkpoints = c.getCheckpoints().size();
+    CHECK (c.goToNextCue());
+    CHECK (c.getCheckpoints().size() > checkpoints);              // a Mix history entry
+    CHECK (! c.getKept().strips[size_t (lead)].mute);
+    CHECK (c.getKept().strips[size_t (pastor)].mute);
+    CHECK_NEAR (c.getKept().strips[size_t (lead)].faderDb, leadBase + steps.upFrontDb, 1e-3f);
+    CHECK (c.cueNamesAt (song, CueLevel::UpFront) == "Lead singer");
+
+    // Deterministic: the same cue again, or away and back, lands in the same place.
+    c.goToCue (1);
+    CHECK_NEAR (c.getKept().strips[size_t (lead)].faderDb, leadBase + steps.upFrontDb, 1e-3f);
+    c.goToCue (2);                                                 // Prayer: keys softer, lead off
+    CHECK_NEAR (c.getKept().strips[size_t (keysStrip)].faderDb, keysBase + steps.softerDb, 1e-3f);
+    CHECK_NEAR (c.getKept().strips[size_t (lead)].faderDb, leadBase, 1e-3f);
+    c.goToCue (1);
+    CHECK_NEAR (c.getKept().strips[size_t (lead)].faderDb, leadBase + steps.upFrontDb, 1e-3f);
+    CHECK_NEAR (c.getKept().strips[size_t (keysStrip)].faderDb, keysBase, 1e-3f);
+    // A hand move between cues is kept: the cue moves from where the engineer left it.
+    c.setStripFader (keysStrip, keysBase - 2.0f);
+    c.goToCue (2);
+    CHECK_NEAR (c.getKept().strips[size_t (keysStrip)].faderDb, keysBase - 2.0f + steps.softerDb, 1e-3f);
+    c.goToCue (1);
+    CHECK_NEAR (c.getKept().strips[size_t (keysStrip)].faderDb, keysBase - 2.0f, 1e-3f);
+
+    // "Use what's on right now".
+    Cue now { "Now", CueKind::Band, -1, {}, {} };
+    c.fillCueFromNow (now);
+    CHECK (now.levelOf ("speech:Pastor") == CueLevel::Off);
+    CHECK (now.levelOf ("lead") == CueLevel::Normal);
 
     // Moving and removing cues keeps "Now" on the cue that is on.
-    c.moveCue (1, 0);                                   // Way Maker first
+    c.moveCue (1, 0);
     CHECK (c.getSetlist().cues[0].name == "Way Maker");
     CHECK (c.getSetlist().current == 0);
-    c.moveCue (2, 0);                                   // Prayer first: Way Maker is now second
+    c.moveCue (2, 0);
     CHECK (c.getSetlist().current == 1);
     c.removeCue (0);
     CHECK (c.getSetlist().cues[size_t (c.getSetlist().current)].name == "Way Maker");
-    c.updateCue (0, { "Way Maker (key of B)", 0, {}, "Lead singer", "Guitars" });
-    CHECK (c.getSetlist().cues[0].softer == "Guitars");
 
-    // A favourite is recalled by its name, and one that has gone is said, not guessed.
-    c.addCue ({ "Benediction", 0, "Not a favourite", {}, {} });
-    CHECK (! c.goToCue (2));
-    CHECK (said.back().find ("Not a favourite") != std::string::npos);
-    CHECK (c.getSetlist().current == 2);
-    CHECK (c.cueSceneName (c.getSetlist().cues[0]) == c.getScene (0).name);
-    CHECK (c.cueSceneName ({ "x", -1, {}, {}, {} }) == "As it is");
+    // A favourite gone is said, and the cue still switches who is on.
+    Cue gone { "Benediction", CueKind::Speaking, -1, "Not a favourite", {} };
+    c.fillCueFor (gone, CueKind::Speaking);
+    c.addCue (gone);
+    CHECK (c.goToCue (int (c.getSetlist().cues.size()) - 1));
+    CHECK (std::any_of (said.begin(), said.end(), [] (const std::string& m) { return m.find ("Not a favourite") != std::string::npos; }));
+    CHECK (! c.getKept().strips[size_t (pastor)].mute);
+    CHECK (c.cueSceneName ({ "x", CueKind::Band, -1, {}, {} }) == "As it is");
+
+    // Under LIVE SAFE a cue still goes: it is a recall, like a scene.
+    auto policy = c.getLiveSafePolicy();
+    policy.on = true;
+    c.setLiveSafePolicy (policy);
+    CHECK (c.goToCue (0));
+    CHECK (c.getSetlist().current == 0);
 
     // A favourite renamed takes the cues that recall it with it.
     if (c.markFavourite ("Choir in"))
     {
-        c.addCue ({ "Choir song", 0, "Choir in", {}, {} });
+        c.addCue ({ "Choir song", CueKind::Band, -1, "Choir in", {} });
         c.renameFavourite (c.numFavourites() - 1, "Choir");
         CHECK (c.getSetlist().cues.back().favourite == "Choir");
     }
-
-    // Under LIVE SAFE a cue still goes: a scene recall is allowed there.
-    auto policy = c.getLiveSafePolicy();
-    policy.on = true;
-    c.setLiveSafePolicy (policy);
-    CHECK (c.goToCue (1));                              // Welcome: Speech is kept, and comes back
-    CHECK (c.getSetlist().current == 1);
-    CHECK (! c.goToCue (0));                            // Way Maker: Band has nothing kept, the cue still moves
-    CHECK (c.getSetlist().current == 0);
-
-    // The document carries the setlist through capture and apply.
-    auto state = captureSession (c, live.daw, kDevices, 0);
-    CHECK (state.setlist == c.getSetlist());
-    SessionState back;
-    REQUIRE (SessionStore::fromVar (SessionStore::toVar (state), back));
-    CHECK (back.setlist == state.setlist);
-    MixController fresh;
-    DawEngine freshDaw { fresh };
-    applySession (back, fresh, freshDaw);
-    CHECK (fresh.getSetlist() == state.setlist);
 }
 
 TEST_CASE ("SessionStore: a corrupt file is held inside what a knob can reach, never played as written")

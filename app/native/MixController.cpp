@@ -772,6 +772,7 @@ void MixController::restoreSetlist (const Setlist& s)
     setlist = s;
     for (auto& c : setlist.cues) c.scene = std::clamp (c.scene, -1, kMixScenes - 1);
     setlist.current = std::clamp (setlist.current, -1, int (setlist.cues.size()) - 1);
+    cueOffsetDb.fill (0.0f);
 }
 
 int MixController::addCue (const Cue& cue, int at)
@@ -828,12 +829,108 @@ std::string MixController::cueSceneName (const Cue& c) const
     return s.name.empty() ? defaultSceneName (c.scene) : s.name;
 }
 
+// WHO A CUE IS ABOUT. The session's sources by the kind a volunteer names them by, and each
+// speaking microphone by its own name - the pastor's and the announcer's are switched on and
+// off separately. In the order a person reads a stage: voices, band, speakers, the room.
+std::string MixController::cueUnitOf (int input) const
+{
+    if (input < 0 || input >= int (session.inputs.size())) return {};
+    const auto& in = session.inputs[size_t (input)];
+    switch (roleFamily (in.role))
+    {
+        case RoleFamily::LeadVocal:                                   return "lead";
+        case RoleFamily::BackingVocal: case RoleFamily::Choir:
+        case RoleFamily::VocalBus:                                    return "bgv";
+        case RoleFamily::Kick: case RoleFamily::Snare: case RoleFamily::HiHat: case RoleFamily::Tom:
+        case RoleFamily::Overhead: case RoleFamily::Room: case RoleFamily::Bus:
+        case RoleFamily::Percussion: case RoleFamily::Shaker: case RoleFamily::DrumPad: return "drums";
+        case RoleFamily::ElectricBass: case RoleFamily::SynthBass: case RoleFamily::BassBus: return "bass";
+        case RoleFamily::AcousticGuitar: case RoleFamily::ElectricGuitar: case RoleFamily::GuitarBus: return "guitars";
+        case RoleFamily::Piano: case RoleFamily::ElectricPiano: case RoleFamily::Organ:
+        case RoleFamily::KeysBus:                                     return "keys";
+        case RoleFamily::Synth:                                       return "tracks";
+        case RoleFamily::Saxophone: case RoleFamily::Brass:           return "horns";
+        case RoleFamily::Speech:                                      return "speech:" + in.name;
+        case RoleFamily::Ambience: case RoleFamily::AmbienceBus:      return "room";
+        default:                                                      return "other";
+    }
+}
+
+std::vector<MixController::CueUnit> MixController::cueUnits() const
+{
+    static const std::pair<const char*, const char*> kOrder[] = {
+        { "lead", "Lead singer" }, { "bgv", "Backing singers" }, { "drums", "Drums" }, { "bass", "Bass" },
+        { "guitars", "Guitars" }, { "keys", "Keys" }, { "tracks", "Pads and backing tracks" }, { "horns", "Horns" },
+        { "other", "Everything else" } };
+    std::vector<CueUnit> out;
+    std::vector<std::string> present;
+    for (int i = 0; i < int (session.inputs.size()); ++i)
+        if (session.inputs[size_t (i)].enabled) present.push_back (cueUnitOf (i));
+    auto has = [&present] (const std::string& k) { return std::find (present.begin(), present.end(), k) != present.end(); };
+    for (const auto& u : kOrder) if (has (u.first)) out.push_back ({ u.first, u.second });
+    for (int i = 0; i < int (session.inputs.size()); ++i)
+    {
+        const auto key = cueUnitOf (i);
+        if (key.rfind ("speech:", 0) == 0 && session.inputs[size_t (i)].enabled
+            && std::none_of (out.begin(), out.end(), [&key] (const CueUnit& u) { return u.key == key; }))
+            out.push_back ({ key, session.inputs[size_t (i)].name });
+    }
+    if (has ("room")) out.push_back ({ "room", "Room and crowd mics" });
+    return out;
+}
+
+// What is happening, as v4's four presets say it: who is on for a song, for someone at the
+// mic, for speaking over soft keys, and for music playing on its own.
+void MixController::fillCueFor (Cue& cue, CueKind kind) const
+{
+    cue.kind = kind;
+    cue.who.clear();
+    for (const auto& u : cueUnits())
+    {
+        const bool speech = u.key.rfind ("speech:", 0) == 0;
+        CueLevel level = CueLevel::Off;
+        switch (kind)
+        {
+            case CueKind::Band:          level = speech ? CueLevel::Off : CueLevel::Normal; break;
+            case CueKind::Speaking:      level = speech ? CueLevel::Normal : CueLevel::Off; break;
+            case CueKind::QuietMoment:   level = speech ? CueLevel::Normal : u.key == "keys" || u.key == "tracks" ? CueLevel::Softer : CueLevel::Off; break;
+            case CueKind::MusicPlayback: level = u.key == "tracks" ? CueLevel::Normal : CueLevel::Off; break;
+            case CueKind::Count:         break;
+        }
+        if (u.key == "room") level = CueLevel::Normal;         // the building is always the building
+        cue.who[u.key] = int (level);
+    }
+}
+
+void MixController::fillCueFromNow (Cue& cue) const
+{
+    cue.who.clear();
+    std::map<std::string, bool> on;
+    for (int s = 0; s < graph.numStrips() && s < kept.numStrips; ++s)
+    {
+        const auto key = cueUnitOf (graph.strips[size_t (s)].input);
+        on[key] = on[key] || ! kept.strips[size_t (s)].mute;
+    }
+    for (const auto& u : cueUnits()) cue.who[u.key] = int (on[u.key] ? CueLevel::Normal : CueLevel::Off);
+}
+
+std::string MixController::cueNamesAt (const Cue& cue, CueLevel level) const
+{
+    std::string out;
+    for (const auto& u : cueUnits())
+        if (cue.levelOf (u.key) == level) out += (out.empty() ? "" : ", ") + u.name;
+    return out;
+}
+
+// GOING TO A CUE. From its scene or favourite when it has one (an ordinary recall), else from
+// the mix as it is with the last cue's own moves taken back; then everyone it switches off is
+// muted, everyone on is heard, and Softer and Up front move their faders by the profile's
+// step (MixProfile::cueLevels). Going to the same cue twice lands in the same place.
 bool MixController::goToCue (int index)
 {
-    if (index < 0 || index >= int (setlist.cues.size())) return false;
+    if (index < 0 || index >= int (setlist.cues.size()) || ! built) return false;
     const auto cue = setlist.cues[size_t (index)];
     setlist.current = index;
-    touch();
     const std::string where = "Cue " + std::to_string (index + 1) + ": " + cue.name;
 
     int slot = cue.scene;
@@ -842,22 +939,31 @@ bool MixController::goToCue (int index)
         slot = -1;
         for (int i = kMixScenes; i < int (scenes.size()); ++i)
             if (scenes[size_t (i)].name == cue.favourite) { slot = i; break; }
-        if (slot < 0)
-        {
-            if (onMessage) onMessage (where + ". The favourite " + cue.favourite + " is not in this session any more, so the mix stayed as it is.");
-            return false;
-        }
+        if (slot < 0 && onMessage) onMessage ("The favourite " + cue.favourite + " is not in this session any more, so this cue starts from the mix as it is.");
     }
-    if (slot < 0)
+    const bool recalled = slot >= 0 && recallScene (slot);
+    if (recalled) cueOffsetDb.fill (0.0f);
+
+    markMixChange ("going to " + cue.name);
+    autopilotRelearn();
+    const auto steps = MixProfile::cueLevels (session.profile);
+    const MixParameters was = kept;
+    for (int s = 0; s < graph.numStrips() && s < kept.numStrips; ++s)
     {
-        if (onMessage) onMessage (where + ". This cue keeps the mix as it is.");
-        mark (where);
-        return false;
+        auto& st = kept.strips[size_t (s)];
+        st.faderDb -= cueOffsetDb[size_t (s)];               // the last cue's move, taken back
+        const auto level = cue.levelOf (cueUnitOf (graph.strips[size_t (s)].input));
+        const float offset = level == CueLevel::Softer ? steps.softerDb : level == CueLevel::UpFront ? steps.upFrontDb : 0.0f;
+        st.mute = level == CueLevel::Off;
+        st.faderDb = std::clamp (st.faderDb + offset, kSilenceDb, 12.0f);
+        cueOffsetDb[size_t (s)] = offset;
     }
-    // recallScene says what it did, or why it could not; the setlist has moved on either way.
-    const bool recalled = recallScene (slot);
-    if (! recalled) mark (where);
-    return recalled;
+    for (int i = 0; i < kept.numStrips && i < was.numStrips; ++i)
+        recordStripTune (i, where, was.strips[size_t (i)], kept.strips[size_t (i)]);
+    publish();
+    if (onMessage) onMessage (where + ".");
+    mark (where);
+    return true;
 }
 
 bool MixController::goToNextCue()

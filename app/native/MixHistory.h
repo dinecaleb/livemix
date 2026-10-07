@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -113,21 +114,38 @@ struct MixScene
 inline constexpr int kMixScenes = 4;
 
 // ---------------------------------------------------------------------------
-// THE SETLIST: the service in order. A cue is a moment in it - a song, the welcome, the
-// sermon - with the scene it brings back and two notes for whoever is at the desk ("Louder:
-// lead singer", "Softer: guitars"). Going to a cue is an ordinary scene recall, with its Mix
-// history entry; a cue with no scene (or one nothing is kept under) still moves the setlist
-// on and leaves the mix as it is, and says so.
+// THE SETLIST: the service in order (v4's prototype). A cue is a moment in it - a song, the
+// welcome, the sermon - and what is happening in it: who is on, and for each who is on,
+// Softer, Normal or Up front. Everyone the cue switches off is muted when it starts. "Who"
+// is the session's sources by kind (the lead singer, the backing singers, the drums, the
+// keys...) and each speaking microphone by name (MixController::cueUnits). A cue may also
+// start from a kept scene or favourite; without one it starts from the mix as it is. Going
+// to a cue is one Mix history entry.
 // ---------------------------------------------------------------------------
+enum class CueKind : int { Band = 0, Speaking, QuietMoment, MusicPlayback, Count };
+inline const char* cueKindName (CueKind k) noexcept
+{
+    switch (k) { case CueKind::Band: return "Band"; case CueKind::Speaking: return "Speaking";
+                 case CueKind::QuietMoment: return "Quiet moment"; case CueKind::MusicPlayback: return "Music playback";
+                 default: return "Band"; }
+}
+// Who is on, and how: off (muted), softer, normal or up front.
+enum class CueLevel : int { Off = -2, Softer = -1, Normal = 0, UpFront = 1 };
 struct Cue
 {
     std::string name;
-    int scene = 0;                 // one of the four scene slots; -1 = the cue keeps the mix as it is
-    std::string favourite;         // a kept favourite by name; when set it is what the cue recalls
-    std::string louder, softer;    // the desk's notes: what should come up, what should go down
+    CueKind kind = CueKind::Band;
+    int scene = -1;                // start from one of the four scene slots; -1 = from the mix as it is
+    std::string favourite;         // or from a kept favourite, by name
+    std::map<std::string, int> who;   // unit key -> CueLevel; a unit not here is on, at Normal
+    CueLevel levelOf (const std::string& unit) const
+    {
+        const auto it = who.find (unit);
+        return it == who.end() ? CueLevel::Normal : CueLevel (it->second);
+    }
     bool operator== (const Cue& o) const
     {
-        return name == o.name && scene == o.scene && favourite == o.favourite && louder == o.louder && softer == o.softer;
+        return name == o.name && kind == o.kind && scene == o.scene && favourite == o.favourite && who == o.who;
     }
 };
 struct Setlist

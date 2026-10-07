@@ -143,6 +143,13 @@ float reverbBeats (StyleProfileId profile, FxSlot slot)
     return beats;
 }
 
+CueLevels cueLevels (StyleProfileId profile)
+{
+    CueLevels c;                                   // Modern Gospel: -4 / +3
+    if (profile == StyleProfileId::TalkPodcast) c.softerDb = -6.0f;   // a voice over a bed: the bed goes further down
+    return c;
+}
+
 float defaultPan (ChannelRole role)
 {
     switch (role)

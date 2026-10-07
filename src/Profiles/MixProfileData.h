@@ -29,6 +29,11 @@ namespace MixProfile
     // halls and ambiences are meant to outlast the bar).
     float reverbBeats (StyleProfileId profile, FxSlot slot);
 
+    // A SETLIST CUE'S LEVELS: how far Softer and Up front move a source's fader from where the
+    // cue found it. Volunteer-sized steps - audible, never a rebalance.
+    struct CueLevels { float softerDb = -4.0f; float upFrontDb = 3.0f; };
+    CueLevels cueLevels (StyleProfileId profile);
+
     // Where a source sits left-right when there is one of it (-1..1). Several
     // sources of the same role are spread around this by RoutingGraph.
     float defaultPan (ChannelRole role);

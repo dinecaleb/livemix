@@ -895,7 +895,12 @@ void LivePage::refresh()
 
     // THE SETLIST, and what each view would hold.
     next.setlist = controller.getSetlist();
-    for (const auto& cue : next.setlist.cues) next.cueScenes.add (juce::String (controller.cueSceneName (cue)));
+    for (const auto& cue : next.setlist.cues)
+    {
+        next.cueScenes.add (juce::String (cueKindName (cue.kind)));
+        next.cueLouder.add (juce::String (controller.cueNamesAt (cue, CueLevel::UpFront)));
+        next.cueSofter.add (juce::String (controller.cueNamesAt (cue, CueLevel::Softer)));
+    }
     {
         int on = 0, used = 0;
         for (int t = 0; t < kGroupBuses; ++t)
@@ -986,6 +991,7 @@ void LivePage::refresh()
     {
         const bool reflow = next.safe != look.safe || next.autopilotOn != look.autopilotOn
                          || next.setlist != look.setlist || next.cueScenes != look.cueScenes || next.counts != look.counts
+                         || next.cueLouder != look.cueLouder || next.cueSofter != look.cueSofter
                          || next.attentionStrips != look.attentionStrips
                          || next.priorityOn != look.priorityOn || next.shareOn != look.shareOn || next.speakingMics != look.speakingMics
                          || next.autopilotLog != look.autopilotLog || next.monitorNote != look.monitorNote
@@ -1170,16 +1176,17 @@ void LivePage::paint (juce::Graphics& g)
         if (next >= 0)
         {
             const auto& cue = sl.cues[size_t (next)];
-            for (const auto& note : { std::pair<const char*, const std::string*> { "Louder", &cue.louder }, { "Softer", &cue.softer } })
+            juce::ignoreUnused (cue);
+            for (const auto& note : { std::pair<const char*, juce::String> { "Louder", look.cueLouder[next] }, { "Softer", look.cueSofter[next] } })
             {
-                if (note.second->empty()) continue;
+                if (note.second.isEmpty()) continue;
                 r.removeFromTop (6);
                 auto line = r.removeFromTop (14);
                 g.setColour (Dine::ink3);
                 g.setFont (calloutFont());
                 Dine::drawText (g, note.first, line.removeFromLeft (Dine::textWidth (calloutFont(), note.first) + 12), juce::Justification::centredLeft, false);
                 g.setColour (Dine::ink);
-                Dine::drawFittedText (g, juce::String (*note.second), line, juce::Justification::centredRight, 1, 0.85f);
+                Dine::drawFittedText (g, note.second, line, juce::Justification::centredRight, 1, 0.85f);
             }
         }
     }
@@ -1507,7 +1514,8 @@ void LivePage::resized()
             if (next >= 0)
             {
                 const auto& cue = sl.cues[size_t (next)];
-                h += (cue.louder.empty() ? 0 : 20) + (cue.softer.empty() ? 0 : 20) + 10 + 36;
+                juce::ignoreUnused (cue);
+                h += (look.cueLouder[next].isEmpty() ? 0 : 20) + (look.cueSofter[next].isEmpty() ? 0 : 20) + 10 + 36;
             }
             h += kCardPadY;
             l.upNext = rail.removeFromTop (h);

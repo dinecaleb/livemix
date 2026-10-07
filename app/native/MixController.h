@@ -374,8 +374,17 @@ public:
     void removeCue (int index);
     bool goToCue (int index);                             // true when the mix changed
     bool goToNextCue();
-    // What a cue recalls, in words: the scene's or favourite's name, or "as it is".
+    // What a cue starts from, in words: the scene's or favourite's name, or "As it is".
     std::string cueSceneName (const Cue&) const;
+    // WHO A CUE IS ABOUT: this session's sources by kind, and each speaking microphone by name.
+    struct CueUnit { std::string key, name; };
+    std::vector<CueUnit> cueUnits() const;
+    std::string cueUnitOf (int input) const;          // the unit a session input belongs to
+    // A cue's "who" filled from what is happening (v4's four presets), or from what is on now.
+    void fillCueFor (Cue&, CueKind) const;
+    void fillCueFromNow (Cue&) const;
+    // The names of the units a cue has at a level ("Lead singer", "Guitars"), for Up next.
+    std::string cueNamesAt (const Cue&, CueLevel) const;
 
     // ---- FAVOURITE MIXES: the ones that worked, kept and measured ----
     //
@@ -997,6 +1006,8 @@ private:
 
     std::vector<MixScene> scenes = std::vector<MixScene> (size_t (kMixScenes));
     Setlist setlist;
+    // What the last cue did to each strip's fader, so the next one starts from the mix without it.
+    std::array<float, kMaxStrips> cueOffsetDb {};
     MixFingerprint measureNow() const;      // what the mix that is running actually sounds like
     std::vector<MixCheckpoint> checkpoints;
     long long lastCheckpointMs = 0;     // the slow beat: see poll()
