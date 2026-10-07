@@ -1507,15 +1507,18 @@ void DineKnob::apply (double v)
 // ============================================================================ DineMeter
 void DineMeter::setLevels (float peakDb, float holdDb, bool clip)
 {
-    if (clip) clipped = true;
     // Rise at once, fall at 60 dB a second wherever the frame rate is.
     const auto now = juce::Time::getMillisecondCounter();
     const float dt = lastMs == 0 ? 1.0f / 30.0f : juce::jlimit (0.0f, 0.25f, float (now - lastMs) / 1000.0f);
     lastMs = now;
+    // A clip is lit for kClipHoldMs after the last one, then goes out by itself: a light that
+    // never clears says nothing about whether the channel is still clipping.
+    if (clip) clipUntilMs = now + kClipHoldMs;
+    const bool clipNow = clipUntilMs != 0 && (int) (clipUntilMs - now) > 0;
     const float newPeak = juce::jmax (peakDb, peak - 60.0f * dt);
     const float newHold = juce::jmax (holdDb, hold - 30.0f * dt);
-    if (std::abs (newPeak - peak) < 0.05f && std::abs (newHold - hold) < 0.05f) return;
-    peak = newPeak; hold = newHold;
+    if (std::abs (newPeak - peak) < 0.05f && std::abs (newHold - hold) < 0.05f && clipNow == clipped) return;
+    peak = newPeak; hold = newHold; clipped = clipNow;
     repaint();
 }
 

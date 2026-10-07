@@ -1,5 +1,6 @@
 #include "LevelMeter.h"
 #include "Core/DbUtils.h"
+#include <algorithm>
 #include <cmath>
 
 namespace livemix
@@ -20,8 +21,8 @@ void LevelMeter::reset() noexcept
         meanSquare[size_t (ch)] = 0.0f;
         peak[size_t (ch)].store (0.0f, std::memory_order_relaxed);
         rms[size_t (ch)].store (0.0f, std::memory_order_relaxed);
+        peakSinceRead[size_t (ch)].store (0.0f, std::memory_order_relaxed);
     }
-    peakSinceRead.store (0.0f, std::memory_order_relaxed);
     clipped.store (false, std::memory_order_relaxed);
 }
 
@@ -29,7 +30,6 @@ void LevelMeter::process (AudioBlockView& block) noexcept
 {
     const int numCh = block.numChannels < kMaxChannels ? block.numChannels : kMaxChannels;
     bool clip = false;
-    float blockPeak = 0.0f;
     for (int ch = 0; ch < numCh; ++ch)
     {
         const float* data = block.channel (ch);
@@ -45,19 +45,27 @@ void LevelMeter::process (AudioBlockView& block) noexcept
         if (ms < 1.0e-20f) ms = 0.0f;
         meanSquare[size_t (ch)] = ms;
         if (p >= 1.0f) clip = true;
-        if (p > blockPeak) blockPeak = p;
         peak[size_t (ch)].store (p, std::memory_order_relaxed);
         rms[size_t (ch)].store (std::sqrt (ms), std::memory_order_relaxed);
+        // Lock-free max-accumulate: the reader exchanges it back to 0.
+        auto& since = peakSinceRead[size_t (ch)];
+        float held = since.load (std::memory_order_relaxed);
+        while (p > held && ! since.compare_exchange_weak (held, p, std::memory_order_relaxed)) {}
     }
     if (clip) clipped.store (true, std::memory_order_relaxed);
-    // Lock-free max-accumulate: the reader exchanges it back to 0.
-    float held = peakSinceRead.load (std::memory_order_relaxed);
-    while (blockPeak > held && ! peakSinceRead.compare_exchange_weak (held, blockPeak, std::memory_order_relaxed)) {}
 }
 
 float LevelMeter::consumeMaxPeakDb() const noexcept
 {
-    return gainToDb (peakSinceRead.exchange (0.0f, std::memory_order_relaxed));
+    float most = 0.0f;
+    for (auto& since : peakSinceRead) most = std::max (most, since.exchange (0.0f, std::memory_order_relaxed));
+    return gainToDb (most);
+}
+
+void LevelMeter::consumePeaksDb (float* out) const noexcept
+{
+    for (int ch = 0; ch < kMaxChannels; ++ch)
+        out[ch] = gainToDb (peakSinceRead[size_t (ch)].exchange (0.0f, std::memory_order_relaxed));
 }
 
 float LevelMeter::getPeakDb (int ch) const noexcept

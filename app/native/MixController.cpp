@@ -2193,9 +2193,21 @@ void MixController::takeMeterSnapshot() noexcept
     meterStrip.fill (-120.0f);
     meterBus.fill (-120.0f);
     meterFx.fill (-120.0f);
+    for (auto& p : meterStripSides) p.fill (-120.0f);
+    for (auto& p : meterBusSides) p.fill (-120.0f);
     if (! isPrepared()) return;
-    for (int i = 0; i < engine.getNumStrips() && i < kMaxStrips; ++i) meterStrip[size_t (i)] = engine.getStrip (i).getOutputMeter().consumeMaxPeakDb();
-    for (int b = 0; b < int (MixBus::Count); ++b) meterBus[size_t (b)] = engine.getBus (MixBus (b)).getOutputMeter().consumeMaxPeakDb();
+    for (int i = 0; i < engine.getNumStrips() && i < kMaxStrips; ++i)
+    {
+        auto& sides = meterStripSides[size_t (i)];
+        engine.getStrip (i).getOutputMeter().consumePeaksDb (sides.data());
+        meterStrip[size_t (i)] = std::max (sides[0], sides[1]);
+    }
+    for (int b = 0; b < int (MixBus::Count); ++b)
+    {
+        auto& sides = meterBusSides[size_t (b)];
+        engine.getBus (MixBus (b)).getOutputMeter().consumePeaksDb (sides.data());
+        meterBus[size_t (b)] = std::max (sides[0], sides[1]);
+    }
     for (int f = 0; f < int (FxSlot::Count); ++f) meterFx[size_t (f)] = engine.getFx (FxSlot (f)).getOutputMeter().consumeMaxPeakDb();
 }
 

@@ -387,13 +387,16 @@ public:
             const auto& m = controller.getEngine().getStrip (strip).getOutputMeter();
             peak = controller.stripPeakDb (strip);
             hold = m.getMaxRmsDb();
-            clipped = m.hasClipped();
-            // A stereo strip is metered as a pair (v4), so one side going is seen.
+            clipped = DineMeter::isClip (peak);
+            // A stereo strip is metered as a pair (v4), so one side going is seen - each side
+            // from its own peak since the last tick, so a short one is not missed.
             if (stereo && m.getNumChannels() > 1)
             {
-                meterRight.setLevels (juce::jmax (m.getPeakDb (1), -120.0f), m.getRmsDb (1), clipped);
-                peak = juce::jmax (m.getPeakDb (0), -120.0f);
+                const float right = controller.stripPeakDb (strip, 1);
+                meterRight.setLevels (juce::jmax (right, -120.0f), m.getRmsDb (1), DineMeter::isClip (right));
+                peak = juce::jmax (controller.stripPeakDb (strip, 0), -120.0f);
                 hold = m.getRmsDb (0);
+                clipped = DineMeter::isClip (peak);
             }
         }
         else if (kind == Kind::Return)
@@ -405,7 +408,7 @@ public:
             const auto& m = controller.getEngine().getFx (FxSlot (slot)).getOutputMeter();
             peak = controller.fxPeakDb (FxSlot (slot));
             hold = m.getMaxRmsDb();
-            clipped = m.hasClipped();
+            clipped = DineMeter::isClip (peak);
         }
         else
         {
@@ -416,14 +419,16 @@ public:
             const auto& m = controller.getEngine().getBus (bus).getOutputMeter();
             peak = controller.busPeakDb (bus);
             hold = m.getMaxRmsDb();
-            clipped = m.hasClipped();
+            clipped = DineMeter::isClip (peak);
             // The master is metered in stereo, because a broadcast that has gone mono, or one
             // side that has gone, is the one thing a single bar cannot say.
             if (kind == Kind::Master && m.getNumChannels() > 1)
             {
-                meterRight.setLevels (juce::jmax (m.getPeakDb (1), -120.0f), m.getRmsDb (1), clipped);
-                peak = juce::jmax (m.getPeakDb (0), -120.0f);
+                const float right = controller.busPeakDb (bus, 1);
+                meterRight.setLevels (juce::jmax (right, -120.0f), m.getRmsDb (1), DineMeter::isClip (right));
+                peak = juce::jmax (controller.busPeakDb (bus, 0), -120.0f);
                 hold = m.getRmsDb (0);
+                clipped = DineMeter::isClip (peak);
             }
         }
 

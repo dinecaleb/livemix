@@ -25,6 +25,10 @@ public:
     // A UI timer only sees one block in many; this is what a meter or health chip must read,
     // otherwise short peaks between timer ticks are missed and the input reads too low.
     float consumeMaxPeakDb() const noexcept; // const: the accumulator is a reader-owned atomic, the editors hold const refs
+    // The same, one figure per channel (a stereo meter draws two bars, and each has to see its
+    // own short peaks). `out` gets kMaxChannels values. It takes the same accumulator as
+    // consumeMaxPeakDb, so a meter has one reader of either, never both.
+    void consumePeaksDb (float* out) const noexcept;
     bool hasClipped() const noexcept { return clipped.load (std::memory_order_relaxed); }
     void clearClip() noexcept { clipped.store (false, std::memory_order_relaxed); }
     int getNumChannels() const noexcept { return channels; }
@@ -34,7 +38,7 @@ private:
     float rmsCoeff = 0.01f;
     std::array<float, kMaxChannels> meanSquare {};
     std::array<std::atomic<float>, kMaxChannels> peak {};
-    mutable std::atomic<float> peakSinceRead { 0.0f };
+    mutable std::array<std::atomic<float>, kMaxChannels> peakSinceRead {};
     std::array<std::atomic<float>, kMaxChannels> rms {};
     std::atomic<bool> clipped { false };
 };

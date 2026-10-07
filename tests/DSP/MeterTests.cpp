@@ -48,6 +48,26 @@ TEST_CASE ("LevelMeter: a short peak between UI reads is kept until the UI consu
     CHECK (m.consumeMaxPeakDb() <= -120.0f);
 }
 
+TEST_CASE ("LevelMeter: each side of a stereo meter keeps its own short peak until it is read")
+{
+    // A stereo meter draws two bars: a hit on the right alone, between two UI reads, has to
+    // reach the right bar and only the right bar.
+    LevelMeter m;
+    m.prepare (48000.0, 64, 2);
+    testsig::Buffer hit (2, 64), quiet (2, 64);
+    hit.data[1][5] = 0.9f;
+    for (int i = 0; i < 64; ++i) { quiet.data[0][i] = quiet.data[1][i] = 0.01f * ((i % 2) ? 1.0f : -1.0f); }
+    auto hv = hit.view(); m.process (hv);
+    for (int b = 0; b < 11; ++b) { auto qv = quiet.view(); m.process (qv); }
+    CHECK_NEAR (m.getPeakDb (1), -40.0f, 0.1f);       // the last block has forgotten it
+    float sides[kMaxChannels] {};
+    m.consumePeaksDb (sides);
+    CHECK_NEAR (sides[0], -40.0f, 0.1f);
+    CHECK_NEAR (sides[1], -0.92f, 0.1f);
+    m.consumePeaksDb (sides);
+    CHECK (sides[1] <= -120.0f);                       // consumed
+}
+
 TEST_CASE ("LevelMeter: silence reads as floor")
 {
     LevelMeter m;

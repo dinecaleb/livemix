@@ -284,6 +284,9 @@ public:
     float stripPeakDb (int strip) const noexcept { return strip >= 0 && strip < kMaxStrips ? meterStrip[size_t (strip)] : -120.0f; }
     float busPeakDb (MixBus b) const noexcept    { return int (b) >= 0 && int (b) < int (MixBus::Count) ? meterBus[size_t (b)] : -120.0f; }
     float fxPeakDb (FxSlot f) const noexcept     { return int (f) >= 0 && int (f) < int (FxSlot::Count) ? meterFx[size_t (f)] : -120.0f; }
+    // One side of a stereo strip or bus, from the same snapshot: 0 = left, 1 = right.
+    float stripPeakDb (int strip, int side) const noexcept { return strip >= 0 && strip < kMaxStrips && (side == 0 || side == 1) ? meterStripSides[size_t (strip)][size_t (side)] : -120.0f; }
+    float busPeakDb (MixBus b, int side) const noexcept    { return int (b) >= 0 && int (b) < int (MixBus::Count) && (side == 0 || side == 1) ? meterBusSides[size_t (b)][size_t (side)] : -120.0f; }
     Stage getStage() const noexcept { return stage; }
     bool isListening() const noexcept { return stage == Stage::Listening; }
     bool isWaitingForBand() const noexcept { return capture.getState() == MixCapture::State::Waiting; }
@@ -1035,6 +1038,8 @@ private:
     std::array<float, kMaxStrips> meterStrip = filledArray<kMaxStrips> (-120.0f);
     std::array<float, int (MixBus::Count)> meterBus = filledArray<int (MixBus::Count)> (-120.0f);
     std::array<float, int (FxSlot::Count)> meterFx = filledArray<int (FxSlot::Count)> (-120.0f);
+    std::array<std::array<float, 2>, kMaxStrips> meterStripSides {};
+    std::array<std::array<float, 2>, int (MixBus::Count)> meterBusSides {};
     template <int N> static std::array<float, N> filledArray (float v) { std::array<float, N> a; a.fill (v); return a; }
     // What the last cue did to each strip's fader, so the next one starts from the mix without it.
     std::array<float, kMaxStrips> cueOffsetDb {};

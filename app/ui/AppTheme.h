@@ -643,7 +643,11 @@ public:
     explicit DineMeter (Style s = Style::Segments) : style (s) { setInterceptsMouseClicks (false, false); setOpaque (false); }
 
     // Ballistics are in time, not frames: the level falls 60 dB/s whatever the frame rate.
+    // `clipped` means "a clip since the last call"; the light holds kClipHoldMs after it.
     void setLevels (float peakDb, float holdDb, bool clipped);
+    static constexpr juce::uint32 kClipHoldMs = 4000;
+    // A peak (since the last tick) at full scale: what LevelMeter itself calls a clip.
+    static bool isClip (float peakDb) noexcept { return peakDb >= -0.001f; }
     float getPeakDb() const noexcept { return peak; }
     void setMuted (bool);
     void setStyle (Style s) { style = s; repaint(); }
@@ -654,7 +658,7 @@ public:
 private:
     Style style;
     float peak = -120.0f, hold = -120.0f;
-    juce::uint32 lastMs = 0;
+    juce::uint32 lastMs = 0, clipUntilMs = 0;
     bool clipped = false, muted = false;
 };
 
