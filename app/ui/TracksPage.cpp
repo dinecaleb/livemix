@@ -489,7 +489,7 @@ void TracksPage::refresh()
         {
             const int strip = strips[size_t (i)];
             if (strip < 0 || strip >= controller.getEngine().getNumStrips()) { peaks[size_t (i)] = -120.0f; continue; }
-            const float now = controller.getEngine().getStrip (strip).getOutputMeter().consumeMaxPeakDb();
+            const float now = controller.stripPeakDb (strip);
             peaks[size_t (i)] = juce::jmax (now, peaks[size_t (i)] - 2.0f);
         }
     }

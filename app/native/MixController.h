@@ -275,6 +275,15 @@ public:
 
     void abortTuneMix();                  // cancels whichever listen is running - the mix's or a channel's
     void poll();                                        // message thread, ~30 Hz: advances Listening -> Planning -> Preview
+
+    // ---- ONE METER READING PER TICK ----
+    // LevelMeter::consumeMaxPeakDb has one reader: two pages reading the same meter used to take
+    // each other's peaks. poll() takes every strip's, bus's and return's once per tick here, and
+    // every page and window reads the snapshot - the loudest since the last tick, for all of them.
+    void takeMeterSnapshot() noexcept;
+    float stripPeakDb (int strip) const noexcept { return strip >= 0 && strip < kMaxStrips ? meterStrip[size_t (strip)] : -120.0f; }
+    float busPeakDb (MixBus b) const noexcept    { return int (b) >= 0 && int (b) < int (MixBus::Count) ? meterBus[size_t (b)] : -120.0f; }
+    float fxPeakDb (FxSlot f) const noexcept     { return int (f) >= 0 && int (f) < int (FxSlot::Count) ? meterFx[size_t (f)] : -120.0f; }
     Stage getStage() const noexcept { return stage; }
     bool isListening() const noexcept { return stage == Stage::Listening; }
     bool isWaitingForBand() const noexcept { return capture.getState() == MixCapture::State::Waiting; }
@@ -1006,6 +1015,10 @@ private:
 
     std::vector<MixScene> scenes = std::vector<MixScene> (size_t (kMixScenes));
     Setlist setlist;
+    std::array<float, kMaxStrips> meterStrip = filledArray<kMaxStrips> (-120.0f);
+    std::array<float, int (MixBus::Count)> meterBus = filledArray<int (MixBus::Count)> (-120.0f);
+    std::array<float, int (FxSlot::Count)> meterFx = filledArray<int (FxSlot::Count)> (-120.0f);
+    template <int N> static std::array<float, N> filledArray (float v) { std::array<float, N> a; a.fill (v); return a; }
     // What the last cue did to each strip's fader, so the next one starts from the mix without it.
     std::array<float, kMaxStrips> cueOffsetDb {};
     MixFingerprint measureNow() const;      // what the mix that is running actually sounds like

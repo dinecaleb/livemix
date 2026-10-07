@@ -252,6 +252,12 @@ private:
     std::unique_ptr<PerfOverlay> perfOverlay;   // Cmd-Option-P, Debug or DINE_PERF_HUD=1
 
     void timerCallback() override;
+    void tickBackground();                    // what never stops: poll, autosave, the microphone
+    void tickFrame (bool mainShowing);        // what is drawn, at most 30 times a second
+    void onVBlank();
+    juce::uint32 lastFrameMs = 0, lastVBlankMs = 0;
+    int frameTicks = 0;
+    std::unique_ptr<juce::VBlankAttachment> frameClock;
     void closeMixerWindow();
     void handleCommand (int id);
     void enterSession();

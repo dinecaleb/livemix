@@ -1239,13 +1239,13 @@ void AdvancedPage::refresh()
         {
             const auto& m = engine.getStrip (r->strip).getOutputMeter();
             const auto& st = kept.strips[size_t (r->strip)];
-            r->set (m.consumeMaxPeakDb(), db1 (st.faderDb), st.mute, st.solo);
+            r->set (controller.stripPeakDb (r->strip), db1 (st.faderDb), st.mute, st.solo);
         }
         else
         {
             const auto& m = engine.getBus (r->bus).getOutputMeter();
             const auto& b = kept.buses[size_t (r->bus)];
-            r->set (m.consumeMaxPeakDb(), db1 (b.faderDb), b.mute, b.solo);
+            r->set (controller.busPeakDb (r->bus), db1 (b.faderDb), b.mute, b.solo);
         }
     }
 

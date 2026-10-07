@@ -137,7 +137,7 @@ public:
             {
                 const auto& st = p.strips[size_t (group)];
                 faderDb = juce::jmax (st.faderDb, -60.0f); m = st.mute; s = st.solo;
-                peak = controller.getEngine().getStrip (group).getOutputMeter().consumeMaxPeakDb();
+                peak = controller.stripPeakDb (group);
             }
         }
         else if (isFx())
@@ -150,7 +150,7 @@ public:
             {
                 const auto& engine = controller.getEngine();
                 for (int f = 0; f < int (FxSlot::Count); ++f)
-                    if (engine.isFxUsed (FxSlot (f))) { ++returns; peak = juce::jmax (peak, engine.getFx (FxSlot (f)).getOutputMeter().consumeMaxPeakDb()); }
+                    if (engine.isFxUsed (FxSlot (f))) { ++returns; peak = juce::jmax (peak, controller.fxPeakDb (FxSlot (f))); }
             }
             isUsed = returns > 0;
         }
@@ -159,14 +159,14 @@ public:
             const auto& fp = p.fx[size_t (slot())];
             faderDb = juce::jmax (fp.returnDb, -60.0f); m = fp.mute; s = fp.solo;
             isUsed = controller.isPrepared() && controller.getEngine().isFxUsed (slot());
-            if (isUsed) peak = controller.getEngine().getFx (slot()).getOutputMeter().consumeMaxPeakDb();
+            if (isUsed) peak = controller.fxPeakDb (slot());
         }
         else
         {
             const auto& b = p.buses[size_t (bus())];
             faderDb = b.faderDb; m = b.mute; s = b.solo;
             isUsed = controller.isPrepared() && controller.getEngine().isBusUsed (bus());
-            if (isUsed) peak = controller.getEngine().getBus (bus()).getOutputMeter().consumeMaxPeakDb();
+            if (isUsed) peak = controller.busPeakDb (bus());
         }
         updating = true;
         if (! fader.isMouseButtonDown() && std::fabs (faderDb - float (fader.getValue())) > 0.01f)

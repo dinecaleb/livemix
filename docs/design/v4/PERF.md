@@ -55,15 +55,40 @@ These need the real application on the booth Mac with audio running; DINE is not
 | No growth over 3 h; 0 dropouts in a 30-min soak | Loop a take, cycle the pages; the status line's "dropped" count and RSS at the start and the end. |
 | Instruments hot spots | Time Profiler and Allocations over the soak; anything on the audio thread from the UI is a bug. |
 
-## Known structural work (not done in the visual pass)
+## The clock and the meters (C5, 2026-10-06)
 
-- **One clock.** MainView's 30 Hz timer drives every page; the detached Mixer and page windows run their
-  own 30 Hz timers, and the macro pads a 60 Hz one while they animate. The brief asks for one shared
-  `VBlankAttachment` that stops when the window is hidden. Autopilot, the autosave and the microphone
-  follow-up must keep running when it stops (`GAPS.md`, performance findings).
-- **Meters read by consuming.** `consumeMaxPeakDb` is single-reader, and the Mixer, TUNE, LIVE and the
-  detached windows each consume the same meters, so a page can take another's peak. One snapshot per tick
-  in the model layer fixes it with no engine change.
-- **Virtualised strips and rows.** The Mixer builds a component per strip and the Inputs table one per row;
-  at 128 channels both are fine on this Mac (the Mixer's warm repaint is 2.4 ms), but the brief asks for
-  recycled components. Measure first (the RSS and scroll rows above) before changing it.
+Measured with `dine_ui_snapshots --frames 128` immediately before and after, same Mac, nothing else
+building (ms; fastest of 7 rounds):
+
+| Workspace | tick before | tick after | warm before | warm after | cold before | cold after |
+| --- | --- | --- | --- | --- | --- | --- |
+| Tracks | 1.45 | **1.24** | 3.70 | 3.99 | 3.98 | 3.97 |
+| Mixer | 1.44 | **1.25** | 2.58 | 2.55 | 7.03 | 6.64 |
+| Tune | 1.43 | **1.24** | 3.17 | 3.37 | 9.28 | 9.66 |
+| Live | 1.45 | **1.24** | 3.11 | 3.09 | 3.31 | 3.17 |
+| Inspector | 1.43 | **1.24** | 3.74 | 3.83 | 3.75 | 3.82 |
+
+(The "before" ticks are higher than the first table's because LIVE, Inputs and the Ready sheet grew since;
+the repaints move within the run-to-run spread.)
+
+- **One clock for what is drawn.** MainView's `frameClock` is a `juce::VBlankAttachment` throttled to 30 Hz;
+  it drives the pages, the sheets, the status foot, the sidebar and the detached Mixer / LIVE / Inspector
+  windows (their own 30 Hz timers are gone; each refreshes only while it is on a screen). It stops when the
+  window is minimised or off every screen.
+- **A clock that never stops.** The 30 Hz `juce::Timer` keeps what must run whether or not anything is drawn:
+  `controller.poll()` (Autopilot, the listen, the meter snapshot), the autosave cadence, the microphone
+  follow-up, telemetry's notice, the export's state, toast expiry and the device-stopped warning. When the
+  VBlank has been silent for 100 ms (no display - the tests and the snapshot tool - or only a detached
+  window on screen) it draws too.
+- **Meters read once.** `MixController::takeMeterSnapshot()` (from `poll()`) consumes every strip, bus and
+  return meter once per tick; the Mixer, TUNE, LIVE, the Inspector, Tracks and the detached windows read
+  `stripPeakDb` / `busPeakDb` / `fxPeakDb`. Two readers no longer take each other's peaks (tested). The macro
+  pads' 60 Hz settle timers remain, running only while a pad animates.
+- **Virtualised strips and rows: measured, not built.** At 128 channels the Mixer's warm repaint is 2.5 ms
+  and a tick 1.25 ms of a 33 ms frame; the brief's rule is to measure first. Build it if the real-app scroll
+  p99 (the overlay, below) or RSS says otherwise.
+
+## Known structural work
+
+- Virtualised Mixer strips and Inputs rows, if the real-app numbers below ask for it (see above).
+- The macro pads' own settle timers could ride the frame clock.

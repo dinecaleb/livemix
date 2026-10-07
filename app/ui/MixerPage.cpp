@@ -385,7 +385,7 @@ public:
             channel = &st.channel;
             linkNow = st.linkGroup;
             const auto& m = controller.getEngine().getStrip (strip).getOutputMeter();
-            peak = m.consumeMaxPeakDb();
+            peak = controller.stripPeakDb (strip);
             hold = m.getMaxRmsDb();
             clipped = m.hasClipped();
             // A stereo strip is metered as a pair (v4), so one side going is seen.
@@ -403,7 +403,7 @@ public:
             muted = fp.mute;
             soloed = fp.solo;
             const auto& m = controller.getEngine().getFx (FxSlot (slot)).getOutputMeter();
-            peak = m.consumeMaxPeakDb();
+            peak = controller.fxPeakDb (FxSlot (slot));
             hold = m.getMaxRmsDb();
             clipped = m.hasClipped();
         }
@@ -414,7 +414,7 @@ public:
             soloed = state.buses[size_t (bus)].solo;
             channel = &state.buses[size_t (bus)].channel;
             const auto& m = controller.getEngine().getBus (bus).getOutputMeter();
-            peak = m.consumeMaxPeakDb();
+            peak = controller.busPeakDb (bus);
             hold = m.getMaxRmsDb();
             clipped = m.hasClipped();
             // The master is metered in stereo, because a broadcast that has gone mono, or one

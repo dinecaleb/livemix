@@ -2396,7 +2396,7 @@ void MixPage::refresh()
         const MixBus bus = groupBus (i);
         const bool used = controller.isPrepared() && engine.isBusUsed (bus);
         const auto& m = engine.getBus (bus).getOutputMeter();
-        groups[size_t (i)]->set (used, used ? m.consumeMaxPeakDb() : -120.0f, used ? m.getMaxRmsDb() : -120.0f, used && m.hasClipped(),
+        groups[size_t (i)]->set (used, used ? controller.busPeakDb (bus) : -120.0f, used ? m.getMaxRmsDb() : -120.0f, used && m.hasClipped(),
                                  kept.buses[size_t (bus)].mute, kept.buses[size_t (bus)].faderDb,
                                  ! used ? 0 : listening ? (controller.busHeard (bus) ? 2 : 1) : 0);
     }
@@ -2407,7 +2407,7 @@ void MixPage::refresh()
             {
                 ++returns;
                 const auto& m = engine.getFx (FxSlot (f)).getOutputMeter();
-                peak = juce::jmax (peak, m.consumeMaxPeakDb()); rms = juce::jmax (rms, m.getMaxRmsDb()); clip = clip || m.hasClipped();
+                peak = juce::jmax (peak, controller.fxPeakDb (FxSlot (f))); rms = juce::jmax (rms, m.getMaxRmsDb()); clip = clip || m.hasClipped();
             }
         groups[size_t (kGroupBuses)]->set (returns > 0, peak, rms, clip, kept.fxMute, kept.fxReturnDb, 0);
         groups[size_t (kGroupBuses)]->setOpen (effectsOpen);
@@ -2417,7 +2417,7 @@ void MixPage::refresh()
             const bool used = controller.isPrepared() && engine.isFxUsed (slot);
             const auto& m = engine.getFx (slot).getOutputMeter();
             const auto& fp = kept.fx[size_t (slot)];
-            groups[size_t (t)]->set (used, used ? m.consumeMaxPeakDb() : -120.0f, used ? m.getMaxRmsDb() : -120.0f, used && m.hasClipped(),
+            groups[size_t (t)]->set (used, used ? controller.fxPeakDb (slot) : -120.0f, used ? m.getMaxRmsDb() : -120.0f, used && m.hasClipped(),
                                      fp.mute, juce::jmax (fp.returnDb, -60.0f), 0);
         }
         if (effectsOpen && returns == 0) showEffects (false);     // the session lost its effects: nothing to open

@@ -111,6 +111,30 @@ namespace
     };
 }
 
+// ONE METER READING PER TICK (C5). Two pages reading one meter used to take each other's
+// peaks (LevelMeter::consumeMaxPeakDb has one reader). poll() takes it once; every reader of
+// the snapshot sees the same loudest-since-the-last-tick, however many there are.
+TEST_CASE ("MixController: every page reads the same meter snapshot, and a tick takes it once")
+{
+    MixController controller;
+    DawEngine daw { controller };
+    auto s = band();
+    controller.setSession (s);
+    daw.setSession (s);
+    controller.prepare (kSr, kBlock);
+    daw.prepare (kSr, kBlock);
+    Callback cb (daw);
+    cb.run (20, 0.5f);
+    controller.poll();
+    const float first = controller.stripPeakDb (0);
+    CHECK (first > -60.0f);
+    CHECK (controller.stripPeakDb (0) == first);              // a second reader: the same reading
+    CHECK (controller.busPeakDb (MixBus::Master) > -60.0f);
+    cb.run (20, 0.0f);
+    controller.poll();
+    CHECK (controller.stripPeakDb (0) < first);               // the next tick: what came since
+}
+
 // ---------------------------------------------------------------- transport
 TEST_CASE ("Transport: the playhead advances by the block and locates where it is told")
 {

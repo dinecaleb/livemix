@@ -978,7 +978,7 @@ private:
 };
 
 // ---------------------------------------------------------------- mixer window
-class MainView::MixerWindow : public juce::DocumentWindow, private juce::Timer
+class MainView::MixerWindow : public juce::DocumentWindow
 {
 public:
     MixerWindow (MixController& c, AppServices& s, MainView& owner)
@@ -999,24 +999,23 @@ public:
         setResizeLimits (720, 420, 6000, 3000);
         centreWithSize (1180, 700);
         setVisible (true);
-        startTimerHz (30);
     }
 
-    ~MixerWindow() override { stopTimer(); clearContentComponent(); }
+    ~MixerWindow() override { clearContentComponent(); }
 
     MixerPage& getPage() { return *page; }
     void closeButtonPressed() override { view.closeMixerWindow(); }
+    // Driven by the window's one clock (MainView::tickFrame), only while it is on a screen.
+    void tick() { if (isShowing()) page->refresh(); }
 
 private:
-    void timerCallback() override { page->refresh(); }
-
     MainView& view;
     std::unique_ptr<MixerPage> page;
 };
 
 // A page in a window of its own (LIVE, the Inspector): the page, the 30 Hz refresh the main
 // window would give it, and what to do when the session under it changes.
-class MainView::PageWindow : public juce::DocumentWindow, private juce::Timer
+class MainView::PageWindow : public juce::DocumentWindow
 {
 public:
     PageWindow (const juce::String& title, std::unique_ptr<juce::Component> content,
@@ -1033,17 +1032,15 @@ public:
         setResizeLimits (minW, minH, 6000, 3000);
         centreWithSize (w, h);
         setVisible (true);
-        startTimerHz (30);
     }
-    ~PageWindow() override { stopTimer(); clearContentComponent(); }
+    ~PageWindow() override { clearContentComponent(); }
+    void tick() { if (isShowing() && refreshPage) refreshPage(); }
 
     void rebuild() { if (rebuildPage) rebuildPage(); }
     juce::Component& getPage() { return *page; }
     void closeButtonPressed() override { if (onClose) onClose(); }
 
 private:
-    void timerCallback() override { if (refreshPage) refreshPage(); }
-
     std::unique_ptr<juce::Component> page;
     std::function<void()> refreshPage, rebuildPage, onClose;
 };
@@ -1579,6 +1576,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     applyUiPrefs();
     showPage (! services.listSessions().isEmpty() ? Page::Sessions : Page::Device);
     startTimerHz (30);
+    frameClock = std::make_unique<juce::VBlankAttachment> (this, [this] { onVBlank(); });
 
     if (gAutoTutorial && ! Tutorial::hasBeenSeen() && services.listSessions().isEmpty()
         && controller.getSession().inputs.empty())
@@ -1589,6 +1587,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
 MainView::~MainView()
 {
     stopTimer();
+    frameClock.reset();
     mixerWindow.reset();
     liveWindow.reset();
     inspectorWindow.reset();
@@ -3760,36 +3759,43 @@ void MainView::showReady()
 }
 
 // ---------------------------------------------------------------- ticking
+// THE CLOCKS (C5). Two, with one job each:
+//  - timerCallback, 30 Hz, never stops: what must happen whether or not anything is drawn -
+//    controller.poll() (Autopilot, the listen, the meter snapshot), the autosave, the
+//    microphone follow-up, telemetry's notice, the export's state, the audio device stopping.
+//  - frameClock, the display's own VBlank, throttled to 30 Hz: everything that is drawn - the
+//    pages, the sheets, the status foot, the sidebar, the detached windows. It stops when the
+//    window is minimised or off every screen, so a hidden DINE draws nothing.
+// When the VBlank has been silent for 100 ms (no display - the snapshot tool, the tests - or the
+// main window minimised with a detached one still up) the timer draws instead, at its 30 Hz.
 void MainView::timerCallback()
 {
-    const double tickStart = perfOverlay != nullptr && perfOverlay->isVisible() ? juce::Time::getMillisecondCounterHiRes() : 0.0;
-    const juce::ScopeGuard reportTick { [this, tickStart]
+    tickBackground();
+    const auto now = juce::Time::getMillisecondCounter();
+    if (now - lastVBlankMs > 100)
     {
-        if (tickStart > 0.0 && perfOverlay != nullptr) perfOverlay->tickTook (juce::Time::getMillisecondCounterHiRes() - tickStart);
-    } };
+        // Minimised, or on no screen: nothing of the main window is drawn. Without a peer at all
+        // (a test, the snapshot tool) it is drawn, because something is looking at it.
+        const auto* peer = getPeer();
+        const bool hidden = peer != nullptr && (peer->isMinimised() || ! isShowing());
+        tickFrame (! hidden);
+    }
+}
+
+void MainView::onVBlank()
+{
+    const auto now = juce::Time::getMillisecondCounter();
+    lastVBlankMs = now;
+    if (now - lastFrameMs < 30) return;      // a workspace moves at 30 Hz, on a 120 Hz display too
+    tickFrame (true);
+}
+
+void MainView::tickBackground()
+{
     controller.poll();
-    transportBar->refresh();
-
-    if (page == Page::Tracks) tracksPage->refresh();
-    else if (page == Page::Mixer) mixerPage->refresh();
-    // The patch is where the preamps are set, so its meters and its gain-staging verdicts move
-    // while the band plays - it is the one set-up page with live numbers on it.
-    else if (page == Page::Assign && assignPage->isVisible()) assignPage->tick();
-    else if (page == Page::Tune) mixPage->refresh();
-    else if (page == Page::Live) livePage->refresh();
-    else if (page == Page::Inspector) advancedPage->refresh();
-
-    if (channelSheet != nullptr) channelSheet->refresh();
-    if (checkSheet != nullptr) checkSheet->refresh();
-    if (setlistSheet != nullptr) setlistSheet->refresh();
-    if (readySheet != nullptr && (slowTicks % 15) == 0) readySheet->refresh();
-    if (readinessSheet != nullptr) readinessSheet->refresh();
-    if (chatSheet != nullptr) chatSheet->refresh();
-
     const bool slow = (++slowTicks % 30) == 0;
     if (slow && gUseStoredTheme)
         if (const auto now = uiState(); now != uiSaved) { UiPrefs::set (now); uiSaved = now; }
-    statusBar->takeStopped = transportBar->takeStoppedByItself();
     // Once, a few seconds in, on the first run that could share anything: what is sent and how
     // to stop it. Nothing is sent before this has been said (Telemetry::needsNotice).
     if (slowTicks == 90)
@@ -3802,29 +3808,17 @@ void MainView::timerCallback()
     if (exportRun != nullptr)
     {
         const auto st = exportRun->getState();
-        statusBar->exportText = exportStatusText (*exportRun, exportWhat);
-        statusBar->exportTint = st == ExportProgress::State::Failed ? Dine::crit
-                              : st == ExportProgress::State::Done ? Dine::accent
-                              : st == ExportProgress::State::Running ? Dine::ink : Dine::ink3;
-        statusBar->exportFraction = exportRun->fraction.load();
-        statusBar->exportWorking = st == ExportProgress::State::Running;
         // Done and stopped go by themselves; a failure stays until somebody has read it.
         if (st == ExportProgress::State::Done || st == ExportProgress::State::Cancelled)
             if (exportDoneTicks > 0 && --exportDoneTicks == 0) exportRun.reset();
     }
-    if (exportRun == nullptr) { statusBar->exportText = {}; statusBar->exportWorking = false; }
-    statusBar->update (slow);
     {
         const bool failing = services.autosaveFailing();
         if (failing && ! saidAutosaveFailing)
             showToast ("The autosave could not be written. Check the disk - until it lands, only what is saved is safe.");
         saidAutosaveFailing = failing;
     }
-    if (slow || slowTicks % 10 == 0) sidebar->refresh (services.daw().isRecording());
     if (slow) followMicrophone();
-    if (chainFoot->isVisible() && slowTicks % 3 == 0) updateChainFoot();
-    if (slowTicks % 3 == 0) refreshSoloPill();
-
     if (toastTicks > 0 && --toastTicks == 0) toast->setVisible (false);
 
     // What is written down follows the document's revision. A milestone - a tune kept, a scene
@@ -3850,10 +3844,57 @@ void MainView::timerCallback()
     if (audioWasRunning && ! running && services.deviceStopped())
         showToast ("The audio device stopped. Check its connection, then choose it again under Audio device.");
     audioWasRunning = running;
+}
 
-    // (v3 pulsed a strip along the top of the window while the mix was live. v4 has none, and
-    // it repainted the window's width every tick while nothing else moved; the status foot's
-    // "On air" cell says the same.)
+void MainView::tickFrame (bool mainShowing)
+{
+    lastFrameMs = juce::Time::getMillisecondCounter();
+    // The detached windows ride the same clock, each only while it is on a screen.
+    if (mixerWindow != nullptr) mixerWindow->tick();
+    if (liveWindow != nullptr) liveWindow->tick();
+    if (inspectorWindow != nullptr) inspectorWindow->tick();
+    if (! mainShowing) return;
+
+    const double tickStart = perfOverlay != nullptr && perfOverlay->isVisible() ? juce::Time::getMillisecondCounterHiRes() : 0.0;
+    const juce::ScopeGuard reportTick { [this, tickStart]
+    {
+        if (tickStart > 0.0 && perfOverlay != nullptr) perfOverlay->tickTook (juce::Time::getMillisecondCounterHiRes() - tickStart);
+    } };
+    const bool slow = (++frameTicks % 30) == 0;
+    transportBar->refresh();
+
+    if (page == Page::Tracks) tracksPage->refresh();
+    else if (page == Page::Mixer) mixerPage->refresh();
+    // The patch is where the preamps are set, so its meters and its gain-staging verdicts move
+    // while the band plays - it is the one set-up page with live numbers on it.
+    else if (page == Page::Assign && assignPage->isVisible()) assignPage->tick();
+    else if (page == Page::Tune) mixPage->refresh();
+    else if (page == Page::Live) livePage->refresh();
+    else if (page == Page::Inspector) advancedPage->refresh();
+
+    if (channelSheet != nullptr) channelSheet->refresh();
+    if (checkSheet != nullptr) checkSheet->refresh();
+    if (setlistSheet != nullptr) setlistSheet->refresh();
+    if (readySheet != nullptr && (frameTicks % 15) == 0) readySheet->refresh();
+    if (readinessSheet != nullptr) readinessSheet->refresh();
+    if (chatSheet != nullptr) chatSheet->refresh();
+
+    statusBar->takeStopped = transportBar->takeStoppedByItself();
+    if (exportRun != nullptr)
+    {
+        const auto st = exportRun->getState();
+        statusBar->exportText = exportStatusText (*exportRun, exportWhat);
+        statusBar->exportTint = st == ExportProgress::State::Failed ? Dine::crit
+                              : st == ExportProgress::State::Done ? Dine::accent
+                              : st == ExportProgress::State::Running ? Dine::ink : Dine::ink3;
+        statusBar->exportFraction = exportRun->fraction.load();
+        statusBar->exportWorking = st == ExportProgress::State::Running;
+    }
+    if (exportRun == nullptr) { statusBar->exportText = {}; statusBar->exportWorking = false; }
+    statusBar->update (slow);
+    if (slow || frameTicks % 10 == 0) sidebar->refresh (services.daw().isRecording());
+    if (chainFoot->isVisible() && frameTicks % 3 == 0) updateChainFoot();
+    if (frameTicks % 3 == 0) refreshSoloPill();
 }
 
 // ---------------------------------------------------------------- layout
