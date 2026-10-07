@@ -1237,13 +1237,11 @@ void AdvancedPage::refresh()
     {
         if (r->kind == Row::Kind::Channel)
         {
-            const auto& m = engine.getStrip (r->strip).getOutputMeter();
             const auto& st = kept.strips[size_t (r->strip)];
             r->set (controller.stripPeakDb (r->strip), db1 (st.faderDb), st.mute, st.solo);
         }
         else
         {
-            const auto& m = engine.getBus (r->bus).getOutputMeter();
             const auto& b = kept.buses[size_t (r->bus)];
             r->set (controller.busPeakDb (r->bus), db1 (b.faderDb), controller.isGroupMuted (r->bus), b.solo);
         }

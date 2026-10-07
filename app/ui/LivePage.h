@@ -12,7 +12,7 @@ namespace livemix
 // LIVE: the view for the service itself (v4). One health strip for the four things that
 // matter while it is happening (is it recording, is it going out, is anything clipping, how
 // much room the master has); the cue that is on and This cue / Groups / All / Alerts over the
-// strips, the scenes under them; and a rail with what is up next, the setlist, what LIVE SAFE
+// strips; and a rail with what is up next, the cues, what LIVE SAFE
 // and Autopilot are doing, what needs attention, and the engineer's own listen at its foot.
 class LivePage : public juce::Component
 {
@@ -27,9 +27,6 @@ public:
     std::function<void()> onOpenCheck;        // CHECK INPUTS, from the "Needs attention" card
     std::function<void (int)> onEditSetlist;  // the Setlist sheet, at a cue (-1: the one on now)
 
-    // The sidebar's SCENES row brings you here and points at them: the scenes live on LIVE,
-    // where the service is run from, and nowhere else.
-    void focusScenes();
     // The sidebar's SETLIST row: the same, for the setlist on the rail.
     void focusSetlist();
 
@@ -61,12 +58,11 @@ private:
 
     struct Layout
     {
-        juce::Rectangle<int> health, groupsHeader, viewTrack, sceneCaption, sceneTrack, strips, safe, autopilot, monitor,
+        juce::Rectangle<int> health, groupsHeader, viewTrack, strips, safe, autopilot, monitor,
                              modesA, modesB, output, speaking, priorityRow, shareRow, attention, upNext, setlist, empty;
         bool safeCompact = false, autopilotCompact = false;
     };
     Layout lay;                        // measured in resized(), and again when a card changes height
-    int sceneFlash = 0;                // frames left of the mark the sidebar's SCENES row leaves
     int setlistFlash = 0;              // ... and its SETLIST row
 
     MixController& controller;
@@ -92,13 +88,6 @@ private:
     DineButton editSetlist { "Edit", DineButton::Style::Standard };
     DineButton clearCueButton { "Clear cue", DineButton::Style::Ghost };   // MixController::clearCue
 
-    // SCENES: the picker over the strips. A kept scene comes back in one press; KEEP writes the
-    // mix that is running into the one picked.
-    std::array<std::unique_ptr<DineButton>, 4> sceneSegments;
-    DineButton keepButton { "Keep", DineButton::Style::Standard };
-    DineButton renameScene { "Rename", DineButton::Style::Ghost };   // a scene's name (MixController::renameScene)
-    int sceneSlot = -1;
-    void refreshScenes();
 
     std::unique_ptr<Link> safeLink, autopilotLink, checkLink;
     juce::StringArray attentionNow;    // re-read twice a second with the clipping count

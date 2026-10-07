@@ -196,7 +196,7 @@ void HistorySheet::paint (juce::Graphics& g)
     r.removeFromTop (10);
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (12.5f));
-    Dine::drawText (g, rows.empty() ? juce::String ("Nothing yet. Every tune, scene and morning of mixing lands here.")
+    Dine::drawText (g, rows.empty() ? juce::String ("Nothing yet. Every tune, cue and morning of mixing lands here.")
                              : juce::String (rows.size()) + (rows.size() == 1 ? " place to go back to. Where the mix is now is kept before it moves."
                                                                               : " places to go back to. Where the mix is now is kept before it moves."),
                 r.removeFromTop (22), juce::Justification::centredLeft, true);

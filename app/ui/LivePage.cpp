@@ -510,7 +510,7 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     cueList->onPick = [this] (int i) { goToCue (i); };
     addAndMakeVisible (*cueList);
     goButton.setFontPx (13.0f);
-    goButton.setTooltip ("Go to the next cue: its scene comes back, as a scene does. Space does the same on this page.");
+    goButton.setTooltip ("Go to the next cue: who is on in it is switched on, everyone else is muted. Space does the same on this page.");
     goButton.onClick = [this] { goToNextCue(); };
     addChildComponent (goButton);
     editSetlist.setFontPx (11.0f);
@@ -523,60 +523,6 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     clearCueButton.setTooltip ("Clear the cue: whoever it muted comes back, its Softer / Up front are taken back, and no cue is on.");
     clearCueButton.onClick = [this] { controller.clearCue(); refresh(); };
     addChildComponent (clearCueButton);
-
-    // ---- scenes: pick one; a kept one comes straight back, KEEP writes the mix into the one picked
-    for (int i = 0; i < 4; ++i)
-    {
-        auto seg = std::make_unique<DineButton> (juce::String (defaultSceneName (i)).toUpperCase(), DineButton::Style::Toggle);
-        seg->setFontPx (12.0f);
-        seg->setPadX (8);
-        seg->setClickingTogglesState (false);
-        seg->onClick = [this, i]
-        {
-            sceneSlot = i;
-            const auto& scene = controller.getScene (i);
-            if (scene.kept) controller.recallScene (i);
-            else if (onToast) onToast ("Nothing is kept under " + juce::String (scene.name.empty() ? defaultSceneName (i) : scene.name.c_str())
-                                       + " yet. Set the mix, then press Keep.");
-            refreshScenes();
-        };
-        addAndMakeVisible (*seg);
-        sceneSegments[size_t (i)] = std::move (seg);
-    }
-    addAndMakeVisible (keepButton);
-    keepButton.setFontPx (11.0f);
-    keepButton.onClick = [this]
-    {
-        if (sceneSlot < 0) return;
-        controller.keepScene (sceneSlot);
-        refreshScenes();
-        if (onToast) onToast ("Kept. " + juce::String (controller.getScene (sceneSlot).name) + " brings this mix back in one press.");
-    };
-    renameScene.setFontPx (11.0f);
-    renameScene.setTooltip ("Give a scene a name of its own: \"Choir\" instead of Custom. A cue that starts from it follows.");
-    renameScene.onClick = [this]
-    {
-        juce::PopupMenu m;
-        for (int i = 0; i < 4; ++i) m.addItem (1 + i, "Rename " + juce::String (controller.getScene (i).name) + juce::String (Glyph::ellip()));
-        juce::Component::SafePointer<LivePage> safe (this);
-        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&renameScene), [safe] (int r)
-        {
-            if (safe == nullptr || r <= 0) return;
-            const int slot = r - 1;
-            const juce::String was (safe->controller.getScene (slot).name);
-            Dine::askForName ("Rename the " + was + " scene", "What should it be called? Cues that bring it back follow the new name.",
-                              was, "Rename", [safe, slot] (const juce::String& name)
-            {
-                if (safe == nullptr) return;
-                safe->controller.renameScene (slot, name.toStdString());
-                safe->services.touchSession();
-                safe->refreshScenes();
-                safe->refresh();
-            });
-        });
-    };
-    addAndMakeVisible (renameScene);
-    refreshScenes();
 
     checkLink = std::make_unique<Link>();
     checkLink->set ("Check inputs " + juce::String (juce::CharPointer_UTF8 ("\xe2\x80\xba")), Dine::ink2);
@@ -714,7 +660,6 @@ void LivePage::refreshMonitor()
 
 void LivePage::rebuild()
 {
-    refreshScenes();
     rebuildInputTiles();
     for (auto& t : tiles) if (t != nullptr) t->refresh();
     for (auto& t : inputTiles) t->refresh();
@@ -819,17 +764,9 @@ void LivePage::updateDiskNote()
     }
 }
 
-// The sidebar's SCENES row: come to LIVE and say where they are, for a moment.
-void LivePage::focusScenes()
-{
-    sceneFlash = 45;
-    repaint();
-}
 
 void LivePage::refresh()
 {
-    refreshScenes();                 // the picker follows the controller: a scene kept from anywhere shows here
-
     rebuildInputTiles();
     for (auto& t : tiles) if (t != nullptr && t->isVisible()) t->refresh();
     for (auto& t : inputTiles) if (t->isVisible()) t->refresh();
@@ -1006,8 +943,7 @@ void LivePage::refresh()
         if (reflow) resized();
         repaint();
     }
-    // The marks the sidebar's rows leave fade over a second and a half, painting only themselves.
-    if (sceneFlash > 0) repaint (lay.sceneTrack.expanded (6));
+    // The mark the sidebar's Cues row leaves fades over a second and a half, painting only itself.
     if (setlistFlash > 0) repaint (lay.setlist.expanded (2));
 }
 
@@ -1093,7 +1029,7 @@ void LivePage::paint (juce::Graphics& g)
         }
     }
 
-    // ---- the cue that is on: a lamp, its name, "Cue 3 of 10 - Band"; the views; the scenes
+    // ---- the cue that is on: a lamp, its name, "Cue 3 of 10 - Band"; the views
     {
         const auto& sl = look.setlist;
         const bool onCue = sl.current >= 0 && sl.current < int (sl.cues.size());
@@ -1122,10 +1058,7 @@ void LivePage::paint (juce::Graphics& g)
         }
         Dine::drawSegmentTrack (g, l.viewTrack);
     }
-    g.setColour (Dine::ink3);
-    g.setFont (Dine::text (11.0f, 500));
-    Dine::drawText (g, "Scene", l.sceneCaption, juce::Justification::centredLeft, false);
-    Dine::fillRounded (g, l.sceneTrack.toFloat(), Dine::control, 7.0f);
+
     if (! l.empty.isEmpty())
     {
         g.setColour (Dine::ink3);
@@ -1133,14 +1066,6 @@ void LivePage::paint (juce::Graphics& g)
         Dine::drawFittedText (g, view == View::Alerts ? "Nothing needs attention. Every input arrives at a level DINE can work with."
                                                       : "There is nothing to show here yet. Assign the inputs, and every one gets a strip.",
                               l.empty.withSizeKeepingCentre (juce::jmin (l.empty.getWidth(), 420), 40), juce::Justification::centred, 2, 1.0f);
-    }
-    // The mark the sidebar's SCENES row leaves: a ring round the picker for a second, so an
-    // eye that came looking for the scenes finds them without anything changing.
-    if (sceneFlash > 0)
-    {
-        Dine::hairlineRounded (g, l.sceneTrack.expanded (4, 4).toFloat(),
-                               Dine::accent.withAlpha (juce::jmin (1.0f, float (sceneFlash) / 30.0f)), 9.0f);
-        --sceneFlash;
     }
 
     // ---- a card on the rail: a dot, a title and the words under it
@@ -1395,7 +1320,7 @@ void LivePage::resized()
     auto rail = r.removeFromRight (railW);
     r.removeFromRight (kGap);
 
-    // ---- the cue that is on, the views, Effects off; then the scenes; then the strips
+    // ---- the cue that is on, the views, Effects off; then the strips
     {
         auto head = r.removeFromTop (Dine::Metric::button);
         if (effectsOff.isVisible())
@@ -1419,26 +1344,6 @@ void LivePage::resized()
             viewTabs[size_t (i)]->setBounds (seg.removeFromLeft (widths[i]));
             seg.removeFromLeft (2);
         }
-
-        r.removeFromTop (10);
-        auto scenesRow = r.removeFromTop (kSegmentH + 4);
-        l.sceneCaption = scenesRow.removeFromLeft (Dine::textWidth (Dine::text (11.0f, 500), "Scene") + 2);
-        scenesRow.removeFromLeft (10);
-        int sw[4] {}, sTotal = 0;
-        for (int i = 0; i < 4; ++i) { sw[i] = juce::jmax (44, sceneSegments[size_t (i)]->idealWidth()); sTotal += sw[i]; }
-        l.sceneTrack = scenesRow.removeFromLeft (sTotal + 2 * 3 + 4);
-        auto ss = l.sceneTrack.reduced (2);
-        for (int i = 0; i < 4; ++i)
-        {
-            sceneSegments[size_t (i)]->setBounds (ss.removeFromLeft (sw[i]));
-            ss.removeFromLeft (2);
-        }
-        scenesRow.removeFromLeft (10);
-        const int keepW = juce::jmax (52, keepButton.idealWidth());
-        keepButton.setBounds (scenesRow.removeFromLeft (keepW).withSizeKeepingCentre (keepW, kSegmentH + 2));
-        scenesRow.removeFromLeft (6);
-        const int renW = renameScene.idealWidth() + 4;
-        renameScene.setBounds (scenesRow.removeFromLeft (renW).withSizeKeepingCentre (renW, kSegmentH + 2));
 
         r.removeFromTop (12);
         l.strips = r;
@@ -1694,29 +1599,5 @@ void LivePage::resized()
 namespace livemix
 {
 
-// The picker reads the controller: every scene's name, and KEEP only once one is picked.
-void LivePage::refreshScenes()
-{
-    for (int i = 0; i < 4; ++i)
-    {
-        const auto& scene = controller.getScene (i);
-        auto& seg = *sceneSegments[size_t (i)];
-        const juce::String name (scene.name.empty() ? defaultSceneName (i) : scene.name.c_str());
-        if (seg.getButtonText() != name.toUpperCase())
-        {
-            seg.setButtonText (name.toUpperCase());
-            if (monitorLevel != nullptr) resized();          // a renamed scene is a wider segment
-        }
-        seg.setToggleState (i == sceneSlot, juce::dontSendNotification);
-        juce::String when;
-        if (scene.kept && scene.whenMs > 0) when = clockTime (scene.whenMs);
-        seg.setTooltip (scene.kept ? "Bring the " + name + " mix back - every fader, chain and macro - in one press"
-                                         + (when.isEmpty() ? juce::String() : " (kept " + when + ")") + ". UNDO takes it back."
-                                   : "Nothing is kept under " + name + " yet. Pick it, set the mix, then press Keep.");
-    }
-    keepButton.setEnabled (sceneSlot >= 0);
-    keepButton.setTooltip (sceneSlot >= 0 ? "Keep the mix as it is now under " + juce::String (controller.getScene (sceneSlot).name) + "."
-                                          : juce::String ("Pick a scene first, then Keep puts the mix as it is now under its name."));
-}
 
 } // namespace livemix

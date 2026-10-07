@@ -72,7 +72,7 @@ public:
         useNow.onClick = [this] { sheet.useWhatIsOnNow(); };
         addAndMakeVisible (useNow);
 
-        startFrom.setTooltip ("Optional: bring back a kept scene or favourite first, then switch who is on.");
+        startFrom.setTooltip ("Optional: bring back a favourite mix first, then switch who is on.");
         startFrom.onClick = [this] { showStartMenu(); };
         addAndMakeVisible (startFrom);
 
@@ -227,14 +227,9 @@ private:
     {
         juce::PopupMenu m;
         m.addItem (1, "As it is (the mix when the cue starts)");
-        m.addSeparator();
-        for (int i = 0; i < 4; ++i)
-        {
-            const auto& sc = sheet.controller.getScene (i);
-            m.addItem (10 + i, juce::String (sc.name) + (sc.kept ? juce::String() : juce::String ("  (nothing kept yet)")));
-        }
         const int n = sheet.controller.numFavourites();
         if (n > 0) m.addSeparator();
+        else m.addItem (-1, "No favourite mixes yet: keep one on Favourite mixes.", false);
         for (int i = 0; i < n; ++i) m.addItem (100 + i, juce::String (sheet.controller.getFavourite (i).name));
         juce::Component::SafePointer<Editor> safe (this);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&startFrom), [safe] (int r)
@@ -243,7 +238,7 @@ private:
             auto& sh = safe->sheet;
             if (sh.picked < 0 || sh.picked >= int (sh.list.cues.size())) return;
             auto cue = sh.list.cues[size_t (sh.picked)];
-            cue.scene = r >= 10 && r < 14 ? r - 10 : -1;
+            cue.scene = -1;
             cue.favourite = r >= 100 ? sh.controller.getFavourite (r - 100).name : std::string();
             sh.store (cue);
         });

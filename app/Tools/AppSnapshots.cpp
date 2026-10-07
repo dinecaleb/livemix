@@ -1435,7 +1435,6 @@ int main (int argc, char** argv)
 
     // THE SETLIST: ten cues, the third on now - the mockup's Sunday.
     {
-        rig.controller.keepScene (0);
         const char* names[10] = { "Walk-in", "Welcome", "Way Maker", "Goodness of God", "Prayer", "Sermon",
                                   "Build My Life", "Offering", "Benediction", "Walk-out" };
         const CueKind kinds[10] = { CueKind::MusicPlayback, CueKind::Speaking, CueKind::Band, CueKind::Band, CueKind::QuietMoment,
@@ -1495,17 +1494,11 @@ int main (int argc, char** argv)
     rig.controller.setBusSolo (MixBus::Vocals, false);
     rig.feed (0.3);
 
-    // SCENES: the band's mix kept, then the pastor's; two pads lit, two empty. And the
-    // emergency keys: DIM lit on the toolbar while the broadcast is 20 dB down.
-    rig.controller.keepScene (0);
-    rig.controller.setStripFader (0, -20.0f);
-    rig.controller.setStripFader (12, 3.0f);
-    rig.controller.keepScene (1);
-    rig.controller.recallScene (0);
+    // The emergency keys: DIM lit on the toolbar while the broadcast is 20 dB down.
     rig.controller.setBroadcastDim (true);
     view.updateChromeForSnapshot();
     rig.feed (0.5);
-    rig.snap (dir, "17c-live-scenes-dimmed");
+    rig.snap (dir, "17c-live-dimmed");
     rig.controller.setBroadcastDim (false);
     view.updateChromeForSnapshot();
     rig.feed (0.3);

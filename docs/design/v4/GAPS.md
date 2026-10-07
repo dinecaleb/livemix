@@ -169,7 +169,7 @@ These are wired by the UI work; no backend change is needed.
 - Two DIMs: Live's is the engineer's monitor (`MixController::setMonitorDim`); the toolbar's is the broadcast group's −20 dB (`setBroadcastDim`). Never merged.
 - Live FX strip S = `MixController::setFxSoloAll` — `LivePage.cpp`.
 - The LIVE SAFE and Autopilot links on Live turn on only; off is the toolbar — `LivePage.cpp`.
-- Scene recall on click; Keep writes into the picked slot — `LivePage.cpp`.
+- (Scene recall and Keep left the screen on 2026-10-06, the owner's call: cues and favourite mixes do the job.)
 - Two-press stop while recording (Space, R or the menu within 3 s) — `MainView::handleCommand` 500/501. A new pill or Live's Space must not bypass it.
 - Undo domains (Mix versus Timeline by last edit, Tracks only, LIVE SAFE skips the timeline), Edit menu labels — `MainView::undoTarget` / `redoTarget`.
 - LIVE SAFE gates in UI code (about 15 callers) — `MainView::liveSafeBlocks`, `HostServices::deviceChangeLocked` (`app/Main.cpp`). DIM, MUTE, BYPASS, solo, Autopilot and recording are never gated.
@@ -195,7 +195,7 @@ These are wired by the UI work; no backend change is needed.
 - Reference sheet cannot close while measuring; a dismissed measure still lands — `ReferenceSheet`.
 - History restore disabled when the input set differs; "Aim at this" needs a measured favourite; every change calls `touchSession()` — `HistorySheet`.
 - Broadcast readiness, purpose-gated, confirmations only, needs a sidebar home — `BroadcastReadinessSheet`.
-- Scenes and "Open in a New Window" from the sidebar right-click need explicit homes — `MainView` sidebar.
+- "Open in a New Window" from the sidebar right-click — `MainView` sidebar. (Scenes: removed from the screen.)
 - Tour spot names ("session", "tabs", "rail", "transport", "livesafe") and page ints shared with `WorkspaceGuide::indexForPage`, `Tutorial::steps` — `MainView::spotlight`.
 - Arm, monitoring and favourite edits call `svc.touchSession()`; never `saveSession()`.
 
