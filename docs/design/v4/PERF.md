@@ -86,9 +86,9 @@ the repaints move within the run-to-run spread.)
   pads' 60 Hz settle timers remain, running only while a pad animates.
 - **Virtualised strips and rows: measured, not built.** At 128 channels the Mixer's warm repaint is 2.5 ms
   and a tick 1.25 ms of a 33 ms frame; the brief's rule is to measure first. Build it if the real-app scroll
-  p99 (the overlay, below) or RSS says otherwise.
+  p99 (the overlay) or RSS says otherwise.
 
 ## Known structural work
 
-- Virtualised Mixer strips and Inputs rows, if the real-app numbers below ask for it (see above).
+- Virtualised Mixer strips and Inputs rows, if the real-app numbers under "Not measured yet" ask for it.
 - The macro pads' own settle timers could ride the frame clock.

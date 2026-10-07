@@ -102,6 +102,12 @@ must not be done as part of the UI work.
 | --- | --- | --- | --- |
 | "Templates" filter | Sessions | A name match only; no template model | host. Keep the name match until one exists |
 
+## Waiting for the owner's sign-off
+
+`SIGNOFF.md` describes three, unbuilt: the Sample stage's hit visualiser (an engine change - two
+allocation-free rings in SampleTrigger), the edited-fader dot (read-only; one decision: a recall clears
+it), and the traffic lights moving with the sidebar (host, Objective-C++).
+
 ## Closed
 
 - **Backend-exists items** (C3): scene rename (LIVE's Rename by the scenes), favourite rename and delete (a
