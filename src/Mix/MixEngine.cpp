@@ -1,6 +1,7 @@
 #include "MixEngine.h"
 #include "Core/DbUtils.h"
 #include "Core/Denormals.h"
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -131,6 +132,7 @@ void MixEngine::prepare (double sampleRate, int maxBlockSize, const MixSession& 
         {
             s->scratch[size_t (ch)].assign (size_t (maxBlock), 0.0f);
             s->preAuto[size_t (ch)].assign (size_t (maxBlock), 0.0f);
+            s->delayLine[size_t (ch)].assign (size_t (delayLineLength()), 0.0f);
             s->ptrs[size_t (ch)] = s->scratch[size_t (ch)].data();
         }
         strips.push_back (std::move (s));
@@ -226,6 +228,56 @@ void MixEngine::setParameters (const MixParameters& p)
     mailbox.publish();
 }
 
+int MixEngine::delayLineLength() const noexcept
+{
+    return int (std::ceil (double (kMaxStripDelayMs) * 0.001 * sr)) + 2;
+}
+
+// One strip's alignment delay over a block, in place. A ring that was idle (no delay, no
+// fade) holds whatever it last saw, so a delay switched on from nothing starts from silence
+// rather than from audio minutes old; a change of time fades between the two taps.
+void MixEngine::alignStrip (Strip& s, int n) noexcept
+{
+    const int len = delayLineLength();
+    if (s.delayFadeLeft == 0 && s.delayTarget != s.delayNow)
+    {
+        if (s.delayNow == 0)
+            for (int ch = 0; ch < s.channels; ++ch)
+                std::fill (s.delayLine[size_t (ch)].begin(), s.delayLine[size_t (ch)].end(), 0.0f);
+        s.delayFrom = s.delayNow;
+        s.delayNow = s.delayTarget;
+        s.delayFadeLeft = std::max (1, int (kDelayFadeMs * 0.001 * sr));
+    }
+    const int fadeLen = std::max (1, int (kDelayFadeMs * 0.001 * sr));
+    const int w0 = s.delayWrite;
+    int fadeEnd = s.delayFadeLeft;
+    for (int ch = 0; ch < s.channels; ++ch)
+    {
+        float* line = s.delayLine[size_t (ch)].data();
+        float* x = s.ptrs[size_t (ch)];
+        int fade = s.delayFadeLeft;
+        int w = w0;
+        for (int k = 0; k < n; ++k)
+        {
+            line[w] = x[k];
+            int r = w - s.delayNow; if (r < 0) r += len;
+            float y = line[r];
+            if (fade > 0)
+            {
+                int rf = w - s.delayFrom; if (rf < 0) rf += len;
+                const float g = float (fade) / float (fadeLen);     // 1 -> 0: old tap out, new tap in
+                y = g * line[rf] + (1.0f - g) * y;
+                --fade;
+            }
+            x[k] = y;
+            if (++w == len) w = 0;
+        }
+        fadeEnd = fade;
+    }
+    s.delayWrite = (w0 + n) % len;
+    s.delayFadeLeft = fadeEnd;
+}
+
 void MixEngine::applyParameters (const MixParameters& p) noexcept
 {
     // Speech priority: the coefficients, once, here - never in process().
@@ -307,6 +359,11 @@ void MixEngine::applyParameters (const MixParameters& p) noexcept
         }
 
         s.inputGain.setTarget (dbToGain (sp.inputGainDb));
+        // BYPASS is the console feed as it arrives: no alignment either.
+        s.delayTarget = p.bypassProcessing ? 0
+                      : clamp (int (std::lround (double (std::isfinite (sp.delayMs) ? sp.delayMs : 0.0f) * 0.001 * sr)),
+                               0, delayLineLength() - 1);
+        if (! haveApplied) { s.delayNow = s.delayTarget; s.delayFadeLeft = 0; }
         const bool busSolo = p.buses[size_t (s.bus)].solo;
         const bool silenced = sp.mute || (soloAffectsMix && ! sp.solo && ! busSolo);
         const float g = silenced ? 0.0f : dbToGain (sp.faderDb);
@@ -487,6 +544,8 @@ void MixEngine::process (const float* const* inputs, int numInputs, float* const
                     t->countConverterClips (i, raw);
                 }
             }
+            // Alignment: the microphone as it would have arrived had it been closer.
+            if (s.delayNow != 0 || s.delayTarget != 0 || s.delayFadeLeft > 0) alignStrip (s, n);
             // Digital preamp: before the listen tap, so Tune measures what the chain will receive.
             if (s.inputGain.isSmoothing())
             {

@@ -2770,6 +2770,35 @@ TEST_CASE ("MixController: an effect's sound and the song's tempo are set by han
     CHECK_NEAR (c.getKept().fx[size_t (FxSlot::VocalPlate)].fx.reverbDecayS, plateWas.reverbDecayS, 1.0e-4f);
 }
 
+TEST_CASE ("MixController: a channel's alignment delay is set by hand, held to its range, saved, and left out of BYPASS")
+{
+    MixController c;
+    c.setSession (band());
+    c.prepare (kSr, kBlock);
+    c.setStripDelay (1, 12.5f);
+    CHECK_NEAR (c.getKept().strips[1].delayMs, 12.5f, 1.0e-4f);
+    CHECK_NEAR (c.getRunning().strips[1].delayMs, 12.5f, 1.0e-4f);
+    c.setStripDelay (1, 5000.0f);
+    CHECK (c.getKept().strips[1].delayMs <= kMaxStripDelayMs);
+    c.setStripDelay (1, -3.0f);
+    CHECK (c.getKept().strips[1].delayMs >= 0.0f);
+    c.setStripDelay (1, 21.0f);
+
+    c.setBypass (true);                       // the console feed as it arrives
+    CHECK (c.getRunning().strips[1].delayMs == 0.0f);
+    c.setBypass (false);
+    CHECK_NEAR (c.getRunning().strips[1].delayMs, 21.0f, 1.0e-4f);
+
+    SessionStore::Document d;
+    d.session = c.getSession();
+    d.hasMix = true;
+    d.mix = c.getKept();
+    SessionStore::Document back;
+    REQUIRE (SessionStore::fromVar (juce::JSON::parse (juce::JSON::toString (SessionStore::toVar (d))), back));
+    CHECK_NEAR (back.mix.strips[1].delayMs, 21.0f, 0.01f);
+    CHECK (back.mix.strips[0].delayMs == 0.0f);
+}
+
 TEST_CASE ("MixController: one effect return has its own fader and mute, under LIVE SAFE and through BYPASS")
 {
     MixController c;

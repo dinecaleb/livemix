@@ -3117,6 +3117,18 @@ void MixController::setStripPan (int strip, float pan)
     touch();
 }
 
+// ALIGNMENT by hand: hold this channel back so a far microphone lands with the close ones.
+void MixController::setStripDelay (int strip, float ms)
+{
+    if (! validStrip (kept, strip) || ! std::isfinite (ms)) return;
+    markHandEdit ("delay:" + std::to_string (strip), stripLabel (strip) + " delay");
+    const float want = clamp (ms, 0.0f, kMaxStripDelayMs);
+    kept.strips[size_t (strip)].delayMs = want;
+    bothSides ([&] (MixParameters& m) { m.strips[size_t (strip)].delayMs = want; });
+    publish();
+    touch();
+}
+
 void MixController::setStripInputGain (int strip, float db)
 {
     if (! validStrip (kept, strip)) return;

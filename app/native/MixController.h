@@ -675,6 +675,7 @@ public:
     // (Cmd-drag on the console) moves this one alone.
     void setStripFader (int strip, float db, bool withLink = true);
     void setStripInputGain (int strip, float db);
+    void setStripDelay (int strip, float ms);          // alignment, 0..kMaxStripDelayMs
     void setStripPan (int strip, float pan);            // -1 left .. +1 right (balance on a stereo strip)
     void setStripMute (int strip, bool mute);
     void setStripSolo (int strip, bool solo);

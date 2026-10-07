@@ -75,6 +75,7 @@ namespace
         auto* so = new juce::DynamicObject();
         so->setProperty ("channel", channelToVar (s.channel));
         so->setProperty ("inputGainDb", s.inputGainDb);
+        so->setProperty ("delayMs", s.delayMs);
         so->setProperty ("faderDb", s.faderDb);
         so->setProperty ("pan", s.pan);
         so->setProperty ("mute", s.mute);
@@ -95,6 +96,9 @@ namespace
         if (so == nullptr) return;
         channelFromVar (so->getProperty ("channel"), s.channel);
         s.inputGainDb = storedDb (so->getProperty ("inputGainDb"), -48.0f, 48.0f);
+        // Alignment came in 2026-10-06; a session from before it has none, which is what 0 means.
+        if (so->hasProperty ("delayMs"))
+            s.delayMs = juce::jlimit (0.0f, kMaxStripDelayMs, float (double (so->getProperty ("delayMs"))));
         s.faderDb = storedDb (so->getProperty ("faderDb"), kSilenceDb, 12.0f);
         s.pan = clamp (float (double (so->getProperty ("pan"))), -1.0f, 1.0f);
         if (! std::isfinite (float (double (so->getProperty ("pan"))))) s.pan = 0.0f;

@@ -9,6 +9,8 @@
 namespace livemix
 {
 
+inline constexpr float kMaxStripDelayMs = 100.0f;   // ~34 m of air: the far end of any room
+
 // One strip as the audio thread sees it: the channel chain plus its place in the mix.
 struct StripParameters
 {
@@ -16,6 +18,12 @@ struct StripParameters
     float inputGainDb = 0.0f;                           // digital preamp before analysis and the chain (the console gain DINE owns)
     float faderDb = 0.0f;
     float pan = 0.0f;                                   // -1 = left .. +1 = right (balance on stereo strips)
+    // ALIGNMENT: this channel held back by a few milliseconds, so a microphone further from
+    // the source (a room pair, an ambience mic, a choir mic behind the band) lines up with the
+    // close ones instead of smearing them. 0 = none; up to kMaxStripDelayMs. It is the
+    // engineer's choice per channel, part of the kept mix, and not latency: the rest of the
+    // console is not delayed with it.
+    float delayMs = 0.0f;
     bool mute = false;
     bool solo = false;
     std::array<float, int (FxSlot::Count)> sendDb {};   // post-fader send level; kSilenceDb = no send

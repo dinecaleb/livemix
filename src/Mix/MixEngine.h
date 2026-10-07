@@ -199,6 +199,11 @@ private:
         float autoEnv = 0.0f, autoGain = 1.0f, autoTarget = 1.0f;
         std::array<std::vector<float>, kMaxChannels> preAuto;
         std::atomic<float> autoGainDb { 0.0f };
+        // ALIGNMENT (StripParameters::delayMs): a ring per channel, sized at prepare for the
+        // longest delay, so nothing is allocated while it runs. A change of time crossfades
+        // from the old tap to the new over kDelayFadeMs rather than jumping.
+        std::array<std::vector<float>, kMaxChannels> delayLine;
+        int delayWrite = 0, delayNow = 0, delayTarget = 0, delayFrom = 0, delayFadeLeft = 0;
     };
     struct Bus
     {
@@ -227,6 +232,9 @@ private:
     };
 
     void applyParameters (const MixParameters& p) noexcept;
+    int delayLineLength() const noexcept;                       // samples: kMaxStripDelayMs at this rate
+    void alignStrip (Strip&, int numSamples) noexcept;
+    static constexpr double kDelayFadeMs = 10.0;
     static void panGains (float pan, bool stereo, float& l, float& r) noexcept;
 
     double sr = 48000.0;

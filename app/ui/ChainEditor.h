@@ -88,6 +88,7 @@ private:
     class Knob;
     class ChoiceGroup;
     class SendKnob;
+    class StripKnob;
 
     ChannelParameters read() const;
     void write (const ChannelParameters&);

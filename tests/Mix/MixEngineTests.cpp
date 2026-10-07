@@ -90,6 +90,64 @@ TEST_CASE ("MixEngine: with processing bypassed a centred mono strip reaches bot
     CHECK (e.getLatencySamples() == std::max (1, int (std::lround (Limiter::kLookaheadMs * 0.001 * kSr))));
 }
 
+TEST_CASE ("MixEngine: a channel's alignment delay holds it back by exactly that, changes without a click, and allocates nothing")
+{
+    // The lead's input, its chain out of the way, an impulse at a known sample: where it
+    // comes out is the delay plus the master's constant lookahead.
+    auto arrival = [] (float delayMs)
+    {
+        MixEngine e;
+        e.prepare (kSr, 64, smallSession());
+        MixParameters p = e.getAppliedParameters();
+        p.bypassProcessing = false;
+        p.strips[4].channel.bypassAll = true;
+        p.strips[4].delayMs = delayMs;
+        e.setParameters (p);
+        Device d (8, 2, 9600);
+        d.in.data[5][1000] = 0.25f;
+        d.run (e, 64);
+        for (int i = 0; i < d.out.numSamples(); ++i)
+            if (std::fabs (d.out.data[0][size_t (i)]) > 0.02f) return i;
+        return -1;
+    };
+    const int straight = arrival (0.0f);
+    REQUIRE (straight >= 1000);
+    CHECK (arrival (10.0f) - straight == 480);           // 10 ms at 48 kHz
+    CHECK (arrival (kMaxStripDelayMs) - straight == int (std::lround (kMaxStripDelayMs * 0.001 * kSr)));
+
+    // Moving it while a tone plays: a crossfade between the two taps, never a step or a NaN,
+    // and not one allocation on the audio thread.
+    MixEngine e;
+    e.prepare (kSr, 64, smallSession());
+    MixParameters p = e.getAppliedParameters();
+    p.bypassProcessing = false;
+    p.strips[4].channel.bypassAll = true;
+    e.setParameters (p);
+    Device d (8, 2, 48000);
+    sineOnInput (d, 5, 220.0f, 0.3f);
+    d.run (e, 64);                                       // settle, and every buffer touched once
+    float worst = 0.0f;
+    {
+        alloctrack::Scope scope;
+        for (float ms : { 12.0f, 0.0f, 37.5f, 37.5f, 4.0f })
+        {
+            p.strips[4].delayMs = ms;
+            e.setParameters (p);
+            d.run (e, 64);
+            for (size_t i = 1; i < d.out.data[0].size(); ++i)
+            {
+                const float a = d.out.data[0][i], b = d.out.data[0][i - 1];
+                CHECK (std::isfinite (a));
+                worst = std::max (worst, std::fabs (a - b));
+            }
+        }
+        CHECK (alloctrack::getCount() == 0);
+    }
+    // A 220 Hz sine at this level moves at most ~0.3 * 2pi * 220/48000 per sample at the pan law;
+    // a step from one tap to the other with no fade would be many times that.
+    CHECK (worst < 0.05f);
+}
+
 TEST_CASE ("MixEngine: pan, fader and mute behave like a console")
 {
     MixEngine e;

@@ -556,6 +556,33 @@ private:
     Field field;
 };
 
+// ------------------------------------------------------------------ StripKnob
+// A number that belongs to the channel's place in the mix rather than to its chain - the
+// digital preamp TUNE sets and the alignment delay - so it is read from and written to the
+// strip, not the ChannelParameters every other knob here edits.
+class ChainEditor::StripKnob : public DineKnob
+{
+public:
+    StripKnob (const juce::String& caption, double lo, double hi, double step, double mid, double def,
+               std::function<juce::String (double)> fmt, std::function<float (const StripParameters&)> read,
+               std::function<void (double)> apply, const juce::String& tip)
+        : get (std::move (read))
+    {
+        setRange (lo, hi, step, mid);
+        setDefaultValue (def);
+        setFormat (std::move (fmt));
+        setCaption (caption);
+        setTint (Dine::accent);
+        setTooltip (tip);
+        onChange = std::move (apply);
+    }
+
+    void pull (const StripParameters& sp, bool live) { setValue (get (sp)); setEnabled (live); }
+
+private:
+    std::function<float (const StripParameters&)> get;
+};
+
 // ------------------------------------------------------------------ ChoiceGroup
 // A switch or a choice the way the design writes one: the caption above, then the answer -
 // a two- or three-segment track when there are that few, a popup when there are more (the
@@ -1628,6 +1655,30 @@ void ChainEditor::buildControls()
             if (f.kind == Field::Kind::Slider) addKnob (f, [f] (ChannelParameters& p, double v) { f.set (p, v); });
             else                               addChoice (f, [f] (ChannelParameters& p, double v) { f.set (p, v); });
         }
+        if (s.id == StageId::Input && ! isBus)
+        {
+            // GAIN: the digital preamp before everything, TUNE's included - the gain TUNE sets
+            // when the desk cannot be reached. It was only ever a number in the history.
+            auto gain = std::make_unique<StripKnob> (
+                "Gain", -24.0, 24.0, 0.1, 0.0, 0.0,
+                [] (double v) { return signedNumber (v, 1) + " dB"; },
+                [] (const StripParameters& sp) { return sp.inputGainDb; },
+                [this] (double v) { if (! controller.isBypassed()) controller.setStripInputGain (strip, float (v)); },
+                "Digital gain before everything on this channel - what TUNE sets when the desk's own gain cannot be reached. "
+                "Trim comes after it.");
+            controlsHolder.addAndMakeVisible (*gain);
+            controls.push_back (std::move (gain));
+            // DELAY: a far microphone lined up with the close ones (about 3 ms a metre).
+            auto delay = std::make_unique<StripKnob> (
+                "Delay", 0.0, double (kMaxStripDelayMs), 0.1, 10.0, 0.0,
+                [] (double v) { return v < 0.05 ? juce::String ("off") : juce::String (v, v < 10.0 ? 1 : 0) + " ms"; },
+                [] (const StripParameters& sp) { return sp.delayMs; },
+                [this] (double v) { if (! controller.isBypassed()) controller.setStripDelay (strip, float (v)); },
+                "Holds this channel back so a microphone further away - a room pair, an ambience or choir mic - lands "
+                "with the close ones instead of smearing them. About 3 ms for every metre further it is.");
+            controlsHolder.addAndMakeVisible (*delay);
+            controls.push_back (std::move (delay));
+        }
         if (s.id == StageId::Sample)
         {
             // DRUM KIT: the kick, the snare and the toms chosen together, above this drum's own
@@ -1938,7 +1989,15 @@ void ChainEditor::refresh()
             controls[next]->setEnabled (live);
             ++next;
         }
-        for (; next < controls.size(); ++next) controls[next]->setEnabled (live);
+        const auto& base = controller.getBase();
+        for (; next < controls.size(); ++next)
+        {
+            if (auto* knob = dynamic_cast<StripKnob*> (controls[next].get()))
+            {
+                if (strip >= 0 && strip < base.numStrips) knob->pull (base.strips[size_t (strip)], ! bypassed);
+            }
+            else controls[next]->setEnabled (live);
+        }
     }
 
     // What the graph needs: the live meters, the reduction of this stage and the sends.
