@@ -334,7 +334,7 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         { "appearance", [&] { view.showThemes(); } },
         { "chat",       [&] { view.showChat(); } },
         { "readiness",  [&] { view.showBroadcastReadiness(); } },
-        { "setlist",    [&] { view.showSetlist(); } },
+        { "cues",       [&] { view.showSetlist(); } },
         { "ready",      [&] { view.showReady(); } },
         { "channel",    [&] { view.tuneChannel (0); } },
         // TUNE asks *which* group or channels before it tunes them - the whole mix needs
@@ -400,6 +400,32 @@ TEST_CASE ("Reachability: Ready to go live? reads the session and offers the fix
     // The disk in the status line's words.
     CHECK (ReadyCheck::diskText (34'200'000'000LL, 9 * 3600 + 40 * 60) == "34.2 GB " + Glyph::dot() + " 9 h 40 m");
     CHECK (ReadyCheck::diskText (-1, 100.0).isEmpty());
+}
+
+// A CUE THAT IS ON SAYS SO FROM EVERY WORKSPACE, and one press clears it (the toolbar's CUE
+// pill; Transport and Mix > Clear the Cue).
+TEST_CASE ("Reachability: the cue on now shows from every workspace, and clears in one press")
+{
+    Window window;
+    auto& view = *window.view;
+    auto& c = window.controller;
+    Cue cue { "Welcome", CueKind::Speaking, -1, {}, {} };
+    c.fillCueFor (cue, CueKind::Speaking);
+    c.addCue (cue);
+    window.pump (10);
+    CHECK (! view.isCuePillShown());
+    c.goToCue (0);
+    for (const auto p : { MainView::Page::Mixer, MainView::Page::Tune, MainView::Page::Live, MainView::Page::Tracks, MainView::Page::Inspector })
+    {
+        view.showPage (p);
+        window.pump (150);
+        CHECK_MESSAGE (view.isCuePillShown(), "the cue on now is not said on this workspace");
+    }
+    const auto items = window.menuItems();
+    CHECK (items.count (521) == 1);
+    c.clearCue();
+    window.pump (200);
+    CHECK (! view.isCuePillShown());
 }
 
 // ESCAPE CLOSES THE TOPMOST LAYER ONLY (v4: menu, then sheet, then tune, then Mix Buddy) -

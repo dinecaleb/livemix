@@ -142,6 +142,8 @@ void MixController::resetDocument()
     safety = LiveSafePolicy {};
     for (int i = 0; i < kMixScenes; ++i) { scenes[size_t (i)] = MixScene {}; scenes[size_t (i)].name = defaultSceneName (i); }
     setlist = Setlist {};
+    cueOffsetDb.fill (0.0f);
+    preCueValid = false;
     for (auto& h : stripHistory) h.clear();
     history.clear();
     future.clear();
@@ -773,6 +775,7 @@ void MixController::restoreSetlist (const Setlist& s)
     for (auto& c : setlist.cues) c.scene = std::clamp (c.scene, -1, kMixScenes - 1);
     setlist.current = std::clamp (setlist.current, -1, int (setlist.cues.size()) - 1);
     cueOffsetDb.fill (0.0f);
+    preCueValid = false;
 }
 
 int MixController::addCue (const Cue& cue, int at)
@@ -930,6 +933,12 @@ bool MixController::goToCue (int index)
 {
     if (index < 0 || index >= int (setlist.cues.size()) || ! built) return false;
     const auto cue = setlist.cues[size_t (index)];
+    // The first cue since a clear remembers who was muted before, so Clear can put it back.
+    if (! preCueValid)
+    {
+        for (int s = 0; s < kept.numStrips && s < kMaxStrips; ++s) preCueMute[size_t (s)] = kept.strips[size_t (s)].mute;
+        preCueValid = true;
+    }
     setlist.current = index;
     const std::string where = "Cue " + std::to_string (index + 1) + ": " + cue.name;
 
@@ -966,12 +975,39 @@ bool MixController::goToCue (int index)
     return true;
 }
 
+bool MixController::clearCue()
+{
+    if (! isCueActive() || ! built) return false;
+    const auto cue = setlist.cues[size_t (setlist.current)];
+    markMixChange ("clearing the cue");
+    autopilotRelearn();
+    const MixParameters was = kept;
+    for (int s = 0; s < graph.numStrips() && s < kept.numStrips; ++s)
+    {
+        auto& st = kept.strips[size_t (s)];
+        st.faderDb = std::clamp (st.faderDb - cueOffsetDb[size_t (s)], kSilenceDb, 12.0f);
+        cueOffsetDb[size_t (s)] = 0.0f;
+        // The mutes from before the cues; a session reopened mid-cue has none, so whoever the
+        // cue switched off comes back on.
+        if (preCueValid) st.mute = preCueMute[size_t (s)];
+        else if (cue.levelOf (cueUnitOf (graph.strips[size_t (s)].input)) == CueLevel::Off) st.mute = false;
+    }
+    preCueValid = false;
+    setlist.current = -1;
+    for (int i = 0; i < kept.numStrips && i < was.numStrips; ++i)
+        recordStripTune (i, "Cue cleared", was.strips[size_t (i)], kept.strips[size_t (i)]);
+    publish();
+    if (onMessage) onMessage ("Cue cleared: " + cue.name + " is off, and the mix is as it was before the cues.");
+    mark ("Cue cleared: " + cue.name);
+    return true;
+}
+
 bool MixController::goToNextCue()
 {
     const int next = setlist.next();
     if (next < 0)
     {
-        if (onMessage) onMessage (setlist.cues.empty() ? std::string ("There is no setlist yet. Add the service's cues on LIVE, then Space goes from one to the next.")
+        if (onMessage) onMessage (setlist.cues.empty() ? std::string ("There are no cues yet. Add the service's cues on LIVE, then Space goes from one to the next.")
                                                        : std::string ("That was the last cue."));
         return false;
     }

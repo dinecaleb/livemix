@@ -515,9 +515,14 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     addChildComponent (goButton);
     editSetlist.setFontPx (11.0f);
     editSetlist.setPadX (8);
-    editSetlist.setTooltip ("Add, rename, reorder and delete cues, and pick the scene each one brings back.");
+    editSetlist.setTooltip ("Add, rename, reorder and delete cues, and say who is on in each.");
     editSetlist.onClick = [this] { if (onEditSetlist) onEditSetlist (look.setlist.current); };
     addAndMakeVisible (editSetlist);
+    clearCueButton.setFontPx (11.5f);
+    clearCueButton.setPadX (8);
+    clearCueButton.setTooltip ("Clear the cue: whoever it muted comes back, its Softer / Up front are taken back, and no cue is on.");
+    clearCueButton.onClick = [this] { controller.clearCue(); refresh(); };
+    addChildComponent (clearCueButton);
 
     // ---- scenes: pick one; a kept one comes straight back, KEEP writes the mix into the one picked
     for (int i = 0; i < 4; ++i)
@@ -548,7 +553,7 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         if (onToast) onToast ("Kept. " + juce::String (controller.getScene (sceneSlot).name) + " brings this mix back in one press.");
     };
     renameScene.setFontPx (11.0f);
-    renameScene.setTooltip ("Give a scene a name of its own: \"Choir\" instead of Custom. Cues and the setlist follow.");
+    renameScene.setTooltip ("Give a scene a name of its own: \"Choir\" instead of Custom. A cue that starts from it follows.");
     renameScene.onClick = [this]
     {
         juce::PopupMenu m;
@@ -1099,7 +1104,7 @@ void LivePage::paint (juce::Graphics& g)
         const juce::String title = onCue ? juce::String (sl.cues[size_t (sl.current)].name) : juce::String ("Live");
         const juce::String meta = onCue ? "Cue " + juce::String (sl.current + 1) + " of " + juce::String (sl.cues.size()) + " " + Glyph::dot() + " "
                                               + look.cueScenes[sl.current]
-                                : sl.cues.empty() ? juce::String ("No setlist yet")
+                                : sl.cues.empty() ? juce::String ("No cues yet")
                                                   : juce::String (sl.cues.size()) + (sl.cues.size() == 1 ? " cue" : " cues") + ", none on yet";
         const auto titleFont = Dine::text (17.0f, 600), metaFont = Dine::text (11.0f, 500);
         const int metaW = Dine::textWidth (metaFont, meta);
@@ -1164,7 +1169,7 @@ void LivePage::paint (juce::Graphics& g)
         r.removeFromTop (4);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (17.0f, 600));
-        Dine::drawFittedText (g, next >= 0 ? juce::String (sl.cues[size_t (next)].name) : juce::String ("The end of the setlist"),
+        Dine::drawFittedText (g, next >= 0 ? juce::String (sl.cues[size_t (next)].name) : juce::String ("The last cue is on"),
                               r.removeFromTop (22), juce::Justification::centredLeft, 1, 0.8f);
         r.removeFromTop (2);
         g.setColour (Dine::ink3);
@@ -1202,10 +1207,10 @@ void LivePage::paint (juce::Graphics& g)
             --setlistFlash;
         }
         auto head = l.setlist.reduced (kCardPadX, kCardPadY).removeFromTop (kHeadH);
-        head.removeFromRight (editSetlist.getWidth() + 8);
+        head.removeFromRight (editSetlist.getWidth() + 8 + (clearCueButton.isVisible() ? clearCueButton.getWidth() + 6 : 0));
         g.setColour (Dine::ink);
         g.setFont (Dine::text (13.0f, 600));
-        Dine::drawText (g, "Setlist", head, juce::Justification::centredLeft, false);
+        Dine::drawText (g, "Cues", head, juce::Justification::centredLeft, false);
         if (! sl.cues.empty())
         {
             const juce::String count = sl.current >= 0 ? juce::String (sl.current + 1) + " of " + juce::String (sl.cues.size())
@@ -1219,7 +1224,7 @@ void LivePage::paint (juce::Graphics& g)
             auto text = l.setlist.reduced (kCardPadX, kCardPadY).withTrimmedTop (kHeadH + 8);
             g.setColour (Dine::ink2);
             g.setFont (calloutFont());
-            Dine::drawFittedText (g, "No setlist yet. Add the songs and moments of the service in order, and Space goes from one to the next.",
+            Dine::drawFittedText (g, "No cues yet. Add the songs and moments of the service in order, and Space goes from one to the next.",
                                   text, juce::Justification::topLeft, juce::jmax (1, text.getHeight() / 16), 1.0f);
         }
     }
@@ -1405,6 +1410,7 @@ void LivePage::resized()
         // The views sit after the cue's name; a long name squeezes, the views never do.
         const int titleRoom = juce::jmax (120, head.getWidth() - trackW - 16);
         l.groupsHeader = head.removeFromLeft (titleRoom);
+
         head.removeFromLeft (16);
         l.viewTrack = head.removeFromLeft (trackW).withSizeKeepingCentre (trackW, kSegmentH + 4);
         auto seg = l.viewTrack.reduced (2);
@@ -1545,7 +1551,7 @@ void LivePage::resized()
         const int apFull = kCardPadY + kHeadH + kCardGap + apBody + kCardPadY;
 
         const int listHead = kCardPadY + kHeadH + 8;
-        const int emptyLines = sl.cues.empty() ? wrapLines (calloutFont(), "No setlist yet. Add the songs and moments of the service in order, "
+        const int emptyLines = sl.cues.empty() ? wrapLines (calloutFont(), "No cues yet. Add the songs and moments of the service in order, "
                                                                              "and Space goes from one to the next.", textW) : 0;
         // Now and Next at least; more as the rail allows.
         const int minRows = sl.cues.empty() ? 0 : juce::jmin (int (sl.cues.size()), 2);
@@ -1565,8 +1571,17 @@ void LivePage::resized()
         cueList->setBounds (l.setlist.reduced (kCardPadX - 8, kCardPadY).withTrimmedTop (kHeadH + 8));
         editSetlist.setButtonText (sl.cues.empty() ? "Add cues" : "Edit");
         {
+            auto headRow = l.setlist.reduced (kCardPadX, kCardPadY).removeFromTop (kHeadH);
             const int w = editSetlist.idealWidth() + 4;
-            editSetlist.setBounds (l.setlist.reduced (kCardPadX, kCardPadY).removeFromTop (kHeadH).removeFromRight (w).expanded (0, 3));
+            editSetlist.setBounds (headRow.removeFromRight (w).expanded (0, 3));
+            // Clear cue beside Edit, while one is on (the toolbar's CUE pill clears it too).
+            clearCueButton.setVisible (controller.isCueActive() && ! l.setlist.isEmpty());
+            if (clearCueButton.isVisible())
+            {
+                headRow.removeFromRight (6);
+                const int cw = clearCueButton.idealWidth() + 4;
+                clearCueButton.setBounds (headRow.removeFromRight (cw).expanded (0, 3));
+            }
         }
 
         // LIVE SAFE and Autopilot: whole when there is room, their header lines when not.

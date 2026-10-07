@@ -3127,7 +3127,7 @@ TEST_CASE ("MixController: a cue switches who is on, deterministically, and the 
 
     CHECK (! c.goToNextCue());
     REQUIRE (! said.empty());
-    CHECK (said.back().find ("no setlist") != std::string::npos);
+    CHECK (said.back().find ("no cues") != std::string::npos);
 
     // Who a cue is about: the sources by kind, each speaking mic by name.
     const auto units = c.cueUnits();
@@ -3206,6 +3206,21 @@ TEST_CASE ("MixController: a cue switches who is on, deterministically, and the 
     CHECK_NEAR (c.getKept().strips[size_t (keysStrip)].faderDb, keysBase - 2.0f + steps.softerDb, 1e-3f);
     c.goToCue (1);
     CHECK_NEAR (c.getKept().strips[size_t (keysStrip)].faderDb, keysBase - 2.0f, 1e-3f);
+
+    // CLEAR THE CUE: whoever the cues muted comes back, their Softer / Up front are taken back,
+    // a hand move made since stays, and no cue is on. Once more is nothing.
+    c.goToCue (1);                                                 // Way Maker: speakers off, lead up front
+    CHECK (c.isCueActive());
+    CHECK (c.clearCue());
+    CHECK (! c.isCueActive());
+    CHECK (c.getSetlist().current == -1);
+    CHECK (! c.getKept().strips[size_t (pastor)].mute);
+    CHECK (! c.getKept().strips[size_t (lead)].mute);
+    CHECK_NEAR (c.getKept().strips[size_t (lead)].faderDb, leadBase, 1e-3f);
+    CHECK_NEAR (c.getKept().strips[size_t (keysStrip)].faderDb, keysBase - 2.0f, 1e-3f);   // the hand move stays
+    CHECK (! c.isGroupMuted (MixBus::Drums));
+    CHECK (! c.clearCue());
+    c.goToCue (1);                                                 // and on again, for what follows
 
     // "Use what's on right now".
     Cue now { "Now", CueKind::Band, -1, {}, {} };

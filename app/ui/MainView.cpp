@@ -447,6 +447,80 @@ private:
     bool crossOver = false;
 };
 
+// THE CUE ON NOW, from any workspace: "CUE  Way Maker  x". The name goes to LIVE, the cross
+// clears the cue (MixController::clearCue). Only while a cue is on.
+class MainView::CuePill : public juce::SettableTooltipClient, public juce::Component
+{
+public:
+    CuePill() { setInterceptsMouseClicks (true, false); setWantsKeyboardFocus (false); }
+
+    std::function<void()> onClear, onOpen;
+
+    void setCue (const juce::String& n)
+    {
+        if (n == name) return;
+        name = n;
+        if (auto* parent = getParentComponent()) parent->resized();
+        repaint();
+    }
+    bool hasCue() const noexcept { return name.isNotEmpty(); }
+    int minWidth() const { return 10 + 7 + 6 + Dine::textWidth (ToolbarToggle::keyFont(), "CUE") + 8 + 18 + 10; }
+
+    int idealWidth() const
+    {
+        return 10 + 7 + 6 + juce::jmin (200, Dine::textWidth (Dine::text (12.0f, 500), name)) + 8 + 18 + 10;
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        Dine::fillRounded (g, r, Dine::accent.withAlpha (0.16f), r.getHeight() * 0.5f);
+        auto inner = r.reduced (10.0f, 0.0f);
+        g.setColour (Dine::accent);
+        g.fillEllipse (inner.removeFromLeft (7.0f).withSizeKeepingCentre (7.0f, 7.0f));
+        inner.removeFromLeft (6.0f);
+        auto cross = inner.removeFromRight (18.0f).withSizeKeepingCentre (18.0f, 18.0f);
+        inner.removeFromRight (8.0f);
+        // The cue's name when it fits (squeezed a little at most); CUE when it does not - the
+        // tooltip and LIVE say the rest. Never half a name.
+        const auto font = Dine::text (12.0f, 500);
+        if (float (Dine::textWidth (font, name)) * 0.8f <= inner.getWidth())
+        {
+            g.setColour (Dine::ink);
+            g.setFont (font);
+            Dine::drawFittedText (g, name, inner.toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
+        }
+        else
+        {
+            g.setColour (Dine::accent);
+            g.setFont (ToolbarToggle::keyFont());
+            Dine::drawText (g, "CUE", inner.toNearestInt(), juce::Justification::centredLeft, false);
+        }
+        g.setColour (crossOver ? Dine::accent.brighter (0.2f) : Dine::accent);
+        g.fillEllipse (cross);
+        Dine::drawIcon (g, Dine::Icon::Close, cross.reduced (4.5f), Dine::desk);
+        crossBox = cross.toNearestInt();
+    }
+
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        const bool over = crossBox.contains (e.getPosition());
+        if (over != crossOver) { crossOver = over; repaint(); }
+    }
+    void mouseExit (const juce::MouseEvent&) override { if (crossOver) { crossOver = false; repaint(); } }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (! getLocalBounds().contains (e.getPosition())) return;
+        if (crossBox.contains (e.getPosition())) { if (onClear) onClear(); return; }
+        if (onOpen) onOpen();
+    }
+
+private:
+    juce::String name;
+    juce::Rectangle<int> crossBox;
+    bool crossOver = false;
+};
+
 // ---------------------------------------------------------------- status foot
 // Always on screen: the engine, the CPU, the disk, what is recording, the broadcast, what
 // the engineer is listening on, and dropped buffers. Painted, compared before a repaint.
@@ -696,7 +770,7 @@ public:
             { "Favourite mixes",   Page::Favourites, Dine::Icon::NavFavourite, Action::None,        "",        false },
             { "Mix history",       Page::Tracks,     Dine::Icon::NavHistory,   Action::MixHistory,  "",        false },
             { "Live",              Page::Live,       Dine::Icon::NavLive,      Action::None,        "⌘4", false },
-            { "Setlist",           Page::Live,       Dine::Icon::NavSetlist,   Action::Scenes,      "",        false },
+            { "Cues",              Page::Live,       Dine::Icon::NavSetlist,   Action::Scenes,      "",        false },
             { "Tracks",            Page::Tracks,     Dine::Icon::NavTracks,    Action::None,        "⌘5", false },
             { "Export",            Page::Tracks,     Dine::Icon::NavExport,    Action::Export,      "⇧⌘E", false },
         };
@@ -740,7 +814,7 @@ public:
         if (auto* check = actionItem (Action::CheckInputs))
             check->setTooltip ("Every input, its level and one word about it: the soundcheck at a glance.");
         if (auto* setlist = actionItem (Action::Scenes))
-            setlist->setTooltip ("The service's scenes, in order, on LIVE.");
+            setlist->setTooltip ("The service's cues, in order: opens them on LIVE.");
         setOpaque (false);
     }
 
@@ -1174,6 +1248,7 @@ public:
                 // AUTOPILOT: the second thing in DINE allowed to move a level by itself, and
                 // the only way to turn it on. Ticked while it is holding the mix.
                 m.addItem (415, "Autopilot: hold this mix", true, view.controller.isAutopilotOn());
+                m.addItem (521, "Clear the Cue", view.controller.isCueActive());
                 m.addSeparator();
                 m.addItem (414, "Reset Mix to Raw" + juce::String (Glyph::ellip()), ! view.controller.isLiveSafe());
                 m.addSeparator();
@@ -1195,6 +1270,10 @@ public:
                 m.addItem (503, "Loop");
                 m.addSeparator();
                 m.addItem (520, "Go to the Next Cue   Space on Live", ! view.controller.getSetlist().cues.empty());
+                m.addItem (521, view.controller.isCueActive()
+                                    ? "Clear the Cue (" + juce::String (view.controller.getSetlist().cues[size_t (view.controller.getSetlist().current)].name) + ")"
+                                    : juce::String ("Clear the Cue"),
+                           view.controller.isCueActive());
                 break;
             case 5:
                 m.addItem (601, "Mixer");
@@ -1340,7 +1419,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
             // Safety: two rows that are not pages. MIX HISTORY is the sheet it has always been
             // (the design's own note says so); SCENES is the sheet beside it.
             if (a == Sidebar::Action::MixHistory) showHistory();
-            else if (a == Sidebar::Action::Scenes) { showPage (Page::Live); livePage->focusSetlist(); }
+            else if (a == Sidebar::Action::Scenes) { showPage (Page::Live); showSetlist(); }
             else if (a == Sidebar::Action::BroadcastReadiness) showBroadcastReadiness (true);
             else if (a == Sidebar::Action::CheckInputs) showCheck();
             else if (a == Sidebar::Action::Export) exportMix (AppServices::ExportFormat::Wav);
@@ -1365,6 +1444,13 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     soloPill->setTooltip ("Something is soloed, so you are hearing it on its own. The room and the stream are "
                           "unchanged. Click the name to go to it, or the cross to clear every solo.");
     addChildComponent (*soloPill);
+
+    cuePill = std::make_unique<CuePill>();
+    cuePill->onOpen = [this] { showPage (Page::Live); livePage->focusSetlist(); };
+    cuePill->onClear = [this] { handleCommand (521); };
+    cuePill->setTooltip ("The cue on now. Click it for LIVE; the cross clears the cue: whoever it "
+                         "muted comes back and its Softer / Up front are taken back.");
+    addChildComponent (*cuePill);
 
     // ---- the toolbar
     sidebarButton = std::make_unique<SidebarButton>();
@@ -1755,6 +1841,13 @@ void MainView::refreshSoloPill()
     const bool wasShown = soloPill->isVisible();
     soloPill->setItems (controller.getSoloed());
     if (soloPill->hasAny() != wasShown) { soloPill->setVisible (soloPill->hasAny()); resized(); }
+    if (cuePill != nullptr)
+    {
+        const bool cueWas = cuePill->isVisible();
+        const auto& sl = controller.getSetlist();
+        cuePill->setCue (controller.isCueActive() ? juce::String (sl.cues[size_t (sl.current)].name) : juce::String());
+        if (cuePill->hasCue() != cueWas) { cuePill->setVisible (cuePill->hasCue()); resized(); }
+    }
 }
 
 void MainView::updateChrome()
@@ -3065,6 +3158,10 @@ void MainView::handleCommand (int id)
         }
         case 502: transportBar->returnToStart(); break;
         case 520: livePage->goToNextCue(); break;
+        case 521:
+            if (controller.clearCue()) { livePage->refresh(); updateChrome(); }
+            else showToast ("No cue is on, so there is nothing to clear.");
+            break;
         case 503: transportBar->toggleLoop(); break;
 
         case 600: showPage (Page::Tracks); break;
@@ -3196,7 +3293,7 @@ juce::String MainView::openSheetName() const
     // The scope picker belongs to TUNE rather than to the window, but it is a sheet over the
     // workspace like any other and Escape has to mean the same thing over it.
     if (mixPage != nullptr && mixPage->isScopeSheetOpen()) return "tunescope";
-    if (setlistSheet != nullptr) return "setlist";
+    if (setlistSheet != nullptr) return "cues";
     if (readySheet   != nullptr) return "ready";
     if (checkSheet   != nullptr) return "check";
     if (historySheet != nullptr) return "history";
@@ -3914,6 +4011,7 @@ juce::Rectangle<int> MainView::columnBounds() const
 // The solo pill lives in the toolbar now, so a sheet can never cover it: it is the one thing
 // the window says that has to stay true whatever else is open.
 bool MainView::isSoloBarShown() const { return soloPill != nullptr && soloPill->isVisible(); }
+bool MainView::isCuePillShown() const { return cuePill != nullptr && cuePill->isVisible(); }
 
 // A name on the solo band is a way to the thing it names: the console, with that strip, group
 // or return picked out. Nothing about the mix changes - it is a way of looking, like the band.
@@ -4110,7 +4208,8 @@ void MainView::resized()
         else sessionButton->setBounds ({});
     }
     const int pillsNeed = (readyPill->isVisible() ? readyPill->idealWidth() + 10 : 0)
-                        + (soloPill != nullptr && soloPill->isVisible() ? juce::jmin (soloPill->idealWidth(), 150) + 10 : 0);
+                        + (soloPill != nullptr && soloPill->isVisible() ? juce::jmin (soloPill->idealWidth(), 150) + 10 : 0)
+                        + (cuePill != nullptr && cuePill->isVisible() ? 110 : 0);
     if (transportBar->isVisible())
     {
         int want = transportBar->idealWidth();
@@ -4133,6 +4232,14 @@ void MainView::resized()
     {
         const int w = juce::jlimit (0, juce::jmax (0, left.getWidth()), juce::jmin (soloPill->idealWidth(), 280));
         soloPill->setBounds (left.removeFromLeft (w).withSizeKeepingCentre (w, 30));
+        left.removeFromLeft (8);
+    }
+    if (cuePill != nullptr && cuePill->isVisible())
+    {
+        // CUE and the cross at least; the name as room allows.
+        const int least = cuePill->minWidth();
+        const int w = juce::jmin (cuePill->idealWidth(), 260, left.getWidth());
+        cuePill->setBounds (w >= least ? left.removeFromLeft (w).withSizeKeepingCentre (w, 30) : juce::Rectangle<int>());
     }
 
     // ------------------------------------------------------------------ the column

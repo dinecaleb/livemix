@@ -90,6 +90,7 @@ private:
     std::unique_ptr<CueList> cueList;
     DineButton goButton { "Go", DineButton::Style::Filled };
     DineButton editSetlist { "Edit", DineButton::Style::Standard };
+    DineButton clearCueButton { "Clear cue", DineButton::Style::Ghost };   // MixController::clearCue
 
     // SCENES: the picker over the strips. A kept scene comes back in one press; KEEP writes the
     // mix that is running into the one picked.

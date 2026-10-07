@@ -454,7 +454,7 @@ void SetlistSheet::paint (juce::Graphics& g)
     auto head = card.withHeight (kHeadH).reduced (kPad, 12);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (15.0f, 700));
-    Dine::drawText (g, "Setlist", head.removeFromTop (22), juce::Justification::centredLeft, false);
+    Dine::drawText (g, "Cues", head.removeFromTop (22), juce::Justification::centredLeft, false);
     g.setColour (Dine::ink2);
     g.setFont (noteFont());
     Dine::drawText (g, "Each cue is a moment in the service. Space on LIVE goes to the next one.",

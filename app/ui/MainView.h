@@ -110,7 +110,8 @@ public:
     // Reduce motion). Left empty - the snapshot tool, the tests - nothing animates.
     std::function<bool()> prefersReducedMotion;
     bool isSidebarShown() const noexcept { return sidebarShown; }
-    bool isSoloBarShown() const;               // the reachability test and the snapshot tool
+    bool isSoloBarShown() const;
+    bool isCuePillShown() const;               // the reachability test and the snapshot tool
     void togglePanel (bool left);
 
     void openMixerWindow();
@@ -232,6 +233,7 @@ private:
     class Menu;
     class ToolbarToggle;
     class SoloPill;
+    class CuePill;
     static constexpr int kRequestsW = 380;   // the Mix Buddy panel down the right of the workspace
     // What macOS draws at the left of the toolbar: three 12 pt buttons at 16 / 36 / 56, so the
     // first thing this window may put there starts at 86 (design: `Toolbar v3.4`).
@@ -362,6 +364,7 @@ private:
     // Beside the clock whenever anything is soloed, on every workspace, and nowhere at all
     // when nothing is. See the class for why solo gets a permanent place in the chrome.
     std::unique_ptr<SoloPill> soloPill;
+    std::unique_ptr<CuePill> cuePill;
     std::unique_ptr<ToolbarToggle> autopilotButton;
     void jumpToSoloed (const MixController::SoloedItem&);
     std::unique_ptr<ChainStrip> chainFoot;

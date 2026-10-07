@@ -383,6 +383,11 @@ public:
     void removeCue (int index);
     bool goToCue (int index);                             // true when the mix changed
     bool goToNextCue();
+    // CLEAR THE CUE: back to the mix as it was before the cues started - every mute a cue made
+    // put back, every Softer / Up front taken back - and no cue on. One Mix history entry. Hand
+    // moves made since stay. False when no cue is on.
+    bool clearCue();
+    bool isCueActive() const noexcept { return setlist.current >= 0 && setlist.current < int (setlist.cues.size()); }
     // What a cue starts from, in words: the scene's or favourite's name, or "As it is".
     std::string cueSceneName (const Cue&) const;
     // WHO A CUE IS ABOUT: this session's sources by kind, and each speaking microphone by name.
@@ -1030,6 +1035,9 @@ private:
     template <int N> static std::array<float, N> filledArray (float v) { std::array<float, N> a; a.fill (v); return a; }
     // What the last cue did to each strip's fader, so the next one starts from the mix without it.
     std::array<float, kMaxStrips> cueOffsetDb {};
+    // The strips' mutes from before the first cue since the last clear, so clearing can put them back.
+    std::array<bool, kMaxStrips> preCueMute {};
+    bool preCueValid = false;
     MixFingerprint measureNow() const;      // what the mix that is running actually sounds like
     std::vector<MixCheckpoint> checkpoints;
     long long lastCheckpointMs = 0;     // the slow beat: see poll()
