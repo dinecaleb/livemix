@@ -89,8 +89,11 @@ private:
         bool operator== (const HistoryView& o) const { return what == o.what && when == o.when && summary == o.summary && lines == o.lines; }
     };
     std::vector<HistoryView> historyViews();
-    int railWidth() const noexcept  { return ! railAvailable ? 0 : railShown ? kRailW : Dine::Metric::panelTab; }
-    int trailWidth() const noexcept { return trailShown ? kTrailW : Dine::Metric::panelTab; }
+    int railWidth() const noexcept  { return ! railAvailable ? 0 : railSlide.width (Dine::Metric::panelTab, kRailW); }
+    int trailWidth() const noexcept { return trailSlide.width (Dine::Metric::panelTab, kTrailW); }
+    // Out: open, or on its way in or out - its contents are laid out and drawn.
+    bool railOut() const noexcept  { return railShown || railSlide.isMoving(); }
+    bool trailOut() const noexcept { return trailShown || trailSlide.isMoving(); }
 
     static constexpr int kRailW     = Dine::Metric::chanRail;   // the channel rail: 180, the design's
     static constexpr int kTrailW    = Dine::Metric::trail;      // what DINE did: 280
@@ -125,6 +128,9 @@ private:
     std::unique_ptr<Trail> trail;
     std::unique_ptr<DinePanelTab> railTab, trailTab;
     bool railShown = true, trailShown = true, railAvailable = true;
+    // Both panels fold on the sidebar's slide, their contents at full width behind the edge.
+    Dine::Slide railSlide { *this, [this] { resized(); repaint(); } };
+    Dine::Slide trailSlide { *this, [this] { resized(); repaint(); } };
     int builtForStrips = -1;
     bool rebuilding = false;   // rebuild() selects, and a selection refreshes: never re-entered
     int historyCount = -1, historyStrip = -2;   // what the trail's HISTORY was last built from

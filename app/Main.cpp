@@ -972,6 +972,7 @@ namespace
             putWindowButtonsInTheToolbar (*this);
             view().onToolbarPressed = [this] { dragWindowFromToolbar (*this); };
             view().prefersReducedMotion = [] { return systemPrefersReducedMotion(); };
+            Dine::setReducedMotionQuery ([] { return systemPrefersReducedMotion(); });   // every panel's slide
             view().onToolbarDoubleClicked = [this] { toolbarDoubleClicked (*this); };
            #endif
            #if JUCE_MAC

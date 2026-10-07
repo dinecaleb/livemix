@@ -204,6 +204,43 @@ namespace Dine
     // rather than guessing a fixed one and cutting the end off.
     int fittedLines (const juce::Font&, const juce::String&, int width);
 
+    // MOTION ------------------------------------------------------------------
+    // One motion for every panel that folds: the sidebar's slide (Mail's), 420 ms on
+    // cubic-bezier(0.32, 0.72, 0, 1), stepped on the display's own clock. It runs only where the
+    // application has said motion is allowed (the real window, Reduce Motion off) and the
+    // component is on screen; the snapshot tool and the tests never animate, so a frame there is
+    // always the resting state. Message thread only; nothing here touches the audio.
+    void setReducedMotionQuery (std::function<bool()> prefersReducedMotion);
+    bool motionAllowed();
+    float panelEase (float t);                       // 0..1 -> 0..1 on the curve above
+    inline constexpr double kPanelSlideMs = 420.0;
+
+    // A panel's place between folded (0) and open (1). `onFrame` is called on every step -
+    // the owner lays itself out from value() - and once more when it lands.
+    class Slide
+    {
+    public:
+        Slide (juce::Component& owner, std::function<void()> onFrame, bool open = true);
+        ~Slide();
+        void setOpen (bool open);                    // slides where motion is allowed, snaps otherwise
+        void snap (bool open);
+        bool isOpen() const noexcept { return open; }
+        bool isMoving() const noexcept { return clock != nullptr; }
+        float value() const noexcept { return v; }
+        // Width between a folded and an open size, on the curve.
+        int width (int folded, int opened) const noexcept { return folded + juce::roundToInt (float (opened - folded) * v); }
+    private:
+        void step();
+        juce::Component& owner;
+        std::function<void()> onFrame;
+        std::unique_ptr<juce::VBlankAttachment> clock;
+        bool open = true;
+        float v = 1.0f, from = 1.0f;
+        double startMs = 0.0;
+        juce::WeakReference<Slide>::Master masterReference;
+        friend class juce::WeakReference<Slide>;
+    };
+
     // ---------------------------------------------------------------- drawing text
     // Use these, not g.drawText / g.drawFittedText, everywhere in the application.
     //

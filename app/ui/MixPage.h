@@ -95,9 +95,12 @@ private:
     Layout layout() const;
     int railWidth() const noexcept
     {
-        return ! railAvailable ? 0 : railShown ? Dine::Metric::tuneRail : Dine::Metric::panelTab;
+        return ! railAvailable ? 0 : railSlide.width (Dine::Metric::panelTab, Dine::Metric::tuneRail);
     }
-    int sideWidth() const noexcept { return sideShown ? kSideW : Dine::Metric::panelTab; }
+    int sideWidth() const noexcept { return sideSlide.width (Dine::Metric::panelTab, kSideW); }
+    // Out: open, or on its way in or out - the panel's contents are laid out and drawn.
+    bool railOut() const noexcept { return railShown || railSlide.isMoving(); }
+    bool sideOut() const noexcept { return sideShown || sideSlide.isMoving(); }
     void refreshTuneButton();
     void refreshMaster();              // the loudness readout and the two pickers, a few times a second
     void rebuildRail();
@@ -128,6 +131,10 @@ private:
     juce::Viewport sideView;
     std::unique_ptr<DinePanelTab> sideTab;
     bool sideShown = true;
+    // Both panels fold on the sidebar's slide; while they move, their contents keep their full
+    // width and slide behind the edge, so nothing inside re-flows mid-motion.
+    Dine::Slide railSlide { *this, [this] { resized(); repaint(); } };
+    Dine::Slide sideSlide { *this, [this] { resized(); repaint(); } };
     DineButton tuneButton { "TUNE MIX", DineButton::Style::Filled };
     DineButton liveTuneButton { "TUNE LIVE MIX", DineButton::Style::Standard };
     DineButton referenceButton { "Match to reference", DineButton::Style::Standard };

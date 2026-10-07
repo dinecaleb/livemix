@@ -2100,7 +2100,7 @@ void MixPage::setRailAvailable (bool available)
     if (available == railAvailable) return;
     railAvailable = available;
     railTab->setVisible (available);
-    railView.setVisible (available && railShown);
+    railView.setVisible (available && railOut());
     resized();
     repaint();
 }
@@ -2110,9 +2110,8 @@ void MixPage::setRailShown (bool shown)
     if (shown == railShown) return;
     railShown = shown;
     railTab->setCollapsed (! shown);
-    railView.setVisible (shown);
-    resized();
-    repaint();
+    railView.setVisible (railAvailable);
+    railSlide.setOpen (shown);           // lays the page out on every step, and once when it lands
 }
 
 void MixPage::setSideShown (bool shown)
@@ -2120,9 +2119,8 @@ void MixPage::setSideShown (bool shown)
     if (shown == sideShown) return;
     sideShown = shown;
     sideTab->setCollapsed (! shown);
-    sideView.setVisible (shown);
-    resized();
-    repaint();
+    sideView.setVisible (true);
+    sideSlide.setOpen (shown);
     // Folding this one away takes the verb the whole workspace is named after off the screen,
     // and the keyboard can do it by accident. Say where it went and how to get it back.
     if (! shown && onToast)
@@ -2533,9 +2531,9 @@ MixPage::Layout MixPage::layout() const
     Layout l;
     auto b = getLocalBounds();
     l.rail = b.removeFromLeft (railWidth());
-    l.railTab = railShown ? l.rail.removeFromRight (0) : l.rail;
+    l.railTab = railOut() ? l.rail.removeFromRight (0) : l.rail;
     l.side = b.removeFromRight (sideWidth());
-    l.sideTab = sideShown ? l.side.withHeight (36).removeFromRight (30) : l.side;
+    l.sideTab = sideOut() ? l.side.withHeight (36).removeFromRight (30) : l.side;
     auto main = b.reduced (24, 22);
 
     // The middle column never scrolls. The groups take what is left after the master row and
@@ -2659,8 +2657,10 @@ void MixPage::paint (juce::Graphics& g)
     g.fillRect (l.rail.getUnion (l.railTab));
     g.setColour (Dine::hair);
     g.fillRect (l.rail.getUnion (l.railTab).removeFromRight (1));   // the seam against the middle
-    if (! railShown) return;
-    auto head = l.rail.withHeight (46).reduced (16, 0).withTrimmedTop (14);
+    if (! railOut()) return;
+    // Anchored to the edge it slides from: the contents keep their width while the rail moves.
+    const auto railFull = l.rail.withX (l.rail.getRight() - Dine::Metric::tuneRail).withWidth (Dine::Metric::tuneRail);
+    auto head = railFull.withHeight (46).reduced (16, 0).withTrimmedTop (14);
     g.setColour (Dine::ink);
     g.setFont (Dine::text (17.0f, 600));
     Dine::drawText (g, "Inputs", head.withTrimmedRight (20), juce::Justification::topLeft, true);
@@ -2669,7 +2669,7 @@ void MixPage::paint (juce::Graphics& g)
     {
         g.setColour (Dine::ink3);
         g.setFont (Dine::text (12.0f));
-        Dine::drawFittedText (g, "Assign inputs to see them here.", l.rail.reduced (14, 50).removeFromTop (40), juce::Justification::topLeft, 2);
+        Dine::drawFittedText (g, "Assign inputs to see them here.", railFull.reduced (14, 50).removeFromTop (40), juce::Justification::topLeft, 2);
     }
 
     int faintCount = 0;
@@ -2678,7 +2678,7 @@ void MixPage::paint (juce::Graphics& g)
         if (r->faint) { ++faintCount; faintNames += (faintNames.isEmpty() ? "" : ", ") + r->name; }
     if (faintCount > 0)
     {
-        auto box = l.rail.reduced (10, 0).removeFromBottom (92).withTrimmedBottom (10);
+        auto box = railFull.reduced (10, 0).removeFromBottom (92).withTrimmedBottom (10);
         Dine::fillRounded (g, box.toFloat(), Dine::mix (Dine::warn, 0.14f), Dine::Radius::control);
         auto r = box.reduced (12, 10);
         g.setColour (Dine::warn);
@@ -2707,7 +2707,8 @@ void MixPage::resized()
 
     // ---- the right panel
     sideTab->setBounds (l.sideTab);
-    sideView.setBounds (sideShown ? l.side.withTrimmedTop (36) : juce::Rectangle<int>());
+    sideView.setVisible (sideOut());
+    sideView.setBounds (sideOut() ? l.side.withTrimmedTop (36).withWidth (kSideW) : juce::Rectangle<int>());
     layoutSide();
 
     // The groups are rows, one under the next, the way the design reads them.
@@ -2784,12 +2785,14 @@ void MixPage::resized()
     }
 
     // ---- rail
-    if (railShown) railTab->setBounds (l.rail.withHeight (46).removeFromRight (30));
+    if (railOut()) railTab->setBounds (l.rail.withHeight (46).removeFromRight (30));
     else railTab->setBounds (l.railTab);
     int faintCount = 0;
     for (const auto& r : inputRows) if (r->faint) ++faintCount;
     auto rail = l.rail.withTrimmedTop (46);
+    rail = rail.withX (rail.getRight() - Dine::Metric::tuneRail).withWidth (Dine::Metric::tuneRail);
     if (faintCount > 0) rail.removeFromBottom (92);
+    railView.setVisible (railAvailable && railOut());
     railView.setBounds (rail);
     int total = 0;
     for (const auto& r : inputRows) total += r->wantedHeight();

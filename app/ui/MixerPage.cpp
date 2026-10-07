@@ -1796,13 +1796,13 @@ void MixerPage::setRailShown (bool v)
     if (railWanted == v) return;
     railWanted = v;
     railButton.setToggleState (v, juce::dontSendNotification);
-    resized();
+    railSlide.setOpen (v);          // slides in and out the way the sidebar does
 }
 
 // The rail needs a console beside it worth having: three strips and the master at least.
 bool MixerPage::railFits() const noexcept
 {
-    return railWanted && view == View::Strips && getWidth() >= kRailW + kMasterW + 3 * 86 + 60;
+    return view == View::Strips && getWidth() >= kRailW + kMasterW + 3 * 86 + 60;
 }
 
 void MixerPage::setFootShown (bool v)
@@ -2065,10 +2065,18 @@ void MixerPage::paint (juce::Graphics& g)
 void MixerPage::resized()
 {
     // The rail runs the page's full height, beside the title row as well as the console.
-    const bool railOn = railFits();
-    rail->setVisible (railOn);
+    // While it slides the console gives way a step at a time, and the panel itself keeps its
+    // full width and moves in from the edge - its contents never re-flow mid-slide.
+    const int railW = railFits() ? railSlide.width (0, kRailW) : 0;
+    const bool railWas = rail->isVisible();
+    rail->setVisible (railW > 0);
     auto page = getLocalBounds();
-    if (railOn) { rail->setBounds (page.removeFromRight (kRailW)); rail->update(); }
+    if (railW > 0)
+    {
+        const auto room = page.removeFromRight (railW);
+        rail->setBounds (room.withWidth (kRailW));
+        if (! railWas || ! railSlide.isMoving()) rail->update();
+    }
 
     auto head = page.removeFromTop (kHeaderH).reduced (16, 0);
     auto controls = head.withSizeKeepingCentre (head.getWidth(), Dine::Metric::control);

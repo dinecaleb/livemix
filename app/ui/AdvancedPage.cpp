@@ -952,9 +952,8 @@ void AdvancedPage::setRailShown (bool shown)
     if (shown == railShown) return;
     railShown = shown;
     railTab->setCollapsed (! shown);
-    viewport.setVisible (shown);
-    resized();
-    repaint();
+    viewport.setVisible (true);
+    railSlide.setOpen (shown);
 }
 
 void AdvancedPage::setTrailShown (bool shown)
@@ -962,9 +961,8 @@ void AdvancedPage::setTrailShown (bool shown)
     if (shown == trailShown) return;
     trailShown = shown;
     trailTab->setCollapsed (! shown);
-    trail->setVisible (shown);
-    resized();
-    repaint();
+    trail->setVisible (true);
+    trailSlide.setOpen (shown);
 }
 
 AdvancedPage::~AdvancedPage() = default;
@@ -1303,8 +1301,9 @@ void AdvancedPage::paint (juce::Graphics& g)
     g.fillRect (rail.withLeft (rail.getRight() - 1));          // the seams either side of the middle column
     g.fillRect (trailArea.withWidth (1));
 
-    if (railShown)
+    if (railOut())
     {
+        rail = rail.withX (rail.getRight() - kRailW).withWidth (kRailW);    // its contents slide with its edge
         auto railHead = rail.removeFromTop (kRailHeadH).reduced (kRailPadX, 0).withTrimmedTop (16);
         g.setColour (Dine::ink);
         g.setFont (Dine::text (13.0f, 600));
@@ -1383,11 +1382,15 @@ void AdvancedPage::resized()
     auto rail = area.removeFromLeft (railWidth());
     auto trailArea = area.removeFromRight (trailWidth());
 
-    if (railShown) railTab->setBounds (rail.withHeight (kRailHeadH).removeFromRight (30)); else railTab->setBounds (rail);
-    if (trailShown) trailTab->setBounds (trailArea.withHeight (Trail::kHeadH).removeFromRight (30)); else trailTab->setBounds (trailArea);
+    if (railOut()) railTab->setBounds (rail.withHeight (kRailHeadH).removeFromRight (30)); else railTab->setBounds (rail);
+    if (trailOut()) trailTab->setBounds (trailArea.withHeight (Trail::kHeadH).removeFromRight (30)); else trailTab->setBounds (trailArea);
 
     rail.removeFromTop (kRailHeadH);
-    if (railShown) viewport.setBounds (rail);
+    // While a panel slides its contents keep their full width and move with its edge, so
+    // nothing inside re-flows mid-motion.
+    viewport.setVisible (railAvailable && railOut());
+    trail->setVisible (trailOut());
+    if (railOut()) viewport.setBounds (rail.withX (rail.getRight() - kRailW).withWidth (kRailW));
 
     const int rowH = 32, headerH = 28, sectionGap = 6;
     int total = 0;
@@ -1422,7 +1425,7 @@ void AdvancedPage::resized()
         }
     }
 
-    if (trailShown) trail->setBounds (trailArea);
+    if (trailOut()) trail->setBounds (trailArea.withWidth (kTrailW));
 
     // SIMPLE / ADVANCED and RE-TUNE sit level with the channel's name, at the right.
     {

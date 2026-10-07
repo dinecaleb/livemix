@@ -414,6 +414,80 @@ void Dine::drawText (juce::Graphics& g, const juce::String& text,
               justification, useEllipsesIfTooBig);
 }
 
+namespace
+{
+    std::function<bool()>& reducedMotionQuery()
+    {
+        static std::function<bool()> query;
+        return query;
+    }
+}
+
+void Dine::setReducedMotionQuery (std::function<bool()> q) { reducedMotionQuery() = std::move (q); }
+
+bool Dine::motionAllowed()
+{
+    const auto& q = reducedMotionQuery();
+    return q != nullptr && ! q();
+}
+
+// cubic-bezier(0.32, 0.72, 0, 1): x(u) solved for the time by Newton's method, then y(u).
+// Six steps are more than enough at 60 frames.
+float Dine::panelEase (float t)
+{
+    constexpr float x1 = 0.32f, y1 = 0.72f, x2 = 0.0f, y2 = 1.0f;
+    const auto bez = [] (float u, float a, float b) { const float w = 1.0f - u; return 3.0f * w * w * u * a + 3.0f * w * u * u * b + u * u * u; };
+    const auto dBez = [] (float u, float a, float b) { const float w = 1.0f - u; return 3.0f * w * w * a + 6.0f * w * u * (b - a) + 3.0f * u * u * (1.0f - b); };
+    float u = juce::jlimit (0.0f, 1.0f, t);
+    for (int i = 0; i < 6; ++i)
+    {
+        const float d = dBez (u, x1, x2);
+        if (std::abs (d) < 1.0e-5f) break;
+        u = juce::jlimit (0.0f, 1.0f, u - (bez (u, x1, x2) - t) / d);
+    }
+    return bez (u, y1, y2);
+}
+
+Dine::Slide::Slide (juce::Component& c, std::function<void()> f, bool o)
+    : owner (c), onFrame (std::move (f)), open (o), v (o ? 1.0f : 0.0f), from (v) {}
+
+Dine::Slide::~Slide() { masterReference.clear(); }
+
+void Dine::Slide::snap (bool o)
+{
+    clock.reset();
+    open = o;
+    v = from = o ? 1.0f : 0.0f;
+    if (onFrame) onFrame();
+}
+
+void Dine::Slide::setOpen (bool o)
+{
+    if (o == open && clock == nullptr) return;
+    if (! motionAllowed() || ! owner.isShowing()) { snap (o); return; }
+    open = o;
+    from = v;                                        // a reversal mid-slide turns from where it is
+    startMs = juce::Time::getMillisecondCounterHiRes();
+    if (clock == nullptr) clock = std::make_unique<juce::VBlankAttachment> (&owner, [this] { step(); });
+}
+
+void Dine::Slide::step()
+{
+    const float t = juce::jlimit (0.0f, 1.0f, float ((juce::Time::getMillisecondCounterHiRes() - startMs) / kPanelSlideMs));
+    const float target = open ? 1.0f : 0.0f;
+    v = from + (target - from) * panelEase (t);
+    if (t >= 1.0f)
+    {
+        v = from = target;
+        // Released on the next message, not from inside its own callback.
+        juce::MessageManager::callAsync ([self = juce::WeakReference<Slide> (this)]
+        {
+            if (self != nullptr && self->v == (self->open ? 1.0f : 0.0f)) self->clock.reset();
+        });
+    }
+    if (onFrame) onFrame();
+}
+
 int Dine::fittedLines (const juce::Font& font, const juce::String& text, int width)
 {
     if (text.isEmpty() || width <= 0) return 0;

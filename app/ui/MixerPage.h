@@ -86,7 +86,8 @@ private:
     class QuickInspector;
     std::unique_ptr<QuickInspector> rail;
     bool railWanted = false;
-    bool railFits() const noexcept;
+    bool railFits() const noexcept;                 // the console has room for it beside the strips
+    Dine::Slide railSlide { *this, [this] { resized(); repaint(); }, false };   // the sidebar's slide
 
     Strip* masterStrip() const;
     void layoutStrips();
