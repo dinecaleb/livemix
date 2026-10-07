@@ -3167,6 +3167,20 @@ TEST_CASE ("MixController: a cue switches who is on, deterministically, and the 
     CHECK (! c.getKept().strips[size_t (pastor)].mute);
     CHECK (c.getKept().strips[size_t (lead)].mute);
     CHECK_NEAR (c.getKept().strips[size_t (lead)].faderDb, leadBase, 1e-3f);
+    // Every view that shows a group says what the cue did to it: the band's groups read muted
+    // (nothing in them is heard), the speakers' does not - and the group's own key is untouched.
+    CHECK (c.isGroupMuted (MixBus::Drums));
+    CHECK (c.isGroupMuted (MixBus::Lead));
+    CHECK (! c.isGroupMuted (MixBus::Speech));
+    CHECK (! c.getKept().buses[size_t (MixBus::Drums)].mute);
+    const int kick = stripOf ("Kick");
+    c.setGroupMuted (MixBus::Drums, false);                    // M on the group: the drums come back
+    CHECK (! c.isGroupMuted (MixBus::Drums));
+    CHECK (! c.getKept().strips[size_t (kick)].mute);
+    c.setGroupMuted (MixBus::Drums, true);                     // and M again mutes the group itself
+    CHECK (c.getKept().buses[size_t (MixBus::Drums)].mute);
+    CHECK (c.isGroupMuted (MixBus::Drums));
+    c.setGroupMuted (MixBus::Drums, false);
 
     // The song: the band on, the lead up front, the speakers muted.
     const auto checkpoints = c.getCheckpoints().size();

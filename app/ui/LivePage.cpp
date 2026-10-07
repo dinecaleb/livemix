@@ -114,7 +114,7 @@ public:
             if (isInput())       controller.setStripMute (group, ! controller.getBase().strips[size_t (group)].mute);
             else if (isFx())     controller.setFxMute (! controller.getBase().fxMute);
             else if (isReturn()) controller.setFxSlotMute (slot(), ! controller.getBase().fx[size_t (slot())].mute);
-            else                 controller.setBusMute (bus(), ! controller.getBase().buses[size_t (bus())].mute);
+            else                 controller.setGroupMuted (bus(), ! controller.isGroupMuted (bus()));
         };
         solo.onClick = [this]
         {
@@ -164,7 +164,7 @@ public:
         else
         {
             const auto& b = p.buses[size_t (bus())];
-            faderDb = b.faderDb; m = b.mute; s = b.solo;
+            faderDb = b.faderDb; m = controller.isGroupMuted (bus()); s = b.solo;
             isUsed = controller.isPrepared() && controller.getEngine().isBusUsed (bus());
             if (isUsed) peak = controller.busPeakDb (bus());
         }
@@ -744,7 +744,7 @@ std::vector<int> LivePage::tilesFor (View v) const
             for (int t = 0; t < kGroupBuses; ++t)
             {
                 const auto b = mixBusInDisplayOrder (t);
-                if (prepared && controller.getEngine().isBusUsed (b) && ! p.buses[size_t (b)].mute) out.push_back (t);
+                if (prepared && controller.getEngine().isBusUsed (b) && ! controller.isGroupMuted (b)) out.push_back (t);
             }
             if (anyEffects() && ! p.fxMute) out.push_back (kFxTile);
             break;
@@ -908,7 +908,7 @@ void LivePage::refresh()
             const auto b = mixBusInDisplayOrder (t);
             if (! controller.isPrepared() || ! controller.getEngine().isBusUsed (b)) continue;
             ++used;
-            if (! controller.getBase().buses[size_t (b)].mute) ++on;
+            if (! controller.isGroupMuted (b)) ++on;
         }
         next.counts = { on, used, int (inputTiles.size()), attentionNow.size() };
     }

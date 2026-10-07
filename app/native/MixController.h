@@ -725,6 +725,15 @@ public:
     std::vector<int> linkedWith (int strip) const;           // the other members, in strip order
     std::string linkedNames (int strip) const;               // "OH R, Room" - for a tooltip or a menu
     const MixParameters& getKept() const noexcept { return kept; }          // without macros
+
+    // A GROUP AS A PERSON SEES IT. A group is muted when its own key is down, or when every
+    // channel that feeds it is muted - a cue that switches the band off, or somebody muting
+    // each drum. Every view that shows a group reads this, so none says "on" while nothing in
+    // it is heard. Pressing M on a group muted that way brings the whole group back: the
+    // group and every channel in it.
+    bool isGroupMuted (MixBus bus) const noexcept;
+    bool groupSilencedByChannels (MixBus bus) const noexcept;
+    void setGroupMuted (MixBus bus, bool mute);
     // What is audible, without macros. During a TUNE LIVE MIX verify listen the applied
     // proposal has to stay audible even though the stage says Listening: the second listen is
     // measuring what was applied, and a listen to the old mix would verify nothing.

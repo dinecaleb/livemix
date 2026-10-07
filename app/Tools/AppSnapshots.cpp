@@ -1462,6 +1462,22 @@ int main (int argc, char** argv)
         rig.snap (dir, "17i-setlist-sheet");
         view.closeSheets();
         rig.feed (0.2);
+        // A Speaking cue: the band is switched off. Every view says so.
+        rig.controller.goToCue (1);
+        view.showPage (MainView::Page::Mixer);
+        rig.feed (0.4);
+        rig.snap (dir, "17j-cue-mixer");
+        view.showPage (MainView::Page::Live);
+        view.getLivePage().setView (LivePage::View::Groups);
+        rig.feed (0.4);
+        rig.snap (dir, "17k-cue-live-groups");
+        view.showPage (MainView::Page::Tune);
+        rig.feed (0.4);
+        rig.snap (dir, "17l-cue-tune");
+        rig.controller.goToCue (2);
+        view.getLivePage().setView (LivePage::View::ThisCue);
+        view.showPage (MainView::Page::Live);
+        rig.feed (0.3);
     }
     view.getLivePage().showEffects (true);
     rig.feed (0.3);

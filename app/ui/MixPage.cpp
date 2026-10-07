@@ -138,7 +138,7 @@ public:
         {
             if (isFx())          controller.setFxMute (! controller.getBase().fxMute);
             else if (isReturn()) controller.setFxSlotMute (returnSlot (group), ! controller.getBase().fx[size_t (returnSlot (group))].mute);
-            else                 controller.setBusMute (groupBus (group), ! controller.getBase().buses[size_t (groupBus (group))].mute);
+            else                 controller.setGroupMuted (groupBus (group), ! controller.isGroupMuted (groupBus (group)));
         };
         soloButton.onClick = [this]
         {
@@ -2397,7 +2397,7 @@ void MixPage::refresh()
         const bool used = controller.isPrepared() && engine.isBusUsed (bus);
         const auto& m = engine.getBus (bus).getOutputMeter();
         groups[size_t (i)]->set (used, used ? controller.busPeakDb (bus) : -120.0f, used ? m.getMaxRmsDb() : -120.0f, used && m.hasClipped(),
-                                 kept.buses[size_t (bus)].mute, kept.buses[size_t (bus)].faderDb,
+                                 controller.isGroupMuted (bus), kept.buses[size_t (bus)].faderDb,
                                  ! used ? 0 : listening ? (controller.busHeard (bus) ? 2 : 1) : 0);
     }
     {

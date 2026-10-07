@@ -3187,6 +3187,47 @@ void MixController::setBusFader (MixBus bus, float db)
     touch();
 }
 
+bool MixController::groupSilencedByChannels (MixBus bus) const noexcept
+{
+    const auto& base = getBase();
+    bool any = false;
+    for (int s = 0; s < graph.numStrips() && s < base.numStrips; ++s)
+    {
+        if (graph.strips[size_t (s)].bus != bus) continue;
+        any = true;
+        if (! base.strips[size_t (s)].mute) return false;
+    }
+    return any;
+}
+
+bool MixController::isGroupMuted (MixBus bus) const noexcept
+{
+    if (int (bus) < 0 || int (bus) >= int (MixBus::Count)) return false;
+    return getBase().buses[size_t (bus)].mute || groupSilencedByChannels (bus);
+}
+
+void MixController::setGroupMuted (MixBus bus, bool mute)
+{
+    if (int (bus) < 0 || int (bus) >= int (MixBus::Count)) return;
+    if (mute) { setBusMute (bus, true); return; }
+    // Back on: the group's key and every channel in it, as one change.
+    const bool channels = groupSilencedByChannels (bus);
+    if (! kept.buses[size_t (bus)].mute && ! channels) return;
+    markHandEdit ("busmute:" + std::to_string (int (bus)), std::string ("unmuting ") + mixBusName (bus));
+    kept.buses[size_t (bus)].mute = false;
+    bothSides ([&] (MixParameters& m) { m.buses[size_t (bus)].mute = false; });
+    if (channels)
+        for (int s = 0; s < graph.numStrips() && s < kept.numStrips; ++s)
+            if (graph.strips[size_t (s)].bus == bus)
+            {
+                kept.strips[size_t (s)].mute = false;
+                bothSides ([&] (MixParameters& m) { m.strips[size_t (s)].mute = false; });
+            }
+    autopilotRelearn();
+    publish();
+    touch();
+}
+
 void MixController::setBusMute (MixBus bus, bool mute)
 {
     if (bus == MixBus::Count) return;

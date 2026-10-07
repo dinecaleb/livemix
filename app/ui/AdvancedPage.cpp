@@ -882,7 +882,7 @@ AdvancedPage::AdvancedPage (MixController& c) : controller (c)
         if (selection.isBus)
         {
             if (selection.bus != MixBus::Master)
-                controller.setBusMute (selection.bus, ! controller.getBase().buses[size_t (selection.bus)].mute);
+                controller.setGroupMuted (selection.bus, ! controller.isGroupMuted (selection.bus));
         }
         else if (selection.strip >= 0)
             controller.setStripMute (selection.strip, ! controller.getBase().strips[size_t (selection.strip)].mute);
@@ -1112,7 +1112,7 @@ void AdvancedPage::refreshKeys()
     bool muted = false, soloed = false;
     if (selection.isBus)
     {
-        muted = kept.buses[size_t (selection.bus)].mute;
+        muted = controller.isGroupMuted (selection.bus);
         soloed = kept.buses[size_t (selection.bus)].solo;
     }
     else if (selection.strip < kept.numStrips)
@@ -1245,7 +1245,7 @@ void AdvancedPage::refresh()
         {
             const auto& m = engine.getBus (r->bus).getOutputMeter();
             const auto& b = kept.buses[size_t (r->bus)];
-            r->set (controller.busPeakDb (r->bus), db1 (b.faderDb), b.mute, b.solo);
+            r->set (controller.busPeakDb (r->bus), db1 (b.faderDb), controller.isGroupMuted (r->bus), b.solo);
         }
     }
 

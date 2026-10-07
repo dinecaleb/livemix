@@ -286,7 +286,7 @@ public:
         muteButton.onClick = [this]
         {
             if (kind == Kind::Channel) controller.setStripMute (strip, ! controller.getBase().strips[size_t (strip)].mute);
-            else if (kind == Kind::Bus) controller.setBusMute (bus, ! controller.getBase().buses[size_t (bus)].mute);
+            else if (kind == Kind::Bus) controller.setGroupMuted (bus, ! controller.isGroupMuted (bus));
             else if (kind == Kind::Return) controller.setFxSlotMute (FxSlot (slot), ! controller.getBase().fx[size_t (slot)].mute);
         };
         soloButton.onClick = [this]
@@ -410,7 +410,7 @@ public:
         else
         {
             faderDb = state.buses[size_t (bus)].faderDb;
-            muted = state.buses[size_t (bus)].mute;
+            muted = controller.isGroupMuted (bus);
             soloed = state.buses[size_t (bus)].solo;
             channel = &state.buses[size_t (bus)].channel;
             const auto& m = controller.getEngine().getBus (bus).getOutputMeter();
