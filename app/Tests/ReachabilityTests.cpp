@@ -827,6 +827,33 @@ TEST_CASE ("Undo: on TRACKS Cmd+Z takes back whichever was touched last, and nev
     CHECK (! tracks.canUndo());
 }
 
+TEST_CASE ("Tracks: Fit shows the whole of a long recording, a three-hour service included")
+{
+    Window w;
+    w.view->showPage (MainView::Page::Tracks);
+    w.pump (20);
+    auto& tracks = w.view->getTracksPage();
+    auto& project = w.dawEngine.getProject();
+    REQUIRE (! project.tracks.empty());
+    const double rate = juce::jmax (1.0, project.sampleRate);
+    for (const double hours : { 0.25, 1.0, 3.0 })
+    {
+        AudioClip clip;
+        clip.file = "/nonexistent/service.wav";
+        clip.start = 0;
+        clip.length = juce::int64 (hours * 3600.0 * rate);
+        clip.fileSampleRate = rate;
+        project.tracks[0].clips = { clip };
+        tracks.zoomToFit();
+        const auto lanes = tracks.timelineLanes();
+        CHECK (tracks.xOfSample (0) >= lanes.getX());
+        CHECK (tracks.xOfSample (project.lengthSamples()) <= lanes.getRight());
+        // and it is a fit, not just "very small": the end lands in the last quarter of the lanes
+        CHECK (tracks.xOfSample (project.lengthSamples()) > lanes.getX() + lanes.getWidth() * 3 / 4);
+    }
+    project.tracks[0].clips.clear();
+}
+
 // ------------------------------------------------------------------------ broadcast readiness
 TEST_CASE ("Broadcast readiness: the list holds still while nothing changes, and an answer is a visible control")
 {

@@ -71,6 +71,9 @@ public:
     void zoom (double factor);
     void zoomAround (int x, double factor);   // keeps the moment under the pointer still
     void zoomToFit();
+    // Where a moment of the recording is drawn, in this page's coordinates, and the lanes it is drawn in.
+    int xOfSample (juce::int64 sample) const { return sampleToX (sample); }
+    juce::Rectangle<int> timelineLanes() const { return lanesArea(); }
     void setRowHeight (RowHeight);
     void addMarkerAtPlayhead();
     // The loop: on or off, without touching where it is. Marking one is a drag along the top
@@ -270,6 +273,9 @@ private:
     bool dividerHot = false;            // the pointer is over the divider: it lights up
 
     double pixelsPerSecond = 18.0;
+    // How far the timeline zooms. Out far enough that a whole day's recording fits the lanes
+    // (0.02 px/s puts fourteen hours in a thousand points); in to about a sample every 60 px.
+    static constexpr double kMinPixelsPerSecond = 0.02, kMaxPixelsPerSecond = 800.0;
     double scrollX = 0.0;              // pixels
     int scrollY = 0;                   // pixels
     juce::int64 lastPlayhead = -1;

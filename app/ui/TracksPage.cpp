@@ -265,12 +265,12 @@ juce::Rectangle<int> TracksPage::lanesArea() const
 double TracksPage::samplesPerPixel() const
 {
     const double rate = juce::jmax (1.0, services.daw().getProject().sampleRate);
-    return rate / juce::jmax (1.0, pixelsPerSecond);
+    return rate / juce::jmax (kMinPixelsPerSecond, pixelsPerSecond);
 }
 
 double TracksPage::gridSeconds() const
 {
-    static const double steps[] = { 0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600 };
+    static const double steps[] = { 0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400 };
     for (double s : steps) if (s * pixelsPerSecond >= 70.0) return s;
     return steps[std::size (steps) - 1];
 }
@@ -785,7 +785,7 @@ void TracksPage::zoomAround (int x, double factor)
     const int anchorX = juce::jlimit (lanes.getX(), juce::jmax (lanes.getX(), lanes.getRight()), x);
     const juce::int64 anchor = xToSample (anchorX);
     const double was = pixelsPerSecond;
-    pixelsPerSecond = juce::jlimit (0.2, 800.0, pixelsPerSecond * factor);
+    pixelsPerSecond = juce::jlimit (kMinPixelsPerSecond, kMaxPixelsPerSecond, pixelsPerSecond * factor);
     if (std::abs (pixelsPerSecond - was) < 1.0e-9) return;
     scrollX = juce::jmax (0.0, double (anchor) / samplesPerPixel() - double (anchorX - headerWidth));
     clampScroll();
@@ -797,7 +797,7 @@ void TracksPage::zoomToFit()
     const auto& project = services.daw().getProject();
     const double seconds = double (project.lengthSamples()) / juce::jmax (1.0, project.sampleRate);
     const int width = juce::jmax (200, lanesArea().getWidth() - 24);
-    pixelsPerSecond = seconds > 0.5 ? juce::jlimit (0.2, 800.0, width / seconds) : 18.0;
+    pixelsPerSecond = seconds > 0.5 ? juce::jlimit (kMinPixelsPerSecond, kMaxPixelsPerSecond, width / seconds) : 18.0;
     scrollX = 0.0;
     repaint();
 }
@@ -1518,7 +1518,9 @@ void TracksPage::paintToolbar (juce::Graphics& g)
         zoomCell = zoomCell.removeFromRight (44);
         g.setColour (Dine::ink4);
         g.setFont (Dine::mono (11.0f));
-        Dine::drawText (g, juce::String (juce::roundToInt (pixelsPerSecond / 18.0 * 100.0)) + "%", zoomCell, juce::Justification::centredRight);
+        const double percent = pixelsPerSecond / 18.0 * 100.0;
+        Dine::drawText (g, (percent < 9.95 ? juce::String (percent, 1) : juce::String (juce::roundToInt (percent))) + "%",
+                        zoomCell, juce::Justification::centredRight);
     }
 }
 
