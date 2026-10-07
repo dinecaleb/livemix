@@ -1474,6 +1474,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     assignPage->onSaveMapping = [this] { saveInputMapping(); };
     assignPage->onToast = [this] (const juce::String& t) { showToast (t); };
     assignPage->onTuneChannel = [this] (int strip) { tuneChannel (strip); };
+    mixPage->inputArriving = [this] (int ch) { return services.isAudioRunning() ? services.daw().inputPeakDb (ch) : -120.0f; };
     assignPage->onOpenInspector = [this] (int strip) { showPage (Page::Inspector); advancedPage->select (strip); };
     assignPage->onApplyMapping = [this] { showPage (Page::Maps); };
 

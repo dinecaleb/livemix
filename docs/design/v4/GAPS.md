@@ -62,7 +62,6 @@ must not be done as part of the UI work.
 
 | v4 control | Where | What is missing | Smallest backend |
 | --- | --- | --- | --- |
-| "Silent, with the reason" per input during the listen | Listen list | `busHeard` is per group; per-strip flags exist only once a plan exists | read-only only if a live per-strip reason is already computed; otherwise ENGINE |
 
 ### Inspector
 

@@ -30,6 +30,9 @@ public:
     bool effectsShown() const noexcept { return effectsOpen; }
 
     explicit MixPage (MixController&);
+    // What is arriving at a device input right now (dBFS), for the listen's "silent - nothing
+    // arriving". Set by the window; unset, nothing is said about arrival.
+    std::function<float (int deviceInput)> inputArriving;
     ~MixPage() override;
 
     std::function<void()> onOpenAdvanced;

@@ -1227,7 +1227,7 @@ private:
 class MixPage::ListenSheet : public juce::Component
 {
 public:
-    explicit ListenSheet (MixController& c) : controller (c)
+    ListenSheet (MixController& c, const std::function<float (int)>& arrivingAt) : controller (c), arriving (arrivingAt)
     {
         addAndMakeVisible (cancel);
         cancel.setFontPx (13.0f);
@@ -1250,7 +1250,7 @@ public:
         return int ((juce::Time::getMillisecondCounter() - stepStartedMs) / 1000);
     }
 
-    static constexpr int kCardW = 560, kCardH = 384;
+    static constexpr int kCardW = 720, kCardH = 440, kRingW = 168;
 
     juce::Rectangle<int> sheetBounds() const
     {
@@ -1279,6 +1279,39 @@ public:
         const juce::String verb = tuneVerb (controller, live);
 
         auto r = card.reduced (30, 26);
+        // THE RING (v4): the seconds left, counting down; a sweep while it works things out.
+        {
+            auto ringArea = r.removeFromLeft (kRingW).removeFromTop (kRingW).reduced (8);
+            r.removeFromLeft (22);
+            const auto ring = ringArea.toFloat().reduced (4.0f);
+            g.setColour (Dine::control);
+            g.drawEllipse (ring, 5.0f);
+            const float phase = float (juce::Time::getMillisecondCounter() % 1400u) / 1400.0f;
+            juce::Path arc;
+            const float start = -juce::MathConstants<float>::halfPi;
+            if (working || waiting)
+                arc.addCentredArc (ring.getCentreX(), ring.getCentreY(), ring.getWidth() / 2, ring.getHeight() / 2, 0.0f,
+                                   start + phase * juce::MathConstants<float>::twoPi,
+                                   start + phase * juce::MathConstants<float>::twoPi + 1.2f, true);
+            else
+                arc.addCentredArc (ring.getCentreX(), ring.getCentreY(), ring.getWidth() / 2, ring.getHeight() / 2, 0.0f,
+                                   start, start + juce::MathConstants<float>::twoPi * (1.0f - progress), true);
+            g.setColour (waiting ? Dine::ink3 : Dine::accent);
+            g.strokePath (arc, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            const float seconds = controller.getListenSeconds();
+            const int left = juce::jmax (0, int (std::ceil (seconds * (1.0f - progress))));
+            auto inner = ringArea.withSizeKeepingCentre (ringArea.getWidth() - 30, 64);
+            g.setColour (Dine::ink);
+            g.setFont (Dine::mono (waiting ? 15.0f : 40.0f, 600));
+            Dine::drawText (g, waiting ? juce::String ("Waiting") : working ? juce::String (juce::jmin (99, int (std::round (progress * 100.0f)))) + "%"
+                                                                       : juce::String (left),
+                            inner.removeFromTop (46), juce::Justification::centred, false);
+            g.setColour (Dine::ink3);
+            g.setFont (Dine::text (11.0f, 500));
+            Dine::drawText (g, waiting ? juce::String ("for the band") : working ? juce::String ("through") : juce::String ("seconds left"),
+                            inner, juce::Justification::centred, false);
+        }
+
         g.setColour (Dine::ink);
         g.setFont (Dine::text (22.0f, 600));
         Dine::drawText (g, verb + (working ? " is working" : waiting ? " is waiting" : " is listening"),
@@ -1342,54 +1375,69 @@ public:
                     lamp (steps, labels[i], at > i ? Dine::accent : at == i ? Dine::accent : Dine::ink4, font, gap);
             }
         }
-        r.removeFromTop (14);
+        r.removeFromTop (18);
 
-        auto bar = r.removeFromTop (5);
-        Dine::fillRounded (g, bar.toFloat(), Dine::control, 2.5f);
-        const float phase = float (juce::Time::getMillisecondCounter() % 1400u) / 1400.0f;
-        if (working && live)
+        // WHAT IT HEARS, input by input (v4): the silent ones first, each with why, then the
+        // ones heard - under the ring, across the card, as many as there is room for.
+        auto list = card.reduced (30, 26).withTrimmedTop (kRingW + 6);
+        list.removeFromBottom (Dine::Metric::button + 10);
+        if (controller.isPrepared())
         {
-            // a sweep, because a bar frozen at full is indistinguishable from a run that stopped
-            const float w = float (bar.getWidth()) * 0.22f;
-            const float x = float (bar.getX()) + (float (bar.getWidth()) - w) * phase;
-            Dine::fillRounded (g, juce::Rectangle<float> (x, float (bar.getY()), w, float (bar.getHeight())), Dine::accent, 2.5f);
-        }
-        else if (progress > 0.0f)
-            Dine::fillRounded (g, bar.toFloat().withWidth (juce::jmax (5.0f, float (bar.getWidth()) * progress)), Dine::accent, 2.5f);
-        r.removeFromTop (10);
-
-        {
-            const float seconds = controller.getListenSeconds();
-            const int done = juce::jmax (0, int (std::round (seconds * progress)));
-            g.setColour (Dine::ink3);
-            g.setFont (Dine::mono (11.0f, 500));
-            Dine::drawText (g, waiting ? juce::String ("Waiting for the band")
-                                       : working ? juce::String (juce::jmin (99, int (std::round (progress * 100.0f)))) + "% through"
-                                                 : juce::String (done) + " of " + juce::String (int (std::round (seconds))) + " seconds",
-                            r.removeFromTop (16), juce::Justification::centredLeft);
-        }
-        r.removeFromTop (14);
-
-        // What it has heard so far, group by group.
-        r.removeFromBottom (Dine::Metric::button + 8);
-        for (int i = 0; i < kGroupBuses && r.getHeight() >= 22; ++i)
-        {
-            const auto bus = groupBus (i);
-            if (! controller.isPrepared() || ! controller.getEngine().isBusUsed (bus)) continue;
-            auto row = r.removeFromTop (22);
-            const bool heard = controller.busHeard (bus);
-            g.setColour (Dine::busTint (bus));
-            g.fillEllipse (row.removeFromLeft (7).withSizeKeepingCentre (7, 7).toFloat());
-            row.removeFromLeft (10);
-            const auto state = heard ? juce::String ("Heard") : juce::String ("Not yet");
-            const auto stateFont = Dine::text (12.0f, 500);
-            auto cell = row.removeFromRight (Dine::textWidth (stateFont, state));
-            g.setColour (heard ? Dine::accent : Dine::ink4);
-            g.setFont (stateFont);
-            Dine::drawText (g, state, cell, juce::Justification::centredRight);
-            g.setColour (Dine::ink2);
-            g.setFont (Dine::text (12.5f, 500));
-            Dine::drawText (g, groupName (i), row, juce::Justification::centredLeft, true);
+            const auto& gph = controller.getGraph();
+            const auto& kept = controller.getBase();
+            bool bandHeard = false;
+            for (int i = 0; i < gph.numStrips(); ++i)
+                if (roleFamily (gph.strips[size_t (i)].role) != RoleFamily::Speech && controller.stripHeard (i)) bandHeard = true;
+            struct Line { juce::String name, state; bool heard; juce::Colour tint; };
+            std::vector<Line> silent, heard;
+            for (int i = 0; i < gph.numStrips(); ++i)
+            {
+                const auto& st = gph.strips[size_t (i)];
+                Line l { juce::String (st.name), {}, controller.stripHeard (i), Dine::busTint (st.bus) };
+                if (l.heard) { l.state = "heard"; heard.push_back (l); continue; }
+                const bool muted = i < kept.numStrips && kept.strips[size_t (i)].mute;
+                const float level = arriving ? arriving (st.inputA) : 0.0f;
+                l.state = muted ? juce::String ("silent ") + Glyph::dash() + " muted"
+                        : roleFamily (st.role) == RoleFamily::Speech && bandHeard ? juce::String ("silent ") + Glyph::dash() + " expected during the music"
+                        : level < -70.0f && progress > 0.25f ? juce::String ("silent ") + Glyph::dash() + " nothing arriving"
+                        : juce::String ("not yet");
+                silent.push_back (l);
+            }
+            std::vector<Line> lines (silent);
+            lines.insert (lines.end(), heard.begin(), heard.end());
+            const int cols = 2, rowH = 22, gap = 24;
+            const int rows = juce::jmax (0, list.getHeight() / rowH);
+            const int capacity = rows * cols;
+            const int colW = (list.getWidth() - gap) / cols;
+            const bool more = int (lines.size()) > capacity;
+            const int shown = more ? juce::jmax (0, capacity - 1) : int (lines.size());
+            const auto nameFont = Dine::text (12.5f, 600), stateFont = Dine::text (12.0f);
+            for (int k = 0; k < shown; ++k)
+            {
+                auto cell = juce::Rectangle<int> (list.getX() + (k / juce::jmax (1, rows)) * (colW + gap),
+                                                  list.getY() + (k % juce::jmax (1, rows)) * rowH, colW, rowH);
+                const auto& l = lines[size_t (k)];
+                g.setColour (l.heard ? Dine::accent : l.state == "not yet" ? Dine::ink4 : Dine::warn);
+                g.fillEllipse (cell.removeFromLeft (7).withSizeKeepingCentre (6, 6).toFloat());
+                cell.removeFromLeft (9);
+                const int nw = juce::jmin (cell.getWidth() / 2, Dine::textWidth (nameFont, l.name) + 2);
+                g.setColour (Dine::ink);
+                g.setFont (nameFont);
+                Dine::drawFittedText (g, l.name, cell.removeFromLeft (nw), juce::Justification::centredLeft, 1, 0.8f);
+                cell.removeFromLeft (8);
+                g.setColour (l.heard ? Dine::ink3 : Dine::ink2);
+                g.setFont (stateFont);
+                Dine::drawFittedText (g, l.state, cell, juce::Justification::centredLeft, 1, 0.8f);
+            }
+            if (more)
+            {
+                const int k = shown;
+                auto cell = juce::Rectangle<int> (list.getX() + (k / juce::jmax (1, rows)) * (colW + gap),
+                                                  list.getY() + (k % juce::jmax (1, rows)) * rowH, colW, rowH);
+                g.setColour (Dine::ink3);
+                g.setFont (stateFont);
+                Dine::drawText (g, "and " + juce::String (int (lines.size()) - shown) + " more", cell.withTrimmedLeft (16), juce::Justification::centredLeft, false);
+            }
         }
     }
 
@@ -1403,6 +1451,7 @@ public:
 
 private:
     MixController& controller;
+    const std::function<float (int)>& arriving;     // MixPage::inputArriving: dBFS at a device input
     DineButton cancel { "Stop listening", DineButton::Style::Standard };
     TuneLiveCoordinator::State lastLiveState = TuneLiveCoordinator::State::Idle;
     juce::uint32 stepStartedMs = 0;
@@ -1896,7 +1945,7 @@ MixPage::MixPage (MixController& c) : controller (c)
     addAndMakeVisible (*sideTab);
 
     scopeSheet = std::make_unique<ScopeSheet> (controller);
-    listenSheet = std::make_unique<ListenSheet> (controller);
+    listenSheet = std::make_unique<ListenSheet> (controller, inputArriving);
     resultSheet = std::make_unique<ResultSheet> (controller, *this);
     referenceSheet = std::make_unique<ReferenceSheet> (controller);
     for (auto* b : { &tuneButton, &liveTuneButton, &referenceButton, &checkButton, &chatButton,
