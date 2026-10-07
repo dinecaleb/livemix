@@ -230,7 +230,8 @@ namespace
                                    juce::int64 to,
                                    const std::function<bool (float)>& onProgress,
                                    LoudnessMeter* measure,
-                                   juce::StringArray* written)
+                                   juce::StringArray* written,
+                                   const SampleBankTable* samples)
     {
         auto clipTracks = resolveClips (session, project);
         ClipSource source;
@@ -238,6 +239,9 @@ namespace
 
         MixEngine engine;
         engine.prepare (sr, kBlock, session);
+        // The drum sounds the live mix blends in: without them a replaced kick or snare would
+        // be exported as the bare microphone.
+        engine.setSampleBanks (samples);
         engine.setParameters (params);
         engine.reset();
 
@@ -414,7 +418,7 @@ juce::String renderProject (const MixSession& session,
         if (options.what == What::RawMultitrack)
             return renderRaw (session, project, folder, partFormat, sr, from, to, options.onProgress, written);
         return renderThroughMix (session, params, project, folder, partFormat, What::GroupStems,
-                                 sr, from, to, options.onProgress, nullptr, written);
+                                 sr, from, to, options.onProgress, nullptr, written, options.samples);
     }
 
     if (! dest.getParentDirectory().isDirectory() && ! dest.getParentDirectory().createDirectory())
@@ -435,7 +439,7 @@ juce::String renderProject (const MixSession& session,
     if (normalising) meter.prepare (sr, kBlock, 2);
     if (auto err = renderThroughMix (session, params, project, renderFile, renderFormat, What::StereoMix,
                                      sr, from, to, options.onProgress, normalising ? &meter : nullptr,
-                                     needsTemp ? nullptr : written);
+                                     needsTemp ? nullptr : written, options.samples);
         err.isNotEmpty())
         return err;
 

@@ -56,6 +56,9 @@ namespace MixBounce
         // Called as each stage starts; `measurable` says whether onProgress will follow for it.
         // A stage that is not measurable is still cancellable: onProgress (-1) is asked instead.
         std::function<void (Stage, bool measurable)> onStage;
+        // The drum sounds sample replacement blends in (the app's SampleLibrary table, which is
+        // never freed while the library lives). nullptr renders the replaced drums bare.
+        const SampleBankTable* samples = nullptr;
     };
 
     // Renders `project`'s clips through `session` + `params` into `dest`. "" on success.

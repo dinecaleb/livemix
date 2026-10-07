@@ -750,6 +750,8 @@ public:
         return planSelection ? selectedProposed : plan->proposed;
     }
     const MixParameters& getRunning() const noexcept { return running; }    // what the engine was last given
+    // What an export renders: the kept mix with nothing pressed (MixController.cpp says what is left out).
+    MixParameters getExportMix() const;
     void setKept (const MixParameters& p);                                  // session restore
     void restoreKept (const MixParameters& p, int tuneCount);               // session restore with its history
     // The mix, carried onto the session the graph has just been rebuilt for: every channel
@@ -906,6 +908,7 @@ private:
     void addTuneScope (UsageEvent& e) const;
     void publish();
     MixParameters compose() const;
+    MixParameters shape (const MixParameters& base) const;   // macros, voicing and the ways of working on a mix
     // -1, -1, {} = the whole mix. Exactly one of the three is ever set.
     void startListening (const ListenSettings&, int strip, int bus = -1, const std::vector<int>& strips = {});
 

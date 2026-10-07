@@ -1575,6 +1575,62 @@ TEST_CASE ("MixBounce: the timeline renders offline to a stereo WAV of the right
     folder.deleteRecursively();
 }
 
+TEST_CASE ("MixBounce: an export is the kept mix with nothing pressed - DIM, MUTE, BYPASS and solo stay out of the file")
+{
+    const auto folder = scratchFolder().getChildFile ("bounce-pressed");
+    folder.deleteRecursively();
+    const auto file = writeTone (folder, "Kick.wav", 1.0, 0.5f, 80.0f);
+
+    MixController controller;
+    const auto session = band();
+    controller.setSession (session);
+    controller.prepare (kSr, kBlock);
+
+    Project project;
+    project.sampleRate = kSr;
+    project.syncTracks (session);
+    AudioClip clip;
+    clip.file = file.getFullPathName();
+    clip.start = 0;
+    clip.length = juce::int64 (kSr);
+    clip.fileSampleRate = kSr;
+    project.tracks[0].clips.push_back (clip);
+
+    auto render = [&] (const MixParameters& params)
+    {
+        const auto dest = folder.getChildFile ("mix.wav");
+        dest.deleteFile();
+        CHECK (MixBounce::renderProject (session, params, project, dest, MixBounce::Format::Wav).isEmpty());
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (dest));
+        if (reader == nullptr) return -200.0f;
+        juce::AudioBuffer<float> audio (2, int (reader->lengthInSamples));
+        reader->read (&audio, 0, int (reader->lengthInSamples), 0, true, true);
+        return juce::Decibels::gainToDecibels (audio.getRMSLevel (0, 0, audio.getNumSamples()), -200.0f);
+    };
+
+    const float clean = render (controller.getExportMix());
+    CHECK (clean > -60.0f);
+
+    // Every key an engineer might have left down when they press Export.
+    controller.setBroadcastDim (true);
+    controller.setBroadcastMute (true);
+    controller.setBypass (true);
+    controller.setSoloMode (SoloMode::InPlace);
+    controller.setStripSolo (1, true);       // anything but the kick
+    const auto pressed = controller.getExportMix();
+    CHECK (! pressed.broadcastDim);
+    CHECK (! pressed.broadcastMute);
+    CHECK (! pressed.bypassProcessing);
+    CHECK (pressed.monitor.mode == SoloMode::Monitor);
+    CHECK (std::abs (render (pressed) - clean) < 0.1f);
+
+    // What is playing is a different file: that is what the export used to take.
+    CHECK (render (controller.getRunning()) < clean - 20.0f);
+    folder.deleteRecursively();
+}
+
 TEST_CASE ("MixBounce: group stems and a raw multitrack are folders of files, and a stereo mix is one")
 {
     const auto folder = scratchFolder().getChildFile ("bounce-parts");

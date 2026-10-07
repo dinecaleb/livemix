@@ -177,6 +177,7 @@ public:
         juce::int64 from = 0, to = 0;
         ExportWhat what = ExportWhat::StereoMix;
         ExportLoudness loudness = ExportLoudness::AsMixed;
+        const SampleBankTable* samples = nullptr;   // the drum sounds the mix blends in
     };
     virtual std::shared_ptr<const ExportJob> snapshotExport() = 0;   // message thread
     virtual juce::String exportMix (std::shared_ptr<const ExportJob>, const juce::File& dest,

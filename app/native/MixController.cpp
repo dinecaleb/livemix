@@ -613,6 +613,14 @@ MixParameters MixController::compose() const
         raw.broadcastMute = broadcastMute;
         return raw;
     }
+    auto out = shape (base);
+    out.broadcastDim = broadcastDim;
+    out.broadcastMute = broadcastMute;
+    return out;
+}
+
+MixParameters MixController::shape (const MixParameters& base) const
+{
     auto out = MixMacros::applyVoicing (MixMacros::apply (base, macros, graph, session.profile),
                                         session.voicing, session.profile);
     // SPEECH PRIORITY is a way of working rather than a balance: it is set from the session and
@@ -639,8 +647,24 @@ MixParameters MixController::compose() const
         for (int i = 0; i < graph.numStrips() && i < kMaxStrips; ++i)
             out.autoMix.member[size_t (i)] = graph.strips[size_t (i)].bus == MixBus::Speech;
     }
-    out.broadcastDim = broadcastDim;
-    out.broadcastMute = broadcastMute;
+    return out;
+}
+
+MixParameters MixController::getExportMix() const
+{
+    // The kept mix, as the room hears it with nothing pressed: never the proposal on preview,
+    // never BYPASS, never the emergency keys (a MUTE left on would write a silent file, a DIM
+    // one 20 dB down), and never a solo - with solo in place an export would be one channel.
+    // The ways of working (speech priority, share the mics) are part of how the mix sounds
+    // and stay in.
+    auto out = shape (kept);
+    out.broadcastDim = false;
+    out.broadcastMute = false;
+    out.bypassProcessing = false;
+    out.monitor = MonitorState {};
+    for (auto& s : out.strips) s.solo = false;
+    for (auto& b : out.buses) b.solo = false;
+    for (auto& f : out.fx) f.solo = false;
     return out;
 }
 

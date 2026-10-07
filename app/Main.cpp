@@ -313,7 +313,8 @@ namespace
         {
             auto job = std::make_shared<ExportJob>();
             job->session = controller.getSession();
-            job->params = controller.getRunning();
+            job->params = controller.getExportMix();
+            job->samples = samples != nullptr ? samples->table() : nullptr;
             job->project = dawEngine.getProject();
             return job;
         }
@@ -333,6 +334,7 @@ namespace
                                                                           : MixBounce::Loudness::AsMixed;
             options.onProgress = [&progress] (float f) { return progress.report (f); };
             options.onStage = [&progress] (MixBounce::Stage s, bool measurable) { progress.beginStage (s, measurable); };
+            options.samples = job->samples;
             const auto bounceFormat = format == ExportFormat::Mp3 ? MixBounce::Format::Mp3
                                     : format == ExportFormat::Aiff ? MixBounce::Format::Aiff
                                                                    : MixBounce::Format::Wav;
