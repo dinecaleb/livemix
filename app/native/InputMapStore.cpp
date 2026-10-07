@@ -267,7 +267,7 @@ ApplyResult apply (const InputMap& m, const MixSession& current, int availableIn
                               "The later one is switched off; put it right on the INPUTS page.");
     if (availableInputs <= 0)
         r.problems.push_back ("No audio device is open, so DINE cannot check that these channels exist. "
-                              "Open the device and check the INPUTS page before the service.");
+                              "Open the device and check the INPUTS page before you go live.");
 
     return r;
 }

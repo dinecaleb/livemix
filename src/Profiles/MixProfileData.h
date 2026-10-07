@@ -30,8 +30,9 @@ namespace MixProfile
     float reverbBeats (StyleProfileId profile, FxSlot slot);
 
     // A SETLIST CUE'S LEVELS: how far Softer and Up front move a source's fader from where the
-    // cue found it. Volunteer-sized steps - audible, never a rebalance.
-    struct CueLevels { float softerDb = -4.0f; float upFrontDb = 3.0f; };
+    // cue found it - volunteer-sized steps, audible, never a rebalance - and how far a level set
+    // by hand may go either way, in steps of stepDb.
+    struct CueLevels { float softerDb = -4.0f; float upFrontDb = 3.0f; float minDb = -12.0f; float maxDb = 6.0f; float stepDb = 1.0f; };
     CueLevels cueLevels (StyleProfileId profile);
 
     // Where a source sits left-right when there is one of it (-1..1). Several

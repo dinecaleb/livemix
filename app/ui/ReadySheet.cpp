@@ -103,11 +103,11 @@ std::vector<ReadyCheck::Row> ReadyCheck::gather (MixController& controller, AppS
         else if (armed == 0)
         {
             r.state = State::Warn;
-            r.sentence = "Nothing is set to record, so this service will not be kept.";
+            r.sentence = "Nothing is set to record, so none of it will be kept.";
             r.fix = Fix::ArmAll;
             r.fixLabel = "Record every track";
         }
-        else r.sentence = juce::String (armed) + (armed == 1 ? " input" : " inputs") + " set to record. Press R when the service starts.";
+        else r.sentence = juce::String (armed) + (armed == 1 ? " input" : " inputs") + " set to record. Press R when you start.";
         out.push_back (r);
     }
 
@@ -195,7 +195,7 @@ std::vector<ReadyCheck::Row> ReadyCheck::gather (MixController& controller, AppS
         if (! controller.isLiveSafe())
         {
             r.state = State::Warn;
-            r.sentence = "Off. Turn it on before the service so nothing can re-tune or re-route by accident.";
+            r.sentence = "Off. Turn it on before you go live so nothing can re-tune or re-route by accident.";
             r.fix = Fix::LiveSafeOn;
             r.fixLabel = "Turn on";
         }

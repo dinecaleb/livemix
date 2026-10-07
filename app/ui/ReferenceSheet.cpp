@@ -350,7 +350,7 @@ void ReferenceSheet::paint (juce::Graphics& g)
         r.removeFromTop (4);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        Dine::drawFittedText (g, error.isNotEmpty() ? "Pick the finished stereo mix of a song you want this service to sound like."
+        Dine::drawFittedText (g, error.isNotEmpty() ? "Pick the finished stereo mix of a song you want this mix to sound like."
                                              : refusedGuidance,
                           r.removeFromTop (54), juce::Justification::topLeft, 3);
         return;

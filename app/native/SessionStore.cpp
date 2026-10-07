@@ -156,6 +156,8 @@ namespace
 
     juce::var mixToVar (const MixParameters& m);
     void mixFromVar (const juce::var& v, MixParameters& m, StyleProfileId profile);
+    juce::var scenesToVar (const std::vector<MixScene>& scenes);
+    void scenesFromVar (const juce::var& v, std::vector<MixScene>& scenes, StyleProfileId profile);
 
     // The mix history: the whole mix at each moment worth coming back to. Bounded before it is
     // written (pruneCheckpoints), so this is a few hundred kilobytes of a session, not a log.
@@ -249,7 +251,7 @@ namespace
         if (o == nullptr) return;
         r.id = o->getProperty ("id").toString().toStdString();
         r.name = o->getProperty ("name").toString().toStdString();
-        if (r.name.empty()) r.name = "Service";
+        if (r.name.empty()) r.name = "Broadcast";
         r.startedMs = (long long) juce::int64 (o->getProperty ("startedMs"));
         r.finishedMs = (long long) juce::int64 (o->getProperty ("finishedMs"));
         r.operatorName = o->getProperty ("operator").toString().toStdString();
@@ -311,13 +313,20 @@ namespace
             auto* who = new juce::DynamicObject();
             for (const auto& [unit, level] : c.who) who->setProperty (juce::Identifier (juce::String (unit)), level);
             co->setProperty ("who", juce::var (who));
+            if (! c.levelDb.empty())                                              // version 10
+            {
+                auto* db = new juce::DynamicObject();
+                for (const auto& [unit, v] : c.levelDb) db->setProperty (juce::Identifier (juce::String (unit)), double (v));
+                co->setProperty ("levelDb", juce::var (db));
+            }
+            if (c.hasMix) co->setProperty ("mix", scenesToVar ({ c.mix })[0]);   // version 10
             cues.add (juce::var (co));
         }
         obj->setProperty ("cues", cues);
         return juce::var (obj);
     }
 
-    void setlistFromVar (const juce::var& v, Setlist& s)
+    void setlistFromVar (const juce::var& v, Setlist& s, StyleProfileId profile)
     {
         s = Setlist {};
         auto* obj = v.getDynamicObject();
@@ -335,6 +344,16 @@ namespace
                 if (auto* who = co->getProperty ("who").getDynamicObject())
                     for (const auto& kv : who->getProperties())
                         c.who[kv.name.toString().toStdString()] = juce::jlimit (int (CueLevel::Off), int (CueLevel::UpFront), int (kv.value));
+                if (auto* db = co->getProperty ("levelDb").getDynamicObject())
+                    for (const auto& kv : db->getProperties())
+                        c.levelDb[kv.name.toString().toStdString()] = juce::jlimit (-60.0f, 24.0f, float (double (kv.value)));
+                if (co->hasProperty ("mix"))
+                {
+                    std::vector<MixScene> one;
+                    scenesFromVar (juce::var (juce::Array<juce::var> { co->getProperty ("mix") }), one, profile);
+                    c.hasMix = ! one.empty() && one.front().kept;
+                    if (c.hasMix) c.mix = std::move (one.front());
+                }
                 s.cues.push_back (c);
             }
         s.current = obj->hasProperty ("current") ? juce::jlimit (-1, int (s.cues.size()) - 1, int (obj->getProperty ("current"))) : -1;
@@ -358,12 +377,12 @@ namespace
                 for (const auto& n : s.inputs) inputs.add (juce::String (n));
                 so->setProperty ("inputs", inputs);
             }
+            if (s.whenMs > 0) so->setProperty ("whenMs", double (s.whenMs));   // a favourite's, or a cue's own mix's
             // A FAVOURITE is a scene past the four fixed slots, and what makes it worth having
             // is the fingerprint: what the mix actually sounded like when it was marked.
             if (s.favourite)
             {
                 so->setProperty ("favourite", true);
-                if (s.whenMs > 0) so->setProperty ("whenMs", double (s.whenMs));
                 if (s.sound.valid)
                 {
                     auto* fo = new juce::DynamicObject();
@@ -922,7 +941,7 @@ bool fromVar (const juce::var& v, Document& d)
     if (d.hasMix) mixFromVar (obj->getProperty ("mix"), d.mix, d.session.profile);
     historyFromVar (obj->getProperty ("history"), d.history);       // absent before the track history existed
     scenesFromVar (obj->getProperty ("scenes"), d.scenes, d.session.profile);          // absent before scenes existed
-    setlistFromVar (obj->getProperty ("setlist"), d.setlist);       // absent before version 9: an empty setlist
+    setlistFromVar (obj->getProperty ("setlist"), d.setlist, d.session.profile);       // absent before version 9: an empty setlist
     checkpointsFromVar (obj->getProperty ("checkpoints"), d.checkpoints, d.session.profile);   // absent before the mix history existed
     readinessFromVar (obj->getProperty ("readiness"), d.readiness);         // absent before version 7
     projectFromVar (obj->getProperty ("project"), d.project);      // absent in version 1: no timeline yet

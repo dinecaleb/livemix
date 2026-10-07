@@ -814,7 +814,7 @@ public:
         if (auto* check = actionItem (Action::CheckInputs))
             check->setTooltip ("Every input, its level and one word about it: the soundcheck at a glance.");
         if (auto* setlist = actionItem (Action::Scenes))
-            setlist->setTooltip ("The service's cues, in order: opens them on LIVE.");
+            setlist->setTooltip ("The cues, in order: opens them on LIVE.");
         setOpaque (false);
     }
 
@@ -1248,6 +1248,7 @@ public:
                 // AUTOPILOT: the second thing in DINE allowed to move a level by itself, and
                 // the only way to turn it on. Ticked while it is holding the mix.
                 m.addItem (415, "Autopilot: hold this mix", true, view.controller.isAutopilotOn());
+                m.addItem (522, "Save the Mix as a Cue", view.controller.isBuilt());
                 m.addItem (521, "Clear the Cue", view.controller.isCueActive());
                 m.addSeparator();
                 m.addItem (414, "Reset Mix to Raw" + juce::String (Glyph::ellip()), ! view.controller.isLiveSafe());
@@ -1270,6 +1271,7 @@ public:
                 m.addItem (503, "Loop");
                 m.addSeparator();
                 m.addItem (520, "Go to the Next Cue   Space on Live", ! view.controller.getSetlist().cues.empty());
+                m.addItem (522, "Save the Mix as a Cue", view.controller.isBuilt());
                 m.addItem (521, view.controller.isCueActive()
                                     ? "Clear the Cue (" + juce::String (view.controller.getSetlist().cues[size_t (view.controller.getSetlist().current)].name) + ")"
                                     : juce::String ("Clear the Cue"),
@@ -1464,7 +1466,7 @@ MainView::MainView (MixController& c, AppServices& s) : controller (c), services
     addAndMakeVisible (*sessionButton);
 
     readyPill = std::make_unique<ReadyPill>();
-    readyPill->setTooltip ("Whether anything needs you before the service: the inputs, and for a broadcast its checklist.");
+    readyPill->setTooltip ("Whether anything needs you before you go live: the inputs, and for a broadcast its checklist.");
     readyPill->onClick = [this] { readyPillClicked(); };
     addChildComponent (*readyPill);
 
@@ -3169,6 +3171,7 @@ void MainView::handleCommand (int id)
         }
         case 502: transportBar->returnToStart(); break;
         case 520: livePage->goToNextCue(); break;
+        case 522: controller.saveMixAsCue(); livePage->refresh(); break;
         case 521:
             if (controller.clearCue()) { livePage->refresh(); updateChrome(); }
             else showToast ("No cue is on, so there is nothing to clear.");

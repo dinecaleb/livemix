@@ -1461,7 +1461,12 @@ int main (int argc, char** argv)
         {
             Cue cue { names[i], kinds[i], -1, {}, {} };
             rig.controller.fillCueFor (cue, kinds[i]);
-            if (i == 3) { cue.who["lead"] = int (CueLevel::UpFront); cue.who["keys"] = int (CueLevel::Softer); }
+            if (i == 3)
+            {
+                cue.who["lead"] = int (CueLevel::UpFront);
+                cue.who["keys"] = int (CueLevel::Softer);
+                rig.controller.setCueLevelDb (cue, "drums", -2.0f);   // a level set by hand
+            }
             rig.controller.addCue (cue);
         }
         rig.controller.goToCue (2);

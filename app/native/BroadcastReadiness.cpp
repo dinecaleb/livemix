@@ -48,7 +48,7 @@ namespace
         { ReadinessItemId::RecoverySnapshot,       ReadinessGroup::FinalStreamCheck, "This mix is saved as a favourite",
           "Mix history > Mark this mix as a favourite, so it can be put back.", false },
         { ReadinessItemId::RecordingConfirmed,     ReadinessGroup::FinalStreamCheck, "The recording is running",
-          "If the service is recorded, the recorder is rolling and its meters move.", true },
+          "If it is recorded, the recorder is rolling and its meters move.", true },
     };
 
     // Which active checks to ask the operator to look at again after a change.
@@ -138,7 +138,7 @@ ReadinessRecord makeFreshReadinessRecord (const std::string& name, const std::st
 {
     ReadinessRecord r;
     r.id = juce::Uuid().toDashedString().toStdString();
-    r.name = name.empty() ? "Service" : name;
+    r.name = name.empty() ? "Broadcast" : name;
     r.startedMs = nowMs();
     r.operatorName = operatorName;
     r.finished = false;
@@ -169,7 +169,7 @@ ReadinessRecord BroadcastReadiness::newService (const std::string& name, const s
             if (h.id == active.id) { already = true; break; }
         if (! already) history.insert (history.begin(), active);
     }
-    active = makeFreshReadinessRecord (name.empty() ? "Service" : name, operatorName);
+    active = makeFreshReadinessRecord (name.empty() ? "Broadcast" : name, operatorName);
     rememberOperator (operatorName);
     return active;
 }

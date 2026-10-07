@@ -87,6 +87,7 @@ private:
     DineButton goButton { "Go", DineButton::Style::Filled };
     DineButton editSetlist { "Edit", DineButton::Style::Standard };
     DineButton clearCueButton { "Clear cue", DineButton::Style::Ghost };   // MixController::clearCue
+    DineButton saveCueButton { "Save as cue", DineButton::Style::Ghost };  // MixController::saveMixAsCue
 
 
     std::unique_ptr<Link> safeLink, autopilotLink, checkLink;

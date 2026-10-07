@@ -261,7 +261,7 @@ void RoutingPage::paint (juce::Graphics& g)
         g.setColour (Dine::ink);
         g.setFont (Dine::text (13.0f));
         Dine::drawFittedText (g, "The device, the patch and the output feeds are the three ways to silence a room in the "
-                                 "middle of a service. Nothing on this screen can be changed until you say you mean it, "
+                                 "middle of a set. Nothing on this screen can be changed until you say you mean it, "
                                  "and it locks itself again when you leave.",
                               in.removeFromTop (juce::jmax (20, in.getHeight() - Dine::Metric::button - 14)),
                               juce::Justification::topLeft, 3, 1.0f);

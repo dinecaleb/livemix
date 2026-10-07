@@ -373,7 +373,7 @@ public:
     std::vector<MixScene> getScenes() const;
     void restoreScenes (const std::vector<MixScene>& scenes);
 
-    // ---- The setlist: the service in order, one cue at a time (MixHistory.h) ----
+    // ---- The setlist: the moments of a show in order, one cue at a time (MixHistory.h) ----
     //
     // Edits mark the document (touch); none of them changes the sound. Going to a cue is a
     // scene recall - recallScene's refusals, Mix history entry and LIVE SAFE rules - and moves
@@ -391,8 +391,19 @@ public:
     // moves made since stay. False when no cue is on.
     bool clearCue();
     bool isCueActive() const noexcept { return setlist.current >= 0 && setlist.current < int (setlist.cues.size()); }
-    // What a cue starts from, in words: the scene's or favourite's name, or "As it is".
+    // What a cue starts from, in words: "Its own mix", the scene's or favourite's name, or "As it is".
     std::string cueSceneName (const Cue&) const;
+    // SAVE AS CUE: the mix as it is now - every fader, mute and setting, and who is on - kept as
+    // a new cue after the one on now (at the end when none is). Nothing about the sound changes
+    // and the cue on now stays on. Returns where it went; -1 when there is no mix to keep.
+    int saveMixAsCue (const std::string& name = {});
+    // The whole mix as it is now, kept with a cue (the Cues sheet's "Save the mix in this cue").
+    void fillCueMixFromNow (Cue&) const;
+    // How far a unit's faders move when the cue starts, in dB: its level set by hand, else its
+    // Softer / Up front step, else 0. 0 for a unit the cue switches off.
+    float cueLevelDb (const Cue&, const std::string& unit) const;
+    // A level set by hand, held to the profile's range and step; switches the unit on.
+    void setCueLevelDb (Cue&, const std::string& unit, float db) const;
     // WHO A CUE IS ABOUT: this session's sources by kind, and each speaking microphone by name.
     struct CueUnit { std::string key, name; };
     std::vector<CueUnit> cueUnits() const;
@@ -1058,6 +1069,9 @@ private:
     MixParameters atLastCheckpoint;
     BroadcastReadiness readiness;
     std::vector<std::string> inputNamesNow() const;
+    // A kept mix put back: recallScene's and a cue's own mix's shared body. Refuses (false) a mix
+    // kept with other inputs; `label` is what each strip's history says.
+    bool putMixBack (const MixScene&, const std::string& label);
     void recordStripTune (int strip, const std::string& what, const StripParameters& before, const StripParameters& after);
     std::array<std::vector<StripTuneRecord>, kMaxStrips> carriedStripHistory (const MixSession& previous) const;
 

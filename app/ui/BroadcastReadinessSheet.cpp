@@ -92,9 +92,9 @@ BroadcastReadinessSheet::BroadcastReadinessSheet (MixController& c, AppServices&
     checklistTab.onClick = [this] { setMode (Mode::Checklist); };
     historyTab.onClick = [this] { setMode (Mode::History); };
     backButton.onClick = [this] { openRecord.clear(); correcting = false; later ([this] { rebuild(); }); };
-    startOverButton.setTooltip ("Everything back to To do for this service. Notes stay. The mix is not touched.");
+    startOverButton.setTooltip ("Everything back to To do for this broadcast. Notes stay. The mix is not touched.");
     startOverButton.onClick = [this] { startOver(); };
-    reopenButton.setTooltip ("Change this service's answers again. Finish puts it back in Past services.");
+    reopenButton.setTooltip ("Change this broadcast's answers again. Finish puts it back in Past broadcasts.");
     reopenButton.onClick = [this]
     {
         controller.editReadiness().reopenActive();
@@ -107,9 +107,9 @@ BroadcastReadinessSheet::BroadcastReadinessSheet (MixController& c, AppServices&
         if (! correcting) controller.touch();
         later ([this] { rebuild(); });
     };
-    finishButton.setTooltip ("Keep this service in Past services as it stands. Anything still to do stays to do.");
+    finishButton.setTooltip ("Keep this broadcast in Past broadcasts as it stands. Anything still to do stays to do.");
     finishButton.onClick = [this] { finishService(); };
-    nextButton.setTooltip ("A fresh checklist for the next service. This one stays in Past services.");
+    nextButton.setTooltip ("A fresh checklist for the next broadcast. This one stays in Past broadcasts.");
     nextButton.onClick = [this] { startNextService(); };
 
     for (auto* b : { &closeButton, &checklistTab, &historyTab, &backButton, &startOverButton, &reopenButton,
@@ -264,7 +264,7 @@ void BroadcastReadinessSheet::rebuild()
     historyTab.setToggleState (mode == Mode::History, juce::dontSendNotification);
     {
         const int past = int (controller.getReadiness().history.size());
-        historyTab.setButtonText (past > 0 ? "Past services (" + juce::String (past) + ")" : juce::String ("Past services"));
+        historyTab.setButtonText (past > 0 ? "Past broadcasts (" + juce::String (past) + ")" : juce::String ("Past broadcasts"));
     }
 
     const bool active = mode == Mode::Checklist;
@@ -277,7 +277,7 @@ void BroadcastReadinessSheet::rebuild()
     correctButton.setVisible (! active && ! openRecord.empty());
     correctButton.setButtonText (correcting ? "Done" : "Correct it");
     correctButton.setTooltip (correcting ? "Keep the corrections."
-                                         : "Change this past service's answers - for a mistake, not a different service.");
+                                         : "Change this past broadcast's answers - for a mistake, not a different broadcast.");
 
     resized();
     builtFor = fingerprint();
@@ -332,7 +332,7 @@ void BroadcastReadinessSheet::buildChecklist()
         if (def.allowsNotNeeded)
         {
             row->skip = segment ("Skip");
-            row->skip->setTooltip ("Not part of this service (no room mics, nothing recorded).");
+            row->skip->setTooltip ("Not part of this broadcast (no room mics, nothing recorded).");
             bind (*row->skip, ReadinessStatus::NotNeeded, state.status == ReadinessStatus::NotNeeded);
         }
         for (auto* b : { row->done.get(), row->problem.get(), row->skip.get() })
@@ -430,7 +430,7 @@ void BroadcastReadinessSheet::buildHistory()
     {
         auto row = std::make_unique<Row>();
         row->kind = Row::Kind::Note;
-        row->why = "Nothing here yet. A service lands here when its checklist is finished.";
+        row->why = "Nothing here yet. A broadcast lands here when its checklist is finished.";
         rows.push_back (std::move (row));
     }
 }
@@ -543,8 +543,8 @@ void BroadcastReadinessSheet::paint (juce::Graphics& g)
     else
     {
         const int n = int (readiness.history.size());
-        line << (n == 0 ? juce::String ("No past services yet.")
-                        : juce::String (n) + (n == 1 ? " past service" : " past services") + ", newest first.");
+        line << (n == 0 ? juce::String ("No past broadcasts yet.")
+                        : juce::String (n) + (n == 1 ? " past broadcast" : " past broadcasts") + ", newest first.");
     }
     g.setColour (Dine::ink3);
     g.setFont (Dine::text (12.5f));
@@ -559,7 +559,7 @@ void BroadcastReadinessSheet::paint (juce::Graphics& g)
     {
         g.setColour (Dine::ink3);
         g.setFont (captionFont());
-        Dine::drawText (g, "Service", nameField.getBounds().withY (metaArea.getY()).withHeight (14), juce::Justification::centredLeft);
+        Dine::drawText (g, "Broadcast", nameField.getBounds().withY (metaArea.getY()).withHeight (14), juce::Justification::centredLeft);
         Dine::drawText (g, "Checked by", byField.getBounds().withY (metaArea.getY()).withHeight (14), juce::Justification::centredLeft);
     }
 }
@@ -765,7 +765,7 @@ void BroadcastReadinessSheet::finishService()
     commitMeta();
     controller.editReadiness().finishActive();
     controller.touch();
-    if (onToast) onToast ("Kept in Past services. Nothing about the mix changed.");
+    if (onToast) onToast ("Kept in Past broadcasts. Nothing about the mix changed.");
     later ([this] { rebuild(); });
 }
 
@@ -773,7 +773,7 @@ void BroadcastReadinessSheet::startNextService()
 {
     auto& r = controller.editReadiness();
     const auto who = r.active.operatorName;
-    r.newService ("Service " + juce::Time::getCurrentTime().formatted ("%e %b").trim().toStdString(), who);
+    r.newService ("Broadcast " + juce::Time::getCurrentTime().formatted ("%e %b").trim().toStdString(), who);
     controller.touch();
     later ([this] { rebuild(); nameField.grabKeyboardFocus(); nameField.selectAll(); });
 }

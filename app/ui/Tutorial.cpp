@@ -51,7 +51,7 @@ const std::vector<Tutorial::Step>& Tutorial::steps()
           "Change anything you like; the next TUNE MIX works around you.",
           8 /* Inspector */, "tabs" },
 
-        { "GETTING STARTED  7 / 7", "Before the service starts, lock it.",
+        { "GETTING STARTED  7 / 7", "Before you go live, lock it.",
           "LIVE SAFE stops anything that could change the whole mix by accident — re-routing, "
           "re-tuning, opening another session — and limits how far one fader can move. Mute, solo "
           "and the recording always stay free.",

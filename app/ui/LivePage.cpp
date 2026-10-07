@@ -393,7 +393,7 @@ public:
     explicit SafeDetail (const LiveSafePolicy& policy)
     {
         rules = { { "Locked", "The audio device, the routing, the input patch and opening a session. Changing any of "
-                              "them interrupts the audio mid-service.", Dine::warn },
+                              "them interrupts the audio while you are live.", Dine::warn },
                   { "Blocked", "TUNE MIX, TUNE LIVE MIX, TUNE CHANNEL and MATCH TO REFERENCE. They re-tune channels "
                                "that are on air.", Dine::warn },
                   { "Allowed", "Faders (" + juce::String (int (policy.maxFaderStepDb)) + " dB at a time, the master "
@@ -553,9 +553,15 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     addAndMakeVisible (editSetlist);
     clearCueButton.setFontPx (11.5f);
     clearCueButton.setPadX (8);
-    clearCueButton.setTooltip ("Clear the cue: whoever it muted comes back, its Softer / Up front are taken back, and no cue is on.");
+    clearCueButton.setTooltip ("Clear the cue: whoever it muted comes back, its level moves are taken back, and no cue is on.");
     clearCueButton.onClick = [this] { controller.clearCue(); refresh(); };
     addChildComponent (clearCueButton);
+    saveCueButton.setFontPx (11.5f);
+    saveCueButton.setPadX (8);
+    saveCueButton.setTooltip ("Save the mix as it is now - every level, mute and setting - as a new cue after the one on now. "
+                              "Nothing about the sound changes.");
+    saveCueButton.onClick = [this] { controller.saveMixAsCue(); refresh(); };
+    addAndMakeVisible (saveCueButton);
 
     checkLink = std::make_unique<Link>();
     checkLink->set ("Check inputs " + juce::String (juce::CharPointer_UTF8 ("\xe2\x80\xba")), Dine::ink2);
@@ -607,7 +613,7 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
     const char* labels[4] = { "MONITOR SOLO", "SOLO IN PLACE", "AFL", "PFL" };
     const char* tips[4] = {
         "Solo goes to your headphones only: the room and the stream never hear it. This is the normal setting.",
-        "Solo mutes everything else for everybody. Right for mixing a recording, never for a service.",
+        "Solo mutes everything else for everybody. Right for mixing a recording, never while you are live.",
         "After-fade listen: you hear the channel where it sits in the mix - panned, and silent if it is muted.",
         "Pre-fade listen: you hear the channel as it arrives, whatever its fader and mute are doing." };
     for (int i = 0; i < 4; ++i)
@@ -951,7 +957,7 @@ void LivePage::refresh()
                              : juce::String (juce::CharPointer_UTF8 ("Turn on \xe2\x80\xba")),
                    next.safe ? Dine::warn : Dine::ink2);
     safeLink->setTooltip (next.safe ? "What LIVE SAFE locks, what it blocks and what still works."
-                                    : juce::String ("Lock the sound for the service. ") + liveSafe::lockedSummary() + " " + liveSafe::allowedSummary());
+                                    : juce::String ("Lock the sound while you are live. ") + liveSafe::lockedSummary() + " " + liveSafe::allowedSummary());
     autopilotLink->set (next.autopilotOn ? (next.autopilotMoved ? "Holding since " : "Healthy since ") + autopilotSince
                                          : juce::String (juce::CharPointer_UTF8 ("Turn on \xe2\x80\xba")),
                         next.autopilotOn ? Dine::ink3 : Dine::ink2);
@@ -1165,7 +1171,8 @@ void LivePage::paint (juce::Graphics& g)
             --setlistFlash;
         }
         auto head = l.setlist.reduced (kCardPadX, kCardPadY).removeFromTop (kHeadH);
-        head.removeFromRight (editSetlist.getWidth() + 8 + (clearCueButton.isVisible() ? clearCueButton.getWidth() + 6 : 0));
+        head.removeFromRight (editSetlist.getWidth() + 8 + (saveCueButton.isVisible() ? saveCueButton.getWidth() + 6 : 0)
+                              + (clearCueButton.isVisible() ? clearCueButton.getWidth() + 6 : 0));
         g.setColour (Dine::ink);
         g.setFont (Dine::text (13.0f, 600));
         Dine::drawText (g, "Cues", head, juce::Justification::centredLeft, false);
@@ -1182,7 +1189,7 @@ void LivePage::paint (juce::Graphics& g)
             auto text = l.setlist.reduced (kCardPadX, kCardPadY).withTrimmedTop (kHeadH + 8);
             g.setColour (Dine::ink2);
             g.setFont (calloutFont());
-            Dine::drawFittedText (g, "No cues yet. Add the songs and moments of the service in order, and Space goes from one to the next.",
+            Dine::drawFittedText (g, "No cues yet. Add the songs and moments in order, or save the mix as a cue, and Space goes from one to the next.",
                                   text, juce::Justification::topLeft, juce::jmax (1, text.getHeight() / 16), 1.0f);
         }
     }
@@ -1504,7 +1511,7 @@ void LivePage::resized()
         const int apFull = kCardPadY + kHeadH + kCardGap + apBody + kCardPadY;
 
         const int listHead = kCardPadY + kHeadH + 8;
-        const int emptyLines = sl.cues.empty() ? wrapLines (calloutFont(), "No cues yet. Add the songs and moments of the service in order, "
+        const int emptyLines = sl.cues.empty() ? wrapLines (calloutFont(), "No cues yet. Add the songs and moments in order, or save the mix as a cue, "
                                                                              "and Space goes from one to the next.", textW) : 0;
         // Now and Next at least; more as the rail allows.
         const int minRows = sl.cues.empty() ? 0 : juce::jmin (int (sl.cues.size()), 2);
@@ -1527,6 +1534,14 @@ void LivePage::resized()
             auto headRow = l.setlist.reduced (kCardPadX, kCardPadY).removeFromTop (kHeadH);
             const int w = editSetlist.idealWidth() + 4;
             editSetlist.setBounds (headRow.removeFromRight (w).expanded (0, 3));
+            // Save as cue beside Edit, always: keeping the mix as a cue never needs the Cues sheet.
+            saveCueButton.setVisible (! l.setlist.isEmpty());
+            if (saveCueButton.isVisible())
+            {
+                headRow.removeFromRight (6);
+                const int sw = saveCueButton.idealWidth() + 4;
+                saveCueButton.setBounds (headRow.removeFromRight (sw).expanded (0, 3));
+            }
             // Clear cue beside Edit, while one is on (the toolbar's CUE pill clears it too).
             clearCueButton.setVisible (controller.isCueActive() && ! l.setlist.isEmpty());
             if (clearCueButton.isVisible())

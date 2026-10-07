@@ -3448,7 +3448,7 @@ void PurposePage::paintBody (juce::Graphics& g)
     g.setFont (Dine::text (13.0f));
     Dine::drawFittedText (g, "DINE will land the mix at " + lufs (target.targetLufs) + ", never letting it peak past "
                           + dbtp (target.truePeakCeilingDb) + ", and tune every group toward "
-                          + juce::String (styleProfileName (session.profile)) + ". Purpose and sound can be switched mid-service: "
+                          + juce::String (styleProfileName (session.profile)) + ". Purpose and sound can be switched at any time: "
                           "the next tune follows the new one, and anything you moved by hand is kept.",
                       main.removeFromTop (kClosing).withWidth (juce::jmin (main.getWidth(), 720)), juce::Justification::topLeft, 3, 1.0f);
 }

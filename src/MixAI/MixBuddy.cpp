@@ -273,11 +273,11 @@ namespace
     BuddyAnswer loudness (const BuddySnapshot& st)
     {
         BuddyAnswer a;
-        a.detail.push_back ("Short-term " + num (st.shortLufs) + " LUFS, whole service " + num (st.integratedLufs)
+        a.detail.push_back ("Short-term " + num (st.shortLufs) + " LUFS, since the start " + num (st.integratedLufs)
                             + " LUFS, aiming at " + num (st.targetLufs) + " LUFS");
         a.detail.push_back ("True peak " + num (st.truePeakDb) + " dBTP, ceiling " + num (st.ceilingDb) + " dBTP");
         const float delta = st.integratedLufs > -100.0f ? st.integratedLufs - st.targetLufs : 0.0f;
-        std::string where = st.integratedLufs <= -100.0f ? std::string ("DINE has not measured enough of the service yet to say. ")
+        std::string where = st.integratedLufs <= -100.0f ? std::string ("DINE has not measured enough of the mix yet to say. ")
                           : std::fabs (delta) <= 1.0f ? "The mix is on its target. "
                           : delta < 0.0f ? "The mix is " + num (-delta) + " LU under its target. "
                                          : "The mix is " + num (delta) + " LU over its target. ";
@@ -433,7 +433,7 @@ namespace
         { { "interface", "audio device", "device", "sound card", "console" }, {},
           "ROUTING > Audio device lists the devices on this Mac: pick the one your console connects through, and \"Rescan "
           "devices\" if it has only just been plugged in. The sample rate and buffer are shown there too. If the device is "
-          "pulled out mid-service, DINE says so in the status foot and reopens it by itself when it comes back.",
+          "pulled out while you are live, DINE says so in the status foot and reopens it by itself when it comes back.",
           [] { return std::vector<BuddyAction> { show (BuddyPage::Device, "Open Audio device") }; } },
         { { "record" }, {},
           "Set each track to record with its R (Track > \"Set Every Track to Record\" does all of them), then press record on the "
@@ -452,8 +452,8 @@ namespace
           "voices, the room, the effects or your headphones. It is off until you turn it on.",
           none },
         { { "live safe", "lock" }, {},
-          "LIVE SAFE, in the toolbar, locks the things that could go wrong by accident during a service - routing, a full "
-          "re-tune, big jumps on a fader - and keeps every move a small one. Turn it on before the service starts; LIVE shows "
+          "LIVE SAFE, in the toolbar, locks the things that could go wrong by accident while you are live - routing, a full "
+          "re-tune, big jumps on a fader - and keeps every move a small one. Turn it on before you go live; LIVE shows "
           "\"What's locked\".",
           [] { return std::vector<BuddyAction> { show (BuddyPage::Live, "Open LIVE") }; } },
         { { "scene" }, {},
@@ -461,7 +461,7 @@ namespace
           "press a scene to bring it back. A scene recall is one change, so Mix > Undo takes it back.",
           [] { return std::vector<BuddyAction> { show (BuddyPage::Live, "Open LIVE") }; } },
         { { "sunday", "prepare", "before the service", "checklist", "get ready", "soundcheck", "line check" }, {},
-          "Before a service: open the session (Sessions); check the console is the audio device (ROUTING > Audio device); run "
+          "Before you go live: open the session (Sessions); check the console is the audio device (ROUTING > Audio device); run "
           "CHECK INPUTS while each source plays and fix anything SILENT, LOW or CLIP at the console; run TUNE MIX during the "
           "rehearsal and KEEP what you like; keep your mixes as scenes on LIVE; set every track to record and check the Disk "
           "time; choose your headphones on LIVE; then turn LIVE SAFE on. Autopilot and speech priority are there if you want "
@@ -487,7 +487,7 @@ namespace
         { { "tutorial", "getting started", "learn", "teach", "first time", "new to" }, {},
           "Help > \"Getting started\" walks through DINE one workspace at a time, and Help > \"Show the guides again\" brings back "
           "the card on each workspace. The short version: Inputs (what each channel is), CHECK INPUTS, TUNE MIX, KEEP, then "
-          "LIVE for the service.",
+          "LIVE.",
           none },
         { { "shortcut", "keyboard", "hotkey" }, {},
           "Space plays and stops, R records, B is BYPASS, T tunes the selected channel, Cmd-1 to Cmd-5 are TRACKS, MIXER, TUNE, "
@@ -577,7 +577,7 @@ BuddyAnswer MixBuddy::answer (const std::string& question, const BuddySnapshot& 
                       "you press KEEP.";
             a.actions.push_back (act (BuddyActionKind::AskForChange, "Propose it", strip, question));
         }
-        else if (st.liveSafe) a.text += ". LIVE SAFE is on, so nothing is proposed from here during the service.";
+        else if (st.liveSafe) a.text += ". LIVE SAFE is on, so nothing is proposed from here while you are live.";
         else a.text += ". Once TUNE MIX has heard the band, Mix Buddy can also have it proposed for you.";
         if (strip >= 0) a.actions.push_back (act (BuddyActionKind::OpenInspector, "Open " + st.strips[size_t (strip)].name, strip));
         else a.actions.push_back (show (BuddyPage::Mixer, "Open MIXER"));

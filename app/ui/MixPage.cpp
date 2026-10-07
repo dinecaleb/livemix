@@ -322,7 +322,7 @@ public:
         addAndMakeVisible (singing);
         for (auto* b : { &speaking, &singing }) { b->setFontPx (11.0f); b->setPadX (10); }
         speaking.setTooltip ("Levelled to a spoken target, held steady, gated and de-essed, and on SPEECH where it "
-                             "has its own fader for the whole service.");
+                             "has its own fader for the whole session.");
         singing.setTooltip ("Levelled to a sung target, never gated, and given a pocket in the band.");
     }
 

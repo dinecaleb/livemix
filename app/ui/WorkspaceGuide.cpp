@@ -11,7 +11,7 @@ namespace
     const WorkspaceGuide::Entry kEntries[] =
     {
         { "tracks", "Everything gets recorded, on its own track.",
-          "Press the red button and every input is kept separately, so the service can be mixed again "
+          "Press the red button and every input is kept separately, so it can all be mixed again "
           "afterwards. Drag a track's bottom edge to make it taller; click its name to read its chain "
           "along the foot." },
         { "mixer", "The console, if you want it.",
@@ -20,7 +20,7 @@ namespace
         { "tune", "TUNE MIX listens, then does the mix.",
           "DINE hears the whole band for thirty seconds and sets every level, tone and effect for this "
           "room, then tells you what it did and why. Nothing changes until you press KEEP." },
-        { "live", "The service, on one screen.",
+        { "live", "Everything live, on one screen.",
           "What is recording, what is going out, and one fader per group. Scenes keep a whole mix under "
           "a name, and LIVE SAFE locks the things that could go wrong by accident." },
         { "inspector", "One channel, in full detail.",

@@ -2657,6 +2657,8 @@ namespace
                 wayMaker.who["lead"] = int (CueLevel::UpFront);
                 Cue sermon { "Sermon", CueKind::Speaking, -1, {}, {} };
                 controller.fillCueFor (sermon, CueKind::Speaking);
+                controller.setCueLevelDb (wayMaker, "keys", -7.0f);        // a level set by hand (version 10)
+                controller.fillCueMixFromNow (sermon);                       // a mix of its own (version 10)
                 controller.addCue (walkIn);
                 controller.addCue (wayMaker);
                 controller.addCue (sermon);
@@ -3023,6 +3025,11 @@ namespace
                     if (auto* so = sv.getDynamicObject()) trimFx (so->getProperty ("mix").getDynamicObject());
         }
         if (toVersion < 9) out->removeProperty ("setlist");
+        if (toVersion < 10)
+            if (auto* sl = out->getProperty ("setlist").getDynamicObject())
+                if (auto* cues = sl->getProperty ("cues").getArray())
+                    for (auto& cv : *cues)
+                        if (auto* co = cv.getDynamicObject()) { co->removeProperty ("levelDb"); co->removeProperty ("mix"); }
         if (toVersion < 5) { out->removeProperty ("liveSafeLimits"); out->removeProperty ("samples"); }
         if (toVersion < 4)
         {
@@ -3134,7 +3141,20 @@ TEST_CASE ("SessionStore: a document from every version DINE has ever written st
         else
         {
             REQUIRE (back.setlist.cues.size() == 3);
-            CHECK (back.setlist == state.setlist);
+            // A cue's own mix and its levels in dB (version 10): an older file has neither.
+            if (version >= 10)
+            {
+                CHECK (back.setlist == state.setlist);
+                CHECK (back.setlist.cues[1].levelDb.at ("keys") == -7.0f);
+                REQUIRE (back.setlist.cues[2].hasMix);
+                CHECK (back.setlist.cues[2].mix.mix.numStrips == state.setlist.cues[2].mix.mix.numStrips);
+                CHECK (back.setlist.cues[2].mix.inputs == state.setlist.cues[2].mix.inputs);
+            }
+            else
+            {
+                CHECK (back.setlist.cues[1].levelDb.empty());
+                CHECK (! back.setlist.cues[2].hasMix);
+            }
             CHECK (back.setlist.cues[1].levelOf ("lead") == CueLevel::UpFront);
             CHECK (back.setlist.cues[1].kind == CueKind::Band);
             CHECK (back.setlist.cues[1].scene == 1);
@@ -3316,6 +3336,81 @@ TEST_CASE ("MixController: a cue switches who is on, deterministically, and the 
         c.renameFavourite (c.numFavourites() - 1, "Choir");
         CHECK (c.getSetlist().cues.back().favourite == "Choir");
     }
+}
+
+// A CUE'S LEVELS IN dB, AND SAVE AS CUE. A level set by hand is the number shown and the
+// number applied - held to the profile's range and step, never "-0" - and outranks the named
+// step. SAVE AS CUE keeps the whole mix as a new cue after the one on now without changing the
+// sound; going to it puts that mix back, from anywhere, the same way every time.
+TEST_CASE ("MixController: a cue's levels are exact dB, and the mix as it is saves as a cue")
+{
+    MixController c;
+    MixSession session;
+    session.inputs = { { "Kick", ChannelRole::KickIn, 0, -1 }, { "Keys", ChannelRole::Piano, 1, -1 },
+                       { "Lead", ChannelRole::LeadVocal, 2, -1 }, { "Pastor", ChannelRole::Speech, 3, -1 } };
+    c.setSession (session);
+    const auto steps = MixProfile::cueLevels (session.profile);
+    auto stripOf = [&] (const char* name)
+    {
+        for (int s = 0; s < c.getGraph().numStrips(); ++s) if (c.getGraph().strips[size_t (s)].name == name) return s;
+        return -1;
+    };
+    const int keys = stripOf ("Keys"), lead = stripOf ("Lead"), kick = stripOf ("Kick");
+    REQUIRE (keys >= 0); REQUIRE (lead >= 0); REQUIRE (kick >= 0);
+    const float keysBase = c.getKept().strips[size_t (keys)].faderDb;
+
+    Cue song { "Song", CueKind::Band, -1, {}, {} };
+    c.fillCueFor (song, CueKind::Band);
+    CHECK (c.cueLevelDb (song, "keys") == 0.0f);
+    c.setCueLevelDb (song, "keys", -7.4f);                         // to the step
+    CHECK (c.cueLevelDb (song, "keys") == -7.0f);
+    CHECK (song.levelOf ("keys") == CueLevel::Softer);
+    c.setCueLevelDb (song, "lead", 40.0f);                         // to the range
+    CHECK (c.cueLevelDb (song, "lead") == steps.maxDb);
+    c.setCueLevelDb (song, "drums", -0.2f);
+    CHECK (c.cueLevelDb (song, "drums") == 0.0f);
+    CHECK (! std::signbit (song.levelDb.at ("drums")));
+    CHECK (c.cueNamesAt (song, CueLevel::UpFront) == "Lead singer");
+    CHECK (c.cueNamesAt (song, CueLevel::Softer) == "Keys");
+    c.addCue (song);
+    CHECK (c.goToCue (0));
+    CHECK_NEAR (c.getKept().strips[size_t (keys)].faderDb, keysBase - 7.0f, 1e-3f);
+    CHECK (c.goToCue (0));                                         // the same cue again: the same place
+    CHECK_NEAR (c.getKept().strips[size_t (keys)].faderDb, keysBase - 7.0f, 1e-3f);
+
+    // Save as cue: a mix with the kick muted and the keys moved by hand.
+    c.setStripMute (kick, true);
+    c.setStripFader (keys, keysBase - 3.0f);
+    const float leadNow = c.getKept().strips[size_t (lead)].faderDb;
+    const auto before = c.getKept();
+    const int saved = c.saveMixAsCue();
+    REQUIRE (saved == 1);                                          // after the cue on now
+    CHECK (c.getSetlist().current == 0);                           // which stays on
+    CHECK (c.getKept().strips[size_t (keys)].faderDb == before.strips[size_t (keys)].faderDb);   // nothing moved
+    const auto& cue = c.getSetlist().cues[size_t (saved)];
+    CHECK (cue.hasMix);
+    CHECK (cue.name == "Cue 2");
+    CHECK (cue.levelOf ("drums") == CueLevel::Off);
+    CHECK (cue.levelOf ("keys") == CueLevel::Normal);
+    CHECK (c.cueSceneName (cue) == "Its own mix");
+
+    // Anywhere else, then back: the saved mix exactly, and the same on a second go.
+    c.setStripMute (kick, false);
+    c.setStripFader (keys, keysBase + 4.0f);
+    c.setStripFader (lead, leadNow - 5.0f);
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        CHECK (c.goToCue (saved));
+        CHECK (c.getKept().strips[size_t (kick)].mute);
+        CHECK_NEAR (c.getKept().strips[size_t (keys)].faderDb, keysBase - 3.0f, 1e-3f);
+        CHECK_NEAR (c.getKept().strips[size_t (lead)].faderDb, leadNow, 1e-3f);
+    }
+    // A level set on top of the saved mix moves from it.
+    auto edited = c.getSetlist().cues[size_t (saved)];
+    c.setCueLevelDb (edited, "keys", 2.0f);
+    c.updateCue (saved, edited);
+    CHECK (c.goToCue (saved));
+    CHECK_NEAR (c.getKept().strips[size_t (keys)].faderDb, keysBase - 3.0f + 2.0f, 1e-3f);
 }
 
 TEST_CASE ("SessionStore: a corrupt file is held inside what a knob can reach, never played as written")

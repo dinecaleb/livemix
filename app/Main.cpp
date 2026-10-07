@@ -558,7 +558,7 @@ namespace
             // channels may carry other sources than the ones this session was built on.
             if (plan.action == DevicePlan::Action::OpenBoth && ! sameUnit (doc.devices.consoleInputUid, uidFor (plan.input)))
                 note += juce::String (note.isEmpty() ? "" : " ") + "This " + plan.input + " is not the unit this session was set up on "
-                        "(another of the same model). Run CHECK INPUTS before the service to be sure every input is what it was.";
+                        "(another of the same model). Run CHECK INPUTS before you go live to be sure every input is what it was.";
             switch (plan.action)
             {
                 case DevicePlan::Action::OpenBoth:

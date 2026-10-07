@@ -12,8 +12,9 @@ namespace livemix
 // THE SETLIST, edited (v4's prototype). The cues down the left in their order, with what
 // each one is (Band, Speaking...) and Now and Next; the one picked on the right: its name,
 // what is happening (four presets that fill who is on), and who is on - a switch per source
-// and Softer / Normal / Up front for the ones that are. Everyone switched off is muted when the
-// cue starts. A cue can also start from a kept scene or favourite. Add, move, delete at the foot.
+// and, for the ones that are, a level in dB from where the cue starts, shown as a number.
+// Everyone switched off is muted when the cue starts. A cue can also start from a mix of its
+// own (saved with it), a kept scene or a favourite. Add, move, delete at the foot.
 // Nothing here changes the sound until somebody goes to the cue.
 class SetlistSheet : public juce::Component
 {
@@ -37,6 +38,7 @@ public:
     // For the tests and the snapshot tool: what the editor would do on a press.
     void chooseKind (CueKind);
     void setWho (const std::string& unit, CueLevel);
+    void setLevelDb (const std::string& unit, float db);   // a level set by hand, in dB
     void useWhatIsOnNow();
 
 private:

@@ -734,6 +734,16 @@ bool MixController::recallScene (int slot)
         if (onMessage) onMessage (s.name + " was kept with a different set of inputs. Set the mix and KEEP it again.");
         return false;
     }
+    putMixBack (s, "Scene: " + s.name);
+    usage ({ "preset_applied", { { "kind", s.favourite ? "favourite" : "scene" } }, {} });
+    if (onMessage) onMessage (s.name + " is back.");
+    mark ("Scene: " + s.name);
+    return true;
+}
+
+bool MixController::putMixBack (const MixScene& s, const std::string& label)
+{
+    if (! s.kept || s.inputs != inputNamesNow() || s.mix.numStrips != kept.numStrips) return false;
     markMixChange ("recalling " + s.name);
     autopilotRelearn();
     autopilot.movedDb.fill (0.0f);
@@ -751,11 +761,8 @@ bool MixController::recallScene (int slot)
     compare = Compare::After;
     stage = restingStage();
     for (int i = 0; i < kept.numStrips && i < was.numStrips; ++i)
-        recordStripTune (i, "Scene: " + s.name, was.strips[size_t (i)], kept.strips[size_t (i)]);
+        recordStripTune (i, label, was.strips[size_t (i)], kept.strips[size_t (i)]);
     publish();
-    usage ({ "preset_applied", { { "kind", s.favourite ? "favourite" : "scene" } }, {} });
-    if (onMessage) onMessage (s.name + " is back.");
-    mark ("Scene: " + s.name);
     return true;
 }
 
@@ -850,6 +857,7 @@ void MixController::removeCue (int index)
 
 std::string MixController::cueSceneName (const Cue& c) const
 {
+    if (c.hasMix) return "Its own mix";
     if (! c.favourite.empty()) return c.favourite;
     if (c.scene < 0 || c.scene >= kMixScenes) return "As it is";
     const auto& s = scenes[size_t (c.scene)];
@@ -945,14 +953,77 @@ std::string MixController::cueNamesAt (const Cue& cue, CueLevel level) const
 {
     std::string out;
     for (const auto& u : cueUnits())
-        if (cue.levelOf (u.key) == level) out += (out.empty() ? "" : ", ") + u.name;
+    {
+        const auto at = cue.levelOf (u.key);
+        const float db = cueLevelDb (cue, u.key);
+        const bool match = level == CueLevel::Off ? at == CueLevel::Off
+                         : at == CueLevel::Off    ? false
+                         : level == CueLevel::UpFront ? db > 0.0f
+                         : level == CueLevel::Softer  ? db < 0.0f
+                                                      : db == 0.0f;
+        if (match) out += (out.empty() ? "" : ", ") + u.name;
+    }
     return out;
 }
 
-// GOING TO A CUE. From its scene or favourite when it has one (an ordinary recall), else from
-// the mix as it is with the last cue's own moves taken back; then everyone it switches off is
-// muted, everyone on is heard, and Softer and Up front move their faders by the profile's
-// step (MixProfile::cueLevels). Going to the same cue twice lands in the same place.
+float MixController::cueLevelDb (const Cue& cue, const std::string& unit) const
+{
+    const auto level = cue.levelOf (unit);
+    if (level == CueLevel::Off) return 0.0f;
+    const auto steps = MixProfile::cueLevels (session.profile);
+    if (const auto it = cue.levelDb.find (unit); it != cue.levelDb.end())
+        return std::clamp (it->second, steps.minDb, steps.maxDb);
+    return level == CueLevel::Softer ? steps.softerDb : level == CueLevel::UpFront ? steps.upFrontDb : 0.0f;
+}
+
+void MixController::setCueLevelDb (Cue& cue, const std::string& unit, float db) const
+{
+    const auto steps = MixProfile::cueLevels (session.profile);
+    db = std::clamp (std::round (db / steps.stepDb) * steps.stepDb, steps.minDb, steps.maxDb);
+    if (db == 0.0f) db = 0.0f;                                   // never "-0 dB"
+    cue.who[unit] = int (db > 0.0f ? CueLevel::UpFront : db < 0.0f ? CueLevel::Softer : CueLevel::Normal);
+    cue.levelDb[unit] = db;
+}
+
+void MixController::fillCueMixFromNow (Cue& cue) const
+{
+    cue.hasMix = true;
+    cue.mix = MixScene {};
+    cue.mix.name = cue.name;
+    cue.mix.kept = true;
+    cue.mix.mix = kept;
+    cue.mix.macros = macros;
+    cue.mix.inputs = inputNamesNow();
+    cue.mix.whenMs = (long long) std::chrono::duration_cast<std::chrono::milliseconds> (
+                         std::chrono::system_clock::now().time_since_epoch()).count();
+    cue.scene = -1;
+    cue.favourite.clear();
+}
+
+int MixController::saveMixAsCue (const std::string& name)
+{
+    if (! built) return -1;
+    Cue cue;
+    cue.name = name.empty() ? "Cue " + std::to_string (setlist.cues.size() + 1) : name;
+    fillCueFromNow (cue);
+    // What it is, from who is heard: only speaking microphones on is someone at the mic.
+    bool speech = false, band = false;
+    for (const auto& [unit, level] : cue.who)
+        if (level != int (CueLevel::Off) && unit != "room") (unit.rfind ("speech:", 0) == 0 ? speech : band) = true;
+    cue.kind = speech && ! band ? CueKind::Speaking : CueKind::Band;
+    fillCueMixFromNow (cue);
+    // The faders already carry the cue on now; kept as they are, this cue moves nothing more.
+    const int at = addCue (cue, isCueActive() ? setlist.current + 1 : -1);
+    if (onMessage) onMessage ("Saved the mix as cue " + std::to_string (at + 1) + ", " + cue.name + ". Going to it brings this whole mix back.");
+    usage ({ "preset_saved", { { "kind", "cue" } }, {} });
+    return at;
+}
+
+// GOING TO A CUE. From its own mix, scene or favourite when it has one (an ordinary recall),
+// else from the mix as it is with the last cue's own moves taken back; then everyone it
+// switches off is muted, everyone on is heard, and each moves its faders by its level in dB
+// (set by hand, or the profile's Softer / Up front step - cueLevelDb). Going to the same cue
+// twice lands in the same place.
 bool MixController::goToCue (int index)
 {
     if (index < 0 || index >= int (setlist.cues.size()) || ! built) return false;
@@ -966,28 +1037,33 @@ bool MixController::goToCue (int index)
     setlist.current = index;
     const std::string where = "Cue " + std::to_string (index + 1) + ": " + cue.name;
 
-    int slot = cue.scene;
-    if (! cue.favourite.empty())
+    int slot = cue.hasMix ? -1 : cue.scene;
+    if (! cue.hasMix && ! cue.favourite.empty())
     {
         slot = -1;
         for (int i = kMixScenes; i < int (scenes.size()); ++i)
             if (scenes[size_t (i)].name == cue.favourite) { slot = i; break; }
         if (slot < 0 && onMessage) onMessage ("The favourite " + cue.favourite + " is not in this session any more, so this cue starts from the mix as it is.");
     }
-    const bool recalled = slot >= 0 && recallScene (slot);
+    bool recalled = false;
+    if (cue.hasMix)
+    {
+        recalled = putMixBack (cue.mix, where);
+        if (! recalled && onMessage) onMessage (cue.name + " was saved with a different set of inputs, so it starts from the mix as it is.");
+    }
+    else recalled = slot >= 0 && recallScene (slot);
     if (recalled) cueOffsetDb.fill (0.0f);
 
     markMixChange ("going to " + cue.name);
     autopilotRelearn();
-    const auto steps = MixProfile::cueLevels (session.profile);
     const MixParameters was = kept;
     for (int s = 0; s < graph.numStrips() && s < kept.numStrips; ++s)
     {
         auto& st = kept.strips[size_t (s)];
         st.faderDb -= cueOffsetDb[size_t (s)];               // the last cue's move, taken back
-        const auto level = cue.levelOf (cueUnitOf (graph.strips[size_t (s)].input));
-        const float offset = level == CueLevel::Softer ? steps.softerDb : level == CueLevel::UpFront ? steps.upFrontDb : 0.0f;
-        st.mute = level == CueLevel::Off;
+        const auto unit = cueUnitOf (graph.strips[size_t (s)].input);
+        const float offset = cueLevelDb (cue, unit);
+        st.mute = cue.levelOf (unit) == CueLevel::Off;
         st.faderDb = std::clamp (st.faderDb + offset, kSilenceDb, 12.0f);
         cueOffsetDb[size_t (s)] = offset;
     }
@@ -1031,7 +1107,7 @@ bool MixController::goToNextCue()
     const int next = setlist.next();
     if (next < 0)
     {
-        if (onMessage) onMessage (setlist.cues.empty() ? std::string ("There are no cues yet. Add the service's cues on LIVE, then Space goes from one to the next.")
+        if (onMessage) onMessage (setlist.cues.empty() ? std::string ("There are no cues yet. Add cues on LIVE, or save the mix as one, then Space goes from one to the next.")
                                                        : std::string ("That was the last cue."));
         return false;
     }
@@ -2740,7 +2816,7 @@ bool MixController::askForChange (const std::string& text)
                        "nothing is kept for you.");
     if (safety.on)
         return refuse ("LIVE SAFE is on, so the mix is not changed from here. Turn LIVE SAFE off first "
-                       "if this is not the middle of a service.");
+                       "if you are not in the middle of a set.");
     if (! (listened && lastCapture.valid))
         return refuse ("DINE has not heard the band yet. Run TUNE MIX once while they play; a change "
                        "is worked out from what it heard.");
@@ -2841,7 +2917,7 @@ void MixController::setSoloMode (SoloMode m)
     if (onMessage)
         onMessage (m == SoloMode::InPlace
                        ? std::string ("Careful: solo is now heard by everyone, not just you. That is for mixing a "
-                                      "recording, not for a service.")
+                                      "recording, not while you are live.")
                        : std::string ("Solo goes to your own device only. The room and the stream never hear it."));
     touch();
 }
@@ -3509,7 +3585,7 @@ bool MixController::auditionSample (int strip)
         if (onMessage)
         {
             const std::string here = " To hear it on this device, choose \"Here - everyone hears solo\" in the Solo picker on LIVE "
-                                     "(not during a service); for a listen only you hear, plug in headphones or an interface and pick it there.";
+                                     "(not while you are live); for a listen only you hear, plug in headphones or an interface and pick it there.";
             if (hasMonitorFeed (outputs) && engine.getDeviceOutputs() > 0)
             {
                 // Routed, but past the end of the device that is open: say which pair and how many there are.
@@ -3634,7 +3710,7 @@ void MixController::setBusChannel (MixBus bus, const ChannelParameters& c)
         const auto& now = kept.master().channel;
         if ((now.limiterEnabled && ! c.limiterEnabled) || (! now.bypassAll && c.bypassAll))
         {
-            if (onMessage) onMessage ("LIVE SAFE: the master limiter stays on while the service is running - it is the only "
+            if (onMessage) onMessage ("LIVE SAFE: the master limiter stays on while you are live - it is the only "
                                       "ceiling on what goes out.");
             return;
         }
@@ -3747,7 +3823,7 @@ MixController::InputAdvice MixController::liveCaptureAdvice (ChannelRole role, f
         a.level = InputAdvice::Level::Hot;
         a.headline = "PREAMP DOWN " + move (wanted) + " dB";
         a.detail = "It is louder than this source's safe range and has no room left for the loudest moment of the "
-                   "service. Turn the preamp down at the desk.";
+                   "set. Turn the preamp down at the desk.";
     }
     else if (peakHoldDb < -55.0f)
     {

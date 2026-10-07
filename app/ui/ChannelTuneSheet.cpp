@@ -224,7 +224,7 @@ void ChannelTuneSheet::paint (juce::Graphics& g)
         auto body = text.removeFromTop (60);
         g.setColour (Dine::ink2);
         g.setFont (Dine::text (12.5f));
-        Dine::drawFittedText (g, waiting ? "Play this source the way it is played in the service. DINE starts as soon as it hears it, "
+        Dine::drawFittedText (g, waiting ? "Play this source the way it will be played live. DINE starts as soon as it hears it, "
                                     "and the rest of the mix keeps running underneath."
                                   : "Keep playing. Only " + name + " is decided from this listen - every other channel, the groups "
                                     "and the master stay exactly where they are.",

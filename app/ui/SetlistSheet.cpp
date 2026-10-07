@@ -1,6 +1,7 @@
 #include "SetlistSheet.h"
 #include "native/MixHistory.h"
 #include "UI/Widgets.h"
+#include "Profiles/MixProfileData.h"
 
 namespace livemix
 {
@@ -72,7 +73,7 @@ public:
         useNow.onClick = [this] { sheet.useWhatIsOnNow(); };
         addAndMakeVisible (useNow);
 
-        startFrom.setTooltip ("Optional: bring back a favourite mix first, then switch who is on.");
+        startFrom.setTooltip ("Optional: bring back a mix first - this cue's own, or a favourite - then switch who is on.");
         startFrom.onClick = [this] { showStartMenu(); };
         addAndMakeVisible (startFrom);
 
@@ -97,7 +98,8 @@ public:
         startFrom.setValue ("Start from: " + juce::String (sheet.controller.cueSceneName (*cue)));
         for (const auto& u : sheet.controller.cueUnits())
         {
-            auto row = std::make_unique<Row> (sheet, u.key, juce::String (u.name), cue->levelOf (u.key));
+            auto row = std::make_unique<Row> (sheet, u.key, juce::String (u.name), cue->levelOf (u.key) != CueLevel::Off,
+                                              sheet.controller.cueLevelDb (*cue, u.key));
             addAndMakeVisible (*row);
             rows.push_back (std::move (row));
         }
@@ -143,8 +145,8 @@ public:
             Dine::drawText (g, line, r.removeFromTop (16), juce::Justification::centredLeft, false);
         };
         caption (captionKind, juce::String (juce::CharPointer_UTF8 ("What\xe2\x80\x99s happening?")), "Pick one to start. You can change who's on below.");
-        caption (captionWho.withTrimmedRight (useNow.getWidth() + 12), juce::String (juce::CharPointer_UTF8 ("Who\xe2\x80\x99s on?")),
-                 "Everyone else is muted when this cue starts.");
+        caption (captionWho.withTrimmedRight (useNow.getWidth() + 12), juce::String (juce::CharPointer_UTF8 ("Who\xe2\x80\x99s on, and how loud?")),
+                 "In dB from where the cue starts. Anyone switched off is muted.");
         if (! whoList.isEmpty())
         {
             Dine::fillRounded (g, whoList.toFloat(), Dine::item, 10.0f);
@@ -154,44 +156,63 @@ public:
     }
 
 private:
-    // A source in the cue: on or off, and for one that is on, Softer, Normal or Up front.
+    // A source in the cue: on or off, and for one that is on, its level - a fader lying down,
+    // in dB from where the cue starts, with the number beside it, so what is set is what is read.
     class Row : public juce::Component
     {
     public:
-        Row (SetlistSheet& s, std::string unitKey, juce::String label, CueLevel level)
-            : sheet (s), unit (std::move (unitKey)), text (std::move (label)), on (level != CueLevel::Off)
+        Row (SetlistSheet& s, std::string unitKey, juce::String label, bool isOn, float db)
+            : sheet (s), unit (std::move (unitKey)), text (std::move (label)), on (isOn), levelDb (db)
         {
             onOff.setClickingTogglesState (false);
             onOff.setToggleState (on, juce::dontSendNotification);
             onOff.setTooltip (on ? "On in this cue. Switch it off and it is muted when the cue starts." : "Muted in this cue. Switch it on to hear it.");
             onOff.onClick = [this] { sheet.setWho (unit, on ? CueLevel::Off : CueLevel::Normal); };
             addAndMakeVisible (onOff);
-            const char* labels[3] = { "Softer", "Normal", "Up front" };
-            const CueLevel levels[3] = { CueLevel::Softer, CueLevel::Normal, CueLevel::UpFront };
-            for (int i = 0; i < 3; ++i)
+
+            const auto steps = MixProfile::cueLevels (sheet.controller.getSession().profile);
+            level.setSliderStyle (juce::Slider::LinearHorizontal);
+            level.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+            level.getProperties().set ("dineFader", true);
+            level.setRange (steps.minDb, steps.maxDb, steps.stepDb);
+            level.setDoubleClickReturnValue (true, 0.0);
+            level.setValue (db, juce::dontSendNotification);
+            level.setTooltip ("How much louder or softer this is in the cue, in dB from where the cue starts. "
+                              "Double-click for 0 dB.");
+            level.onValueChange = [this]
             {
-                auto b = std::make_unique<DineButton> (labels[i], DineButton::Style::Segment);
-                b->setFontPx (12.0f);
-                b->setClickingTogglesState (false);
-                b->setToggleState (level == levels[i], juce::dontSendNotification);
-                b->onClick = [this, l = levels[i]] { sheet.setWho (unit, l); };
-                if (on) addAndMakeVisible (*b); else addChildComponent (*b);
-                segments[size_t (i)] = std::move (b);
-            }
+                levelDb = float (level.getValue());
+                repaint (readout);
+                if (! level.isMouseButtonDown()) commit();          // a double-click, or the keyboard
+            };
+            level.onDragEnd = [this] { commit(); };
+            if (on) addAndMakeVisible (level); else addChildComponent (level);
         }
         void resized() override
         {
             auto r = getLocalBounds().reduced (14, 0);
             onOff.setBounds (r.removeFromLeft (44).withSizeKeepingCentre (40, 24));
-            track = r.removeFromRight (264).withSizeKeepingCentre (264, 30);
-            auto seg = track.reduced (2);
-            const int w = seg.getWidth() / 3;
-            for (auto& b : segments) b->setBounds (seg.removeFromLeft (w));
+            auto right = r.removeFromRight (kLevelW);
+            readout = right.removeFromRight (kReadoutW);
+            right.removeFromRight (8);
+            level.setBounds (right.withSizeKeepingCentre (right.getWidth(), 28));
         }
         void paint (juce::Graphics& g) override
         {
             auto r = getLocalBounds().reduced (14, 0).withTrimmedLeft (56);
-            if (on) { r.removeFromRight (track.getWidth() + 12); Dine::drawSegmentTrack (g, track); }
+            if (on)
+            {
+                r.removeFromRight (kLevelW + 12);
+                // 0 dB, where the cue leaves the level as it finds it: one mark under the well.
+                const auto lb = level.getBounds();
+                const auto range = level.getRange();
+                const int x0 = lb.getX() + juce::roundToInt ((0.0 - range.getStart()) / range.getLength() * (lb.getWidth() - 12)) + 6;
+                g.setColour (Dine::ink4);
+                g.fillRect (x0, lb.getCentreY() - 7, 1, 14);
+                g.setColour (levelDb == 0.0f ? Dine::ink2 : Dine::ink);
+                g.setFont (Dine::mono (12.5f, 600));
+                Dine::drawText (g, dbText (levelDb), readout, juce::Justification::centredRight, false);
+            }
             else
             {
                 g.setColour (Dine::ink3);
@@ -203,14 +224,24 @@ private:
             g.setFont (Dine::text (13.0f, 500));
             Dine::drawFittedText (g, text, r, juce::Justification::centredLeft, 1, 0.85f);
         }
+        static juce::String dbText (float db)
+        {
+            const int v = juce::roundToInt (db);
+            if (v == 0) return "0 dB";
+            return (v > 0 ? juce::String ("+") : juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x92"))) + juce::String (std::abs (v)) + " dB";
+        }
     private:
+        void commit() { sheet.setLevelDb (unit, float (level.getValue())); }
+
+        static constexpr int kLevelW = 264, kReadoutW = 58;
         SetlistSheet& sheet;
         std::string unit;
         juce::String text;
         bool on = true;
+        float levelDb = 0.0f;
         DineSwitch onOff { "", "" };
-        std::array<std::unique_ptr<DineButton>, 3> segments;
-        juce::Rectangle<int> track;
+        juce::Slider level;
+        juce::Rectangle<int> readout;
     };
 
     void commitName()
@@ -227,6 +258,9 @@ private:
     {
         juce::PopupMenu m;
         m.addItem (1, "As it is (the mix when the cue starts)");
+        const bool own = sheet.picked >= 0 && sheet.picked < int (sheet.list.cues.size()) && sheet.list.cues[size_t (sheet.picked)].hasMix;
+        if (own) m.addItem (3, "Its own mix (saved with this cue)", true, true);
+        m.addItem (2, own ? "Save the mix as it is now in this cue again" : "Save the mix as it is now in this cue");
         const int n = sheet.controller.numFavourites();
         if (n > 0) m.addSeparator();
         else m.addItem (-1, "No favourite mixes yet: keep one on Favourite mixes.", false);
@@ -238,6 +272,19 @@ private:
             auto& sh = safe->sheet;
             if (sh.picked < 0 || sh.picked >= int (sh.list.cues.size())) return;
             auto cue = sh.list.cues[size_t (sh.picked)];
+            if (r == 3) return;
+            if (r == 2)
+            {
+                sh.controller.fillCueMixFromNow (cue);
+                // The faders now hold every level; the cue's own moves start again from 0 dB.
+                cue.levelDb.clear();
+                sh.controller.fillCueFromNow (cue);
+                sh.store (cue);
+                if (sh.onToast) sh.onToast ("The mix as it is now is kept in " + juce::String (cue.name) + ". Going to it brings it back.");
+                return;
+            }
+            cue.hasMix = false;
+            cue.mix = MixScene {};
             cue.scene = -1;
             cue.favourite = r >= 100 ? sh.controller.getFavourite (r - 100).name : std::string();
             sh.store (cue);
@@ -355,6 +402,15 @@ void SetlistSheet::setWho (const std::string& unit, CueLevel level)
     auto cue = list.cues[size_t (picked)];
     for (const auto& u : controller.cueUnits()) if (cue.who.count (u.key) == 0) cue.who[u.key] = int (CueLevel::Normal);
     cue.who[unit] = int (level);
+    cue.levelDb.erase (unit);                  // a switch or a named step says the level again
+    store (cue);
+}
+
+void SetlistSheet::setLevelDb (const std::string& unit, float db)
+{
+    if (picked < 0 || picked >= int (list.cues.size())) return;
+    auto cue = list.cues[size_t (picked)];
+    controller.setCueLevelDb (cue, unit, db);
     store (cue);
 }
 
@@ -452,7 +508,7 @@ void SetlistSheet::paint (juce::Graphics& g)
     Dine::drawText (g, "Cues", head.removeFromTop (22), juce::Justification::centredLeft, false);
     g.setColour (Dine::ink2);
     g.setFont (noteFont());
-    Dine::drawText (g, "Each cue is a moment in the service. Space on LIVE goes to the next one.",
+    Dine::drawText (g, "Each cue is a moment, in order. Space on LIVE goes to the next one.",
                     head.removeFromTop (16).withTrimmedRight (done.getWidth() + 12), juce::Justification::centredLeft, true);
 
     g.setColour (Dine::hair);

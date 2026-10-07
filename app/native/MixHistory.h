@@ -114,13 +114,14 @@ struct MixScene
 inline constexpr int kMixScenes = 4;
 
 // ---------------------------------------------------------------------------
-// THE SETLIST: the service in order (v4's prototype). A cue is a moment in it - a song, the
-// welcome, the sermon - and what is happening in it: who is on, and for each who is on,
-// Softer, Normal or Up front. Everyone the cue switches off is muted when it starts. "Who"
-// is the session's sources by kind (the lead singer, the backing singers, the drums, the
-// keys...) and each speaking microphone by name (MixController::cueUnits). A cue may also
-// start from a kept scene or favourite; without one it starts from the mix as it is. Going
-// to a cue is one Mix history entry.
+// THE SETLIST: the moments of a show in order (v4's prototype). A cue is one of them - a
+// song, the welcome, a talk - and what is happening in it: who is on, and for each who is on,
+// how many dB up or down from where the cue starts (Softer and Up front are the presets' named
+// steps; a level set by hand is kept in dB). Everyone the cue switches off is muted when it
+// starts. "Who" is the session's sources by kind (the lead singer, the backing singers, the
+// drums, the keys...) and each speaking microphone by name (MixController::cueUnits). A cue
+// may start from a mix of its own (SAVE AS CUE keeps the whole mix with it), a kept scene or a
+// favourite; without one it starts from the mix as it is. Going to a cue is one Mix history entry.
 // ---------------------------------------------------------------------------
 enum class CueKind : int { Band = 0, Speaking, QuietMoment, MusicPlayback, Count };
 inline const char* cueKindName (CueKind k) noexcept
@@ -138,6 +139,13 @@ struct Cue
     int scene = -1;                // start from one of the four scene slots; -1 = from the mix as it is
     std::string favourite;         // or from a kept favourite, by name
     std::map<std::string, int> who;   // unit key -> CueLevel; a unit not here is on, at Normal
+    // A level set by hand, in dB from where the cue starts; outranks the unit's Softer / Up front
+    // step. Absent: the step (MixProfile::cueLevels), which is 0 for Normal.
+    std::map<std::string, float> levelDb;
+    // The whole mix kept with the cue (SAVE AS CUE); outranks `scene` and `favourite`. Its
+    // `whenMs` says which save it is.
+    bool hasMix = false;
+    MixScene mix;
     CueLevel levelOf (const std::string& unit) const
     {
         const auto it = who.find (unit);
@@ -145,7 +153,8 @@ struct Cue
     }
     bool operator== (const Cue& o) const
     {
-        return name == o.name && kind == o.kind && scene == o.scene && favourite == o.favourite && who == o.who;
+        return name == o.name && kind == o.kind && scene == o.scene && favourite == o.favourite && who == o.who
+            && levelDb == o.levelDb && hasMix == o.hasMix && (! hasMix || mix.whenMs == o.mix.whenMs);
     }
 };
 struct Setlist

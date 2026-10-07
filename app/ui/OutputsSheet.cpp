@@ -322,7 +322,7 @@ void OutputsSheet::showSoloDeviceMenu (MixController& controller, AppServices& s
     for (const auto& d : services.outputDevices())
         if (d.name == broadcast && d.outputChannels >= 4) onePair = false;
     if (onePair && broadcast.isNotEmpty())
-        m.addItem (2, "Here - everyone hears solo   (on " + broadcast + ", not for a service)", ! controller.isLiveSafe(), inPlace);
+        m.addItem (2, "Here - everyone hears solo   (on " + broadcast + ", not while live)", ! controller.isLiveSafe(), inPlace);
     m.addSeparator();
 
     juce::StringArray names;

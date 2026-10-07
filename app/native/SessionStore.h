@@ -37,7 +37,9 @@ namespace SessionStore
     // profile's character, so it sounds as saved until the next TUNE MIX feeds the hall.
     // 9 added the setlist (SessionState::setlist): the cues in order and which one is on.
     // Absent before it: an empty setlist, which is what those sessions had.
-    inline constexpr int kVersion = 9;
+    // 10 added a cue's own mix (SAVE AS CUE) and its levels set by hand in dB. Absent before it:
+    // a cue with neither, which is what those sessions had.
+    inline constexpr int kVersion = 10;
 
     // The old name for SessionState, kept because it reads well at the call sites that mean
     // "the thing on disk".
