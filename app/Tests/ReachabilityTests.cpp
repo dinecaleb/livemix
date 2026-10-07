@@ -338,6 +338,7 @@ TEST_CASE ("Reachability: every sheet still opens, and Escape still closes it")
         { "ready",      [&] { view.showReady(); } },
         { "channel",    [&] { view.tuneChannel (0); } },
         { "effect",     [&] { view.showEffect (FxSlot::VocalPlate); } },
+        { "about",      [&] { view.showAbout(); } },
         // TUNE asks *which* group or channels before it tunes them - the whole mix needs
         // nothing more said about it, so that one starts. It is the workspace's own sheet
         // rather than the window's, and Escape means the same thing over it.

@@ -40,6 +40,13 @@ namespace livemix
 // ---------------------------------------------------------------------------
 namespace Dine
 {
+    // THE BRAND'S FOUR (DINE Identity v1). Fixed, never themed: the mark is black and white on
+    // every theme, and these are the only colours it is ever drawn in. Steel is for text only.
+    inline const juce::Colour brandBlack    { 0xff000000 };
+    inline const juce::Colour brandGraphite { 0xff1c1c1e };
+    inline const juce::Colour brandSteel    { 0xff8e8e93 };
+    inline const juce::Colour brandPaper    { 0xfff5f5f7 };
+
     // Materials. Named for what they are used for; several share a value on purpose, so a
     // page that asks for "the rail" and one that asks for "the console" read as one thing.
     inline juce::Colour desk        { 0xff1c1c1e };   // behind the window
@@ -348,6 +355,17 @@ namespace Dine
         NavHistory, NavLive, NavSetlist, NavTracks, NavExport
     };
     void drawIcon (juce::Graphics&, Icon, juce::Rectangle<float>, juce::Colour, float thickness = 1.4f);
+
+    // THE BRAND (docs/design/BRAND.md, the DINE Identity v1): the split D and the wordmark drawn
+    // from it, as paths on the brand's own grid (one unit = the stem). One colour, never a
+    // tint - the mark is Paper on dark and Black on light; the meters carry the colour. Each is
+    // fitted inside `area` keeping its proportions, placed by `just`.
+    void drawSymbol (juce::Graphics&, juce::Rectangle<float> area, juce::Colour,
+                     juce::Justification just = juce::Justification::centred);
+    void drawWordmark (juce::Graphics&, juce::Rectangle<float> area, juce::Colour,
+                       juce::Justification just = juce::Justification::centred);
+    inline constexpr float kSymbolAspect = 82.0f / 96.0f;      // width over height
+    inline constexpr float kWordmarkAspect = 312.0f / 96.0f;
     Icon iconForRole (ChannelRole) noexcept;
 
     struct IconChoice { const char* key; const char* label; Icon icon; };

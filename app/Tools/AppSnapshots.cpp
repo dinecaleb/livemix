@@ -888,6 +888,11 @@ int main (int argc, char** argv)
     // ---- SESSIONS: the library. Real documents on disk, so the table shows what each
     // session sounds like, what it was for and how its inputs fall across the groups.
     {
+        // THE FIRST LAUNCH: nothing saved yet, so the page introduces the product.
+        view.showPage (MainView::Page::Sessions);
+        view.getSessionsPage().refresh();
+        rig.snap (dir, "00a-sessions-first-launch");
+
         const auto library = dir.getChildFile ("sessions");
         library.createDirectory();
         struct Seed { const char* name; StyleProfileId profile; MixPurpose purpose; int drums, bass, music, vocals, speech; double hoursAgo; };
@@ -1341,6 +1346,11 @@ int main (int argc, char** argv)
     view.showEffect (FxSlot::VocalDelay);
     rig.feed (0.2);
     rig.snap (dir, "15e4-effect-delay");
+    view.closeSheetsForSnapshot();
+    // ABOUT DINE: the identity's splash.
+    view.showAbout();
+    rig.feed (0.1);
+    rig.snap (dir, "32-about");
     view.closeSheetsForSnapshot();
     view.getMixerPage().setView (MixerPage::View::List);
     view.getMixerPage().setShow (MixerPage::Show::All);

@@ -488,6 +488,66 @@ void Dine::Slide::step()
     if (onFrame) onFrame();
 }
 
+// ---- the brand: the split D and the wordmark, in the identity's own units (96 tall) ----
+namespace
+{
+    // The stem: 24 x 96, corners of 3. The bowl: 48 wide, flat on the left, a full radius on
+    // the right, 10 from the stem - side by side, never touching.
+    void addSymbol (juce::Path& p, float x)
+    {
+        p.addRoundedRectangle (x, 0.0f, 24.0f, 96.0f, 3.0f);
+        juce::Path bowl;
+        bowl.startNewSubPath (x + 34.0f, 0.0f);
+        bowl.lineTo (x + 34.0f, 0.0f);
+        bowl.addCentredArc (x + 34.0f, 48.0f, 48.0f, 48.0f, 0.0f, 0.0f, juce::MathConstants<float>::pi, false);
+        bowl.lineTo (x + 34.0f, 96.0f);
+        bowl.closeSubPath();
+        p.addPath (bowl);
+    }
+
+    juce::Path wordmarkPath()
+    {
+        juce::Path p;
+        addSymbol (p, 0.0f);                                          // D: the symbol itself
+        p.addRoundedRectangle (102.0f, 0.0f, 24.0f, 96.0f, 3.0f);    // I
+        const float n = 146.0f;                                       // N: two stems and the stroke between
+        p.addRoundedRectangle (n, 0.0f, 24.0f, 96.0f, 3.0f);
+        p.addRoundedRectangle (n + 58.0f, 0.0f, 24.0f, 96.0f, 3.0f);
+        juce::Path diag;
+        diag.addTriangle (n, 0.0f, n + 30.0f, 0.0f, n + 82.0f, 96.0f);
+        diag.addTriangle (n, 0.0f, n + 82.0f, 96.0f, n + 52.0f, 96.0f);
+        p.addPath (diag);
+        const float e = 248.0f;                                       // E: the stem and three bars
+        p.addRoundedRectangle (e, 0.0f, 24.0f, 96.0f, 3.0f);
+        p.addRoundedRectangle (e, 0.0f, 64.0f, 20.0f, 3.0f);
+        p.addRoundedRectangle (e, 38.0f, 56.0f, 20.0f, 3.0f);
+        p.addRoundedRectangle (e, 76.0f, 64.0f, 20.0f, 3.0f);
+        return p;
+    }
+
+    void fillBrand (juce::Graphics& g, const juce::Path& path, float unitsW, juce::Rectangle<float> area,
+                    juce::Colour colour, juce::Justification just)
+    {
+        if (area.isEmpty()) return;
+        const float scale = juce::jmin (area.getWidth() / unitsW, area.getHeight() / 96.0f);
+        const auto placed = just.appliedToRectangle (juce::Rectangle<float> (unitsW * scale, 96.0f * scale), area);
+        g.setColour (colour);
+        g.fillPath (path, juce::AffineTransform::scale (scale).translated (placed.getX(), placed.getY()));
+    }
+}
+
+void Dine::drawSymbol (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, juce::Justification just)
+{
+    static const juce::Path symbol = [] { juce::Path p; addSymbol (p, 0.0f); return p; }();
+    fillBrand (g, symbol, 82.0f, area, colour, just);
+}
+
+void Dine::drawWordmark (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour, juce::Justification just)
+{
+    static const juce::Path mark = wordmarkPath();
+    fillBrand (g, mark, 312.0f, area, colour, just);
+}
+
 int Dine::fittedLines (const juce::Font& font, const juce::String& text, int width)
 {
     if (text.isEmpty() || width <= 0) return 0;

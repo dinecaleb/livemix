@@ -2233,6 +2233,7 @@ void MainView::closeSheets()
     chatSheet.reset();
     exportSheet.reset();
     effectSheet.reset();
+    aboutSheet.reset();
     // A choice closes through its own onClose: the microphone sheet's means "Not now".
     if (choiceSheet != nullptr)
         if (auto close = choiceSheet->onClose) close();
@@ -2256,10 +2257,25 @@ bool MainView::closeTopSheet()
         else { sheet.reset(); updateChrome(); resized(); }
         return true;
     };
-    if (closeVia (choiceSheet) || closeVia (effectSheet) || closeVia (exportSheet) || closeVia (setlistSheet) || closeVia (readySheet) || closeVia (themeSheet) || closeVia (readinessSheet)
+    if (closeVia (choiceSheet) || closeVia (aboutSheet) || closeVia (effectSheet) || closeVia (exportSheet) || closeVia (setlistSheet) || closeVia (readySheet) || closeVia (themeSheet) || closeVia (readinessSheet)
         || closeVia (historySheet) || closeVia (checkSheet) || closeVia (channelSheet) || closeVia (chatSheet))
         return true;
     return false;
+}
+
+void MainView::showAbout()
+{
+    closeSheets();
+    auto* app = juce::JUCEApplicationBase::getInstance();
+    aboutSheet = std::make_unique<AboutSheet> (app != nullptr ? app->getApplicationVersion() : juce::String());
+    aboutSheet->onClose = [this]
+    {
+        juce::Component::SafePointer<MainView> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) { safe->aboutSheet.reset(); safe->resized(); safe->repaint(); safe->grabKeyboardFocus(); } });
+    };
+    addAndMakeVisible (*aboutSheet);
+    resized();
+    aboutSheet->grabKeyboardFocus();
 }
 
 void MainView::showEffect (FxSlot slot)
@@ -3230,7 +3246,7 @@ void MainView::handleCommand (int id)
             }
             break;
         case 700:
-            showToast ("DINE - the live recording and broadcast DAW. Connect. Record. Mix. Tune. Broadcast.");
+            showAbout();
             break;
         default: break;
     }
@@ -3298,6 +3314,7 @@ juce::String MainView::openSheetName() const
     if (chatSheet    != nullptr) return "chat";
     if (exportSheet  != nullptr) return "export";
     if (effectSheet  != nullptr) return "effect";
+    if (aboutSheet   != nullptr) return "about";
     if (choiceSheet  != nullptr) return "choice";
     return {};
 }
@@ -4269,7 +4286,7 @@ void MainView::resized()
     for (juce::Component* sheetComponent : { (juce::Component*) themeSheet.get(), (juce::Component*) historySheet.get(),
                                              (juce::Component*) channelSheet.get(), (juce::Component*) checkSheet.get(),
                                              (juce::Component*) readinessSheet.get(), (juce::Component*) setlistSheet.get(), (juce::Component*) readySheet.get(),
-                                             (juce::Component*) exportSheet.get(), (juce::Component*) effectSheet.get(),
+                                             (juce::Component*) exportSheet.get(), (juce::Component*) effectSheet.get(), (juce::Component*) aboutSheet.get(),
                                              (juce::Component*) choiceSheet.get() })
         if (sheetComponent != nullptr) { sheetComponent->setBounds (sheetColumn); sheetComponent->toFront (false); }
     if (chatSheet != nullptr)

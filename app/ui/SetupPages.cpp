@@ -1,4 +1,5 @@
 #include "SetupPages.h"
+#include "AboutSheet.h"
 #include "AppTheme.h"
 #include "Core/ProductDefinition.h"
 #include "Profiles/Profile.h"
@@ -447,6 +448,29 @@ void SessionsPage::paint (juce::Graphics& g)
     g.setFont (Dine::text (11.0f, 500));
     Dine::drawText (g, "Sorted by when it was last saved", sorted, juce::Justification::centredLeft, true);
 
+    if (shown.empty() && items.empty())
+    {
+        // THE FIRST LAUNCH is where the product introduces itself (DINE Identity v1): the
+        // wordmark in Paper, the line under it in Steel, then what to do - centred in the room
+        // the list will take.
+        auto area = viewport.getBounds().withTrimmedTop (40).withHeight (40 + 18 + 18 + 30 + 20 + 6 + 34);
+        Dine::drawWordmark (g, area.removeFromTop (40).toFloat(), Dine::brandPaper);
+        area.removeFromTop (18);
+        g.setColour (Dine::brandSteel);
+        g.setFont (Dine::text (14.0f));
+        Dine::drawText (g, AboutSheet::kTagline, area.removeFromTop (18), juce::Justification::centred, false);
+        area.removeFromTop (30);
+        g.setColour (Dine::ink);
+        g.setFont (Dine::text (14.0f, 600));
+        Dine::drawText (g, "No sessions saved yet", area.removeFromTop (20), juce::Justification::centred);
+        area.removeFromTop (6);
+        g.setColour (Dine::ink3);
+        g.setFont (Dine::text (13.0f));
+        Dine::drawFittedText (g, "Start a new session and it is saved into ~/Music/DINE as you work.",
+                              area.removeFromTop (34).withSizeKeepingCentre (juce::jmin (620, area.getWidth()), 34),
+                              juce::Justification::centredTop, 2);
+        return;
+    }
     if (shown.empty())
     {
         auto empty = juce::Rectangle<int> (r.getX(), viewport.getY() + 30, juce::jmin (620, r.getWidth()), 70);
