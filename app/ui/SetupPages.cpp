@@ -1419,7 +1419,7 @@ public:
         what.onClick = [this] { if (input >= 0) page.showSourceMenu (input, what); };
         addAndMakeVisible (what);
         pair.onClick = [this] { togglePair(); };
-        pair.setTooltip ("Mono, or this input and the next as one stereo pair.");
+        pair.setTooltip ("Mono, or this input and the next as a stereo pair: two channels, linked.");
         addAndMakeVisible (pair);
 
         for (auto* t : { &record, &polarity, &listen }) { t->setClickingTogglesState (false); addAndMakeVisible (*t); }
@@ -1679,7 +1679,7 @@ private:
         auto& project = daw.getProject();
         if (track < 0 || track >= int (project.tracks.size())) return;
         if (daw.isRecording()) { if (page.onToast) page.onToast ("Recording is running. Stop it first, then choose what records."); return; }
-        project.tracks[size_t (track)].armed = ! project.tracks[size_t (track)].armed;
+        daw.toggleArmed (track);
         daw.refresh();
         page.services.touchSession();
         load();
@@ -1967,7 +1967,7 @@ AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), serv
         commit();
         rebuild();
     };
-    pairSelButton.setTooltip ("Pair each picked-out input with the next one as a stereo row.");
+    pairSelButton.setTooltip ("Pair each picked-out input with the next one as a linked stereo pair: two channels whose faders move together.");
     pairSelButton.onClick = [this] { linkSelection(); };
     patchButton.setIcon (Dine::Icon::UpDown);
     patchButton.setTooltip ("Save this patch, or apply a saved one.");
@@ -2024,7 +2024,7 @@ AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), serv
     const char* quickLabels[3] = { "Name everything from what it is", "Select every input not used", "Pair every L and R" };
     const char* quickLines[3] = { "Every assigned input takes its short desk name.",
                                   "Then set them all at once, or fill a kit down them.",
-                                  "Neighbours named L and R become one stereo row." };
+                                  "Neighbours named L and R become a linked stereo pair." };
     for (int i = 0; i < 3; ++i)
     {
         quickButtons[size_t (i)] = std::make_unique<QuickAction> (quickLabels[i], quickLines[i]);
@@ -2046,7 +2046,7 @@ AssignPage::AssignPage (MixController& c, AppServices& s) : controller (c), serv
         busFilter = -2;
         rebuild();
     };
-    quickButtons[2]->setTooltip ("Neighbours whose names end in L and R become one stereo row.");
+    quickButtons[2]->setTooltip ("Neighbours whose names end in L and R become a linked stereo pair.");
     quickButtons[2]->onClick = [this]
     {
         for (int i = 0; i + 1 < numInputs; ++i)
@@ -2136,6 +2136,16 @@ void AssignPage::refresh()
         e.role = in.role;
         if (in.inputB >= 0 && in.inputB < numInputs) { e.linkedToNext = in.inputB == in.inputA + 1; entries[size_t (in.inputB)].linkedFromPrevious = e.linkedToNext; }
     }
+    // A linked stereo pair: two inputs in the session, one row here - found by channel, so a
+    // pair whose tracks were moved apart on TRACKS is still one.
+    const auto& inputs = controller.getSession().inputs;
+    for (const auto& l : inputs)
+        for (const auto& r : inputs)
+            if (l.stereoSide == -1 && r.stereoSide == 1 && l.inputA >= 0 && r.inputA == l.inputA + 1 && r.inputA < numInputs)
+            {
+                entries[size_t (l.inputA)].linkedToNext = true;
+                entries[size_t (r.inputA)].linkedFromPrevious = true;
+            }
     rebuild();
 }
 
@@ -2245,9 +2255,23 @@ void AssignPage::commit()
         a.icon = e.icon;
         a.role = e.role;
         a.inputA = i;
-        a.inputB = e.linkedToNext && i + 1 < numInputs ? i + 1 : -1;
         a.enabled = true;
+        if (! (e.linkedToNext && i + 1 < numInputs)) { s.inputs.push_back (a); continue; }
+
+        // A STEREO PAIR IS TWO CHANNELS, LINKED: two mono inputs, each recorded to its own file,
+        // with their faders and solo moving together. The right keeps a name of its own if it has
+        // one; otherwise both are named for their side ("Keys" -> "Keys L", "Keys R").
+        InputAssignment b = a;
+        b.inputA = i + 1;
+        const auto& right = entries[size_t (i + 1)];
+        const bool ownName = right.name.isNotEmpty() && right.name != e.name;
+        a.stereoSide = -1;
+        b.stereoSide = 1;
+        if (ownName) b.name = right.name.toStdString();
+        else { a.name = stereoSideName (a.name, -1); b.name = stereoSideName (a.name, 1); }
+        if (! right.icon.empty()) b.icon = right.icon;
         s.inputs.push_back (a);
+        s.inputs.push_back (b);
     }
     // The order is the one the tracks were arranged in, not the desk's: an input that was
     // already assigned keeps its place, and a new one goes after them in channel order.
@@ -2259,17 +2283,20 @@ void AssignPage::commit()
     for (auto& a : s.inputs)
         for (const auto& b : before)
             if (b.inputA == a.inputA) { a.focus = b.focus; a.otherVoiceRole = b.otherVoiceRole; break; }
+    // The right side of a pair sits straight after its left, wherever the left is.
     auto placeOf = [&before] (const InputAssignment& a)
     {
-        for (size_t i = 0; i < before.size(); ++i) if (before[i].inputA == a.inputA) return int (i);
-        return int (before.size()) + a.inputA;
+        const int channel = a.stereoSide == 1 ? a.inputA - 1 : a.inputA;
+        const double side = a.stereoSide == 1 ? 0.5 : 0.0;
+        for (size_t i = 0; i < before.size(); ++i) if (before[i].inputA == channel) return double (i) + side;
+        return double (before.size() + size_t (juce::jmax (0, channel))) + side;
     };
     std::stable_sort (s.inputs.begin(), s.inputs.end(),
                       [&] (const InputAssignment& x, const InputAssignment& y) { return placeOf (x) < placeOf (y); });
     controller.setSession (s);
-    // The timeline follows at once: a pair linked here is one stereo track from this moment,
-    // so a take started before the graph is rebuilt still records both of its channels.
-    services.daw().setSession (s);
+    // The timeline follows at once: a pair linked here is two tracks from this moment, so a
+    // take started before the graph is rebuilt still records both of its channels.
+    services.daw().setSession (controller.getSession());
     continueButton.setEnabled (assignedCount() > 0);
     repaint();
 }

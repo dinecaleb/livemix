@@ -37,13 +37,23 @@ The DAW layer, the mix layer and every workspace - TRACKS, MIXER, TUNE, LIVE, th
   not part of the name; files that ran at the same time (broadcast-WAV stamp, else the file's birth
   time) are one pass and later passes follow on the same tracks, so DINE's own `LEAD_001..006` is
   three tracks, not six; a desk's multichannel card file is one track per channel
-  (`AudioClip::fileChannel`) with its chunks chained; split stereo of one length is joined
-  (`fileRight`), two toms never are; an import *adds* to the session, and an empty track already set
+  (`AudioClip::fileChannel`) with its chunks chained; split stereo of one length is paired, two
+  toms never are; an import *adds* to the session, and an empty track already set
   up takes the file with its name (or the only file of its source, or - for a card file - its console
   channel). From the launcher an import is a new session. `dine_device_check --import <paths>` prints
   what an import would make of them without opening a device. **Track > New Track** (and a right-click
   below the last track) makes an empty track of a chosen source on the next free device channel. Export is `MixBounce::renderProject`, streamed to disk.
   App tests for all of this: `build/app/dine_app_tests` (`app/Tests/DawTests.cpp`).
+- **A stereo source is two channels, linked** (2026-10-07). Nothing shows a pair as one channel: each side
+  is its own strip on the Mixer and its own track on Tracks, with its own meter, recorded to its own mono
+  file. The two are marked `InputAssignment::stereoSide` (-1 left, +1 right, the right straight after its
+  left), linked (`MixParameters::linkGroup`: fader and solo together; mute and pan each its own), panned hard
+  left and right, and armed together (`DawEngine::toggleArmed`). `splitStereoInputs` turns any one-strip
+  stereo input (`inputB`) into that pair wherever it arrives - `MixController::setSession`,
+  `DawEngine::setSession`, an import, a saved patch, a session saved before version 11
+  (`Project::splitStereo` in `applySession`, the right side taking the pair's chain and fader through
+  `pairStereoSides`, and a two-channel take reading its left and right channel). The Inputs page still
+  draws a pair as one row with its link. Tests: the `Stereo:` cases in `app/Tests/ReliabilityPassTests.cpp`.
 - **Before the service (2026-09-24).** Three things an engineer reaches for during a service, each one press:
   - The emergency keys, DIM and MUTE, on the toolbar beside BYPASS (and under View): the broadcast and the room
     pulled down 20 dB, or silenced, on every feed but the engineer's listen (`MixController::setBroadcastDim /

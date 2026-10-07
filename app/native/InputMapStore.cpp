@@ -66,6 +66,7 @@ juce::var toVar (const InputMap& m)
         io->setProperty ("inputB", in.inputB);
         io->setProperty ("enabled", in.enabled);
         if (! in.icon.empty()) io->setProperty ("icon", juce::String (in.icon));
+        if (in.stereoSide != 0) io->setProperty ("stereoSide", in.stereoSide);   // absent = not a pair
         inputs.add (juce::var (io));
     }
     obj->setProperty ("inputs", inputs);
@@ -106,6 +107,7 @@ bool fromVar (const juce::var& v, InputMap& m)
             in.inputB = io->hasProperty ("inputB") ? int (io->getProperty ("inputB")) : -1;
             in.enabled = io->hasProperty ("enabled") ? bool (io->getProperty ("enabled")) : true;
             in.icon = io->getProperty ("icon").toString().toStdString();
+            in.stereoSide = juce::jlimit (-1, 1, int (io->getProperty ("stereoSide")));
             m.inputs.push_back (in);
             if (int (m.inputs.size()) >= kMaxStrips) break;
         }

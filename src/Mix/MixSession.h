@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cctype>
 #include <string>
 #include <vector>
 #include "Core/ChannelRole.h"
@@ -10,7 +11,7 @@ namespace livemix
 
 // Capacity of one DINE mix. Everything on the audio thread is sized from these.
 inline constexpr int kMaxInputs = 64;   // device input channels DINE will look at
-inline constexpr int kMaxStrips = 64;   // assigned inputs (a stereo pair is one strip)
+inline constexpr int kMaxStrips = 64;   // assigned inputs (each side of a stereo pair is its own strip)
 
 // THE GROUP BUSES DINE builds on its own. The user never creates them.
 //
@@ -123,7 +124,16 @@ struct InputAssignment
     // as a ChannelRole index, -1 when it has never had one. Set by MixController::setInputRole,
     // read by roleForJob / roleForSinging. A label for the switch, never routing.
     int otherVoiceRole = -1;
+    // ONE SIDE OF A STEREO PAIR. A stereo source is two channels on the console and two tracks
+    // on the timeline - each recorded to its own mono file, each with its own meter - and the
+    // two are linked (their faders and their solo move together, MixParameters::linkGroup).
+    // -1 = the left side, +1 = the right side, which is the input straight after its left;
+    // 0 = not part of a pair. A label for the pair, never routing: each side is a mono input.
+    int stereoSide = 0;
 
+    // `inputB` is what a stereo strip used to be: one input carrying both sides. Nothing makes
+    // one any more - splitStereoInputs() turns one into a linked pair wherever it arrives from
+    // (a session saved before, a saved patch) - but the engine still plays one correctly.
     bool isStereo() const noexcept { return inputB >= 0; }
     int numChannels() const noexcept { return isStereo() ? 2 : 1; }
 };
@@ -293,6 +303,53 @@ struct MixSession
     }
     int numStrips() const noexcept { return int (inputs.size()) < kMaxStrips ? int (inputs.size()) : kMaxStrips; }
 };
+
+// The name each side of a stereo pair gets: "Keys" -> "Keys L" / "Keys R". A name that already
+// says its side ("Keys L", "OH-R", "Piano Left") has that taken off first, so splitting a pair
+// that is already named for its sides never makes "Keys L L".
+inline std::string stereoSideName (const std::string& name, int side)
+{
+    std::string base = name;
+    auto endsWith = [&] (const std::string& tail)
+    {
+        if (base.size() <= tail.size()) return false;
+        for (size_t i = 0; i < tail.size(); ++i)
+            if (std::tolower ((unsigned char) base[base.size() - tail.size() + i]) != tail[i]) return false;
+        return true;
+    };
+    for (const char* tail : { " left", " right", " l", " r", "-l", "-r", "_l", "_r", ".l", ".r" })
+        if (endsWith (tail)) { base.resize (base.size() - std::string (tail).size()); break; }
+    if (base.empty()) base = name;
+    return base + (side < 0 ? " L" : " R");
+}
+
+// Every stereo input made into two mono inputs, left then right, marked as a pair. The left
+// keeps the input's place, its focus and its device channel; the right is its second channel.
+// Returns whether anything was split. Idempotent: a session with no stereo input is untouched.
+inline bool splitStereoInputs (MixSession& session)
+{
+    bool any = false;
+    std::vector<InputAssignment> out;
+    out.reserve (session.inputs.size() + 4);
+    for (const auto& in : session.inputs)
+    {
+        if (! in.isStereo()) { out.push_back (in); continue; }
+        any = true;
+        InputAssignment left = in, right = in;
+        left.inputB = -1;
+        left.stereoSide = -1;
+        left.name = stereoSideName (in.name, -1);
+        right.inputA = in.inputB;
+        right.inputB = -1;
+        right.stereoSide = 1;
+        right.focus = false;
+        right.name = stereoSideName (in.name, 1);
+        out.push_back (left);
+        out.push_back (right);
+    }
+    if (any) session.inputs = std::move (out);
+    return any;
+}
 
 // Which input in `previous` each input in `next` used to be, or -1 for one that is new to
 // the session. An input's identity is the device channel it arrives on, then its name - not

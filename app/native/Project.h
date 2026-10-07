@@ -170,22 +170,44 @@ struct Project
                 const auto& was = previous.inputs[p];
                 if (! was.isStereo() || was.inputB != in.inputA) continue;
                 TrackState split = tracks[p];
-                split.armed = false;
                 split.clips.clear();
                 for (auto clip : tracks[p].clips)
+                {
                     if (clip.fileRight.isNotEmpty())
                     {
                         clip.file = clip.fileRight;
                         clip.fileChannel = clip.fileRightChannel;
                         clip.fileRight = {};
                         clip.fileRightChannel = 0;
-                        split.clips.push_back (clip);
                     }
+                    else
+                    {
+                        // One file carrying both sides (a stereo take, a stereo stem, two channels
+                        // of a desk's file): the right side is the same file's next channel. A mono
+                        // file has no next channel, and the player reads its one channel for both.
+                        ++clip.fileChannel;
+                    }
+                    split.clips.push_back (clip);
+                }
+                // A side of a pair that was armed as a pair is still armed: both record.
+                if (in.stereoSide == 0) split.armed = false;
                 moved[n] = split;
                 break;
             }
         }
         tracks = std::move (moved);
+    }
+
+    // A session and the timeline laid out for it, with every stereo input split into its two
+    // linked mono sides and each side's clips on a track of its own. For a project that was
+    // built for `session` as it stands - one read from a file, a multitrack import - before
+    // either reaches the console.
+    static void splitStereo (MixSession& session, Project& project)
+    {
+        const MixSession before = session;
+        if (! splitStereoInputs (session)) return;
+        project.tracks.resize (before.inputs.size());
+        project.syncTracks (before, session);
     }
 
     // The session did not change shape (a load, a rebuild from a document): only the count matters.

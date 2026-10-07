@@ -268,7 +268,7 @@ public:
         {
             auto& project = services.daw().getProject();
             if (strip < 0 || strip >= int (project.tracks.size())) return;
-            project.tracks[size_t (strip)].armed = ! project.tracks[size_t (strip)].armed;
+            services.daw().toggleArmed (strip);
             services.daw().refresh();
             services.touchSession();
             refresh (true);

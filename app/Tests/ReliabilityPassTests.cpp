@@ -95,10 +95,11 @@ namespace
 }
 
 // =========================================================================== STEREO
-TEST_CASE ("Stereo: a pair linked on the Inputs page records both of its channels, even before the graph is rebuilt")
+// A STEREO SOURCE IS TWO CHANNELS, LINKED (2026-10-07). Each side is its own strip on the
+// console and its own track on the timeline, recorded to its own mono file; the two are linked
+// (fader and solo together) and spread hard left and right. Nothing shows a pair as one channel.
+TEST_CASE ("Stereo: a pair linked on the Inputs page is two channels, linked, and records both sides to their own files")
 {
-    // The bug, exactly: the Inputs page told the controller the pair was linked, and nobody
-    // told the timeline. REC then wrote a mono take of the left side.
     const auto folder = scratch ("stereo-link");
     MixController controller;
     DawEngine daw (controller);
@@ -108,43 +109,68 @@ TEST_CASE ("Stereo: a pair linked on the Inputs page records both of its channel
     daw.prepare (kSr, kBlock);
     auto project = daw.getProject();
     project.folder = folder;
-    project.tracks[0].armed = true;
     daw.setProject (project);
 
-    controller.setSession (stereoKeys());           // linked on the Inputs page; nothing else yet
-    REQUIRE (controller.getSession().inputs[0].isStereo());
+    // Linked on the Inputs page, before the graph is rebuilt: the console splits it ...
+    controller.setSession (stereoKeys());
+    const auto& inputs = controller.getSession().inputs;
+    REQUIRE (inputs.size() == 2);
+    CHECK (inputs[0].name == "Keys L");
+    CHECK (inputs[1].name == "Keys R");
+    CHECK (inputs[0].inputA == 10);
+    CHECK (inputs[1].inputA == 11);
+    CHECK (! inputs[0].isStereo());
+    CHECK (! inputs[1].isStereo());
+    CHECK (inputs[0].stereoSide == -1);
+    CHECK (inputs[1].stereoSide == 1);
+    CHECK (controller.getGraph().numStrips() == 2);
+    CHECK (controller.getStripLink (0) != 0);
+    CHECK (controller.getStripLink (0) == controller.getStripLink (1));
+    CHECK (controller.getKept().strips[0].pan == -1.0f);
+    CHECK (controller.getKept().strips[1].pan == 1.0f);
+
+    // ... and so does the timeline, whichever copy of the session it is handed.
+    daw.setSession (stereoKeys());
+    REQUIRE (daw.getProject().tracks.size() == 2);
+    daw.toggleArmed (0);                              // one press arms the pair
+    CHECK (daw.getProject().tracks[0].armed);
+    CHECK (daw.getProject().tracks[1].armed);
+
     REQUIRE (daw.startRecording().isEmpty());
     Desk desk;
     desk.run (daw, 60);
-    REQUIRE (daw.stopRecording() == 1);
-
+    REQUIRE (daw.stopRecording() == 2);
     const auto& after = daw.getProject();
-    REQUIRE (after.tracks.size() == 1);              // one stereo source, one track, one strip
-    REQUIRE (after.tracks[0].clips.size() == 1);
-    auto take = reader (after.fileFor (after.tracks[0].clips[0]));
-    REQUIRE (take != nullptr);
-    CHECK (take->numChannels == 2);                  // never summed, never one side
-    juce::AudioBuffer<float> audio (2, int (take->lengthInSamples));
-    take->read (&audio, 0, audio.getNumSamples(), 0, true, true);
-    CHECK_NEAR (audio.getSample (0, 1000), kLeft, 1.0e-4);    // L is input 11 (index 10)...
-    CHECK_NEAR (audio.getSample (1, 1000), kRight, 1.0e-4);   // ...and R is input 12, in that order
+    for (int side = 0; side < 2; ++side)
+    {
+        REQUIRE (after.tracks[size_t (side)].clips.size() == 1);
+        auto take = reader (after.fileFor (after.tracks[size_t (side)].clips[0]));
+        REQUIRE (take != nullptr);
+        CHECK (take->numChannels == 1);               // each side its own mono file
+        juce::AudioBuffer<float> audio (1, int (take->lengthInSamples));
+        take->read (&audio, 0, audio.getNumSamples(), 0, true, false);
+        CHECK_NEAR (audio.getSample (0, 1000), side == 0 ? kLeft : kRight, 1.0e-4);
+    }
+    CHECK (after.tracks[0].clips[0].file != after.tracks[1].clips[0].file);
     folder.deleteRecursively();
 }
 
-TEST_CASE ("Stereo: one strip hears both sides, and the take plays back and exports as the same two channels")
+TEST_CASE ("Stereo: each side has its own fader and meter, the faders move together, and the left stays left")
 {
-    const auto folder = scratch ("stereo-chain");
     MixController controller;
     DawEngine daw (controller);
     controller.setSession (stereoKeys());
-    daw.setSession (stereoKeys());
+    daw.setSession (controller.getSession());
     controller.prepare (kSr, kBlock);
     daw.prepare (kSr, kBlock);
-    CHECK (controller.getGraph().numStrips() == 1);  // one fader, one mute, one chain
+    REQUIRE (controller.getGraph().numStrips() == 2);
 
-    // Live: only the left channel carries signal, and the mix keeps it on the left. A tone, not
-    // DC (the chain's high-pass takes DC out), and above the low mids: the width stage's "mono
-    // below" leaves the low end shared between the sides on purpose (see the 2026-10-05 notes).
+    controller.setStripFader (0, -8.0f);
+    CHECK_NEAR (controller.getKept().strips[1].faderDb, -8.0f, 1.0e-3);   // linked
+    controller.setStripMute (1, true);
+    CHECK (! controller.getKept().strips[0].mute);                         // mute stays each side's own
+
+    controller.setStripMute (1, false);
     Desk desk;
     std::fill (desk.in[11].begin(), desk.in[11].end(), 0.0f);
     double el = 0.0, er = 0.0;
@@ -158,66 +184,68 @@ TEST_CASE ("Stereo: one strip hears both sides, and the take plays back and expo
         for (int i = 0; i < kBlock; ++i) { el += std::fabs (desk.l[size_t (i)]); er += std::fabs (desk.r[size_t (i)]); }
     }
     CHECK (el > 1.0e-3);
-    CHECK (el > er * 3.0);                            // a stereo strip, not a mono one panned centre
-
-    // Record both sides, then render the raw multitrack back off the timeline (ClipSource).
-    auto project = daw.getProject();
-    project.folder = folder;
-    project.tracks[0].armed = true;
-    daw.setProject (project);
-    Desk both;
-    REQUIRE (daw.startRecording().isEmpty());
-    both.run (daw, 60);
-    REQUIRE (daw.stopRecording() == 1);
-    const auto out = folder.getChildFile ("Export.wav");
-    MixBounce::Options o;
-    o.what = MixBounce::What::RawMultitrack;
-    REQUIRE (MixBounce::renderProject (daw.getSession(), controller.getKept(), daw.getProject(), out, MixBounce::Format::Wav, o).isEmpty());
-    auto keys = reader (folder.getChildFile ("Export multitrack").getChildFile ("01 Keys.wav"));
-    REQUIRE (keys != nullptr);
-    CHECK (keys->numChannels == 2);
-    juce::AudioBuffer<float> audio (2, int (keys->lengthInSamples));
-    keys->read (&audio, 0, audio.getNumSamples(), 0, true, true);
-    CHECK_NEAR (audio.getSample (0, 2000), kLeft, 1.0e-4);
-    CHECK_NEAR (audio.getSample (1, 2000), kRight, 1.0e-4);
-    folder.deleteRecursively();
+    CHECK (el > er * 3.0);                            // the left side is panned left, not centre
 }
 
-TEST_CASE ("Stereo: the pair survives a save and a reopen, and a saved input map, as the same two channels")
+TEST_CASE ("Stereo: a session saved with a stereo strip opens as the linked pair, its timeline and its mix split with it")
 {
-    MixController controller;
-    DawEngine daw (controller);
-    controller.setSession (stereoKeys());
-    daw.setSession (stereoKeys());
-    auto project = daw.getProject();
+    // What a version 10 file holds: one input on 10 and 11, one track with a two-channel take.
+    SessionState old;
+    old.session = stereoKeys();
+    old.project.syncTracks (old.session);
     AudioClip clip;
     clip.name = "Keys";
     clip.file = "Keys_001.wav";
     clip.length = 4800;
-    project.tracks[0].clips.push_back (clip);
-    daw.setProject (project);
+    old.project.tracks[0].clips.push_back (clip);
+    old.hasMix = true;
+    old.mix.numStrips = 1;
+    old.mix.strips[0].faderDb = -4.5f;
+    old.mix.strips[0].channel.compThresholdDb = -17.0f;
 
+    MixController controller;
+    DawEngine daw (controller);
+    applySession (old, controller, daw);
+    const auto& s = controller.getSession();
+    REQUIRE (s.inputs.size() == 2);
+    CHECK (s.inputs[0].stereoSide == -1);
+    CHECK (s.inputs[1].stereoSide == 1);
+    for (int side = 0; side < 2; ++side)
+    {
+        CHECK_NEAR (controller.getKept().strips[size_t (side)].faderDb, -4.5f, 1.0e-3);   // the pair's level...
+        CHECK_NEAR (controller.getKept().strips[size_t (side)].channel.compThresholdDb, -17.0f, 1.0e-3);   // ...and chain
+    }
+    CHECK (controller.getStripLink (0) != 0);
+    CHECK (controller.getStripLink (0) == controller.getStripLink (1));
+    const auto& tracks = daw.getProject().tracks;
+    REQUIRE (tracks.size() == 2);
+    REQUIRE (tracks[0].clips.size() == 1);
+    REQUIRE (tracks[1].clips.size() == 1);
+    CHECK (tracks[0].clips[0].file == "Keys_001.wav");
+    CHECK (tracks[0].clips[0].fileChannel == 0);      // the take's left channel ...
+    CHECK (tracks[1].clips[0].file == "Keys_001.wav");
+    CHECK (tracks[1].clips[0].fileChannel == 1);      // ... and its right
+
+    // Saved again and reopened, it is the same pair, link and all.
     const auto state = captureSession (controller, daw, DeviceChoice {}, 0);
     SessionState back;
     REQUIRE (SessionStore::fromVar (SessionStore::toVar (state), back));
-    REQUIRE (back.session.inputs.size() == 1);
-    CHECK (back.session.inputs[0].inputA == 10);
-    CHECK (back.session.inputs[0].inputB == 11);
-    REQUIRE (back.project.tracks.size() == 1);
-    REQUIRE (back.project.tracks[0].clips.size() == 1);
-    CHECK (back.project.tracks[0].clips[0].file == "Keys_001.wav");
+    REQUIRE (back.session.inputs.size() == 2);
+    CHECK (back.session.inputs[0].stereoSide == -1);
+    CHECK (back.session.inputs[1].stereoSide == 1);
+    CHECK (back.mix.strips[0].linkGroup != 0);
+    CHECK (back.mix.strips[0].linkGroup == back.mix.strips[1].linkGroup);
 
-    InputMap map = InputMapStore::fromSession (stereoKeys(), "Sunday", "Dante Virtual Soundcard", 64, false);
+    // A saved input map keeps the pair.
+    InputMap map = InputMapStore::fromSession (s, "Sunday", "Dante Virtual Soundcard", 64, false);
     InputMap read;
     REQUIRE (InputMapStore::fromVar (InputMapStore::toVar (map), read));
-    const auto applied = InputMapStore::apply (read, MixSession {}, 64, "Dante Virtual Soundcard", false);
-    REQUIRE (applied.session.inputs.size() == 1);
-    CHECK (applied.session.inputs[0].inputA == 10);
-    CHECK (applied.session.inputs[0].inputB == 11);
-    CHECK (applied.session.inputs[0].isStereo());
+    REQUIRE (read.inputs.size() == 2);
+    CHECK (read.inputs[0].stereoSide == -1);
+    CHECK (read.inputs[1].stereoSide == 1);
 }
 
-TEST_CASE ("Stereo: a take that was cut off by a crash goes back on the pair it recorded, wherever that pair is now")
+TEST_CASE ("Stereo: a two-channel take cut off by a crash goes back on the pair it became, wherever that pair is now")
 {
     const auto folder = scratch ("stereo-crash");
     const auto audio = folder.getChildFile ("Audio Files");
@@ -227,7 +255,6 @@ TEST_CASE ("Stereo: a take that was cut off by a crash goes back on the pair it 
     for (int b = 0; b < 200; ++b) recorder.write (desk.ip.data(), kChannels, kBlock);
     juce::Thread::sleep (300);
 
-    // What a crash leaves: the WAV as far as it got, and its sidecar. Copied before the clean stop.
     const auto crashed = scratch ("stereo-crash-copy");
     const auto crashedAudio = crashed.getChildFile ("Audio Files");
     crashedAudio.createDirectory();
@@ -235,13 +262,7 @@ TEST_CASE ("Stereo: a take that was cut off by a crash goes back on the pair it 
         f.copyFileTo (crashedAudio.getChildFile (f.getFileName()));
     recorder.stop();
 
-    const auto sidecars = crashedAudio.findChildFiles (juce::File::findFiles, false, "*.recording.json");
-    REQUIRE (sidecars.size() == 1);
-    const auto doc = juce::JSON::parse (sidecars[0].loadFileAsString());
-    CHECK (int (doc.getProperty ("inputA", -9)) == 10);
-    CHECK (int (doc.getProperty ("inputB", -9)) == 11);
-
-    // Reopened with the inputs rearranged: the keys are second now, not first.
+    // Reopened with the keys second, and split into their two sides.
     MixSession s;
     s.name = "Stereo";
     s.inputs = { { "Lead", ChannelRole::LeadVocal, 4, -1 }, { "Keys", ChannelRole::Piano, 10, 11 } };
@@ -252,11 +273,16 @@ TEST_CASE ("Stereo: a take that was cut off by a crash goes back on the pair it 
     auto project = daw.getProject();
     project.folder = crashed;
     daw.setProject (project);
+    REQUIRE (daw.getProject().tracks.size() == 3);
     const auto found = daw.recoverUnfinishedTakes();
     REQUIRE (found.size() == 1);
     CHECK (found[0].repaired);
-    CHECK (daw.getProject().tracks[0].clips.empty());        // not under the lead's name
-    CHECK (daw.getProject().tracks[1].clips.size() == 1);    // on the keys, where it belongs
+    const auto& tracks = daw.getProject().tracks;
+    CHECK (tracks[0].clips.empty());                          // not under the lead's name
+    REQUIRE (tracks[1].clips.size() == 1);
+    REQUIRE (tracks[2].clips.size() == 1);
+    CHECK (tracks[1].clips[0].fileChannel == 0);
+    CHECK (tracks[2].clips[0].fileChannel == 1);
     folder.deleteRecursively();
     crashed.deleteRecursively();
 }
@@ -321,8 +347,8 @@ TEST_CASE ("Undo: nothing a mix undo does reaches the inputs, the timeline, the 
     c.setBroadcastDim (true);
     c.setStripSolo (1, true);
     c.undoMix();
-    CHECK (c.getSession().inputs.size() == 2);
-    CHECK (c.getSession().inputs[1].inputB == 3);
+    CHECK (c.getSession().inputs.size() == 3);       // Kick, Keys L, Keys R
+    CHECK (c.getSession().inputs[2].inputA == 3);
     CHECK (daw.getProject().markers.size() == 1);
     CHECK (c.isBroadcastDimmed());                   // never kept, never undone
     c.setBroadcastDim (false);
@@ -339,8 +365,13 @@ TEST_CASE ("Undo: a timeline edit only comes back in the timeline it was made in
     const auto e0 = daw.getTimelineEpoch();
     daw.setSession (twoMonoKeys());                 // the same channels: not a new timeline
     CHECK (daw.getTimelineEpoch() == e0);
-    daw.setSession (stereoKeys());                  // re-laid out: it is
+    daw.setSession (MixSession {});                 // re-laid out: it is
     const auto e1 = daw.getTimelineEpoch();
+    {
+        MixSession one;
+        one.inputs = { { "Keys", ChannelRole::Piano, 10, -1 } };
+        daw.setSession (one);
+    }
     CHECK (e1 != e0);
     daw.setProject (daw.getProject());              // a session opened, new or imported
     CHECK (daw.getTimelineEpoch() != e1);

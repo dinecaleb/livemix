@@ -39,7 +39,11 @@ namespace SessionStore
     // Absent before it: an empty setlist, which is what those sessions had.
     // 10 added a cue's own mix (SAVE AS CUE) and its levels set by hand in dB. Absent before it:
     // a cue with neither, which is what those sessions had.
-    inline constexpr int kVersion = 10;
+    // 11 made a stereo source two linked mono channels (InputAssignment::stereoSide). An older
+    // file's stereo input (inputB) loads as it was saved and is split into its left and right
+    // when the session is applied (applySession / Project::splitStereo), the right side taking
+    // the pair's chain and fader, both linked and panned hard to their sides.
+    inline constexpr int kVersion = 11;
 
     // The old name for SessionState, kept because it reads well at the call sites that mean
     // "the thing on disk".

@@ -62,9 +62,15 @@ void applySession (const SessionState& s, MixController& controller, DawEngine& 
 
     // The assignments first, because everything below is indexed by them. setSession() calls
     // rebuild(), which builds the routing graph and the mix's baselines - no device needed.
-    controller.setSession (s.session);
-    daw.setSession (s.session);
-    daw.setProject (s.project);      // also sets LIVE SAFE's on/off, which lives on the project
+    // A session saved with a stereo input (one strip carrying both sides) opens as two linked
+    // mono channels, its timeline split with it. The mix below is carried from the session as
+    // saved, so the right side takes the pair's chain and fader (carryMix / pairStereoSides).
+    MixSession session = s.session;
+    Project project = s.project;
+    Project::splitStereo (session, project);
+    controller.setSession (session);
+    daw.setSession (session);
+    daw.setProject (project);        // also sets LIVE SAFE's on/off, which lives on the project
 
     // LIVE SAFE off while the document is being put back, and armed at the end. It bounds what
     // a person may move in the middle of a service - a fader step, how far a macro may lean -

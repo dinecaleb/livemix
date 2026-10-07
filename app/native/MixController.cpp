@@ -23,8 +23,12 @@ MixController::~MixController()
     capture.abort();
 }
 
-void MixController::setSession (const MixSession& s)
+void MixController::setSession (const MixSession& in)
 {
+    // A stereo source is two channels, linked, wherever it came from (Mix/MixSession.h).
+    MixSession s = in;
+    splitStereoInputs (s);
+
     // Flag broadcast-readiness mapping checks when the inputs themselves moved — not when
     // only the session name or purpose changed. History records are never touched.
     const bool mappingChanged = [&]
@@ -86,7 +90,14 @@ void MixController::rebuild()
     // and the solo mode back to factory. It used to, so changing the assignments quietly
     // undid whatever they had set up to hear with.
     const MonitorState listen = kept.monitor;
-    kept = had ? carryMix (kept, previous, baseline, session) : baseline;
+    if (had)
+        kept = carryMix (kept, previous, baseline, session);
+    else
+    {
+        // Nothing to carry, but a stereo pair is still linked and spread from the start.
+        kept = baseline;
+        pairStereoSides (kept, MixSession {}, std::vector<int> (session.inputs.size(), -1), session);
+    }
     kept.monitor = listen;
     kept.numStrips = std::min (kept.numStrips, graph.numStrips());
     if (had) stripHistory = carriedStripHistory (previous);

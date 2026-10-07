@@ -59,6 +59,9 @@ public:
 
     // The session decides which device channels a track owns; call after assignments change.
     void setSession (const MixSession& s);
+    // Arms or disarms a track, and the other side of its stereo pair with it: a linked pair
+    // records as a pair, each side to its own mono file. Call refresh() afterwards.
+    void toggleArmed (int track);
 
     // THE TIMELINE'S EPOCH (2026-10-05). Moves whenever the timeline is replaced or grows by
     // something that is not an edit: a session opened, new or imported (setProject), the

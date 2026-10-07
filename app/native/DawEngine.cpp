@@ -17,8 +17,11 @@ DawEngine::~DawEngine()
     release();
 }
 
-void DawEngine::setSession (const MixSession& s)
+void DawEngine::setSession (const MixSession& in)
 {
+    // The same two channels the console has (MixController::setSession splits the same way).
+    MixSession s = in;
+    splitStereoInputs (s);
     bool sameLayout = s.inputs.size() == session.inputs.size();
     for (size_t i = 0; sameLayout && i < s.inputs.size(); ++i)
         sameLayout = s.inputs[i].inputA == session.inputs[i].inputA && s.inputs[i].inputB == session.inputs[i].inputB;
@@ -26,6 +29,20 @@ void DawEngine::setSession (const MixSession& s)
     project.syncTracks (session, s);
     session = s;
     refresh();
+}
+
+void DawEngine::toggleArmed (int track)
+{
+    if (track < 0 || track >= int (project.tracks.size())) return;
+    const bool on = ! project.tracks[size_t (track)].armed;
+    project.tracks[size_t (track)].armed = on;
+    if (track >= int (session.inputs.size())) return;
+    const auto& in = session.inputs[size_t (track)];
+    if (in.stereoSide == 0) return;
+    const int partner = in.inputA - in.stereoSide;     // the left side is one channel below the right
+    for (size_t t = 0; t < session.inputs.size() && t < project.tracks.size(); ++t)
+        if (session.inputs[t].inputA == partner && session.inputs[t].stereoSide == -in.stereoSide)
+            project.tracks[t].armed = on;
 }
 
 bool DawEngine::restoreEdits (const std::vector<std::vector<AudioClip>>& clipsPerTrack, const std::vector<Marker>& markers)
@@ -366,19 +383,36 @@ std::vector<Recorder::Recovered> DawEngine::recoverUnfinishedTakes()
                 }
             if (track < 0 && session.inputs.empty()) track = take.trackIndex;   // a bare timeline
         }
-        if (track < 0 || track >= int (project.tracks.size())) continue;
 
-        AudioClip clip;
-        clip.name = take.name;
-        clip.file = take.fileName;
-        clip.start = take.timelineStart;
-        clip.offset = 0;
-        clip.length = take.length;
-        clip.fileSampleRate = take.sampleRate > 0.0 ? take.sampleRate : sampleRate;
-        auto& clips = project.tracks[size_t (track)].clips;
-        clips.push_back (clip);
-        std::sort (clips.begin(), clips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.start < b.start; });
-        changed = true;
+        // Where it goes, and which channel of the file each place reads. A two-channel take
+        // from before a stereo source was two channels (one strip on both) goes onto the pair
+        // it became: the left channel on the left side, the right on the right.
+        std::vector<std::pair<int, int>> places;              // { track, channel of the file }
+        if (track >= 0 && track < int (project.tracks.size())) places.push_back ({ track, 0 });
+        else if (take.inputB >= 0)
+            for (int t = 0; t < int (session.inputs.size()) && t < int (project.tracks.size()); ++t)
+            {
+                const auto& in = session.inputs[size_t (t)];
+                if (in.isStereo()) continue;
+                if (in.inputA == take.inputA) places.push_back ({ t, 0 });
+                if (in.inputA == take.inputB) places.push_back ({ t, 1 });
+            }
+
+        for (const auto& [where, channel] : places)
+        {
+            AudioClip clip;
+            clip.name = take.name;
+            clip.file = take.fileName;
+            clip.fileChannel = channel;
+            clip.start = take.timelineStart;
+            clip.offset = 0;
+            clip.length = take.length;
+            clip.fileSampleRate = take.sampleRate > 0.0 ? take.sampleRate : sampleRate;
+            auto& clips = project.tracks[size_t (where)].clips;
+            clips.push_back (clip);
+            std::sort (clips.begin(), clips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.start < b.start; });
+            changed = true;
+        }
     }
     if (changed) { ++timelineEpoch; clipsDirty = true; refresh(); }
     return takes;

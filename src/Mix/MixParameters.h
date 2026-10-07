@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include "MixSession.h"
 #include "MonitorBus.h"
@@ -142,6 +143,54 @@ struct MixParameters
     const BusParameters& master() const noexcept { return buses[size_t (MixBus::Master)]; }
 };
 
+// A STEREO PAIR IS TWO CHANNELS, LINKED. Each pair in `next` that was not already this pair in
+// `previous` (a new one, or one split out of an old stereo strip) is linked and spread: both
+// sides take one fresh link group and go hard left and hard right, and a side with nothing
+// carried onto it takes its partner's chain, gain, fader and sends - the right half of a split
+// stereo keyboard is the same keyboard. A pair that was already a pair is left as the engineer
+// has it (unlinked, panned in, whatever). A pair taken apart (both sides now say 0) loses its
+// link and goes back to the middle. `match` is matchInputs (previous, next).
+inline void pairStereoSides (MixParameters& out, const MixSession& previous, const std::vector<int>& match,
+                             const MixSession& next)
+{
+    const auto stripNow = stripsOfInputs (next);
+    int fresh = 0;
+    for (int i = 0; i < out.numStrips; ++i) fresh = std::max (fresh, out.strips[size_t (i)].linkGroup);
+    auto validStrip = [&] (int s) { return s >= 0 && s < out.numStrips; };
+    auto was = [&] (size_t n) -> const InputAssignment*
+    {
+        return n < match.size() && match[n] >= 0 ? &previous.inputs[size_t (match[n])] : nullptr;
+    };
+
+    for (size_t n = 0; n + 1 < next.inputs.size(); ++n)
+    {
+        if (next.inputs[n].stereoSide != -1 || next.inputs[n + 1].stereoSide != 1) continue;
+        const int l = stripNow[n], r = stripNow[n + 1];
+        if (! validStrip (l) || ! validStrip (r)) continue;
+        const auto* wasL = was (n);
+        const auto* wasR = was (n + 1);
+        if (wasL != nullptr && wasR != nullptr && wasL->stereoSide == -1 && wasR->stereoSide == 1) continue;
+
+        if (wasR == nullptr && wasL != nullptr) out.strips[size_t (r)] = out.strips[size_t (l)];
+        else if (wasL == nullptr && wasR != nullptr) out.strips[size_t (l)] = out.strips[size_t (r)];
+        ++fresh;
+        out.strips[size_t (l)].linkGroup = out.strips[size_t (r)].linkGroup = fresh;
+        out.strips[size_t (l)].pan = -1.0f;
+        out.strips[size_t (r)].pan = 1.0f;
+    }
+
+    // Taken apart on INPUTS: each side is its own channel again.
+    for (size_t n = 0; n < next.inputs.size(); ++n)
+    {
+        const auto* w = was (n);
+        if (w == nullptr || w->stereoSide == 0 || next.inputs[n].stereoSide != 0) continue;
+        const int s = stripNow[n];
+        if (! validStrip (s)) continue;
+        out.strips[size_t (s)].linkGroup = 0;
+        out.strips[size_t (s)].pan = 0.0f;
+    }
+}
+
 // The kept mix, carried across a change to the assignments - an input reordered, dropped,
 // added or re-linked. Every strip that survived keeps its chain, its input gain, its fader,
 // its pan, its keys and its sends, found by the same identity the timeline uses to keep its
@@ -177,6 +226,8 @@ inline MixParameters carryMix (const MixParameters& from, const MixSession& prev
         if (previous.inputs[size_t (was)].role != next.inputs[n].role) continue;
         out.strips[size_t (toStrip)] = from.strips[size_t (fromStrip)];
     }
+
+    pairStereoSides (out, previous, match, next);
 
     out.buses = from.buses;
     out.fx = from.fx;

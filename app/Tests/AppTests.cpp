@@ -30,7 +30,7 @@ namespace
     {
         MixSession s;
         s.name = "Test Sunday";
-        s.inputs = { { "Kick", ChannelRole::KickIn, 0, -1 }, { "Bass", ChannelRole::BassDI, 1, -1 }, { "Keys", ChannelRole::Piano, 2, 3 },
+        s.inputs = { { "Kick", ChannelRole::KickIn, 0, -1 }, { "Bass", ChannelRole::BassDI, 1, -1 }, { "Keys", ChannelRole::Piano, 2, -1 },
                      { "Lead", ChannelRole::LeadVocal, 4, -1 }, { "Vox", ChannelRole::BackingVocal, 5, -1 } };
         return s;
     }
@@ -972,7 +972,7 @@ TEST_CASE ("SessionStore: a session document survives the JSON round trip")
     CHECK (back.session.inputs[2].name == "Keys");
     CHECK (back.session.inputs[2].role == ChannelRole::Piano);
     CHECK (back.session.inputs[2].inputA == 2);
-    CHECK (back.session.inputs[2].inputB == 3);
+    CHECK (back.session.inputs[2].inputB == -1);
     CHECK (back.devices.consoleInput == "Dante Virtual Soundcard");
     CHECK (back.macros.get (MixMacro::Space) == 70.0f);
     CHECK (back.macros.get (MixMacro::Drums) == 35.0f);
@@ -2334,18 +2334,24 @@ TEST_CASE ("MixController: Autopilot, closed loop through the engine - it conver
     // The pure decision is tested in tests/Mix/AutopilotTests.cpp. This is the loop: what it
     // measures has to move when it moves a fader, or it walks every group to the end of its
     // travel - which is what it did while it measured each group before its own fader.
+    // The keys as the stereo pair they are on 2 and 3 - two linked channels - so the band is
+    // the one the loop's tolerances were measured on, and the lead is the fifth strip.
+    MixSession s = band();
+    s.inputs[2].inputB = 3;
     MixController c;
-    c.setSession (band());
+    c.setSession (s);
+    REQUIRE (c.getGraph().numStrips() == 6);
+    const int leadStrip = 4;
     c.prepare (kSr, kBlock);
     c.setAutopilotIntervalMs (0);
     // The lead with nothing holding its level, so a step back at the microphone is a step back
     // in the mix and the loop has something to close.
     {
-        auto lead = c.getKept().strips[3].channel;
+        auto lead = c.getKept().strips[leadStrip].channel;
         lead.compEnabled = false;
         lead.gateEnabled = false;
         lead.deEssEnabled = false;
-        c.setStripChannel (3, lead);
+        c.setStripChannel (leadStrip, lead);
         auto group = c.getKept().buses[size_t (MixBus::Lead)].channel;     // ... and the group's own compressor
         group.compEnabled = false;
         c.setBusChannel (MixBus::Lead, group);

@@ -537,8 +537,12 @@ MultitrackImport::Applied MultitrackImport::apply (const Plan& plan, MixSession&
             for (size_t j = 0; j < plan.tracks.size(); ++j)
                 if (target[j] < 0 && plan.tracks[j].recognised && plan.tracks[j].role == p.role) ++files;
             for (int t = 0; t < existing; ++t)
-                if (open (t) && session.inputs[size_t (t)].enabled && session.inputs[size_t (t)].role == p.role
-                    && session.inputs[size_t (t)].isStereo() == p.stereo) { ++tracks; which = t; }
+            {
+                // A pair is found by its left side; its right side is filled with it.
+                const auto& in = session.inputs[size_t (t)];
+                if (open (t) && in.enabled && in.role == p.role && in.stereoSide != 1
+                    && (in.isStereo() || in.stereoSide == -1) == p.stereo) { ++tracks; which = t; }
+            }
             if (files == 1 && tracks == 1) { target[k] = which; taken[size_t (which)] = true; }
         }
     }
@@ -556,9 +560,24 @@ MultitrackImport::Applied MultitrackImport::apply (const Plan& plan, MixSession&
         {
             auto& clips = project.tracks[size_t (t)].clips;
             const auto& in = session.inputs[size_t (t)];
+            // The left side of a linked pair: a stereo file's right side goes onto the right one.
+            const bool ontoPair = p.stereo && in.stereoSide == -1 && t + 1 < existing
+                                  && session.inputs[size_t (t + 1)].stereoSide == 1;
             for (const auto& pc : p.clips)
             {
                 auto c = toClip (pc);
+                if (ontoPair)
+                {
+                    AudioClip right = c;
+                    if (c.fileRight.isNotEmpty()) { right.file = c.fileRight; right.fileChannel = c.fileRightChannel; }
+                    else ++right.fileChannel;
+                    right.fileRight = {};
+                    right.fileRightChannel = 0;
+                    c.fileRight = {};
+                    c.fileRightChannel = 0;
+                    project.tracks[size_t (t + 1)].clips.push_back (right);
+                    touched[size_t (t + 1)] = true;
+                }
                 // A stereo console input fed from a card: its right side is the card's next channel.
                 if (in.isStereo() && p.deviceChannel >= 0 && c.fileRight.isEmpty())
                 {
@@ -609,6 +628,9 @@ MultitrackImport::Applied MultitrackImport::apply (const Plan& plan, MixSession&
     for (size_t k = 0; k < plan.tracks.size(); ++k)
         if (target[k] >= 0 && plan.tracks[k].joinedPair) ++out.pairs;
 
+    // A stereo source is two channels on the console and two tracks here, linked (MixSession.h).
+    Project::splitStereo (session, project);
+
     // ------------------------------------------------ what to say
     juce::String said;
     const int placed = out.added + out.onExisting;
@@ -624,7 +646,7 @@ MultitrackImport::Applied MultitrackImport::apply (const Plan& plan, MixSession&
             said += ", " + juce::String (out.onExisting) + " of them onto tracks that were already set up";
     }
     said += ".";
-    if (out.pairs > 0) said += " " + count (out.pairs, "left/right pair was", "left/right pairs were") + " joined into stereo.";
+    if (out.pairs > 0) said += " " + count (out.pairs, "left/right pair is", "left/right pairs are") + " linked: two tracks whose faders move together.";
     if (plan.passes > 1) said += " The " + juce::String (plan.passes) + " recording passes follow one another on the timeline.";
     if (! out.unrecognised.isEmpty())
         // Worded without "could not": the toast reads that as a refusal, and this is a success.

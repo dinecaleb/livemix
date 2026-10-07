@@ -2068,14 +2068,13 @@ void TracksPage::mouseDown (const juce::MouseEvent& e)
 
         // R / A / M / S
         {
-            auto& project = services.daw().getProject();
             for (int k = 0; k < 4; ++k)
             {
                 if (! keyCell (track, k).contains (p)) continue;
                 if (k == 0)
                 {
                     if (locked()) return;
-                    project.tracks[size_t (track)].armed = ! project.tracks[size_t (track)].armed;
+                    services.daw().toggleArmed (track);
                     services.daw().refresh();
                     services.touchSession();
                 }
@@ -2596,7 +2595,7 @@ bool TracksPage::addTrack (ChannelRole role)
     if (locked()) return false;
     if (services.daw().isRecording()) { if (onToast) onToast ("Stop recording before adding a track."); return false; }
     auto session = controller.getSession();
-    if (int (session.inputs.size()) >= kMaxStrips)
+    if (int (session.inputs.size()) + (defaultsToStereo (role) ? 2 : 1) > kMaxStrips)
     {
         if (onToast) onToast ("The session is full: it takes " + juce::String (kMaxStrips) + " tracks.");
         return false;
@@ -2627,16 +2626,18 @@ bool TracksPage::addTrack (ChannelRole role)
     in.inputB = stereo ? nextChannel + 1 : -1;
     in.enabled = true;
     session.inputs.push_back (in);
+    // A stereo source arrives as a linked pair of mono tracks, "Keys L" and "Keys R": setSession splits it.
     controller.setSession (session);
-    services.daw().setSession (session);          // syncTracks: every existing track keeps its clips
+    services.daw().setSession (controller.getSession());   // syncTracks: every existing track keeps its clips
     services.reconfigure();
     services.touchSession();
 
-    selection = { numTracks() - 1, -1 };
+    selection = { numTracks() - (stereo ? 2 : 1), -1 };
     rebuild();
     updateChainStrip();
     if (onSessionChanged) onSessionChanged();
-    if (onToast) onToast ("New track: " + name + (stereo ? " (stereo)." : ".") + " Drop audio on it, or press its R to record onto it.");
+    if (onToast) onToast (stereo ? "New tracks: " + name + " L and " + name + " R, linked. Drop audio on them, or press R to record onto them."
+                                 : "New track: " + name + ". Drop audio on it, or press its R to record onto it.");
     return true;
 }
 
@@ -2664,7 +2665,7 @@ void TracksPage::fillNewTrackMenu (juce::PopupMenu& menu, int firstId, std::vect
         juce::PopupMenu sub;
         for (auto r : group.roles)
         {
-            sub.addItem (id++, Dine::friendlyRoleName (r) + (defaultsToStereo (r) ? "  (stereo)" : ""));
+            sub.addItem (id++, Dine::friendlyRoleName (r) + (defaultsToStereo (r) ? "  (L and R)" : ""));
             roles.push_back (r);
         }
         menu.addSubMenu (group.name, sub);

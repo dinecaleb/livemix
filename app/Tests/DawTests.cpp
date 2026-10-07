@@ -41,7 +41,7 @@ namespace
         s.name = "Daw Test";
         s.inputs = { { "Kick", ChannelRole::KickIn, 0, -1 },
                      { "Bass", ChannelRole::BassDI, 1, -1 },
-                     { "Keys", ChannelRole::Piano, 2, 3 },
+                     { "Keys", ChannelRole::Piano, 2, -1 },
                      { "Lead", ChannelRole::LeadVocal, 4, -1 } };
         return s;
     }
@@ -1030,16 +1030,27 @@ TEST_CASE ("MultitrackImport: a folder of stems becomes tracks, clips and guesse
     // No loop is marked: one over the whole folder filled the loop strip and could only be
     // changed from its two far corners.
     CHECK (result.project.loopEnd <= result.project.loopStart);
-    REQUIRE (result.session.inputs.size() == 3);
-    // Files are taken in name order: Keys (stereo), Kick, Lead Vox.
-    CHECK (result.session.inputs[0].isStereo());       // the stereo file takes a pair of inputs
-    CHECK (result.session.inputs[0].inputA == 0);
-    CHECK (result.session.inputs[1].role == ChannelRole::KickIn);
-    CHECK (result.session.inputs[1].inputA == 2);      // ...so the next one starts past that pair
-    CHECK (result.session.inputs[2].role == ChannelRole::LeadVocal);
-    CHECK (result.session.inputs[2].inputA == 3);
-    REQUIRE (result.project.tracks.size() == 3);
-    CHECK (result.project.tracks[0].clips.size() == 1);
+    REQUIRE (result.session.inputs.size() == 4);
+    // Files are taken in name order: Keys (stereo), Kick, Lead Vox. The stereo file is two
+    // tracks, linked - its left and right channels - never one.
+    const auto& in = result.session.inputs;
+    CHECK (in[0].name == "Keys L");
+    CHECK (in[1].name == "Keys R");
+    CHECK (in[0].stereoSide == -1);
+    CHECK (in[1].stereoSide == 1);
+    CHECK (! in[0].isStereo());
+    CHECK (in[0].inputA == 0);
+    CHECK (in[1].inputA == 1);
+    REQUIRE (result.project.tracks.size() == 4);
+    REQUIRE (result.project.tracks[0].clips.size() == 1);
+    REQUIRE (result.project.tracks[1].clips.size() == 1);
+    CHECK (result.project.tracks[0].clips[0].file == result.project.tracks[1].clips[0].file);
+    CHECK (result.project.tracks[0].clips[0].fileChannel == 0);
+    CHECK (result.project.tracks[1].clips[0].fileChannel == 1);
+    CHECK (in[2].role == ChannelRole::KickIn);
+    CHECK (in[2].inputA == 2);                         // ...so the next one starts past that pair
+    CHECK (in[3].role == ChannelRole::LeadVocal);
+    CHECK (in[3].inputA == 3);
     CHECK (result.project.hasAudio());
     CHECK (result.project.folder == juce::File());     // imported audio stays where it is
     folder.deleteRecursively();
@@ -1120,7 +1131,7 @@ TEST_CASE ("MultitrackImport: every file is heard, in counted order, and split s
     const auto result = MultitrackImport::fromFolder (folder, MixSession {});
     REQUIRE (result.error.isEmpty());
     const auto& inputs = result.session.inputs;
-    REQUIRE (inputs.size() == 7);
+    REQUIRE (inputs.size() == 8);
     // Numbered files by their number: 2 before 10.
     CHECK (inputs[0].name == "Snare");
     CHECK (inputs[1].name == "Keys");
@@ -1134,20 +1145,22 @@ TEST_CASE ("MultitrackImport: every file is heard, in counted order, and split s
     REQUIRE (find ("angelica") != nullptr);
     CHECK (roleFamily (find ("angelica")->role) == RoleFamily::Synth);
     CHECK (result.summary.contains ("angelica"));
-    // ohL + ohR: one stereo overhead, both files on its clip.
-    REQUIRE (find ("oh") != nullptr);
-    CHECK (find ("oh")->isStereo());
-    CHECK (find ("oh")->role == ChannelRole::Overhead);
+    // ohL + ohR: one stereo overhead - two tracks, linked, each with its own file.
+    REQUIRE (find ("oh L") != nullptr);
+    REQUIRE (find ("oh R") != nullptr);
+    CHECK (find ("oh L")->stereoSide == -1);
+    CHECK (find ("oh R")->stereoSide == 1);
+    CHECK (find ("oh L")->role == ChannelRole::Overhead);
     CHECK (find ("Tom L") != nullptr);
     CHECK (find ("Tom R") != nullptr);
     CHECK (find ("Bass") != nullptr);
     CHECK (result.project.tracks.size() == inputs.size());
     for (size_t i = 0; i < inputs.size(); ++i)
-        if (inputs[i].name == "oh")
+        if (inputs[i].name == "oh L" || inputs[i].name == "oh R")
         {
             REQUIRE (result.project.tracks[i].clips.size() == 1);
-            CHECK (result.project.tracks[i].clips[0].file.endsWith ("ohL.wav"));
-            CHECK (result.project.tracks[i].clips[0].fileRight.endsWith ("ohR.wav"));
+            CHECK (result.project.tracks[i].clips[0].file.endsWith (inputs[i].name == "oh L" ? "ohL.wav" : "ohR.wav"));
+            CHECK (result.project.tracks[i].clips[0].fileRight.isEmpty());
         }
     folder.deleteRecursively();
 }
@@ -2311,7 +2324,7 @@ TEST_CASE ("SessionStore: the delivery loudness, the monitor and the AMBIENCE bu
 {
     SessionStore::Document d;
     d.session = band();
-    d.session.inputs.push_back ({ "Crowd", ChannelRole::CrowdMic, 8, 9 });
+    d.session.inputs.push_back ({ "Crowd", ChannelRole::CrowdMic, 8, -1 });
     d.session.delivery = DeliveryLoudness::StreamingLoud;
     d.project.syncTracks (d.session);
     d.hasMix = true;
@@ -3195,7 +3208,7 @@ TEST_CASE ("MixController: a cue switches who is on, deterministically, and the 
     MixController c;
     MixSession session;
     session.inputs = { { "Kick", ChannelRole::KickIn, 0, -1 }, { "Bass", ChannelRole::BassDI, 1, -1 },
-                       { "Keys", ChannelRole::Piano, 2, 3 }, { "Lead", ChannelRole::LeadVocal, 4, -1 },
+                       { "Keys", ChannelRole::Piano, 2, -1 }, { "Lead", ChannelRole::LeadVocal, 4, -1 },
                        { "Pastor", ChannelRole::Speech, 5, -1 }, { "Announcer", ChannelRole::SpeechHandheld, 6, -1 } };
     c.setSession (session);
     std::vector<std::string> said;
@@ -4851,7 +4864,7 @@ TEST_CASE ("Rearranging tracks: every strip keeps its own mix when an input has 
     before.name = "Rearrange";
     before.inputs = { { "Click", ChannelRole::KickIn, 0, -1, false },
                       { "Kick", ChannelRole::KickIn, 1, -1 },
-                      { "Keys", ChannelRole::Piano, 2, 3 },
+                      { "Keys", ChannelRole::Piano, 2, -1 },
                       { "Lead", ChannelRole::LeadVocal, 4, -1 } };
     MixController controller;
     controller.setSession (before);
