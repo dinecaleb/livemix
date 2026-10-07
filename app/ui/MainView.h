@@ -399,7 +399,6 @@ private:
     float sidebarReveal = 1.0f, revealFrom = 1.0f;
     double revealStartMs = 0.0;
     std::unique_ptr<juce::VBlankAttachment> sidebarClock;
-    bool sidebarAutoHidden = false;
     // UI preferences (C3): what this Mac's layout was, read at start and written when it changes.
     juce::NamedValueSet uiState() const;
     void applyUiPrefs();

@@ -71,6 +71,7 @@ private:
     std::array<std::unique_ptr<GroupTile>, size_t (MixBus::Master) + 1 + size_t (FxSlot::Count)> tiles;
     // ONE PER INPUT, for All and Alerts: a strip each, in a row that scrolls sideways.
     std::vector<std::unique_ptr<GroupTile>> inputTiles;
+    std::unique_ptr<GroupTile> masterTile;   // the master's fader, at the end of the row in every view
     juce::Viewport scroller;
     juce::Component scrollHolder;
     void rebuildInputTiles();

@@ -17,6 +17,7 @@ namespace
     // Behind the FX strip, one strip per effect return: the row opens out to them (Each effect)
     // and closes again (Back to groups). Never on the row with the groups, so nothing narrows.
     constexpr int kAllTiles = kTiles + int (FxSlot::Count);
+    constexpr int kMasterTile = 999;   // the master's own strip, at the end of every view's row
 
     // The frame's measures (`06b - Live - decluttered`, 161:18761).
     constexpr int kPadX = 24, kPadTop = 20, kPadBottom = 24, kGap = 16;
@@ -85,22 +86,28 @@ public:
         fader.setDoubleClickReturnValue (true, 0.0);
         fader.getProperties().set ("dineFader", true);
         fader.getProperties().set ("dineFaderCap", 40);     // the design's 26 x 40 cap
-        fader.setTooltip (isInput() ? "This input's fader. Double-click for 0.0 dB."
+        fader.setTooltip (isMaster() ? "The master: what the room and the stream hear. Under LIVE SAFE it moves in small steps. Double-click for 0.0 dB."
+                          : isInput() ? "This input's fader. Double-click for 0.0 dB."
                           : isFx() ? "Level for every effect return together. Double-click for 0.0 dB, which is what TUNE MIX set."
                           : isReturn() ? "This effect's own level, on top of what TUNE MIX set for it. Double-click for 0.0 dB."
                                        : "Level for the whole group. Double-click for 0.0 dB.");
         fader.onValueChange = [this]
         {
             if (updating) return;
-            if (isInput())       controller.setStripFader (group, float (fader.getValue()));
+            if (isMaster())      controller.setBusFader (MixBus::Master, float (fader.getValue()));
+            else if (isInput())  controller.setStripFader (group, float (fader.getValue()));
             else if (isFx())     controller.setFxReturn (float (fader.getValue()));
             else if (isReturn()) controller.setFxSlotReturn (slot(), float (fader.getValue()));
             else                 controller.setBusFader (bus(), float (fader.getValue()));
             repaint();
         };
 
-        addAndMakeVisible (mute);
-        addAndMakeVisible (solo);
+        // The master is a fader and a meter: like the console's master strip it has no M or S -
+        // the emergency keys are DIM and MUTE along the top, on every workspace.
+        addChildComponent (mute);
+        addChildComponent (solo);
+        mute.setVisible (! isMaster());
+        solo.setVisible (! isMaster());
         mute.setTooltip (isInput() ? "Mute: this input is not heard"
                          : isFx() ? "Mute the effects: the reverbs and delays leave the mix, the sources stay."
                          : isReturn() ? "Mute this effect. The others stay as they are."
@@ -278,21 +285,23 @@ public:
 private:
     static constexpr int kInsetX = 8;
     bool isInput() const noexcept { return inputStrip; }
+    bool isMaster() const noexcept { return ! inputStrip && group == kMasterTile; }
     bool isFx() const noexcept { return ! inputStrip && group == kFxTile; }
-    bool isReturn() const noexcept { return ! inputStrip && group >= kTiles; }
+    bool isReturn() const noexcept { return ! inputStrip && group >= kTiles && group < kAllTiles; }
     FxSlot slot() const noexcept { return FxSlot (group - kTiles); }
     // A strip's position is the console's order, not the enum's: LEAD sits with the voices.
-    MixBus bus() const noexcept { return mixBusInDisplayOrder (group); }
+    MixBus bus() const noexcept { return isMaster() ? MixBus::Master : mixBusInDisplayOrder (group); }
     juce::Colour tint() const
     {
         if (isInput())
             return group < controller.getGraph().numStrips() ? Dine::busTint (controller.getGraph().strips[size_t (group)].bus) : Dine::ink4;
-        return isFx() ? Dine::busAmbience : isReturn() ? Dine::keyFx : Dine::busTint (bus());
+        return isMaster() ? Dine::ink2 : isFx() ? Dine::busAmbience : isReturn() ? Dine::keyFx : Dine::busTint (bus());
     }
     juce::String name() const
     {
         if (isInput())
             return group < controller.getGraph().numStrips() ? juce::String (controller.getGraph().strips[size_t (group)].name) : juce::String();
+        if (isMaster()) return "Master";
         if (isFx()) return "FX returns";
         if (isReturn()) return slot() == FxSlot::BgvHall ? juce::String ("BGV Hall") : juce::String (fxSlotName (slot()));
         const juce::String raw (mixBusName (bus()));
@@ -502,6 +511,8 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         addChildComponent (*tiles[size_t (i)]);
     }
     tiles[size_t (kFxTile)]->onOpen = [this] { showEffects (true); };
+    masterTile = std::make_unique<GroupTile> (controller, kMasterTile);
+    addChildComponent (*masterTile);
 
     // ---- what the strips show: This cue / Groups / All / Alerts, with their counts
     const char* viewNames[4] = { "This cue", "Groups", "All", "Alerts" };
@@ -685,6 +696,7 @@ void LivePage::rebuild()
     rebuildInputTiles();
     for (auto& t : tiles) if (t != nullptr) t->refresh();
     for (auto& t : inputTiles) t->refresh();
+    if (masterTile != nullptr) masterTile->refresh();
     refreshMonitor();
     resized();
     repaint();
@@ -792,6 +804,7 @@ void LivePage::refresh()
     rebuildInputTiles();
     for (auto& t : tiles) if (t != nullptr && t->isVisible()) t->refresh();
     for (auto& t : inputTiles) if (t->isVisible()) t->refresh();
+    if (masterTile != nullptr && masterTile->isVisible()) masterTile->refresh();
     updateDiskNote();
 
     auto& daw = services.daw();
@@ -1364,11 +1377,32 @@ void LivePage::resized()
         l.strips = r;
         l.empty = {};
 
+        // THE MASTER, at the right end of the row in every view: what everybody hears, one
+        // reach away from the groups that feed it. A group strip's width, so it reads as one.
+        {
+            const int gap = 8;
+            const int groupW = (l.strips.getWidth() - gap * kTiles) / (kTiles + 1);
+            const int masterW = juce::jlimit (84, 140, groupW);
+            const bool shown = controller.isPrepared() && controller.getEngine().isBusUsed (MixBus::Master)
+                            && l.strips.getWidth() >= masterW * 2 + gap;
+            masterTile->setVisible (shown);
+            if (shown)
+            {
+                masterTile->setBounds (l.strips.removeFromRight (masterW));
+                l.strips.removeFromRight (gap);
+            }
+        }
+
         shownTiles = tilesFor (view);
         for (auto& t : tiles) t->setVisible (false);
         for (auto& t : inputTiles) t->setVisible (false);
         const int gap = 8;
-        if (view == View::ThisCue || view == View::Groups)
+        // Groups share the width while a strip stays readable; on a window too narrow for that
+        // they keep a strip's width and the row scrolls, the way All does.
+        constexpr int kInputW = 84;
+        const bool fixedRow = (view == View::ThisCue || view == View::Groups)
+                           && (l.strips.getWidth() - gap * (kTiles - 1)) / kTiles >= kInputW;
+        if (fixedRow)
         {
             scroller.setVisible (false);
             // A group's own width whatever the view, so a strip is the same size in each.
@@ -1387,7 +1421,6 @@ void LivePage::resized()
         {
             // One strip per input (and each effect, on All), the width a v4 strip is, in a row
             // that scrolls sideways when there are more than fit.
-            constexpr int kInputW = 84;
             scroller.setVisible (! shownTiles.empty());
             scroller.setBounds (l.strips);
             const int h = l.strips.getHeight() - (int (shownTiles.size()) * (kInputW + gap) > l.strips.getWidth() ? 12 : 0);
@@ -1406,7 +1439,7 @@ void LivePage::resized()
         // A group tile lives on the page unless All has borrowed it for the scroller.
         for (int t = 0; t < kAllTiles; ++t)
         {
-            const bool inScroller = view == View::All && std::find (shownTiles.begin(), shownTiles.end(), t) != shownTiles.end();
+            const bool inScroller = ! fixedRow && std::find (shownTiles.begin(), shownTiles.end(), t) != shownTiles.end();
             auto* parent = inScroller ? (juce::Component*) &scrollHolder : (juce::Component*) this;
             if (tiles[size_t (t)]->getParentComponent() != parent) parent->addChildComponent (*tiles[size_t (t)]);
         }

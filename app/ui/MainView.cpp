@@ -1762,10 +1762,9 @@ void MainView::showPage (Page p)
     }
 
     if (p == Page::Live && page != Page::Live) trackEvent ("live_view_opened", { { "audio_running", services.isAudioRunning() } });
-    // LIVE wants the width (v4): going there folds the sidebar away, and leaving brings it back
-    // only if that is what folded it - a sidebar somebody hid stays hidden.
-    if (p == Page::Live && page != Page::Live && sidebarShown) { setSidebarShown (false, true); sidebarAutoHidden = true; }
-    else if (p != Page::Live && page == Page::Live && sidebarAutoHidden) { sidebarAutoHidden = false; setSidebarShown (true, true); }
+    // The sidebar stays where the engineer put it on every workspace, LIVE included (the
+    // owner's call, 2026-10-07): a menu that folds itself away when one of its own items is
+    // pressed is a menu that moved under the pointer.
     page = p;
     sessionsPage->setVisible (p == Page::Sessions);
     favouritesPage->setVisible (p == Page::Favourites);
@@ -2115,7 +2114,6 @@ void MainView::showTutorial()
 // ---------------------------------------------------------------- the panels
 void MainView::setSidebarShown (bool shown, bool automatic)
 {
-    if (! automatic) sidebarAutoHidden = false;
     if (shown == sidebarShown) return;
     sidebarShown = shown;
     sidebarButton->setOn (shown);
@@ -2124,7 +2122,7 @@ void MainView::setSidebarShown (bool shown, bool automatic)
     // Mail's slide, on the display's clock: only in the real window (the application says
     // whether the Mac asks for less motion; the snapshot tool and the tests never animate),
     // and instant when Reduce Motion is on.
-    const bool animate = prefersReducedMotion && ! prefersReducedMotion() && isShowing();
+    const bool animate = (Dine::motionAllowed() || (prefersReducedMotion && ! prefersReducedMotion())) && isShowing();
     if (! animate)
     {
         sidebarClock.reset();
@@ -2141,31 +2139,11 @@ void MainView::setSidebarShown (bool shown, bool automatic)
         sidebarClock = std::make_unique<juce::VBlankAttachment> (this, [this] { stepSidebar(); });
 }
 
-namespace
-{
-    // cubic-bezier(0.32, 0.72, 0, 1), the curve the mockup's sidebar moves on: x(u) solved for
-    // the time by Newton's method, then y(u). Six steps are more than enough at 60 frames.
-    float sidebarEase (float t)
-    {
-        constexpr float x1 = 0.32f, y1 = 0.72f, x2 = 0.0f, y2 = 1.0f;
-        const auto bez = [] (float u, float a, float b) { const float v = 1.0f - u; return 3.0f * v * v * u * a + 3.0f * v * u * u * b + u * u * u; };
-        const auto dBez = [] (float u, float a, float b) { const float v = 1.0f - u; return 3.0f * v * v * a + 6.0f * v * u * (b - a) + 3.0f * u * u * (1.0f - b); };
-        float u = t;
-        for (int i = 0; i < 6; ++i)
-        {
-            const float d = dBez (u, x1, x2);
-            if (std::abs (d) < 1.0e-5f) break;
-            u = juce::jlimit (0.0f, 1.0f, u - (bez (u, x1, x2) - t) / d);
-        }
-        return bez (u, y1, y2);
-    }
-}
-
 void MainView::stepSidebar()
 {
-    const float t = juce::jlimit (0.0f, 1.0f, float ((juce::Time::getMillisecondCounterHiRes() - revealStartMs) / 420.0));
+    const float t = juce::jlimit (0.0f, 1.0f, float ((juce::Time::getMillisecondCounterHiRes() - revealStartMs) / Dine::kPanelSlideMs));
     const float target = sidebarShown ? 1.0f : 0.0f;
-    sidebarReveal = revealFrom + (target - revealFrom) * sidebarEase (t);
+    sidebarReveal = revealFrom + (target - revealFrom) * Dine::panelEase (t);
     sidebar->setReveal (sidebarReveal);
     resized();
     repaint();
@@ -3798,7 +3776,7 @@ juce::NamedValueSet MainView::uiState() const
 {
     juce::NamedValueSet v;
     // The sidebar as the person left it: LIVE folding it by itself is not their choice.
-    v.set ("sidebar", sidebarShown || sidebarAutoHidden);
+    v.set ("sidebar", sidebarShown);
     v.set ("mixerView", int (mixerPage->getView()));
     v.set ("mixerSize", int (mixerPage->getStripSize()));
     v.set ("mixerChannel", mixerPage->isRailShown());
