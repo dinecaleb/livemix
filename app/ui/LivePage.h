@@ -77,7 +77,6 @@ private:
     std::vector<int> shownTiles;       // what the row holds now: group tiles by index, inputs as 1000 + strip
     View view = View::ThisCue;
     std::array<std::unique_ptr<DineButton>, 4> viewTabs;
-    DineButton effectsOff { "Effects off", DineButton::Style::Toggle };
     bool anyEffects() const;
     std::vector<int> tilesFor (View) const;
     void refreshViewTabs();

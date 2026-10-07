@@ -521,12 +521,6 @@ LivePage::LivePage (MixController& c, AppServices& s) : controller (c), services
         addAndMakeVisible (*tab);
         viewTabs[size_t (i)] = std::move (tab);
     }
-    effectsOff.setFontPx (12.0f);
-    effectsOff.setPadX (10);
-    effectsOff.setClickingTogglesState (false);
-    effectsOff.setTooltip ("Take every reverb and delay out of the mix at once, without touching their levels. Press again to bring them back.");
-    effectsOff.onClick = [this] { controller.setFxMute (! controller.getBase().fxMute); refresh(); };
-    addAndMakeVisible (effectsOff);
 
     scroller.setViewedComponent (&scrollHolder, false);
     scroller.setScrollBarsShown (false, true);
@@ -883,8 +877,6 @@ void LivePage::refresh()
         next.counts = { on, used, int (inputTiles.size()), attentionNow.size() };
     }
     cueList->set (next.setlist);
-    effectsOff.setVisible (anyEffects());
-    effectsOff.setToggleState (controller.getBase().fxMute, juce::dontSendNotification);
     next.clipping = clipText;
     next.clippingNote = clipNote;
 
@@ -1348,15 +1340,10 @@ void LivePage::resized()
     auto rail = r.removeFromRight (railW);
     r.removeFromRight (kGap);
 
-    // ---- the cue that is on, the views, Effects off; then the strips
+    // ---- the cue that is on, the views; then the strips. The effects come out on the FX
+    // returns strip's own M, as every group does - there is no second key for it up here.
     {
         auto head = r.removeFromTop (Dine::Metric::button);
-        if (effectsOff.isVisible())
-        {
-            const int w = juce::jmax (84, effectsOff.idealWidth());
-            effectsOff.setBounds (head.removeFromRight (w).withSizeKeepingCentre (w, kSegmentH + 2));
-            head.removeFromRight (12);
-        }
         int widths[4] {}, total = 0;
         for (int i = 0; i < 4; ++i) { widths[i] = juce::jmax (48, viewTabs[size_t (i)]->idealWidth()); total += widths[i]; }
         const int trackW = total + 2 * 3 + 4;
