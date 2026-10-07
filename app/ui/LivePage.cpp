@@ -315,7 +315,7 @@ private:
         {
             case FxSlot::VocalPlate: return "Plate";
             case FxSlot::VocalDelay: return "Delay";
-            case FxSlot::BgvHall:    return "Hall";
+            case FxSlot::BgvHall:    return "BGV";
             case FxSlot::SnarePlate: return "Snare";
             case FxSlot::DrumRoom:   return "Room";
             case FxSlot::BandHall:   return "Band";

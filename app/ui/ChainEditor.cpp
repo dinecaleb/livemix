@@ -68,7 +68,7 @@ namespace
         {
             case FxSlot::VocalPlate: return "Plate";
             case FxSlot::VocalDelay: return "Delay";
-            case FxSlot::BgvHall:    return "Hall";
+            case FxSlot::BgvHall:    return "BGV hall";
             case FxSlot::SnarePlate: return "Snare plate";
             case FxSlot::DrumRoom:   return "Drum room";
             case FxSlot::BandHall:   return "Band hall";
@@ -1243,10 +1243,14 @@ private:
             return;
         }
 
-        auto block = r.withSizeKeepingCentre (r.getWidth(), juce::jmin (r.getHeight(), kSendRowH * int (sends.size())));
+        // Every send gets the same row: when the well is shorter than kSendRowH a row, the rows
+        // share it evenly rather than the last one being squeezed into what is left.
+        const int n = int (sends.size());
+        const int rowH = juce::jmin (kSendRowH, r.getHeight() / n);
+        auto block = r.withSizeKeepingCentre (r.getWidth(), rowH * n);
         for (const auto& send : sends)
         {
-            auto line = block.removeFromTop (kSendRowH);
+            auto line = block.removeFromTop (rowH);
             // Off is the mix's own silence, not the bottom of the knob's travel.
             const bool off = send.second <= kSilenceDb + 0.01f;
             g.setColour (isEnabled() && ! off ? Dine::ink2 : Dine::ink4);

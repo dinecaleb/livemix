@@ -1625,13 +1625,17 @@ void DineKnob::paint (juce::Graphics& g)
     if (showCaption)
     {
         // v4: a knob's caption in sentence case - "Threshold", "Detector HP" - with a word of
-        // one or two letters (HP, Q, LF) kept as the initialism it is.
+        // one or two letters (HP, Q, LF) kept as the initialism it is. A caption written in
+        // mixed case already says which of its words are initialisms ("BGV hall"), so a word
+        // in capitals there is kept; one written all in capitals is put into sentence case.
         juce::StringArray words;
         words.addTokens (caption.trim(), " ", {});
+        const bool mixedCase = caption != caption.toUpperCase();
         for (int i = 0; i < words.size(); ++i)
         {
             const auto w = words[i];
             words.set (i, w.length() <= 2 ? w.toUpperCase()
+                        : mixedCase && w == w.toUpperCase() ? w
                                           : i == 0 ? w.substring (0, 1).toUpperCase() + w.substring (1).toLowerCase() : w.toLowerCase());
         }
         g.setColour (live ? Dine::ink3 : Dine::ink4);
